@@ -1,18 +1,195 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../../store/authStore';
-import { manifestsApi, ordersApi, demandsApi, hubsApi } from '../../lib/api';
-import type { Manifest, Order } from '../../types/index';
-import type { Hub } from '../../types/index';
+import { manifestsApi } from '../../lib/api';
+import type { Manifest } from '../../types/index';
+import BottomNav, { type BottomNavItem } from './BottomNav';
 
-type Tab = 'ofertas' | 'viagens' | 'pedidos';
+type Tab = 'ofertas' | 'viagens' | 'historico';
+
+const statusLabel: Record<string, string> = {
+  PENDING_ACCEPT: 'Aguardando aceite',
+  ACCEPTED: 'Aceito',
+  IN_PROGRESS: 'Em andamento',
+  COMPLETED: 'Concluído',
+};
+
+// ─── Icons (inline SVGs, no extra dep) ──────────────────────────────────────
+
+const PackageIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24"
+    fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M16.5 9.4l-9-5.19M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+    <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+    <line x1="12" y1="22.08" x2="12" y2="12" />
+  </svg>
+);
+
+const ArrowsIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24"
+    fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="17 1 21 5 17 9" />
+    <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+    <polyline points="7 23 3 19 7 15" />
+    <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+  </svg>
+);
+
+const ClockIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24"
+    fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10" />
+    <polyline points="12 6 12 12 16 14" />
+  </svg>
+);
+
+const SpinnerIcon = () => (
+  <svg className="animate-spin h-8 w-8 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+  </svg>
+);
+
+// ─── ManifestCard ────────────────────────────────────────────────────────────
+
+interface ManifestCardProps {
+  manifest: Manifest;
+  tab: Tab;
+  actionLoading: string | null;
+  onAccept: (id: string) => void;
+  onReject: (id: string) => void;
+  onUpdateStatus: (id: string, status: 'IN_PROGRESS' | 'COMPLETED') => void;
+}
+
+const ManifestCard: React.FC<ManifestCardProps> = ({
+  manifest: m,
+  tab,
+  actionLoading,
+  onAccept,
+  onReject,
+  onUpdateStatus,
+}) => {
+  const busy = actionLoading === m.id;
+  const orderCount = m.demands?.length ?? 0;
+  const scheduledDate = m.offeredAt ?? m.createdAt;
+
+  return (
+    <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-sm border border-slate-200 dark:border-slate-700">
+      {/* Route */}
+      <div className="flex items-center gap-2 mb-3">
+        <span className="font-semibold text-slate-900 dark:text-slate-100 text-base leading-tight">
+          {m.origin}
+        </span>
+        <svg className="shrink-0 text-slate-400" width="16" height="16" viewBox="0 0 24 24"
+          fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
+        </svg>
+        <span className="font-semibold text-slate-900 dark:text-slate-100 text-base leading-tight">
+          {m.destination}
+        </span>
+      </div>
+
+      {/* Meta chips */}
+      <div className="flex flex-wrap gap-2 text-xs mb-3">
+        <span className="bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full px-2.5 py-1">
+          {orderCount} {orderCount === 1 ? 'pedido' : 'pedidos'}
+        </span>
+        {m.totalWeight > 0 && (
+          <span className="bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full px-2.5 py-1">
+            {m.totalWeight.toLocaleString('pt-BR')} kg
+          </span>
+        )}
+        {m.totalVolume > 0 && (
+          <span className="bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full px-2.5 py-1">
+            {m.totalVolume.toLocaleString('pt-BR')} m³
+          </span>
+        )}
+        {m.vehicleType?.name && (
+          <span className="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full px-2.5 py-1">
+            {m.vehicleType.name}
+          </span>
+        )}
+      </div>
+
+      {/* Status + date */}
+      <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-3">
+        <span>{statusLabel[m.status] ?? m.status}</span>
+        {scheduledDate && (
+          <span>
+            {new Date(scheduledDate).toLocaleDateString('pt-BR', {
+              day: '2-digit',
+              month: '2-digit',
+              year: '2-digit',
+            })}
+          </span>
+        )}
+      </div>
+
+      {/* Action buttons */}
+      {tab === 'ofertas' && (
+        <div className="flex gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onReject(m.id)}
+            className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-medium rounded-xl disabled:opacity-50 active:scale-95 transition-transform"
+          >
+            Recusar
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onAccept(m.id)}
+            className="flex-1 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl disabled:opacity-50 active:scale-95 transition-transform"
+          >
+            {busy ? '...' : 'Aceitar Carga'}
+          </button>
+        </div>
+      )}
+
+      {tab === 'viagens' && m.status === 'ACCEPTED' && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onUpdateStatus(m.id, 'IN_PROGRESS')}
+          className="w-full py-2.5 bg-green-600 text-white text-sm font-semibold rounded-xl disabled:opacity-50 active:scale-95 transition-transform"
+        >
+          {busy ? '...' : 'Iniciar Viagem'}
+        </button>
+      )}
+
+      {tab === 'viagens' && m.status === 'IN_PROGRESS' && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onUpdateStatus(m.id, 'COMPLETED')}
+          className="w-full py-2.5 bg-emerald-600 text-white text-sm font-semibold rounded-xl disabled:opacity-50 active:scale-95 transition-transform"
+        >
+          {busy ? '...' : 'Concluir Entrega'}
+        </button>
+      )}
+    </div>
+  );
+};
+
+// ─── EmptyState ──────────────────────────────────────────────────────────────
+
+const EmptyState: React.FC<{ message: string }> = ({ message }) => (
+  <div className="py-16 flex flex-col items-center gap-3 text-slate-400 dark:text-slate-500">
+    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+    </svg>
+    <p className="text-sm text-center">{message}</p>
+  </div>
+);
+
+// ─── LinkHome ────────────────────────────────────────────────────────────────
 
 const LinkHome: React.FC = () => {
   const { user, logout } = useAuthStore();
   const [tab, setTab] = useState<Tab>('ofertas');
   const [ofertas, setOfertas] = useState<Manifest[]>([]);
   const [viagens, setViagens] = useState<Manifest[]>([]);
-  const [pedidos, setPedidos] = useState<Order[]>([]);
-  const [hubs, setHubs] = useState<Hub[]>([]);
+  const [historico, setHistorico] = useState<Manifest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -21,18 +198,14 @@ const LinkHome: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const [manifestsRes, ordersRes, hubsRes] = await Promise.all([
-        manifestsApi.list({}),
-        ordersApi.list({ limit: 100 }),
-        hubsApi.list(),
-      ]);
-      const all = ((manifestsRes as any).data ?? manifestsRes) as Manifest[];
-      setOfertas(Array.isArray(all) ? all.filter((m: Manifest) => m.status === 'PENDING_ACCEPT') : []);
-      setViagens(Array.isArray(all) ? all.filter((m: Manifest) => ['ACCEPTED', 'IN_PROGRESS'].includes(m.status)) : []);
-      setPedidos(Array.isArray((ordersRes as any).data) ? (ordersRes as any).data : Array.isArray(ordersRes) ? ordersRes : []);
-      setHubs(Array.isArray((hubsRes as any).data) ? (hubsRes as any).data : Array.isArray(hubsRes) ? hubsRes : []);
+      const res = await manifestsApi.list({});
+      const all = ((res as any).data ?? res) as Manifest[];
+      const list = Array.isArray(all) ? all : [];
+      setOfertas(list.filter((m) => m.status === 'PENDING_ACCEPT'));
+      setViagens(list.filter((m) => m.status === 'ACCEPTED' || m.status === 'IN_PROGRESS'));
+      setHistorico(list.filter((m) => m.status === 'COMPLETED'));
     } catch (e: any) {
-      setError(e.response?.data?.error || e.message || 'Erro ao carregar');
+      setError(e.response?.data?.error || e.message || 'Erro ao carregar dados.');
     } finally {
       setLoading(false);
     }
@@ -55,7 +228,7 @@ const LinkHome: React.FC = () => {
   };
 
   const handleReject = async (id: string) => {
-    const reason = window.prompt('Motivo da recusa (opcional):') || '';
+    const reason = window.prompt('Motivo da recusa (opcional):') ?? '';
     setActionLoading(id);
     try {
       await manifestsApi.reject(id, reason);
@@ -67,10 +240,18 @@ const LinkHome: React.FC = () => {
     }
   };
 
-  const handleStart = async (id: string) => {
+  const handleUpdateStatus = async (id: string, newStatus: 'IN_PROGRESS' | 'COMPLETED') => {
+    if (newStatus === 'COMPLETED') {
+      const confirmed = window.confirm('Confirmar conclusão da entrega?');
+      if (!confirmed) return;
+    }
     setActionLoading(id);
     try {
-      await manifestsApi.start(id);
+      if (newStatus === 'IN_PROGRESS') {
+        await manifestsApi.start(id);
+      } else {
+        await manifestsApi.complete(id);
+      }
       await load();
     } catch (e: any) {
       alert(e.response?.data?.error || e.message);
@@ -79,209 +260,105 @@ const LinkHome: React.FC = () => {
     }
   };
 
-  const handleComplete = async (id: string) => {
-    setActionLoading(id);
-    try {
-      await manifestsApi.complete(id);
-      await load();
-    } catch (e: any) {
-      alert(e.response?.data?.error || e.message);
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleDemandCollected = async (demandId: string) => {
-    setActionLoading(demandId);
-    try {
-      await demandsApi.updateStatus(demandId, { status: 'COLLECTED', description: 'Coleta confirmada pelo motorista' });
-      await load();
-    } catch (e: any) {
-      alert(e.response?.data?.error || e.message);
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleOrderStatus = async (orderId: string, status: string, currentHubId?: string) => {
-    setActionLoading(orderId);
-    try {
-      await ordersApi.updateStatus(orderId, { status, currentHubId, description: `Status: ${status}` });
-      await load();
-    } catch (e: any) {
-      alert(e.response?.data?.error || e.message);
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const tabs: { key: Tab; label: string }[] = [
-    { key: 'ofertas', label: 'Ofertas' },
-    { key: 'viagens', label: 'Viagens' },
-    { key: 'pedidos', label: 'Pedidos' },
+  const navItems: BottomNavItem[] = [
+    {
+      key: 'ofertas',
+      label: 'Ofertas',
+      icon: <PackageIcon />,
+      badge: ofertas.length,
+    },
+    {
+      key: 'viagens',
+      label: 'Viagens',
+      icon: <ArrowsIcon />,
+      badge: viagens.length,
+    },
+    {
+      key: 'historico',
+      label: 'Histórico',
+      icon: <ClockIcon />,
+    },
   ];
 
+  const emptyMessages: Record<Tab, string> = {
+    ofertas: 'Nenhuma oferta disponível no momento.',
+    viagens: 'Nenhuma viagem em andamento.',
+    historico: 'Nenhuma entrega concluída ainda.',
+  };
+
+  const currentList: Manifest[] =
+    tab === 'ofertas' ? ofertas : tab === 'viagens' ? viagens : historico;
+
   return (
-    <div className="min-h-screen bg-slate-100 pb-20">
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-900 pb-24">
+      {/* Header */}
       <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-10 safe-area-top">
-        <div className="px-4 py-3 flex justify-between items-center">
+        <div className="px-4 py-3 flex items-center justify-between">
           <div>
-            <h1 className="text-lg font-bold text-slate-900">App Motorista</h1>
-            <p className="text-xs text-slate-500">{user?.email}</p>
+            <h1 className="text-base font-bold text-slate-900 dark:text-slate-100 leading-none">
+              TSM Link
+            </h1>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{user?.email}</p>
           </div>
           <button
             type="button"
             onClick={logout}
-            className="text-sm text-slate-600 hover:text-red-600"
+            className="text-sm text-slate-500 hover:text-red-600 dark:hover:text-red-400 transition-colors px-2 py-1"
           >
             Sair
           </button>
         </div>
-        <div className="flex border-t border-slate-100">
-          {tabs.map(({ key, label }) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setTab(key)}
-              className={`flex-1 py-3 text-sm font-medium ${tab === key ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500'}`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
       </header>
 
-      <main className="p-4">
+      {/* Main content */}
+      <main className="px-4 pt-4">
+        {/* Error banner */}
         {error && (
-          <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>
+          <div className="mb-4 flex items-center justify-between bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 rounded-xl px-4 py-3 text-sm">
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={load}
+              className="ml-3 shrink-0 font-semibold underline"
+            >
+              Tentar novamente
+            </button>
+          </div>
         )}
+
+        {/* Loading */}
         {loading ? (
-          <div className="py-12 text-center text-slate-500">Carregando...</div>
+          <div className="py-20 flex flex-col items-center gap-3">
+            <SpinnerIcon />
+            <p className="text-sm text-slate-500 dark:text-slate-400">Carregando...</p>
+          </div>
         ) : (
-          <>
-            {tab === 'ofertas' && (
-              <div className="space-y-3">
-                <h2 className="text-sm font-semibold text-slate-700">Manifestos oferecidos</h2>
-                {ofertas.length === 0 ? (
-                  <p className="text-slate-500 text-sm">Nenhuma oferta no momento.</p>
-                ) : (
-                  ofertas.map((m) => (
-                    <div key={m.id} className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm border border-slate-200 dark:border-slate-700">
-                      <p className="font-medium text-slate-900">{m.origin} → {m.destination}</p>
-                      <p className="text-xs text-slate-500 mt-1">{m.demands?.length || 0} demanda(s)</p>
-                      <div className="flex gap-2 mt-3">
-                        <button
-                          type="button"
-                          disabled={actionLoading === m.id}
-                          onClick={() => handleAccept(m.id)}
-                          className="flex-1 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg disabled:opacity-50"
-                        >
-                          {actionLoading === m.id ? '...' : 'Aceitar'}
-                        </button>
-                        <button
-                          type="button"
-                          disabled={actionLoading === m.id}
-                          onClick={() => handleReject(m.id)}
-                          className="flex-1 py-2 bg-slate-200 text-slate-700 text-sm font-medium rounded-lg disabled:opacity-50"
-                        >
-                          Recusar
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
+          <div className="space-y-3">
+            {currentList.length === 0 ? (
+              <EmptyState message={emptyMessages[tab]} />
+            ) : (
+              currentList.map((m) => (
+                <ManifestCard
+                  key={m.id}
+                  manifest={m}
+                  tab={tab}
+                  actionLoading={actionLoading}
+                  onAccept={handleAccept}
+                  onReject={handleReject}
+                  onUpdateStatus={handleUpdateStatus}
+                />
+              ))
             )}
-
-            {tab === 'viagens' && (
-              <div className="space-y-3">
-                <h2 className="text-sm font-semibold text-slate-700">Minhas viagens</h2>
-                {viagens.length === 0 ? (
-                  <p className="text-slate-500 text-sm">Nenhuma viagem em andamento.</p>
-                ) : (
-                  viagens.map((m) => (
-                    <div key={m.id} className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm border border-slate-200 dark:border-slate-700">
-                      <p className="font-medium text-slate-900">{m.origin} → {m.destination}</p>
-                      <p className="text-xs text-slate-500 mt-1">Status: {m.status}</p>
-                      {m.status === 'ACCEPTED' && (
-                        <button
-                          type="button"
-                          disabled={actionLoading === m.id}
-                          onClick={() => handleStart(m.id)}
-                          className="mt-3 w-full py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg disabled:opacity-50"
-                        >
-                          {actionLoading === m.id ? '...' : 'Iniciar viagem'}
-                        </button>
-                      )}
-                      {m.status === 'IN_PROGRESS' && (
-                        <button
-                          type="button"
-                          disabled={actionLoading === m.id}
-                          onClick={() => handleComplete(m.id)}
-                          className="mt-3 w-full py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg disabled:opacity-50"
-                        >
-                          {actionLoading === m.id ? '...' : 'Finalizar viagem'}
-                        </button>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-
-            {tab === 'pedidos' && (
-              <div className="space-y-3">
-                <h2 className="text-sm font-semibold text-slate-700">Pedidos em trânsito</h2>
-                {pedidos.length === 0 ? (
-                  <p className="text-slate-500 text-sm">Nenhum pedido.</p>
-                ) : (
-                  pedidos.map((o: any) => (
-                    <div key={o.id} className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm border border-slate-200 dark:border-slate-700">
-                      <p className="font-medium text-slate-900">NF {o.nfNumber || o.demand?.nfNumber} · {o.status}</p>
-                      <p className="text-xs text-slate-500 mt-1">{o.demand?.origin} → {o.demand?.destination}</p>
-                      <div className="flex flex-wrap gap-2 mt-3">
-                        {o.demand?.status === 'ASSIGNED' && (
-                          <button
-                            type="button"
-                            disabled={!!actionLoading}
-                            onClick={() => handleDemandCollected(o.demand.id)}
-                            className="px-3 py-1.5 bg-cyan-600 text-white text-xs font-medium rounded-lg"
-                          >
-                            Confirmar coleta
-                          </button>
-                        )}
-                        {['PENDING', 'IN_TRANSIT'].includes(o.status) && (
-                          <button
-                            type="button"
-                            disabled={!!actionLoading}
-                            onClick={() => {
-                              const hubId = hubs.length === 1 ? hubs[0].id : window.prompt('ID do hub (ou deixe em branco):');
-                              handleOrderStatus(o.id, 'AT_HUB', hubId || undefined);
-                            }}
-                            className="px-3 py-1.5 bg-amber-600 text-white text-xs font-medium rounded-lg"
-                          >
-                            Chegou no hub
-                          </button>
-                        )}
-                        {o.status === 'OUT_FOR_DELIVERY' && (
-                          <button
-                            type="button"
-                            disabled={!!actionLoading}
-                            onClick={() => handleOrderStatus(o.id, 'DELIVERED')}
-                            className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-medium rounded-lg"
-                          >
-                            Entregue
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-          </>
+          </div>
         )}
       </main>
+
+      {/* Bottom navigation */}
+      <BottomNav
+        items={navItems}
+        active={tab}
+        onChange={(key) => setTab(key as Tab)}
+      />
     </div>
   );
 };
