@@ -1,8 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { ordersEntradaApi, nfSpeciesApi } from '../../lib/api';
 import { maskDateDDMMYYYY, parseDateDDMMYYYY, formatDateToDDMMYYYY } from '../../lib/formatters';
 import { parseNFeChave55 } from '../../lib/nfeChaveParser';
 import type { NfSpecies } from '../../types/index';
+import { useNfeLookup } from '../../hooks/useNfeLookup';
+
+const QRCodeScanner = lazy(() => import('../ui/QRCodeScanner'));
 
 export interface OrderInvoiceItem {
   id: string;
@@ -90,6 +93,8 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
   const [volumesList, setVolumesList] = useState<VolumeItem[]>([{ qty: 1, altura: 0, largura: 0, comprimento: 0 }]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showQRScanner, setShowQRScanner] = useState(false);
+  const { lookup: lookupNfe, loading: nfeLookupLoading, error: nfeLookupError, clearError: clearNfeError } = useNfeLookup();
   const [editingInvoice, setEditingInvoice] = useState<OrderInvoiceItem | null>(null);
   const [showForm, setShowForm] = useState(() => invoices.length === 0);
 
@@ -209,6 +214,36 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
     }
   };
 
+  const handleQRScan = async (result: string) => {
+    setShowQRScanner(false);
+    const data = await lookupNfe(result);
+    if (!data) return;
+    setForm(prev => ({
+      ...prev,
+      nfKey: data.chave,
+      nfNumber: data.numero,
+      emissionDate: data.emissionDate
+        ? data.emissionDate.split('-').reverse().join('/')
+        : prev.emissionDate,
+    }));
+  };
+
+  const handleNfKeyBlur = async () => {
+    if (form.nfKey && form.nfKey.replace(/\D/g, '').length === 44) {
+      const data = await lookupNfe(form.nfKey);
+      if (data) {
+        setForm(prev => ({
+          ...prev,
+          nfKey: data.chave,
+          nfNumber: prev.nfNumber || data.numero,
+          emissionDate: prev.emissionDate || (data.emissionDate
+            ? data.emissionDate.split('-').reverse().join('/')
+            : ''),
+        }));
+      }
+    }
+  };
+
   const totals = {
     weight: invoices.reduce((s, i) => s + (i.weight || 0), 0),
     cub: invoices.reduce((s, i) => s + (i.cubedVolume || 0), 0),
@@ -241,15 +276,46 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
         {error && <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-300 text-sm">{error}</div>}
         {tab === 'NFE' && (
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Chave NF-e (44 dígitos)</label>
-            <input
-              type="text"
-              value={form.nfKey}
-              onChange={e => setForm(f => ({ ...f, nfKey: e.target.value.replace(/\D/g, '').slice(0, 44) }))}
-              placeholder="Digite a chave de acesso da NF-e"
-              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 font-mono text-sm bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
-            />
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Consulta Pública NF-e: em breve</p>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+              Chave NF-e (44 dígitos)
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                maxLength={44}
+                value={form.nfKey}
+                onChange={e => setForm(prev => ({ ...prev, nfKey: e.target.value.replace(/\D/g, '') }))}
+                onBlur={handleNfKeyBlur}
+                placeholder="Digite ou escaneie a chave de 44 dígitos"
+                className="flex-1 px-3 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                disabled={disabled || nfeLookupLoading}
+              />
+              <button
+                type="button"
+                onClick={() => setShowQRScanner(true)}
+                disabled={disabled || nfeLookupLoading}
+                title="Escanear QR Code da DANFE"
+                className="px-3 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 transition-colors disabled:opacity-50"
+              >
+                {nfeLookupLoading ? (
+                  <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                  </svg>
+                ) : (
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"/>
+                  </svg>
+                )}
+              </button>
+            </div>
+            {nfeLookupError && (
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                <span>⚠ {nfeLookupError} — preencha manualmente.</span>
+                <button type="button" onClick={clearNfeError} className="underline">OK</button>
+              </p>
+            )}
           </div>
         )}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -525,6 +591,14 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
             </table>
           </div>
         </div>
+      )}
+      {showQRScanner && (
+        <Suspense fallback={null}>
+          <QRCodeScanner
+            onScan={handleQRScan}
+            onClose={() => setShowQRScanner(false)}
+          />
+        </Suspense>
       )}
     </div>
   );
