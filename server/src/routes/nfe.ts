@@ -5,7 +5,13 @@ import { AppError } from '../middleware/errorHandler.js';
 
 const router = Router();
 
-/** Parse da chave NF-e 44 dígitos (Modelo 55 e 57/CT-e) */
+/**
+ * Parse da chave de acesso NF-e / CT-e (44 dígitos).
+ * Suporta modelo 55 (NF-e) e modelo 57 (CT-e).
+ *
+ * Nota: não reutiliza `lib/nfeChaveParser.ts` (parseNFeChave55) porque aquele
+ * parser rejeita modelos diferentes de 55. Esta função suporta também CT-e (57).
+ */
 function parseChaveNFe(chave: string) {
   const digits = chave.replace(/\D/g, '');
   if (digits.length !== 44) return null;
@@ -44,7 +50,13 @@ function parseChaveNFe(chave: string) {
   };
 }
 
-/** Extrai a chave de 44 dígitos de uma URL de QR Code de NF-e */
+/**
+ * Extrai a chave de 44 dígitos de uma string de input.
+ * Aceita: chave pura (44 dígitos), ou URL de QR Code com params chNFe ou p.
+ *
+ * ATENÇÃO: sempre revalide o comprimento do retorno — se a extração falhar,
+ * retorna os dígitos do input original, que pode ter comprimento diferente de 44.
+ */
 function extractChaveFromUrl(input: string): string {
   const digits = input.replace(/\D/g, '');
   if (digits.length === 44) return digits;
@@ -66,7 +78,7 @@ function extractChaveFromUrl(input: string): string {
 // GET /api/nfe/:chave
 router.get('/:chave', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const raw = decodeURIComponent(req.params.chave as string);
+    const raw = decodeURIComponent(Array.isArray(req.params.chave) ? req.params.chave[0] : req.params.chave);
     const chave = extractChaveFromUrl(raw);
 
     if (!chave || chave.length !== 44) {
