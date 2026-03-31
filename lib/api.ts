@@ -956,5 +956,24 @@ export const uploadApi = {
     },
 };
 
+// ========== NF-e LOOKUP API ==========
+
+// NF-e Lookup
+export const nfeApi = {
+  lookup: (chave: string) =>
+    api.get<{ success: boolean; data: {
+      chave: string;
+      uf: string;
+      serie: string;
+      numero: string;
+      emissionDate: string;
+      cnpjEmitente: string;
+      emitenteRazaoSocial: string | null;
+      emitenteTradeName: string | null;
+      modelo: string;
+    } }>(`/nfe/${encodeURIComponent(chave)}`),
+};
+
 export default api;
+
 
