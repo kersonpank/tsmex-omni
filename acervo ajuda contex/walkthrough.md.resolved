@@ -1,0 +1,199 @@
+# Backend CRM & Chat Agente - Implementado ✅
+
+## O que foi feito
+
+### 1. Schemas Prisma (CRM Completo)
+
+```prisma
+✅ Account          - Conta CRM (empresa ou pessoa)
+✅ AccountCompany   - CNPJs da conta (múltiplos)
+✅ AccountContact   - Contatos da conta
+✅ Opportunity      - Histórico de cotações
+✅ ChatSession      - Sessões de chat
+```
+
+**Campos principais Opportunity:**
+- `stage`: QUOTE | FOLLOW_UP | COLLECTION_REQUESTED | CONVERTED | LOST
+- `completeness`: MINIMAL | INCOMPLETE | COMPLETE
+- `type`: QUOTE_ONLY | TRANSPORT | COLLECTION | BOTH
+- `quotedPrice` + `quoteBreakdown`
+- `nextFollowUp` (agendamento automático)
+- `conversationSnapshot` (histórico)
+
+---
+
+### 2. API Routes
+
+#### `/api/opportunities`
+
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| GET | `/` | Lista opportunities (filtros: accountId, stage, sessionId) |
+| GET | [/:id](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/OnboardingWizard.tsx#63-69) | Busca opportunity por ID |
+| POST | `/` | Cria opportunity (salva mesmo incompleta) |
+| PATCH | [/:id](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/OnboardingWizard.tsx#63-69) | Atualiza opportunity |
+| GET | `/search/similar` | Busca cotações similares (±10% peso, 30 dias) |
+
+**Exemplo POST:**
+```json
+{
+  "accountId": "uuid",
+  "sessionId": "chat-abc123",
+  "type": "QUOTE_ONLY",
+  "origin": "São Paulo, SP",
+  "destination": "Imperatriz, MA",
+  "weight": 500,
+  "nfValue": 15000,
+  "volumes": 10
+}
+```
+
+---
+
+### 3. Agent Tools (5 funções)
+
+```typescript
+1. create_opportunity()
+   - Cria oportunidade (parcial ou completa)
+   - Auto-agenda follow-up 24h
+   
+2. calculate_quote()
+   - Calcula cotação completa
+   - Requer: origin, destination, weight, nfValue
+   
+3. identify_account()
+   - Identifica/cria conta por CNPJ/CPF/nome
+   - Vincula opp à conta
+   
+4. request_collection()
+   - Marca opportunity como COLLECTION_REQUESTED
+   - Salva dados de endereço/contato
+   
+5. list_opportunities()
+   - Lista opps por sessionId ou accountId
+```
+
+**System Prompt configurado:**
+- Português brasileiro
+- Salva sempre (mesmo incompleto)
+- Botões: "Solicitar Coleta" e "Editar"
+- Não mostra "Confirmar Pedido"
+
+---
+
+### 4. Arquivos Criados
+
+```
+server/prisma/
+  schema.prisma ← CRM schemas adicionados
+
+server/src/routes/
+  opportunities.ts ← Nova rota
+
+server/src/services/
+  agentTools.ts ← Tools + System Prompt
+
+server/src/
+  index.ts ← Registrado /api/opportunities
+```
+
+---
+
+## Próximos Passos (Frontend)
+
+### Fase 1: Chat com LLM Real
+
+```
+ChatWeb.tsx
+├── Usar LLM real (OpenAI com tools)
+├── Enviar mensagem → API LLM
+├── LLM chama tools → executar funções
+├── Renderizar CardsCarrossel
+└── Botões: Solicitar Coleta | Editar
+```
+
+### Fase 2: Componentes
+
+```
+1. OpportunityCard.tsx
+   - Card visual da cotação
+   - Breakdown de valores
+   - Botões de ação
+   
+2. OpportunityCarousel.tsx
+   - Carrossel horizontal
+   - Múltiplas opportunities
+   
+3. ChatMessage.tsx
+   - Mensagens normais
+   - Mensagens com cards embedded
+```
+
+### Fase 3: Admin Pipeline
+
+```
+AdminDashboard.tsx
+└── Nova aba "Comercial"
+    ├── Kanban: Cotações | Follow-up | Convertidas
+    ├── Filtros: Hoje | Semana | Completas
+    └── Ações: Contatar | Fechar | Marcar Lost
+```
+
+---
+
+## Para Testar Backend
+
+```powershell
+# Rebuild com schemas novos
+cd "d:\Kerson Company Tech\TSM EX\TSM EX JAN 2026\tsm ex omni"
+docker-compose down -v
+docker-compose up -d --build
+
+# Teste API
+curl http://localhost:3002/api/opportunities \
+  -H "Authorization: Bearer TOKEN"
+```
+
+---
+
+## Integração LLM (próximo)
+
+```typescript
+// ChatWeb.tsx (simplificado)
+const response = await callLLM({
+  apiFormat: 'openai',
+  baseUrl: 'https://api.openai.com/v1',
+  apiKey: OPENAI_KEY
+}, {
+  model: 'gpt-4o',
+  messages: chatHistory,
+  tools: AGENT_TOOLS  // ← Import das agentTools.ts
+});
+
+if (response.toolCalls) {
+  // Executar funções
+  for (const call of response.toolCalls) {
+    const result = await executeToolCall(call);
+    // Adicionar ao histórico
+  }
+}
+```
+
+---
+
+## Resumo Visual
+
+```mermaid
+graph LR
+    A[Chat Frontend] --> B[LLM API]
+    B --> C{Tool Call?}
+    C -->|create_opportunity| D[/api/opportunities POST]
+    C -->|calculate_quote| E[/api/pricing]
+    C -->|identify_account| F[Account Service]
+    D --> G[Opportunity Saved]
+    G --> H[Card no Chat]
+    H --> I{Ação do user}
+    I -->|Solicitar Coleta| J[Update stage]
+    I -->|Editar| A
+```
+

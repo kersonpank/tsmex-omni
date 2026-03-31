@@ -1,0 +1,461 @@
+// Tipos sincronizados com o schema Prisma do backend
+// Esses tipos garantem consistência entre frontend e backend
+
+// ========== ENUMS ==========
+
+export type UserRole = 'ADMIN' | 'CLIENT' | 'LINK' | 'HUB';
+
+export type DemandIntent = 'QUOTE_ONLY' | 'COLLECT' | 'DROP_AT_HUB';
+
+export type DemandSource = 'CHAT' | 'FORM' | 'BATCH' | 'API';
+
+export type DemandStatus =
+    | 'PENDING'
+    | 'QUOTED'
+    | 'APPROVED'
+    | 'ASSIGNED'
+    | 'COLLECTED'
+    | 'IN_TRANSIT'
+    | 'AT_HUB'
+    | 'OUT_FOR_DELIVERY'
+    | 'DELIVERED'
+    | 'CANCELLED';
+
+export type RiskClass = 'A' | 'B' | 'C';
+
+export type ManifestStatus =
+    | 'DRAFT'
+    | 'PENDING_ACCEPT'
+    | 'ACCEPTED'
+    | 'IN_PROGRESS'
+    | 'COMPLETED'
+    | 'CANCELLED';
+
+export type LinkApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
+
+export type FreightUnit = 'RS_KG' | 'PERCENT' | 'RS_M3' | 'RS_UNIT';
+
+export type MinFreightUnit = 'RS' | 'KG';
+
+export type TollUnit = 'RS_KG' | 'FIXED';
+
+export type PricingTableType = 'SPECIAL' | 'GENERAL';
+
+export type FreightDocType = 'CTE' | 'MINUTA';
+export type FreightCalcMethod = 'ESPECIAL' | 'TARIFA_GERAL' | 'INFORMADO';
+export type FreightCalcStatus = 'DRAFT' | 'CALCULATED' | 'MINUTA_EMITTED' | 'CTE_AUTHORIZED';
+
+export interface OrderFreightCalculation {
+    id: string;
+    orderId: string;
+    documentType: FreightDocType;
+    emissorId: string;
+    emissor?: { id: string; name: string; code: string; person?: { document: string; legalName: string } };
+    calculationMethod: FreightCalcMethod;
+    pricingTableId?: string | null;
+    pricingTable?: { id: string; description: string } | null;
+    routeId?: string | null;
+    originCity?: string | null;
+    destCity?: string | null;
+    cfop?: string | null;
+    tipoFrete?: string | null;
+    cst?: string | null;
+    observacoes?: string | null;
+    volumes: number;
+    weight: number;
+    cubedWeight?: number | null;
+    cubage?: number | null;
+    nfValue: number;
+    commodity?: string | null;
+    freightTotal: number;
+    breakdown?: Record<string, number> | null;
+    icmsValue?: number | null;
+    effectiveWeight?: number | null;
+    minutaNumber?: string | null;
+    cteAccessKey?: string | null;
+    cteProtocol?: string | null;
+    status: FreightCalcStatus;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export type PersonDocumentType = 'CPF' | 'CNPJ';
+
+// ========== ENTITIES ==========
+
+export interface Person {
+    id: string;
+    documentType: PersonDocumentType;
+    document: string;
+    legalName: string;
+    tradeName?: string;
+    cep?: string;
+    address?: string;
+    number?: string;
+    complement?: string;
+    neighborhood?: string;
+    city?: string;
+    state?: string;
+    country?: string;
+    stateRegistration?: string;
+    municipalRegistration?: string;
+    createdAt: string;
+    updatedAt: string;
+    clients?: Array<{ id: string; companyName: string; document: string }>;
+    links?: Array<{ id: string; name: string; document: string }>;
+    hubs?: Array<{ id: string; name: string; code: string }>;
+    _count?: { clients: number; links: number; users: number };
+}
+
+export interface User {
+    id: string;
+    email: string;
+    roles: UserRole[];
+    active: boolean;
+    personId?: string;
+    person?: Person;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface Client {
+    id: string;
+    userId: string;
+    personId?: string;
+    person?: Person;
+    companyName: string;
+    tradeName?: string;
+    document: string;
+    contactName: string;
+    phone: string;
+    defaultOrigin?: string;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface NfSpecies {
+    id: string;
+    name: string;
+    active: boolean;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface VehicleType {
+    id: string;
+    name: string;
+    code: string;
+    maxWeight: number;
+    maxVolume: number;
+    maxValue: number;
+    length?: number;
+    width?: number;
+    height?: number;
+    enclosed: boolean;
+    refrigerated: boolean;
+    active: boolean;
+}
+
+export interface Hub {
+    id: string;
+    name: string;
+    code: string;
+    personId?: string | null;
+    person?: { id: string; document?: string; legalName?: string } | null;
+    city: string;
+    state: string;
+    address?: string;
+    lat?: number;
+    lng?: number;
+    coverageCities: string[];
+    coverageRadius?: number;
+    storageCapacity?: number;
+    dailyThroughput?: number;
+    managerName?: string;
+    phone?: string;
+    email?: string;
+    canOrchestrate: boolean;
+    active: boolean;
+}
+
+/** Onboarding Hub: dados do depósito, responsável, documentos, bancários (steps definidos no plano 2.4). */
+export interface HubOnboarding {
+    id: string;
+    userId: string;
+    depositData?: Record<string, unknown>;
+    contactData?: Record<string, unknown>;
+    documents?: Record<string, unknown>;
+    bankData?: Record<string, unknown>;
+    onboardingComplete?: boolean;
+}
+
+export interface LinkOnboarding {
+    id: string;
+    linkId: string;
+    documentsPersonal?: Record<string, unknown>;
+    documentsCavalo?: Record<string, unknown>;
+    documentsCarreta?: Record<string, unknown>;
+    contactsPersonal?: Array<{ name: string; phone: string; relation?: string }>;
+    contactsProfessional?: Array<{ name: string; phone: string; companyOrRole?: string }>;
+    vehiclePhotos?: Array<{ url: string; label?: string }>;
+    bankData?: Record<string, unknown>;
+    videoConfirmationUrl?: string;
+    hasTrailer: boolean;
+    onboardingComplete?: boolean;
+}
+
+export interface Link {
+    id: string;
+    userId: string;
+    personId?: string;
+    person?: Person;
+    name: string;
+    document: string;
+    phone: string;
+    email?: string;
+    vehicleTypeId?: string;
+    vehicleType?: VehicleType;
+    vehiclePlate: string;
+    vehicleYear?: number;
+    homeBase: string;
+    coverageStates: string[];
+    score: number;
+    deliveryCount: number;
+    onTimeRate: number;
+    approvalStatus: LinkApprovalStatus;
+    active: boolean;
+    onboarding?: LinkOnboarding;
+}
+
+export interface DemandEvent {
+    id: string;
+    demandId: string;
+    status: DemandStatus;
+    description: string;
+    location?: string;
+    photoUrl?: string;
+    createdAt: string;
+}
+
+export interface Demand {
+    id: string;
+    clientId: string;
+    client?: Client;
+    nfNumber: string;
+    nfValue: number;
+    origin: string;
+    destination: string;
+    commodity: string;
+    weight: number;
+    volume: number;
+    cubedWeight?: number;
+    units: number;
+    riskClass: RiskClass;
+    intentType: DemandIntent;
+    status: DemandStatus;
+    quotedPrice?: number;
+    quotedAt?: string;
+    quotedTableId?: string;
+    manifestId?: string;
+    manifest?: Manifest;
+    events?: DemandEvent[];
+    sourceType: DemandSource;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface Manifest {
+    id: string;
+    linkId?: string;
+    link?: Link;
+    hubId?: string;
+    hub?: Hub;
+    vehicleTypeId: string;
+    vehicleType?: VehicleType;
+    origin: string;
+    destination: string;
+    stops?: any;
+    totalWeight: number;
+    totalVolume: number;
+    totalValue: number;
+    status: ManifestStatus;
+    demands?: Demand[];
+    offeredAt?: string;
+    acceptedAt?: string;
+    rejectedAt?: string;
+    rejectionReason?: string;
+    startedAt?: string;
+    completedAt?: string;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface PricingRoute {
+    id: string;
+    name: string;
+    originCode: string;
+    originName: string;
+    destCode: string;
+    destName: string;
+    active: boolean;
+}
+
+export interface MinFreightRange {
+    id: string;
+    pricingTableId: string;
+    minWeight: number;
+    maxWeight?: number;
+    value: number;
+}
+
+export interface PricingTable {
+    id: string;
+    description: string;
+    code?: string;
+    type: PricingTableType;
+    clientId?: string;
+    accountId?: string;
+    routeId?: string;
+    route?: PricingRoute;
+    freightValue?: number;
+    freightUnit: FreightUnit;
+    minFreightValue?: number;
+    minFreightUnit?: MinFreightUnit;
+    adValoremPercent?: number;
+    grisPercent?: number;
+    tollValue?: number;
+    tollUnit?: TollUnit;
+    dispatchFee?: number;
+    otherFees?: number;
+    cubeEnabled: boolean;
+    cubeFactor?: number;
+    icmsIncluded: boolean;
+    icmsPercent?: number;
+    adValoremThreshold?: number;
+    minFreightRanges?: MinFreightRange[];
+    active: boolean;
+    priority: number;
+    createdAt?: string;
+    updatedAt?: string;
+}
+
+export interface Opportunity {
+    id: string;
+    accountId: string;
+    sessionId: string;
+    stage: 'QUOTE' | 'FOLLOW_UP' | 'COLLECTION_REQUESTED' | 'CONVERTED' | 'LOST';
+    source: 'CHAT' | 'WHATSAPP' | 'PHONE' | 'EMAIL' | 'MANUAL' | 'FORM' | 'ENTRADA';
+    type: 'QUOTE_ONLY' | 'TRANSPORT' | 'COLLECTION' | 'BOTH';
+    origin?: string;
+    destination?: string;
+    weight?: number;
+    nfValue?: number;
+    volumes?: number;
+    commodity?: string;
+    quotedPrice?: number;
+    quoteBreakdown?: any;
+    completeness: 'MINIMAL' | 'INCOMPLETE' | 'COMPLETE';
+    createdAt: string;
+    updatedAt: string;
+}
+
+// ========== API REQUEST/RESPONSE TYPES ==========
+
+export interface CreateDemandRequest {
+    nfNumber: string;
+    nfValue: number;
+    origin: string;
+    destination: string;
+    commodity: string;
+    weight: number;
+    volume: number;
+    units?: number;
+    riskClass: RiskClass;
+    intentType: DemandIntent;
+    sourceType?: DemandSource;
+    clientId?: string; // Required for ADMIN creating on behalf
+}
+
+export interface QuoteDemandRequest {
+    price: number;
+    tableId?: string;
+}
+
+export interface UpdateStatusRequest {
+    status: DemandStatus;
+    description?: string;
+    location?: string;
+    photoUrl?: string;
+}
+
+export interface CreateManifestRequest {
+    vehicleTypeId: string;
+    origin: string;
+    destination: string;
+    demandIds: string[];
+    linkId?: string;
+    hubId?: string;
+}
+
+export interface PricingCalculateRequest {
+    weight: number;
+    volume: number;
+    nfValue: number;
+    units?: number;
+    originCode: string;
+    destCode: string;
+    clientId?: string;
+}
+
+export interface PricingCalculateResponse {
+    baseFreight: number;
+    cubedWeight: number;
+    effectiveWeight: number;
+    minFreightApplied: boolean;
+    minFreightValue: number;
+    adValorem: number;
+    gris: number;
+    toll: number;
+    dispatch: number;
+    others: number;
+    subtotal: number;
+    icms: number;
+    total: number;
+    appliedTableId?: string;
+    appliedTableDescription?: string;
+}
+
+export interface CreatePersonRequest {
+    documentType: PersonDocumentType;
+    document: string;
+    legalName: string;
+    tradeName?: string;
+    cep?: string;
+    address?: string;
+    number?: string;
+    complement?: string;
+    neighborhood?: string;
+    city?: string;
+    state?: string;
+    country?: string;
+    stateRegistration?: string;
+    municipalRegistration?: string;
+}
+
+export type UpdatePersonRequest = Partial<CreatePersonRequest>;
+
+export interface ApiResponse<T> {
+    success: boolean;
+    data: T;
+    error?: string;
+}
+
+export interface PaginatedResponse<T> {
+    success: boolean;
+    data: T[];
+    pagination: {
+        total: number;
+        limit: number;
+        offset: number;
+    };
+}

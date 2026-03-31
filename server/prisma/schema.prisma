@@ -1,0 +1,1428 @@
+// TSM EX v2.0 - Complete Prisma Schema
+// Logistics Orchestrator with AI-powered consolidation
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ========================================
+// AUTH & USERS
+// ========================================
+
+model User {
+  id       String   @id @default(uuid())
+  email    String   @unique
+  password String
+  roles    UserRole[] @default([]) // Múltiplos papéis por email (Link, Hub, Admin, Cliente)
+  active   Boolean  @default(true)
+
+  // Account relationship (for CLIENT users)
+  accountId String?
+  account   Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  // Person (CPF/CNPJ - identificador único; usado para usuários de contas e HUB)
+  personId String?
+  person   Person?  @relation(fields: [personId], references: [id], onDelete: SetNull)
+
+  // Hub (quando role = HUB; usuário opera este depósito)
+  hubId String?
+  hub   Hub?   @relation(fields: [hubId], references: [id], onDelete: SetNull)
+
+  client        Client?
+  link          Link?
+  admin         Admin?
+  hubOnboarding HubOnboarding?
+
+  // Permissões por pessoa (Admin define para cada usuário HUB)
+  permissions String[] @default([])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum UserRole {
+  ADMIN
+  CLIENT
+  LINK
+  HUB
+}
+
+model Admin {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name   String
+
+  consolidationFeedbacks ConsolidationFeedback[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ========================================
+// PERSON (Pessoa - identificador único CPF/CNPJ)
+// ========================================
+
+enum PersonDocumentType {
+  CPF
+  CNPJ
+}
+
+model Person {
+  id           String             @id @default(uuid())
+  documentType PersonDocumentType
+  document     String             @unique // só números, normalizado; único global
+  legalName    String // razão social ou nome completo
+  tradeName    String? // fantasia (opcional)
+
+  // Endereço
+  cep         String?
+  address     String?
+  number      String?
+  complement  String?
+  neighborhood String?
+  city        String?
+  state       String?
+  country     String? @default("BRASIL")
+
+  // PJ
+  stateRegistration    String?
+  municipalRegistration String?
+
+  // Relações (papéis)
+  clients Client[]
+  links   Link[]
+  users   User[]
+  hubs    Hub[]
+
+  // Orders (partes)
+  ordersAsRemetente    Order[] @relation("OrderRemetente")
+  ordersAsDestinatario Order[] @relation("OrderDestinatario")
+  ordersAsConsignatario Order[] @relation("OrderConsignatario")
+  ordersAsExpedidor    Order[] @relation("OrderExpedidor")
+  ordersAsRedespachante Order[] @relation("OrderRedespachante")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ========================================
+// CLIENT
+// ========================================
+
+model Client {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Person (Pessoa - CNPJ/CPF único)
+  personId String?
+  person   Person? @relation(fields: [personId], references: [id], onDelete: SetNull)
+
+  // Account relationship
+  accountId String?
+  account   Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  // AccountCompany relationship (which CNPJ this Client represents)
+  accountCompanyId String?
+  accountCompany   AccountCompany? @relation(fields: [accountCompanyId], references: [id], onDelete: SetNull)
+
+  companyName String
+  tradeName   String?
+  document    String  @unique // CNPJ (espelha Person.document para compatibilidade)
+
+  // Contact
+  contactName String
+  phone       String
+
+  // Default origin
+  defaultOrigin String?
+
+  demands       Demand[]
+  pricingTables PricingTable[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ========================================
+// VEHICLE TYPES
+// ========================================
+
+model VehicleType {
+  id   String @id @default(uuid())
+  name String // "Carreta Baú", "Truck", "Van", "Passeio"
+  code String @unique
+
+  // Maximum capacities
+  maxWeight Float // kg
+  maxVolume Float // m³
+  maxValue  Float // R$ max cargo value (insurance)
+
+  // Dimensions (optional)
+  length Float? // meters
+  width  Float? // meters
+  height Float? // meters
+
+  // Characteristics
+  enclosed     Boolean @default(true) // Closed box?
+  refrigerated Boolean @default(false) // Refrigerated?
+
+  active    Boolean    @default(true)
+  links     Link[]
+  manifests Manifest[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ========================================
+// HUBs
+// ========================================
+
+model Hub {
+  id   String @id @default(uuid())
+  name String // "HUB Imperatriz"
+  code String @unique // "IMP-MA"
+
+  // Pessoa jurídica dona do depósito/filial (opcional)
+  personId String?
+  person   Person? @relation(fields: [personId], references: [id], onDelete: SetNull)
+
+  // Location
+  city    String
+  state   String
+  address String?
+  lat     Float?
+  lng     Float?
+
+  // Coverage
+  coverageCities String[] // Cities served
+  coverageRadius Float? // km
+
+  // Capacities
+  storageCapacity Float? // m³
+  dailyThroughput Float? // volumes/day
+
+  // Contact
+  managerName String?
+  phone       String?
+  email       String?
+
+  // Fiscal / emissao CT-e e Minuta
+  rntrc             String?  // RNTRC (registro ANTT) - obrigatorio para CT-e
+  lastCteNumber     Int      @default(0) // Ultimo numero CT-e emitido
+  lastMinutaNumber  Int      @default(0) // Ultimo numero Minuta emitido
+  simplesNacional   Boolean? // Regime fiscal (impacta ICMS)
+
+  // Relationships
+  manifests   Manifest[]
+  ordersAtHub Order[] // Orders com status AT_HUB neste hub (currentHubId)
+  users       User[]  // Usuários que operam este hub (role HUB)
+  freightCalculations OrderFreightCalculation[]
+
+  // Management
+  canOrchestrate Boolean @default(false) // Can act as orchestrator
+  active         Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Onboarding do Hub (dados do depósito, responsável, documentos, bancários; simétrico ao Link)
+model HubOnboarding {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  depositData Json? // { name, code, city, state, address }
+  contactData Json? // { managerName, phone, email }
+  documents   Json? // { cnpjUrl?, proofOfAddressUrl? }
+  bankData    Json? // { bank, agency, account, holderName, pixKey, pixKeyType }
+
+  onboardingComplete Boolean @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+// ========================================
+// LINKS (Transportadores)
+// ========================================
+
+model Link {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Person (Pessoa - CPF/CNPJ único)
+  personId String?
+  person   Person? @relation(fields: [personId], references: [id], onDelete: SetNull)
+
+  // Registration data
+  name     String
+  document String  @unique // CPF or CNPJ (espelha Person.document para compatibilidade)
+  phone    String
+  email    String?
+
+  // Vehicle (vehicleTypeId set by admin on approval when null)
+  vehicleTypeId String?
+  vehicleType   VehicleType? @relation(fields: [vehicleTypeId], references: [id])
+  vehiclePlate  String
+  vehicleYear   Int?
+
+  // Documents
+  cnhNumber String?
+  cnhExpiry DateTime?
+  crlvUrl   String?
+  photoUrl  String?
+
+  // Coverage areas
+  homeBase       String // Base city
+  coverageStates String[] // States covered
+
+  // Performance
+  score         Float @default(5.0)
+  deliveryCount Int   @default(0)
+  onTimeRate    Float @default(1.0)
+
+  // Status
+  approvalStatus LinkApprovalStatus @default(PENDING)
+  active         Boolean            @default(false)
+
+  // WhatsApp (Evolution API)
+  whatsappPhone String?
+  whatsappOptIn Boolean @default(false)
+
+  manifests     Manifest[]
+  onboarding    LinkOnboarding?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Onboarding data for Link (documents, contacts, vehicle photos, bank, video)
+model LinkOnboarding {
+  id     String @id @default(uuid())
+  linkId String @unique
+  link   Link   @relation(fields: [linkId], references: [id], onDelete: Cascade)
+
+  // Personal documents (JSON: { cnhNumber?, cnhExpiry?, cnhPhotoUrl?, cnhWithFaceUrl?, rgNumber?, rgOrg?, rgPhotoUrl?, proofOfAddressUrl? })
+  documentsPersonal Json?
+
+  // Cavalo docs (JSON: { vehicleDocUrl?, ownerDocUrl?, anttUrl?, extracted? })
+  documentsCavalo Json?
+
+  // Carreta docs, only if hasTrailer (JSON: { vehicleDocUrl?, ownerDocUrl?, companyData?, anttUrl?, extracted? })
+  documentsCarreta Json?
+
+  // Contacts: personal (3), professional (3+)
+  contactsPersonal  Json? // [{ name, phone, relation }]
+  contactsProfessional Json? // [{ name, phone, companyOrRole }]
+
+  // Vehicle photos (JSON: [{ url, label? }])
+  vehiclePhotos Json?
+
+  // Bank (JSON: { bank, agency, account, accountType, holderName, holderDocument })
+  bankData Json?
+
+  // Video URL after approval (prestação de serviço)
+  videoConfirmationUrl String?
+
+  // Provisional: has trailer (UI only; admin assigns VehicleType on approval)
+  hasTrailer Boolean @default(false)
+
+  // Set when user has submitted all required steps (access to app only after this)
+  onboardingComplete Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum LinkApprovalStatus {
+  PENDING // Awaiting approval
+  APPROVED // Approved
+  REJECTED // Rejected
+  SUSPENDED // Temporarily suspended
+}
+
+// ========================================
+// PRICING
+// ========================================
+
+model PricingRoute {
+  id         String @id @default(uuid())
+  name       String // "CD SP-GRU > CD SM-MARANHÃO"
+  originCode String
+  originName String
+  destCode   String
+  destName   String
+
+  tables  PricingTable[]
+  orders  Order[]
+  active  Boolean        @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PricingTable {
+  id String @id @default(uuid())
+
+  // Identification
+  description String // "GELADEIRA ** 15% + ICMS"
+  code        String? // Internal code
+
+  // Application scope
+  type     PricingTableType // SPECIAL (client) or GENERAL
+  clientId String?
+  client   Client?          @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  // Account relationship (for shared pricing tables across CNPJs)
+  accountId String?
+  account   Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  // Route (optional - can be "None")
+  routeId String?
+  route   PricingRoute? @relation(fields: [routeId], references: [id], onDelete: SetNull)
+
+  // Freight configuration
+  freightValue Float? // Numeric value
+  freightUnit  FreightUnit // RS_KG, PERCENT, RS_M3, RS_UNIT
+
+  // Minimum freight
+  minFreightValue Float?
+  minFreightUnit  MinFreightUnit? // RS or KG
+
+  // Additional fees
+  adValoremPercent Float? // % on NF value (per R$ 1000)
+  grisPercent      Float? // GRIS % (per R$ 1000)
+  tollValue        Float? // Toll
+  tollUnit         TollUnit? // RS_KG or FIXED
+  dispatchFee      Float? // Dispatch R$
+  otherFees        Float? // Others R$
+
+  // Cubing
+  cubeEnabled Boolean @default(false)
+  cubeFactor  Float? // Ex: 300 kg/m³
+
+  // ICMS
+  icmsIncluded Boolean @default(false)
+  icmsPercent  Float? // If not included, how much to add
+
+  // Ad Valorem Threshold
+  adValoremThreshold Float? // "If value > X, charge advalorem separately"
+
+  // Minimum freight ranges
+  minFreightRanges MinFreightRange[]
+
+  freightCalculations OrderFreightCalculation[]
+
+  // Status
+  active   Boolean @default(true)
+  priority Int     @default(0) // Higher = priority
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum PricingTableType {
+  SPECIAL // Special table for client
+  GENERAL // General table
+}
+
+enum FreightUnit {
+  RS_KG // R$/Kg
+  PERCENT // %
+  RS_M3 // R$/m³
+  RS_UNIT // R$/Unit
+}
+
+enum MinFreightUnit {
+  RS // Value in reais
+  KG // Minimum weight in kg
+}
+
+enum TollUnit {
+  RS_KG // R$/Kg
+  FIXED // Fixed value
+}
+
+model MinFreightRange {
+  id             String       @id @default(uuid())
+  pricingTableId String
+  pricingTable   PricingTable @relation(fields: [pricingTableId], references: [id], onDelete: Cascade)
+
+  minWeight Float // Minimum weight of range (Kgs)
+  maxWeight Float? // Maximum weight (null = no limit)
+  value     Float // Minimum freight value (R$)
+
+  createdAt DateTime @default(now())
+}
+
+// ========================================
+// DEMANDS
+// ========================================
+
+model Demand {
+  id       String @id @default(uuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  // NF Info
+  nfNumber String
+  nfValue  Float
+
+  // Origin/Destination
+  origin      String
+  destination String
+
+  // Cargo
+  commodity   String
+  weight      Float // real kg
+  volume      Float // m³
+  cubedWeight Float? // cubed weight
+  units       Int    @default(1)
+
+  // Classification
+  riskClass RiskClass
+
+  // Intent
+  intentType DemandIntent // QUOTE_ONLY, COLLECT, DROP_AT_HUB
+
+  // Quote
+  status        DemandStatus @default(PENDING)
+  quotedPrice   Float?
+  quotedAt      DateTime?
+  quotedTableId String?
+
+  // Manifest (when assigned)
+  manifestId String?
+  manifest   Manifest? @relation(fields: [manifestId], references: [id], onDelete: SetNull)
+
+  // Events
+  events DemandEvent[]
+
+  // Metadata
+  sourceType DemandSource // CHAT, FORM, BATCH, API
+
+  // Order relationship
+  order Order?
+
+  // Invoices
+  invoices Invoice[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum DemandIntent {
+  QUOTE_ONLY // Only wants quote
+  COLLECT // Wants pickup
+  DROP_AT_HUB // Will drop at HUB
+}
+
+enum DemandSource {
+  CHAT // Via AI chat
+  FORM // Via form
+  BATCH // Batch upload
+  API // B2B integration
+}
+
+enum DemandStatus {
+  PENDING // Awaiting quote
+  QUOTED // Quoted
+  APPROVED // Client approved
+  ASSIGNED // In manifest
+  COLLECTED // Collected
+  IN_TRANSIT // In transit
+  AT_HUB // At HUB
+  OUT_FOR_DELIVERY // Out for delivery
+  DELIVERED // Delivered
+  CANCELLED // Cancelled
+}
+
+enum RiskClass {
+  A // High risk (electronics, high value)
+  B // Medium risk
+  C // Low risk
+}
+
+model DemandEvent {
+  id       String @id @default(uuid())
+  demandId String
+  demand   Demand @relation(fields: [demandId], references: [id], onDelete: Cascade)
+
+  status      DemandStatus
+  description String
+  location    String?
+  photoUrl    String?
+
+  createdAt DateTime @default(now())
+}
+
+// ========================================
+// MANIFESTS
+// ========================================
+
+model Manifest {
+  id String @id @default(uuid())
+
+  // Assignment
+  linkId String?
+  link   Link?   @relation(fields: [linkId], references: [id], onDelete: SetNull)
+  hubId  String?
+  hub    Hub?    @relation(fields: [hubId], references: [id], onDelete: SetNull)
+
+  // Vehicle type
+  vehicleTypeId String
+  vehicleType   VehicleType @relation(fields: [vehicleTypeId], references: [id])
+
+  // Route
+  origin      String
+  destination String
+  stops       Json? // Array of intermediate stops
+
+  // Occupancy
+  totalWeight Float @default(0)
+  totalVolume Float @default(0)
+  totalValue  Float @default(0)
+
+  // Status
+  status ManifestStatus @default(DRAFT)
+
+  // Assigned demands
+  demands Demand[]
+
+  // Orders
+  orders Order[]
+
+  // Invoices
+  invoices Invoice[]
+
+  // Acceptance
+  offeredAt       DateTime?
+  acceptedAt      DateTime?
+  rejectedAt      DateTime?
+  rejectionReason String?
+
+  // Execution
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum ManifestStatus {
+  DRAFT // Draft
+  PENDING_ACCEPT // Offered to LINK
+  ACCEPTED // LINK accepted
+  IN_PROGRESS // In execution
+  COMPLETED // Completed
+  CANCELLED // Cancelled
+}
+
+// ========================================
+// FEEDBACK/LEARNING
+// ========================================
+
+model ConsolidationFeedback {
+  id      String @id @default(uuid())
+  adminId String
+  admin   Admin  @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  action FeedbackAction
+
+  // Context
+  demandIds          String[]
+  suggestedManifests Json
+  finalManifests     Json?
+
+  // Metrics for learning
+  utilizationBefore Float?
+  utilizationAfter  Float?
+
+  createdAt DateTime @default(now())
+}
+
+enum FeedbackAction {
+  ACCEPTED
+  MODIFIED
+  REJECTED
+}
+
+// ========================================
+// LLM CONFIGURATION
+// ========================================
+
+model LLMProvider {
+  id   String @id @default(uuid())
+  name String // "OpenAI", "Google Gemini", "DeepSeek"
+  code String @unique // "openai", "gemini", "deepseek"
+
+  // API Configuration
+  apiFormat String @default("openai") // "openai" | "gemini" | "anthropic"
+  baseUrl   String // https://api.openai.com/v1, https://api.deepseek.com, etc
+
+  // Features
+  supportsTools Boolean @default(true) // Function calling support
+
+  // Management
+  isBuiltIn Boolean @default(false) // Pre-configured vs custom
+  active    Boolean @default(true)
+
+  models LLMModel[]
+  apiKey LLMApiKey?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model LLMModel {
+  id String @id @default(uuid())
+
+  // Provider relationship
+  providerId String
+  provider   LLMProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  // Model info
+  name        String // "GPT-4o", "Gemini Pro", "Claude 3.5 Sonnet"
+  modelId     String // "gpt-4o", "gemini-pro", "claude-3-5-sonnet"
+  description String?
+
+  // Capabilities
+  capabilities  String[] // ["chat", "vision", "function_calling", "json_mode"]
+  contextWindow Int      @default(8192) // tokens
+  maxOutput     Int      @default(4096)
+
+  // Pricing (per 1M tokens)
+  inputPrice  Float? // USD
+  outputPrice Float? // USD
+
+  // Status
+  isDefault Boolean @default(false) // Default for its capability
+  active    Boolean @default(true)
+
+  // Usage tracking
+  totalTokens Int       @default(0)
+  totalCalls  Int       @default(0)
+  lastUsedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Chat configuration relations
+  chatFixedConfig    ChatLLMConfig[]   @relation("ChatFixedModel")
+  chatRotationConfig ChatLLMRotation[] @relation("ChatRotationModel")
+
+  @@unique([providerId, modelId])
+}
+
+// ========================================
+// CHAT LLM CONFIGURATION
+// ========================================
+
+model ChatLLMConfig {
+  id String @id @default(uuid())
+
+  // Model selection mode
+  selectionMode String @default("FIXED") // "FIXED" | "ROTATION" | "LOAD_BALANCE"
+
+  // Fixed model (if mode is FIXED)
+  fixedModelId String?
+  fixedModel   LLMModel? @relation("ChatFixedModel", fields: [fixedModelId], references: [id], onDelete: SetNull)
+
+  // Rotation models (if mode is ROTATION)
+  rotationModels ChatLLMRotation[]
+
+  // Settings
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ChatLLMRotation {
+  id       String        @id @default(uuid())
+  configId String
+  config   ChatLLMConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+
+  modelId String
+  model   LLMModel @relation("ChatRotationModel", fields: [modelId], references: [id], onDelete: Cascade)
+
+  weight Int     @default(1) // 1-10, usado para distribuição
+  active Boolean @default(true)
+
+  order Int @default(0) // Ordem na rotação
+
+  createdAt DateTime @default(now())
+
+  @@unique([configId, modelId])
+  @@index([configId])
+}
+
+model LLMApiKey {
+  id         String      @id @default(uuid())
+  providerId String      @unique
+  provider   LLMProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  // API key (stored as-is for simplicity, encrypt in production)
+  apiKey     String
+  keyPreview String // Last 4 chars: "...xyz1"
+
+  // Metadata
+  label  String? // "Production Key", "Dev Key"
+  active Boolean @default(true)
+
+  // Usage limits
+  monthlyLimit Float? // USD
+  monthlyUsage Float  @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ========================================
+// CRM & COMMERCIAL PIPELINE
+// ========================================
+
+model Account {
+  id String @id @default(uuid())
+
+  // Identification
+  name        String // "Empresa ABC Ltda"
+  accountType AccountType @default(COMPANY)
+
+  // Empresas/CNPJs (may have multiple)
+  companies AccountCompany[]
+
+  // Contacts (individuals in the account)
+  contacts AccountContact[]
+
+  // Users belonging to this account
+  users User[]
+
+  // Clients associated with this account
+  clients Client[]
+
+  // Pricing tables shared across all CNPJs in this account
+  pricingTables PricingTable[]
+
+  // Relations
+  opportunities Opportunity[]
+  chatSessions  ChatSession[]
+  invoices      Invoice[]
+
+  // Meta
+  tags       String[] @default([])
+  assignedTo String? // Admin ID responsible
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum AccountType {
+  COMPANY // Company (can have multiple CNPJs)
+  INDIVIDUAL // Individual person
+}
+
+model AccountCompany {
+  id        String  @id @default(uuid())
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  cnpj      String  @unique
+  legalName String // Legal name
+  tradeName String?
+
+  // Default address
+  address String?
+  city    String?
+  state   String?
+
+  isPrimary Boolean @default(false)
+
+  // Clients associated with this company
+  clients Client[]
+
+  createdAt DateTime @default(now())
+
+  @@index([accountId])
+}
+
+model AccountContact {
+  id        String  @id @default(uuid())
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  name     String
+  role     String? // "Logistics Manager"
+  email    String?
+  phone    String?
+  whatsapp String?
+
+  isPrimary Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([accountId])
+}
+
+model Opportunity {
+  id String @id @default(uuid())
+
+  // CRM
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  // Conversation
+  sessionId String // Chat session ID
+  source    OpportunitySource @default(CHAT)
+
+  // Status
+  stage        OpportunityStage  @default(QUOTE)
+  completeness CompletenessLevel @default(INCOMPLETE)
+
+  // Type
+  type OpportunityType @default(QUOTE_ONLY)
+
+  // Quote data (may be partial)
+  cpfCnpjSender         String?
+  cpfCnpjReceiver       String?
+  cpfCnpjTransportadora String? // CNPJ da transportadora (redespacho)
+
+  origin      String? // City
+  destination String? // City
+
+  commodity  String?
+  nfValue    Float?
+  weight     Float?
+  volumes    Int?
+  dimensions String? // JSON or string "100x50x30"
+
+  // Collection
+  needsCollection Boolean @default(false)
+  collectionData  Json? // {address, contact, time, needsHelper}
+
+  // Calculated quote
+  quotedPrice    Float?
+  quoteBreakdown Json? // {freight, gris, advalorem, icms, total}
+  validUntil     DateTime? // Quote validity
+
+  // Conversation history
+  conversationSnapshot Json[] @default([])
+
+  // Follow-up
+  lastFollowUp  DateTime?
+  nextFollowUp  DateTime? // Scheduled for AI follow-up
+  followUpCount Int       @default(0)
+
+  // If becomes physical demand
+  matchedDemandId String? // Demand that matched this opportunity
+
+  // Account role: REMETENTE | DESTINATARIO | CONSIGNATARIO (apenas responsável financeiro)
+  accountRole OpportunityAccountRole?
+
+  // Freight term
+  freightTerm FreightTerm?
+
+  // Orders
+  orders Order[]
+
+  // Pipeline column (Kanban)
+  pipelineColumnId String?
+  pipelineColumn   PipelineColumn? @relation(fields: [pipelineColumnId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([accountId, stage])
+  @@index([nextFollowUp])
+  @@index([sessionId])
+  @@index([pipelineColumnId])
+}
+
+enum OpportunityAccountRole {
+  REMETENTE // CNPJ remetente está na conta
+  DESTINATARIO // CNPJ destinatário está na conta
+  CONSIGNATARIO // Apenas responsável financeiro; remetente e destinatário são terceiros
+}
+
+enum OpportunityStage {
+  QUOTE // Just quoted
+  FOLLOW_UP // In follow-up
+  COLLECTION_REQUESTED // Requested collection
+  CONVERTED // Became real demand
+  LOST // Lost (no response, gave up)
+}
+
+enum CompletenessLevel {
+  MINIMAL // Only origin/destination
+  INCOMPLETE // Missing critical data (weight, NF value)
+  COMPLETE // All data
+}
+
+enum OpportunityType {
+  QUOTE_ONLY
+  TRANSPORT
+  COLLECTION
+  BOTH
+}
+
+enum OpportunitySource {
+  CHAT // Web chat
+  WHATSAPP // WhatsApp (future)
+  PHONE // Phone call
+  EMAIL // Email
+  MANUAL // Manually created by admin
+  FORM // Via form (cotação / coleta)
+  ENTRADA // Entrada manual - cadastro pendente comercial
+}
+
+enum FreightTerm {
+  CIF // Cost, Insurance and Freight - remetente paga
+  FOB // Free On Board - destinatário paga
+  REDESPACHO // Terceira transportadora - consignatário paga
+}
+
+model ChatSession {
+  id String @id @default(uuid())
+
+  accountId String? // Can start anonymous
+  account   Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  slug String @unique // URL /chat/abc123
+
+  historyJson Json[] @default([]) // Legacy: Complete history as JSON (deprecated, use messages relation)
+
+  // Progressive identification
+  identifiedAt DateTime? // When client was identified
+  identifiedBy String? // cpf/cnpj/name
+
+  lastMessageAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Messages in this session (structured)
+  messages ChatMessage[]
+
+  @@index([slug])
+  @@index([accountId])
+}
+
+// ========================================
+// LOCATIONS (Estados, Cidades, CEPs)
+// ========================================
+
+model State {
+  id       String @id @default(uuid())
+  code     String @unique // "SP", "RJ", etc
+  name     String // "São Paulo"
+  ibgeCode String @unique // Código IBGE do estado
+
+  cities City[]
+  ceps   CEP[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model City {
+  id      String @id @default(uuid())
+  stateId String
+  state   State  @relation(fields: [stateId], references: [id], onDelete: Cascade)
+
+  name     String
+  ibgeCode String  @unique
+  cepStart String? // CEP inicial (opcional)
+  cepEnd   String? // CEP final (opcional)
+
+  ceps CEP[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([stateId])
+  @@index([name])
+}
+
+model CEP {
+  id  String @id @default(uuid())
+  cep String @unique // "01310100" (sem hífen)
+
+  logradouro String?
+  bairro     String?
+  cityId     String?
+  city       City?   @relation(fields: [cityId], references: [id], onDelete: SetNull)
+  stateId    String?
+  state      State?  @relation(fields: [stateId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([cep])
+  @@index([cityId])
+}
+
+// ========================================
+// CHAT MESSAGES & ATTACHMENTS
+// ========================================
+
+model ChatMessage {
+  id        String      @id @default(uuid())
+  sessionId String
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  role    String // "user" | "assistant" | "system"
+  content String
+
+  // File attachments
+  attachments ChatAttachment[]
+
+  createdAt DateTime @default(now())
+
+  @@index([sessionId])
+}
+
+model ChatAttachment {
+  id        String      @id @default(uuid())
+  messageId String
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  type     String // "IMAGE" | "AUDIO" | "DOCUMENT" | "NF"
+  fileName String
+  fileUrl  String // URL do arquivo armazenado
+  mimeType String
+  size     Int // bytes
+
+  // Para NF
+  extractedData Json? // Dados extraídos da NF (OCR/parsing)
+
+  createdAt DateTime @default(now())
+
+  @@index([messageId])
+}
+
+// ========================================
+// ORDERS (PEDIDOS)
+// ========================================
+
+model Order {
+  id String @id @default(uuid())
+
+  // Relacionamentos
+  demandId String @unique
+  demand   Demand @relation(fields: [demandId], references: [id], onDelete: Cascade)
+
+  opportunityId String?
+  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+
+  manifestId String?
+  manifest   Manifest? @relation(fields: [manifestId], references: [id], onDelete: SetNull)
+
+  // Hub onde o pedido está quando status = AT_HUB
+  currentHubId String?
+  currentHub   Hub?    @relation(fields: [currentHubId], references: [id], onDelete: SetNull)
+
+  // Status do pedido
+  status OrderStatus @default(PENDING)
+
+  // Informações de NF/Declaração
+  nfNumber      String? // Número da NF (pode vir da Demand ou ser atualizado)
+  nfDocumentUrl String? // URL do documento NF/Declaração
+
+  // Pessoas (entrada manual)
+  freightTerm           FreightTerm?
+  remetentePersonId     String?
+  remetentePerson       Person?   @relation("OrderRemetente", fields: [remetentePersonId], references: [id], onDelete: SetNull)
+  destinatarioPersonId  String?
+  destinatarioPerson    Person?   @relation("OrderDestinatario", fields: [destinatarioPersonId], references: [id], onDelete: SetNull)
+  consignatarioPersonId String?
+  consignatarioPerson   Person?   @relation("OrderConsignatario", fields: [consignatarioPersonId], references: [id], onDelete: SetNull)
+  expedidorPersonId     String?
+  expedidorPerson       Person?   @relation("OrderExpedidor", fields: [expedidorPersonId], references: [id], onDelete: SetNull)
+  redespachantePersonId String?
+  redespachantePerson   Person?   @relation("OrderRedespachante", fields: [redespachantePersonId], references: [id], onDelete: SetNull)
+  origemPrestacao       String?
+  fimPrestacao          String?
+  routeId               String?
+  route                 PricingRoute? @relation(fields: [routeId], references: [id], onDelete: SetNull)
+  collectionData        Json? // { address, contact, scheduledAt, needsHelper }
+
+  // Quando virou pedido
+  createdAt      DateTime  @default(now()) // Quando foi criado (coletado/entrou no CD)
+  enteredAtHubAt DateTime? // Quando entrou no HUB/CD
+
+  // Histórico completo (todos os eventos desde Opportunity até entrega)
+  history OrderHistory[]
+
+  // Faturamento
+  invoices Invoice[]
+
+  // Notas fiscais do pedido (múltiplas NFs por pedido)
+  invoicesRel OrderInvoice[]
+
+  // Cálculos de frete (CT-e / Minuta)
+  freightCalculations OrderFreightCalculation[]
+
+  updatedAt DateTime @updatedAt
+
+  @@index([demandId])
+  @@index([opportunityId])
+  @@index([manifestId])
+  @@index([status])
+  @@index([currentHubId])
+}
+
+enum OrderStatus {
+  PENDING // Criado, aguardando processamento
+  IN_TRANSIT // Em trânsito
+  AT_HUB // No HUB/CD
+  OUT_FOR_DELIVERY // Saiu para entrega
+  DELIVERED // Entregue
+  CANCELLED // Cancelado
+}
+
+model OrderHistory {
+  id      String @id @default(uuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  // Tipo de evento
+  eventType OrderEventType
+
+  // Descrição
+  description String
+  location    String?
+  photoUrl    String?
+
+  // Relacionamento com DemandEvent (se aplicável)
+  demandEventId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+}
+
+enum OrderEventType {
+  CREATED // Pedido criado
+  COLLECTED // Coletado
+  IN_TRANSIT // Em trânsito
+  AT_HUB // Chegou no HUB
+  OUT_FOR_DELIVERY // Saiu para entrega
+  DELIVERED // Entregue
+  CANCELLED // Cancelado
+  NOTE // Nota/anotação
+}
+
+// ========================================
+// ORDER INVOICES (NFs do pedido)
+// ========================================
+
+enum OrderInvoiceType {
+  NFE
+  OUTRAS
+}
+
+model OrderInvoice {
+  id           String           @id @default(uuid())
+  orderId      String
+  order        Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  type         OrderInvoiceType
+  nfNumber     String
+  nfKey        String? // Chave NF-e (44 dígitos)
+  emissionDate DateTime?
+  nature       String? // Ex: VETERINARIO
+  species      String? // Ex: Volumes
+  volumes      Float            @default(0)
+  weight       Float            @default(0)
+  cubedVolume  Float?
+  value        Float            @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderId])
+}
+
+// ========================================
+// ORDER FREIGHT CALCULATIONS (CT-e / Minuta)
+// ========================================
+
+enum FreightDocType {
+  CTE    // Conhecimento de Transporte Eletrônico (fiscal)
+  MINUTA // Documento interno (sem validação fiscal)
+}
+
+enum FreightCalcMethod {
+  ESPECIAL     // Tabelas pré-cadastradas do pagador
+  TARIFA_GERAL // Tarifas por rota
+  INFORMADO    // Calculadora manual
+}
+
+enum FreightCalcStatus {
+  DRAFT           // Rascunho
+  CALCULATED      // Calculado
+  MINUTA_EMITTED  // Minuta emitida
+  CTE_AUTHORIZED  // CT-e autorizado SEFAZ
+}
+
+model OrderFreightCalculation {
+  id      String @id @default(uuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  documentType FreightDocType
+  emissorId    String
+  emissor      Hub    @relation(fields: [emissorId], references: [id], onDelete: Restrict)
+
+  calculationMethod FreightCalcMethod
+  pricingTableId    String?
+  pricingTable      PricingTable? @relation(fields: [pricingTableId], references: [id], onDelete: SetNull)
+  routeId           String?
+
+  originCity  String?
+  destCity    String?
+  cfop        String?
+  tipoFrete   String?
+  cst         String?
+  observacoes String? @db.Text
+
+  volumes      Float  @default(0)
+  weight       Float  @default(0)
+  cubedWeight  Float?
+  cubage       Float?
+  nfValue      Float  @default(0)
+  commodity    String?
+
+  freightTotal    Float  @default(0)
+  breakdown       Json?
+  icmsValue       Float?
+  effectiveWeight Float?
+
+  minutaNumber  String?
+  cteAccessKey  String?
+  cteProtocol   String?
+  status        FreightCalcStatus @default(DRAFT)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([emissorId])
+  @@index([pricingTableId])
+}
+
+// ========================================
+// NF SPECIES (ESPÉCIES PARA NOTAS FISCAIS)
+// ========================================
+
+model NfSpecies {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ========================================
+// INVOICES (FATURAS)
+// ========================================
+
+model Invoice {
+  id String @id @default(uuid())
+
+  // Número da fatura
+  invoiceNumber String @unique // Ex: "FAT-2026-001"
+
+  // Relacionamentos (pode faturar por Order, Demand ou Manifest)
+  orderId String?
+  order   Order?  @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  demandId String?
+  demand   Demand? @relation(fields: [demandId], references: [id], onDelete: SetNull)
+
+  manifestId String?
+  manifest   Manifest? @relation(fields: [manifestId], references: [id], onDelete: SetNull)
+
+  // Cliente/Account que será faturado
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  // Valores
+  subtotal  Float // Valor do frete
+  taxes     Float @default(0) // Impostos
+  discounts Float @default(0) // Descontos
+  total     Float // Total a pagar
+
+  // Status
+  status InvoiceStatus @default(PENDING)
+
+  // Datas
+  issuedAt DateTime  @default(now()) // Data de emissão
+  dueDate  DateTime? // Data de vencimento
+  paidAt   DateTime? // Data de pagamento
+
+  // Observações
+  notes String?
+
+  // Arquivos
+  pdfUrl String? // URL do PDF da fatura
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([accountId])
+  @@index([orderId])
+  @@index([demandId])
+  @@index([manifestId])
+  @@index([status])
+  @@index([invoiceNumber])
+}
+
+enum InvoiceStatus {
+  PENDING // Pendente de pagamento
+  PAID // Pago
+  OVERDUE // Vencido
+  CANCELLED // Cancelado
+}
+
+// ========================================
+// PIPELINE KANBAN
+// ========================================
+
+model PipelineColumn {
+  id String @id @default(uuid())
+  
+  // Identificação
+  name String // "Aguardando Cliente", "Em Negociação", etc.
+  color String @default("#3B82F6") // Cor da coluna (hex)
+  
+  // Mapeamento para stages (opcional - se baseada em stage)
+  stage OpportunityStage? // Se null, é coluna personalizada
+  
+  // Ordem
+  order Int @default(0) // Ordem de exibição
+  
+  // Filtros (opcional)
+  filters Json? // { accountId, source, etc. }
+  
+  // Status
+  active Boolean @default(true)
+  
+  // Opportunities nesta coluna
+  opportunities Opportunity[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([order])
+  @@index([stage])
+}

@@ -1,0 +1,99 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: tsmex-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: tsmex
+    ports:
+      - "5440:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tsmex-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: tsmex-redis
+    restart: unless-stopped
+    ports:
+      - "6390:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tsmex-network
+
+  # Backend API
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: tsmex-api
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/tsmex?schema=public
+      JWT_SECRET: jwt_super_secret_key_development_only_1234567890
+      JWT_EXPIRES_IN: 7d
+      PORT: 3002
+      NODE_ENV: production
+      CORS_ORIGIN: http://localhost:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - tsmex-network
+
+  # Database migrations and seed (runs once then exits)
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrate
+    container_name: tsmex-migrate
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/tsmex?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - tsmex-network
+
+  # Frontend Web
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: tsmex-web
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+    networks:
+      - tsmex-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+
+networks:
+  tsmex-network:
+    driver: bridge

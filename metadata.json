@@ -1,0 +1,8 @@
+{
+  "name": "TSM EX - Omni Logística",
+  "description": "Plataforma MVP para orquestração logística inteligente com IA, integrando chat conversacional, painel de controle e fluxos operacionais.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

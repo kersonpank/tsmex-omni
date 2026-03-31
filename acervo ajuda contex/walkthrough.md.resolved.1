@@ -1,0 +1,105 @@
+# TSM EX OMNI - Análise do Sistema e Próximos Passos
+
+## 📊 Estado Atual do Sistema
+
+### Arquitetura
+```mermaid
+graph TB
+    subgraph Docker
+        WEB[Frontend<br/>React + Vite<br/>:3000]
+        NGINX[Nginx Proxy]
+        API[Backend<br/>Node.js + Express<br/>:3002]
+        PG[(PostgreSQL<br/>:5440)]
+        REDIS[(Redis<br/>:6390)]
+    end
+    WEB --> NGINX --> API --> PG
+    API --> REDIS
+```
+
+---
+
+## ✅ Funcionalidades Implementadas
+
+### Backend (Completo)
+| Módulo | Endpoints | Status |
+|--------|-----------|--------|
+| **Auth** | Login, Register, Me | ✅ |
+| **Demands** | CRUD, Quote, Status, Events | ✅ |
+| **Manifests** | CRUD, Assign Link, Accept/Reject, Start/Complete | ✅ |
+| **Pricing** | Tables, Routes, Calculate | ✅ |
+| **Hubs** | CRUD, Coverage Search | ✅ |
+| **Links** | CRUD, Approve/Reject, Manifests | ✅ |
+| **Clients** | List, Demands, Pricing | ✅ |
+| **VehicleTypes** | CRUD | ✅ |
+
+### Frontend (Parcial)
+| Componente | Funcionalidade | Conectado API |
+|------------|----------------|---------------|
+| [Login.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/Login.tsx) | Autenticação | ✅ |
+| [AdminDashboard.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/AdminDashboard.tsx) | Gestão demandas | ✅ |
+| [OnboardingWizard.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/OnboardingWizard.tsx) | Criar demanda via form | ✅ |
+| [ChatWeb.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/ChatWeb.tsx) | Criar demanda via chat IA | ✅ |
+| [TrackingView.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/TrackingView.tsx) | Timeline eventos | ✅ |
+
+---
+
+## 🔴 Gaps Identificados
+
+### 1. Experiência por Role
+| Role | Dashboard Específico | Funcionalidades |
+|------|---------------------|-----------------|
+| **ADMIN** | [AdminDashboard.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/AdminDashboard.tsx) | ✅ Implementado |
+| **CLIENT** | ❌ Não existe | Falta: ver suas demandas, tracking, preços |
+| **LINK** | ❌ Não existe | Falta: ver manifestos, aceitar/rejeitar, status |
+
+### 2. Credenciais do Login
+O [Login.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/Login.tsx) tem emails incorretos:
+```diff
+- admin: 'admin@tsmex.com.br'    // Login.tsx
++ admin: 'admin@tsmex.com'       // seed.ts
+```
+
+### 3. Funcionalidades Faltantes
+- [ ] Dashboard específico para CLIENT
+- [ ] Dashboard/App mobile para LINK
+- [ ] Workspace de consolidação (alocar demandas em manifestos)
+- [ ] Notificações (WhatsApp/Email)
+- [ ] Upload de documentos
+- [ ] Mapa com tracking real-time
+
+---
+
+## 🗺️ Roadmap Priorizado
+
+### Fase 1: Correções Urgentes (1 dia)
+1. Corrigir emails no [Login.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/Login.tsx) para match com seed
+2. Testar login completo end-to-end
+3. Validar criação de demanda
+
+### Fase 2: Dashboards por Role (3-5 dias)
+1. **ClientDashboard**: Minhas demandas, histórico, tracking
+2. **LinkApp**: Ver ofertas, aceitar/rejeitar, atualizar status
+3. Routing baseado em role após login
+
+### Fase 3: Consolidação (5-7 dias)
+1. Workspace visual para criar manifestos
+2. Arrastar demandas para manifestos
+3. Validação de capacidade (peso, volume, valor)
+4. Oferecer manifesto a LINK
+
+### Fase 4: Comunicação (3-5 dias)
+1. Integração Evolution API (WhatsApp)
+2. Notificações para LINK (nova oferta)
+3. Updates para CLIENT (status demanda)
+
+---
+
+## 🎯 Próximo Passo Imediato
+
+**Corrigir Login.tsx** e testar fluxo completo:
+
+```typescript
+// Credenciais corretas (alinhadas com seed.ts):
+admin: { email: 'admin@tsmex.com', password: 'admin123' }
+```
+

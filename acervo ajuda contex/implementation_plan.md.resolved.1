@@ -1,0 +1,338 @@
+# TSM EX OMNI - Plano Estratégico do MVP
+
+> **Visão**: Criar uma "teia inteligente" de logística que conecta demandas a HUBs e LINKs, com experiência centrada em chat IA, escalável para automação total no futuro.
+
+---
+
+## 1. Análise do Estado Atual
+
+### O que já temos 🟢
+
+| Componente | Status | Observações |
+|------------|--------|-------------|
+| **Schema Prisma** | ✅ Completo | User, Client, Link, Hub, Demand, Manifest, Pricing |
+| **Backend API** | ✅ Estruturado | 8 rotas: auth, clients, demands, hubs, links, manifests, pricing, vehicleTypes |
+| **Chat IA (Gemini)** | ⚠️ Parcial | Coleta dados para cotação mas não persiste no banco |
+| **OnboardingWizard** | ⚠️ Parcial | Classificação IA funciona, mas só salva em localStorage |
+| **AdminDashboard** | ⚠️ Parcial | Funciona com localStorage, não integra com API |
+| **TrackingView** | ⚠️ Parcial | Lê de localStorage |
+| **Motor de Precificação** | ✅ Backend pronto | Tabelas de preço, faixas, rotas - falta integrar |
+
+### Gaps Críticos Identificados 🔴
+
+1. **Frontend não usa backend** - Todos os dados ficam em `localStorage`
+2. **Chat IA não persiste demandas** - Conversa morre ao fechar
+3. **Sem fluxo de consolidação real** - Manifestos existem no schema mas não são usados
+4. **Sem notificações** - WhatsApp/Email não implementados
+5. **Sem integração Lonngren** - Sistema de gestão atual isolado
+
+---
+
+## 2. Personas e Dores
+
+### 👤 Cliente (Indústria/Distribuidor/PF)
+
+| Dor Atual | Desejo | Solução MVP |
+|-----------|--------|-------------|
+| Cotação via telefone/email é lenta | Resposta imediata | **Chat IA 24/7** |
+| Não sabe onde está a carga | Rastreio em tempo real | **Tracking por link** |
+| Processos confusos e manuais | Simplicidade | **Chat conversacional** |
+| Precisa de múltiplos contatos | Um ponto de contato | **Agente unificado** |
+
+### 👤 Operador TSM (Você/Equipe)
+
+| Dor Atual | Desejo | Solução MVP |
+|-----------|--------|-------------|
+| Consolidar manualmente | IA sugere consolidação | **Dashboard com sugestões** |
+| Cotar um por um | Precificação automática | **Motor de pricing** |
+| Gerenciar por planilha | Visão unificada | **Torre de Controle** |
+| Comunicar via telefone | Automático | **Notificações automáticas** |
+
+### 👤 LINK (Transportador)
+
+| Dor Atual | Desejo | Solução MVP |
+|-----------|--------|-------------|
+| Recebe ordens por telefone | WhatsApp/App estruturado | **Manifesto via WhatsApp** |
+| Não sabe roteiro otimizado | Rota clara | **Manifesto com sequência** |
+| Confirmar entrega manual | Check-in simples | **Foto + localização** |
+
+---
+
+## 3. MVP - Fases de Implementação
+
+### 🎯 Fase 0 - Fundação (Urgente)
+
+> **Foco**: Conectar frontend ao backend, chat funcional de ponta a ponta.
+
+#### Mudanças Necessárias:
+
+##### [MODIFICAR] [ChatWeb.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/ChatWeb.tsx)
+- Integrar com API `/api/demands` para persistir demandas criadas via chat
+- Extrair dados estruturados da conversa (origem, destino, peso, valor, etc.)
+- Ao finalizar coleta, criar demanda no banco automaticamente
+
+##### [MODIFICAR] [geminiService.ts](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/geminiService.ts)
+- Adicionar função `extractDemandData` que retorna JSON estruturado
+- Modificar [chatWithIA](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/geminiService.ts#35-60) para detectar quando todos os dados foram coletados
+- Retornar flag `demandComplete: true` quando pronto para criar demanda
+
+##### [MODIFICAR] [AdminDashboard.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/AdminDashboard.tsx)
+- Buscar demandas de `/api/demands` ao invés de props
+- Implementar cotação via `/api/demands/:id/quote`
+- Implementar atualização de status via `/api/demands/:id/status`
+
+##### [NOVO] [api.ts](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/lib/api.ts)
+- Cliente HTTP centralizado com interceptors
+- Funções tipadas para cada endpoint
+
+---
+
+### 🎯 Fase 1 - Chat Inteligente + Cotação Automática
+
+> **Foco**: Experiência do cliente impecável do início ao fim.
+
+```mermaid
+sequenceDiagram
+    participant C as Cliente
+    participant Chat as Chat IA
+    participant API as Backend
+    participant Pricing as Motor Pricing
+    
+    C->>Chat: "Preciso enviar 500kg para Imperatriz-MA"
+    Chat->>Chat: Coleta dados (origem, destino, peso, valor NF)
+    Chat->>API: POST /api/demands
+    API->>Pricing: Calcular cotação automática
+    Pricing-->>API: R$ 1.250,00
+    API-->>Chat: Demanda criada + cotação
+    Chat->>C: "Sua cotação: R$ 1.250,00. Quer confirmar?"
+```
+
+#### Funcionalidades:
+
+1. **Chat coleta dados estruturados**
+   - Perguntas em sequência natural
+   - Validação em tempo real
+   - Sugestões inteligentes (autocomplete cidades, etc.)
+
+2. **Cotação automática**
+   - Aplicar tabela de preço do cliente (se houver) ou geral
+   - Mostrar breakdown (frete + ad valorem + taxas)
+   - Enviar por email/WhatsApp
+
+3. **Confirmação e acompanhamento**
+   - Link de tracking único
+   - Status em tempo real
+   - Notificações de mudança de status
+
+---
+
+### 🎯 Fase 2 - Torre de Controle + Consolidação
+
+> **Foco**: Operador tem visão total e IA auxilia na consolidação.
+
+```mermaid
+flowchart LR
+    subgraph Demandas
+        D1[Cliente A: SP→MA]
+        D2[Cliente B: SP→MA]
+        D3[Cliente C: SP→MA]
+    end
+    
+    subgraph IA Sugere
+        M1[Manifesto 1: 3 demandas<br/>Truck 80% ocupação]
+    end
+    
+    subgraph Operador
+        APPROVE[Aprovar/Ajustar]
+    end
+    
+    subgraph LINK
+        L1[Motorista João]
+    end
+    
+    D1 & D2 & D3 --> M1
+    M1 --> APPROVE
+    APPROVE --> L1
+```
+
+#### Funcionalidades:
+
+1. **Dashboard inteligente**
+   - Demandas agrupadas por destino
+   - Sugestão de consolidação por IA
+   - Ocupação projetada de veículos
+
+2. **Criação de Manifesto**
+   - Selecionar demandas compatíveis
+   - Atribuir veículo e LINK
+   - Gerar rota otimizada
+
+3. **Oferta ao LINK**
+   - WhatsApp com detalhes do manifesto
+   - Aceitar/Recusar via link
+   - Confirmação de coleta
+
+---
+
+### 🎯 Fase 3 - Automação e Integrações
+
+> **Foco**: Sistema opera de forma autônoma com mínima intervenção.
+
+1. **Integração Lonngren** (API ou scraping)
+   - Importar CTe emitidos
+   - Sincronizar manifestos
+   - Exportar dados para emissão
+
+2. **WhatsApp (Evolution API)**
+   - Receber demandas por WhatsApp
+   - Notificar clientes automaticamente
+   - Comunicar com LINKs
+
+3. **Email (API ou SMTP)**
+   - Cotações formatadas
+   - Links de tracking
+   - Relatórios automáticos
+
+4. **Orquestração Autônoma**
+   - IA aprova consolidações automaticamente
+   - Despacho automático para LINKs
+   - Apenas exceções vão para humanos
+
+---
+
+## 4. Prioridades do MVP (MoSCoW)
+
+### Tem que Ter (P0) - Sem isso não funciona
+
+| Item | Descrição |
+|------|-----------|
+| ① Chat → Demanda | Chat cria demanda no banco |
+| ② Dashboard Real | Admin lê/escreve no banco |
+| ③ Tracking funcional | Link público com status |
+| ④ Cotação manual | Operador cota demandas |
+
+### Deveria Ter (P1) - MVP completo
+
+| Item | Descrição |
+|------|-----------|
+| ⑤ Cotação automática | Motor de pricing integrado |
+| ⑥ Manifesto básico | Agrupar demandas em manifesto |
+| ⑦ Notificação email | Cotação e status por email |
+| ⑧ Login cliente | Cliente vê suas demandas |
+
+### Poderia Ter (P2) - Diferencial
+
+| Item | Descrição |
+|------|-----------|
+| ⑨ WhatsApp | Chat e notificações |
+| ⑩ Sugestão IA | IA sugere consolidação |
+| ⑪ App LINK/WhatsApp | Interface para transportador |
+| ⑫ Integração Lonngren | Sincronização bidirecional |
+
+### Não Terá (Futuro)
+
+- App mobile nativo
+- Marketplace público
+- Machine Learning avançado
+- Multi-tenant SaaS
+
+---
+
+## 5. Verificação do MVP
+
+### Cenário 1: Chat → Demanda → Cotação
+
+1. Acessar `/chat/demo`
+2. Enviar: "Quero enviar uma carga para Imperatriz-MA"
+3. Responder perguntas do agente (origem, peso, valor NF, etc.)
+4. Verificar se demanda foi criada no banco (via Admin)
+5. Cotar a demanda no Admin Dashboard
+6. Verificar se status mudou para "Cotado"
+
+### Cenário 2: Tracking público
+
+1. Criar demanda e avançar status
+2. Acessar `/tracking/{id}` sem login
+3. Verificar se timeline mostra eventos corretamente
+
+### Cenário 3: Consolidação básica
+
+1. Criar 3 demandas com mesmo destino
+2. Verificar agrupamento no Admin
+3. Criar manifesto com as 3 demandas
+4. Verificar ocupação do veículo
+
+---
+
+## 6. Arquitetura Proposta
+
+```mermaid
+flowchart TB
+    subgraph Frontend
+        CHAT[Chat IA]
+        ADMIN[Admin Dashboard]
+        TRACK[Tracking Público]
+    end
+    
+    subgraph Backend
+        API[Express API]
+        PRISMA[Prisma ORM]
+        GEMINI[Gemini AI]
+    end
+    
+    subgraph Banco de Dados
+        PG[(PostgreSQL)]
+    end
+    
+    subgraph Externo
+        LONNGREN[Lonngren<br/><small>Futuro</small>]
+        WHATSAPP[WhatsApp<br/><small>Futuro</small>]
+        EMAIL[Email]
+    end
+    
+    CHAT --> API
+    ADMIN --> API
+    TRACK --> API
+    API --> PRISMA
+    PRISMA --> PG
+    API --> GEMINI
+    API -.-> LONNGREN
+    API -.-> WHATSAPP
+    API --> EMAIL
+```
+
+---
+
+## 7. Resumo Executivo
+
+> [!IMPORTANT]  
+> **O MVP mínimo viável precisa de 4 coisas**:
+> 1. Chat que cria demandas reais no banco
+> 2. Admin que lê/escreve demandas via API
+> 3. Tracking público funcional
+> 4. Cotação manual pelo operador
+
+**Estimativa de esforço Fase 0**: 2-3 dias de desenvolvimento focado
+
+**Próximos passos após aprovação**:
+1. Criar cliente HTTP (`api.ts`) 
+2. Modificar [ChatWeb](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/ChatWeb.tsx#10-136) para persistir demandas
+3. Modificar [AdminDashboard](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/AdminDashboard.tsx#13-297) para usar API
+4. Testar fluxo completo
+
+---
+
+## Revisão do Usuário Necessária
+
+> [!CAUTION]
+> **Decisões que precisam da sua confirmação**:
+>
+> 1. **Chat como entrada principal**: Você confirma que o chat deve ser o ponto central de entrada de demandas, com formulário como alternativa secundária?
+>
+> 2. **Cotação automática vs manual**: Para o MVP, começamos com cotação manual pelo operador e depois automatizamos, ou já quer pricing automático desde o início?
+>
+> 3. **Integração Lonngren**: Isso deve entrar no MVP ou podemos deixar para depois? Se sim, você tem documentação da API ou precisaríamos fazer scraping?
+>
+> 4. **WhatsApp (Evolution API)**: Você já tem um servidor Evolution API configurado? Isso entraria em qual fase?
+>
+> 5. **Prioridade de notificações**: Email primeiro ou WhatsApp primeiro?

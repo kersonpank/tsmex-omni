@@ -1,0 +1,157 @@
+# TSM EX OMNI - Ciclo de Uso MVP
+
+## Atores do Sistema
+
+| Ator | Descrição | Acesso |
+|------|-----------|--------|
+| **ADMIN** | Operador TSM - cotação, consolidação, despacho | `/admin` |
+| **CLIENT** | Empresa contratante - cria demandas, acompanha | `/chat`, `/tracking` |
+| **LINK** | Motorista/transportador - recebe manifesto | (futuro: app) |
+
+---
+
+## Ciclo Atual (O que temos)
+
+```mermaid
+graph LR
+    subgraph "Cliente"
+        A[Chat ou<br/>Formulário] --> B[Cria Demanda]
+    end
+    
+    subgraph "Admin"
+        B --> C[Visualiza na<br/>Torre de Controle]
+        C --> D[Cota Manualmente]
+        D --> E[Demanda Cotada]
+    end
+    
+    subgraph "Tracking"
+        E -.-> F[Cliente vê<br/>status]
+    end
+```
+
+### ✅ Implementado
+| Componente | Status |
+|------------|--------|
+| Login com roles | ✅ |
+| AdminDashboard (lista demandas) | ✅ |
+| ChatWeb (cria demanda simples) | ✅ |
+| OnboardingWizard (formulário) | ✅ |
+| TrackingView (status) | ✅ |
+| API Demands CRUD | ✅ |
+| API Pricing (cálculo) | ✅ |
+| API Manifests CRUD | ✅ |
+| Sistema LLM Multi-Provider | ✅ |
+
+### ❌ Gaps Atuais
+1. Chat não usa IA de verdade (simula)
+2. Admin não atribui a manifesto
+3. Link não recebe/aceita manifesto
+4. Sem consolidação automática
+
+---
+
+## Ciclo MVP (O que queremos)
+
+```mermaid
+graph TB
+    subgraph "1. ENTRADA"
+        A1[Cliente via Chat<br/>IA entende] --> A2[IA chama<br/>create_demand]
+        A3[Cliente via Form] --> A2
+    end
+    
+    subgraph "2. COTAÇÃO"
+        A2 --> B1[IA chama<br/>get_quote]
+        B1 --> B2[Cliente confirma<br/>preço]
+    end
+    
+    subgraph "3. CONSOLIDAÇÃO"
+        B2 --> C1[Admin vê<br/>demandas prontas]
+        C1 --> C2[Agrupa em<br/>Manifesto]
+    end
+    
+    subgraph "4. DESPACHO"
+        C2 --> D1[Atribui a Link]
+        D1 --> D2[Link visualiza<br/>manifesto]
+    end
+    
+    subgraph "5. TRACKING"
+        D2 --> E1[Eventos de<br/>status]
+        E1 --> E2[Cliente acompanha]
+    end
+```
+
+---
+
+## Branches para MVP
+
+| # | Funcionalidade | Prioridade | Dependência |
+|---|----------------|------------|-------------|
+| **1** | Agente Chat com Function Calling | P0 | LLM ✅ |
+| **2** | Cotação automática via IA | P0 | 1 |
+| **3** | Fluxo de confirmação do cliente | P0 | 2 |
+| **4** | Admin: Criar Manifesto | P1 | Demands ✅ |
+| **5** | Admin: Atribuir Link | P1 | 4 |
+| **6** | Link: Ver Manifesto | P2 | 5 |
+
+---
+
+## Detalhamento por Branch
+
+### Branch 1: Agente Chat (P0)
+```
+ChatWeb.tsx
+├── Send message → LLM with tools
+├── LLM calls create_demand() → API
+├── LLM calls get_quote() → API
+├── LLM retorna resultado formatado
+└── Card de confirmação no chat
+```
+
+### Branch 2: Cotação Automática (P0)
+```
+Ao criar demanda:
+├── calcQuote(origin, dest, weight, nfValue)
+├── Busca PricingTable compatível
+├── Retorna breakdown: frete + gris + advalorem + icms
+└── Salva quotedPrice na demanda
+```
+
+### Branch 3: Confirmação (P0)
+```
+Cliente recebe:
+├── Card resumo da demanda
+├── Botões [Confirmar] [Ajustar]
+├── Confirmar → status=APPROVED
+└── Demanda aparece para consolidação
+```
+
+### Branch 4-5: Manifesto (P1)
+```
+Admin:
+├── Seleciona demandas APPROVED
+├── Cria manifesto com paradas
+├── Atribui a Link disponível
+└── Status demandas → ASSIGNED
+```
+
+### Branch 6: Link View (P2)
+```
+Link:
+├── Vê manifestos atribuídos
+├── Aceita/Rejeita
+├── Marca eventos (coletou, entregou)
+└── Status demandas → IN_TRANSIT, etc
+```
+
+---
+
+## Quick Reference: O que fazer agora?
+
+```
+PRÓXIMO: Branch 1 - Agente Chat
+├── Criar agentTools.ts (define tools)
+├── Modificar ChatWeb.tsx (usa LLM real)
+├── Executor de funções (chama APIs)
+└── Testar: "Quero enviar 500kg de SP para MA"
+```
+

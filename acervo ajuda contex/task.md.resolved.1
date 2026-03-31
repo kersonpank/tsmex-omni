@@ -1,0 +1,89 @@
+# TSM EX OMNI - Task Breakdown do MVP
+
+## ✅ Análise Concluída
+
+- [x] Analisar todos os documentos da pasta `ajudar ai`
+- [x] Revisar Blueprint Estratégico (NÓS + LINKS + CÉREBRO)
+- [x] Revisar implementation_plan.md anterior (875 linhas)
+- [x] Revisar handoff_context.md (riscos críticos)
+- [x] Identificar: **Backend 80% pronto, Frontend 10% conectado**
+
+---
+
+## 🎯 Fase 0: Conectar Frontend ↔ Backend (P0 - URGENTE)
+
+### Cliente HTTP
+- [ ] Criar [lib/api.ts](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/lib/api.ts) com axios configurado
+- [ ] Implementar interceptor JWT
+- [ ] Funções tipadas: `demandsApi`, `manifestsApi`, `pricingApi`
+
+### Tipos Sincronizados
+- [ ] Criar `types/prisma.ts` baseado no schema Prisma
+- [ ] Remover tipos antigos de [types.ts](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/types.ts)
+
+### AdminDashboard Conectado
+- [ ] Remover props `cargas` e `partners`
+- [ ] Buscar demandas via `GET /api/demands`
+- [ ] Cotar via `PATCH /api/demands/:id/quote`
+- [ ] Atualizar status via API
+
+### App.tsx Limpo
+- [ ] Remover useState de `cargas` e `partners`
+- [ ] Remover localStorage
+- [ ] Cada componente busca seus dados
+
+---
+
+## 🎯 Fase 1: Chat IA Funcional (P0)
+
+### Gemini Service Melhorado
+- [ ] Função `extractDemandData()` que retorna JSON estruturado
+- [ ] Detectar quando conversa coletou todos os dados
+- [ ] Flag `complete: true` quando pronto para criar demanda
+
+### ChatWeb Integrado
+- [ ] Verificar dados extraídos após cada mensagem
+- [ ] Mostrar card de confirmação quando `complete`
+- [ ] Criar demanda via `POST /api/demands` ao confirmar
+- [ ] Buscar cotação via `POST /api/pricing/calculate`
+- [ ] Mostrar cotação ao cliente
+
+---
+
+## 🎯 Fase 2: Consolidação Inteligente (P1)
+
+### Workspace de Consolidação
+- [ ] Criar `ConsolidationWorkspace.tsx`
+- [ ] Listar demandas pendentes agrupadas por destino
+- [ ] Visualização de ocupação de veículos (barras)
+
+### Sugestão de IA
+- [ ] Algoritmo de agrupamento por HUB destino
+- [ ] Encontrar veículo adequado para peso/volume
+- [ ] Interface de aprovação de manifestos
+
+### Manifestos
+- [ ] Criar manifesto via `POST /api/manifests`
+- [ ] Atribuir LINK ao manifesto
+- [ ] Atualizar status das demandas
+
+---
+
+## ⏳ Futuro (Não MVP)
+
+- [ ] Integração Lonngren (API ou scraping)
+- [ ] WhatsApp Evolution API
+- [ ] App Mobile LINK
+- [ ] OCR de NF via imagem
+- [ ] Machine Learning de rotas
+
+---
+
+## 📊 Progresso
+
+| Fase | Status | Progresso |
+|------|--------|-----------|
+| Análise | ✅ Completo | 100% |
+| Fase 0 - Conexão | ⏳ Aguardando aprovação | 0% |
+| Fase 1 - Chat IA | ⏳ Não iniciado | 0% |
+| Fase 2 - Consolidação | ⏳ Não iniciado | 0% |

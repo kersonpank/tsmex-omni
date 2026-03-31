@@ -1,0 +1,19 @@
+# Migration and seed service - uses development deps
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY server/package*.json ./
+
+# Install all dependencies (need tsx for seed)
+RUN npm ci
+
+# Copy Prisma schema, migrations and seed
+COPY server/prisma ./prisma
+
+# Generate Prisma client
+RUN npx prisma generate
+
+# Default command: push schema to database and seed
+CMD ["sh", "-c", "npx prisma db push --accept-data-loss && npx tsx prisma/seed.ts && npx tsx prisma/migrate-persons.ts"]

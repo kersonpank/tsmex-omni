@@ -1,0 +1,343 @@
+# Chat Agente - Pipeline Comercial
+
+## 🎯 Insight Chave
+
+**Nem toda conversa = Demanda fechada**
+
+```
+Conversa → Oportunidade(s) → Confirmação → Demanda → Pedido
+```
+
+---
+
+## Fluxo Real de Negócio
+
+### Cenários Comuns
+
+| Cenário | Exemplo | Resultado |
+|---------|---------|-----------|
+| **Só cotação** | "Quanto custa enviar 500kg de SP pra MA?" | Oportunidade (não fecha) |
+| **Cotação + interesse** | "Quanto custa? ... OK, quero fazer" | Oportunidade → Demanda |
+| **Múltiplas cotações** | "Quero cotar 3 envios diferentes" | 3 Oportunidades |
+| **Só coleta** | "Preciso de coleta amanhã 8h" | Oportunidade de coleta |
+| **Informação solta** | Envia foto da NF + "me passa o preço" | IA extrai dados da imagem |
+
+---
+
+## Schema Changes Necessários
+
+### Novo: Opportunity (Pipeline Comercial)
+
+```prisma
+model Opportunity {
+  id              String   @id @default(uuid())
+  sessionId       String   // Conversa do chat
+  
+  // Status comercial
+  stage           OpportunityStage  // QUOTE, REQUESTED, WON, LOST
+  
+  // Tipo
+  type            OpportunityType   // QUOTE_ONLY, TRANSPORT, COLLECTION
+  
+  // Dados extraídos (podem estar incompletos)
+  cpfCnpjSender   String?
+  cpfCnpjReceiver String?
+  commodity       String?
+  nfValue         Float?
+  weight          Float?
+  volumes         Int?
+  dimensions      String?  // "100x50x30 cm"
+  
+  // Coleta
+  needsCollection Boolean  @default(false)
+  collectionAddress Json?  // {street, number, city, cep, contact}
+  collectionTime  String?
+  needsHelper     Boolean  @default(false)
+  
+  // Cotação (se calculada)
+  quotedPrice     Float?
+  quoteBreakdown  Json?    // {freight, gris, icms, total}
+  
+  // Origem → Destino
+  origin          String?
+  destination     String?
+  
+  // Conversa
+  messagesSnapshot Json[]  // Captura do contexto da conversa
+  
+  // Se converter em demanda
+  demandId        String?  @unique
+  demand          Demand?  @relation(fields: [demandId], references: [id])
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+enum OpportunityStage {
+  QUOTE       // Só perguntou valor
+  REQUESTED   // Pediu para fechar
+  WON         // Confirmou e virou Demand
+  LOST        // Desistiu/não respondeu
+}
+
+enum OpportunityType {
+  QUOTE_ONLY   // Só quer saber preço
+  TRANSPORT    // Quer transportar
+  COLLECTION   // Quer coleta
+  BOTH         // Quer transporte + coleta
+}
+```
+
+---
+
+## UX do Chat
+
+### Fluxo Conversacional
+
+```mermaid
+graph TB
+    A[Usuário envia<br/>mensagem solta] --> B{IA analisa}
+    B --> C[Pergunta faltantes<br/>naturalmente]
+    C --> D[Usuário responde]
+    D --> B
+    
+    B --> E[Dados completos?]
+    E -->|Sim| F[IA cria<br/>Opportunity]
+    F --> G[Mostra card<br/>de confirmação]
+    
+    G --> H{Usuário<br/>confirma?}
+    H -->|Sim| I[Vira Demand<br/>stage=WON]
+    H -->|Não| J[stage=LOST]
+    H -->|Ignora| K[stage=QUOTE]
+```
+
+### Cards de Oportunidade (Carrossel)
+
+Quando IA identifica oportunidade(s), mostra **na horizontal**:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Chat com Cliente                                            │
+│                                                             │
+│ IA: "Entendi! Identifiquei 2 cotações:"                   │
+│                                                             │
+│ ┌──────────────┐  ┌──────────────┐                        │
+│ │ Cotação #1   │  │ Cotação #2   │  ◀─ Carrossel         │
+│ │━━━━━━━━━━━━━│  │━━━━━━━━━━━━━│                        │
+│ │ SP → MA      │  │ SP → CE      │                        │
+│ │ 500kg        │  │ 200kg        │                        │
+│ │ R$ 1.200     │  │ R$ 680       │                        │
+│ │              │  │              │                        │
+│ │ [Confirmar]  │  │ [Confirmar]  │                        │
+│ │ [Ajustar]    │  │ [Ajustar]    │                        │
+│ └──────────────┘  └──────────────┘                        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Comportamento da IA
+
+### System Prompt (Resumido)
+
+```
+Você é um especialista em logística da TSM EX.
+
+SEU TRABALHO:
+1. Extrair informações de mensagens desorganizadas
+2. Perguntar o que falta de forma natural e amigável
+3. Calcular cotações quando tiver dados suficientes
+4. Criar oportunidades formatadas para confirmação
+
+INFORMAÇÕES NECESSÁRIAS:
+
+Para cotação:
+- Origem e destino (cidades)
+- Peso total
+- Valor da NF
+- Quantidade de volumes
+- Dimensões (se necessário)
+- CPF/CNPJ remetente e destinatário (opcional para cotação)
+
+Para coleta:
+- Endereço completo
+- Contato (nome, telefone)
+- Horário disponível
+- Dados da mercadoria
+
+REGRAS:
+- NÃO peça tudo de uma vez
+- Seja conversacional e amigável
+- Se usuário enviar imagem da NF, extraia dados
+- Se informação estiver incompleta, peça naturalmente
+- Quando tiver dados suficientes, use create_opportunity()
+```
+
+### Tools Disponíveis
+
+```typescript
+const AGENT_TOOLS = [
+  {
+    name: 'create_opportunity',
+    description: 'Cria oportunidade de cotação/transporte',
+    parameters: {
+      type: 'QUOTE_ONLY | TRANSPORT | COLLECTION | BOTH',
+      origin: 'cidade origem',
+      destination: 'cidade destino',
+      weight: 'peso em kg',
+      nfValue: 'valor da NF',
+      volumes: 'quantidade',
+      needsCollection: boolean,
+      // ... outros campos
+    }
+  },
+  {
+    name: 'calculate_quote',
+    description: 'Calcula cotação com base em origem, destino, peso, valor',
+    parameters: { origin, destination, weight, nfValue }
+  },
+  {
+    name: 'extract_from_document',
+    description: 'Extrai dados de imagem de NF ou documento',
+    parameters: { imageUrl }
+  },
+  {
+    name: 'list_opportunities',
+    description: 'Lista oportunidades da conversa atual',
+    parameters: { sessionId }
+  }
+];
+```
+
+---
+
+## Pipeline Comercial no Admin
+
+### Nova Aba: "Comercial"
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Admin > Comercial                                           │
+│                                                             │
+│ ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
+│ │ Oportunidades│  │   Pedidas   │  │   Ganhas    │         │
+│ │ (QUOTE)      │  │ (REQUESTED) │  │    (WON)    │         │
+│ │━━━━━━━━━━━━━│  │━━━━━━━━━━━━━│  │━━━━━━━━━━━━━│         │
+│ │ 🔵 SP→MA     │  │ 🟡 SP→CE     │  │ 🟢 SP→BA     │         │
+│ │ R$ 1.200     │  │ R$ 680       │  │ R$ 950       │         │
+│ │ Hoje 14:30   │  │ Ontem 16:00  │  │ Hoje 09:00   │         │
+│ │              │  │              │  │              │         │
+│ │ 🔵 RJ→MG     │  │ 🟡 SP→RJ     │  │              │         │
+│ │ R$ 450       │  │ R$ 1.100     │  │              │         │
+│ │ Hoje 15:10   │  │ Hoje 10:30   │  │              │         │
+│ └─────────────┘  └─────────────┘  └─────────────┘         │
+│                                                             │
+│ Ações rápidas:                                              │
+│ • Converter em Demanda                                      │
+│ • Marcar como Perdida                                       │
+│ • Enviar follow-up                                          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Exemplo de Conversa Real
+
+```
+👤: Oi, preciso enviar umas caixas pra imperatriz
+
+🤖: Olá! Vou te ajudar. De onde vai sair essa carga?
+
+👤: São Paulo
+
+🤖: Perfeito! Quantos kg no total?
+
+👤: Acho que umas 500kg
+
+🤖: Entendi. Qual o valor da nota fiscal?
+
+👤: [envia foto da NF]
+
+🤖: Vi aqui! NF de R$ 15.000. Quantas caixas são?
+
+👤: 10 caixas
+
+🤖: Ótimo! Deixa eu calcular...
+
+[IA chama calculate_quote(SP, Imperatriz, 500kg, 15000)]
+[IA chama create_opportunity()]
+
+🤖: Pronto! Aqui está sua cotação:
+
+┌──────────────────────────────┐
+│ SP → Imperatriz, MA          │
+│ 500kg • 10 volumes           │
+│ NF: R$ 15.000                │
+│                              │
+│ Frete: R$ 575,00             │
+│ GRIS: R$ 45,00               │
+│ Ad Valorem: R$ 1.500,00      │
+│ ICMS: R$ 254,40              │
+│ ─────────────────────       │
+│ TOTAL: R$ 2.374,40           │
+│                              │
+│ Prazo: 5-7 dias úteis        │
+│                              │
+│ [✅ Confirmar Pedido]        │
+│ [📝 Ajustar Dados]           │
+└──────────────────────────────┘
+
+👤: Boa! Mas precisa coletar
+
+🤖: Sem problema! Me passa o endereço e horário disponível?
+
+👤: Rua tal, 123, Vila Olímpia, SP. Amanhã de manhã
+
+🤖: Perfeito! Precisa de ajudante pra carregar?
+
+👤: Sim
+
+🤖: [atualiza opportunity com needsCollection=true, needsHelper=true]
+
+Pronto! Coleta agendada para amanhã pela manhã.
+Valor com coleta: R$ 2.474,40
+
+[✅ Fechar Pedido]
+```
+
+---
+
+## Perguntas para Validar
+
+1. **Opportunity vira Demand quando?**
+   - ❓ Quando cliente clica "Confirmar"?
+   - ❓ Ou só quando Admin aprovar no pipeline?
+
+2. **Múltiplas oportunidades na mesma conversa:**
+   - ✅ Mostrar em carrossel (você já disse)
+   - ❓ Podem confirmar separadamente?
+
+3. **Informações parciais:**
+   - ❓ Salvar opportunity mesmo sem todos os dados?
+   - ❓ Ou só criar quando tiver o mínimo para cotar?
+
+4. **Follow-up:**
+   - ❓ IA deve fazer follow-up automaticamente?
+   - ❓ "Oi, vi que cotou ontem. Quer fechar?"
+
+---
+
+## Minha Recomendação MVP
+
+### Fase 1 (Agora):
+1. ✅ Schema Opportunity
+2. ✅ Chat extrai dados e cria oportunidades
+3. ✅ Carrossel de cards no chat
+4. ✅ Botão "Confirmar" → vira Demand
+
+### Fase 2 (Depois):
+1. Aba Comercial no Admin
+2. Pipeline visual (Kanban)
+3. Follow-up automático
+4. Análise de taxa de conversão
+

@@ -1,0 +1,183 @@
+# Plano: Sistema LLM Multi-Provider + Agente MVP
+
+## Visão Geral
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ OBJETIVO: Infraestrutura flexível + Agente funcional       │
+│                                                             │
+│ ┌─────────────────┐    ┌──────────────────────────────────┐ │
+│ │ Config LLMs     │ → │ Agente Chat (function calling)   │ │
+│ │ (Multi-provider)│    │ • create_demand()                │ │
+│ │                 │    │ • get_quote()                    │ │
+│ │ Gemini ✓        │    │ • check_tracking()               │ │
+│ │ OpenAI ✓        │    └──────────────────────────────────┘ │
+│ │ DeepSeek ✓      │                                        │
+│ │ Claude ✓        │                                        │
+│ └─────────────────┘                                        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Parte 1: Configurações > LLM (Robusto)
+
+### Schema Atualizado
+
+```prisma
+model LLMProvider {
+  id          String   @id @default(uuid())
+  name        String   // "OpenAI", "Google Gemini", "DeepSeek"
+  code        String   @unique
+  
+  // Tipo de API (todos compatíveis com OpenAI usam "openai")
+  apiFormat   String   @default("openai")  // "openai" | "gemini" | "anthropic"
+  
+  // Endpoint
+  baseUrl     String   // https://api.openai.com/v1, https://api.deepseek.com, etc
+  
+  // Features
+  supportsTools Boolean @default(true)  // Function calling
+  
+  isBuiltIn   Boolean  @default(false)  // Pré-configurados vs customizados
+  active      Boolean  @default(true)
+  
+  models      LLMModel[]
+  apiKey      LLMApiKey?
+}
+```
+
+### UI: Tela de Configurações LLM
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ ⚙️ Configurações > Modelos de IA                           │
+│                                                             │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ PROVIDERS DISPONÍVEIS                                   │ │
+│ │                                                         │ │
+│ │ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐        │ │
+│ │ │ Gemini  │ │ OpenAI  │ │DeepSeek │ │ Claude  │        │ │
+│ │ │ ✓ Key   │ │ Sem key │ │ Sem key │ │ Sem key │        │ │
+│ │ └─────────┘ └─────────┘ └─────────┘ └─────────┘        │ │
+│ │                                                         │ │
+│ │ [+ Adicionar Provider Customizado]                      │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│                                                             │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ MODELOS CONFIGURADOS                                    │ │
+│ │                                                         │ │
+│ │ ● Gemini 2.0 Flash     gemini-2.0-flash    [PADRÃO]   │ │
+│ │   chat, tools • 1M ctx • $0.075/$0.30                  │ │
+│ │   [Testar] [Editar] [🗑]                               │ │
+│ │                                                         │ │
+│ │ ○ GPT-4o               gpt-4o               [Ativar]   │ │
+│ │   chat, tools, vision • 128K ctx • $5/$15             │ │
+│ │   [Testar] [Editar] [🗑]                               │ │
+│ │                                                         │ │
+│ │ [+ Adicionar Modelo]                                    │ │
+│ └─────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Modal: Adicionar Modelo (Completo)
+
+| Campo | Tipo | Obrigatório |
+|-------|------|-------------|
+| Provider | Dropdown | ✅ |
+| Nome | Text | ✅ |
+| Model ID | Text | ✅ |
+| Descrição | Text | - |
+| Capabilities | Checkboxes (chat/tools/vision/json) | ✅ |
+| Context Window | Number | ✅ |
+| Max Output | Number | ✅ |
+| Preço Input (USD/1M) | Number | - |
+| Preço Output (USD/1M) | Number | - |
+
+### Modal: Adicionar Provider Customizado
+
+| Campo | Tipo | Exemplo |
+|-------|------|---------|
+| Nome | Text | "Groq" |
+| Código | Text | "groq" |
+| Base URL | Text | "https://api.groq.com/openai/v1" |
+| Formato API | Dropdown | "OpenAI-compatible" |
+| Suporta Tools | Toggle | ✅ |
+
+---
+
+## Parte 2: Backend LLM Service (Universal)
+
+### Lógica Simplificada
+
+```typescript
+// Chave: usar baseUrl + apiFormat para decidir como chamar
+async function callLLM(provider, model, messages, tools?) {
+  switch (provider.apiFormat) {
+    case 'openai':  // OpenAI, DeepSeek, Groq, Together, etc.
+      return callOpenAIFormat(provider.baseUrl, model, messages, tools);
+    case 'gemini':
+      return callGeminiFormat(model, messages, tools);
+    case 'anthropic':
+      return callAnthropicFormat(model, messages, tools);
+  }
+}
+```
+
+---
+
+## Parte 3: Agente MVP (3 Funções)
+
+```typescript
+const AGENT_TOOLS = [
+  {
+    name: 'create_demand',
+    description: 'Cria demanda de transporte',
+    parameters: { origin, destination, commodity, weight, nfValue, volumes }
+  },
+  {
+    name: 'get_quote', 
+    description: 'Calcula cotação de frete',
+    parameters: { origin, destination, weight, nfValue }
+  },
+  {
+    name: 'check_tracking',
+    description: 'Verifica status de uma demanda',
+    parameters: { demandId }
+  }
+];
+```
+
+---
+
+## Ordem de Implementação
+
+### 1️⃣ Atualizar Schema e Backend (Hoje)
+- [ ] Adicionar campos `apiFormat`, `baseUrl`, `supportsTools` ao schema
+- [ ] Refatorar [llmService.ts](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/server/src/services/llmService.ts) para usar `apiFormat` ao invés de switch por código
+- [ ] Atualizar seed com URLs corretas
+
+### 2️⃣ Melhorar UI SettingsLLM (Hoje)
+- [ ] Form completo no "Adicionar Modelo"
+- [ ] Modal "Adicionar Provider Customizado"
+- [ ] Visualização melhorada dos modelos
+
+### 3️⃣ Implementar Agente com Function Calling (Próximo)
+- [ ] Definir AGENT_TOOLS
+- [ ] Integrar no ChatWeb.tsx
+- [ ] Executor de funções
+- [ ] Testar fluxo completo
+
+---
+
+## Providers Pré-Configurados (Seed)
+
+| Provider | Base URL | Formato |
+|----------|----------|---------|
+| Google Gemini | `https://generativelanguage.googleapis.com/v1beta` | gemini |
+| OpenAI | `https://api.openai.com/v1` | openai |
+| DeepSeek | `https://api.deepseek.com` | openai |
+| Anthropic | `https://api.anthropic.com/v1` | anthropic |
+| Groq | `https://api.groq.com/openai/v1` | openai |
+| Together | `https://api.together.xyz/v1` | openai |
+

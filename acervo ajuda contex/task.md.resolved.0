@@ -1,0 +1,28 @@
+# TSM EX OMNI - Definição do MVP
+
+## Objetivo Principal
+Definir e planejar o MVP do TSM EX OMNI focado em:
+1. Experiência do usuário centrada no chat com agente IA
+2. Sistema escalável que permita automação progressiva
+3. Orquestração de demandas via HUBs e LINKs
+
+---
+
+## Tarefas
+
+### Análise do Estado Atual
+- [x] Explorar estrutura do projeto
+- [x] Analisar schema Prisma (entidades: User, Client, Link, Hub, Demand, Manifest, Pricing)
+- [x] Revisar componentes frontend (ChatWeb, AdminDashboard, OnboardingWizard, TrackingView)
+- [x] Analisar rotas do backend (auth, clients, demands, hubs, links, manifests, pricing)
+- [x] Identificar gaps entre frontend e backend
+
+### Definição Estratégica do MVP
+- [/] Criar documento de implementação MVP focado no usuário
+- [ ] Definir personas e jornadas principais
+- [ ] Mapear dores atuais vs. soluções propostas
+- [ ] Definir prioridades (P0, P1, P2)
+
+### Entrega do Plano
+- [ ] Apresentar plano ao usuário para aprovação
+- [ ] Iterar conforme feedback

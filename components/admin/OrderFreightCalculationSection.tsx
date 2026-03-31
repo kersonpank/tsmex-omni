@@ -1,0 +1,877 @@
+import React, { useState, useEffect } from 'react';
+import { ordersFreightApi, hubsApi, pricingApi, clientsApi } from '../../lib/api';
+import type {
+  OrderFreightCalculation,
+  Hub,
+  PricingTable,
+  PricingRoute,
+  Client,
+} from '../../types/index';
+
+const CFOP_OPTIONS = ['6351', '6352', '6353', '6354', '6355', '6356', '6357', '6360', '6932', '6949', '7358'];
+const TIPO_FRETE_OPTIONS = ['Normal', 'Descarga', 'Devolução', 'Diária', 'Paletização', 'Reentrega', 'Retorno'];
+
+const BREAKDOWN_LABELS: Record<string, string> = {
+  freightBase: 'Frete Peso',
+  adValorem: 'Ad Valorem',
+  gris: 'GRIS',
+  toll: 'Pedágio',
+  dispatch: 'Despacho',
+  others: 'Outros',
+  icms: 'ICMS',
+};
+
+interface OrderFreightCalculationSectionProps {
+  orderId: string;
+  order: {
+    origemPrestacao?: string | null;
+    fimPrestacao?: string | null;
+    routeId?: string | null;
+    freightTerm?: string | null;
+    remetentePersonId?: string | null;
+    destinatarioPersonId?: string | null;
+    consignatarioPersonId?: string | null;
+    invoicesRel?: { volumes: number; weight: number; cubedVolume?: number | null; value: number }[];
+    collectionData?: unknown;
+    demand?: { client?: Client };
+  };
+  onSaved: () => void;
+  isHub?: boolean;
+  hubId?: string;
+}
+
+export const OrderFreightCalculationSection: React.FC<OrderFreightCalculationSectionProps> = ({
+  orderId,
+  order,
+  onSaved,
+  isHub = false,
+  hubId: userHubId,
+}) => {
+  const [calculations, setCalculations] = useState<OrderFreightCalculation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [addingNew, setAddingNew] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const loadCalculations = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await ordersFreightApi.list(orderId);
+      const data = (res as { data?: OrderFreightCalculation[] })?.data ?? [];
+      setCalculations(Array.isArray(data) ? data : []);
+    } catch (e: any) {
+      setError(e.response?.data?.error ?? e.response?.data?.message ?? e.message ?? 'Erro ao carregar cálculos');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadCalculations();
+  }, [orderId]);
+
+  const handleCreated = () => {
+    setAddingNew(false);
+    loadCalculations();
+    onSaved();
+  };
+
+  const handleUpdated = () => {
+    setEditingId(null);
+    loadCalculations();
+    onSaved();
+  };
+
+  const handleDeleted = () => {
+    loadCalculations();
+    onSaved();
+  };
+
+  const params = getOrderParams(order);
+  const availableHubs = useEmissorHubs(isHub, userHubId);
+
+  return (
+    <div className="space-y-4">
+      {error && (
+        <div className="p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-300 text-sm">
+          {error}
+        </div>
+      )}
+
+      {/* Painel Parâmetros */}
+      <div className="bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-lg p-4">
+        <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">Parâmetros do Pedido</h4>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+          <div><span className="text-slate-500 dark:text-slate-400">Volumes:</span> {params.volumes}</div>
+          <div><span className="text-slate-500 dark:text-slate-400">Peso (kg):</span> {params.weight.toFixed(2)}</div>
+          <div><span className="text-slate-500 dark:text-slate-400">Cubagem (m³):</span> {params.cubage?.toFixed(3) ?? '-'}</div>
+          <div><span className="text-slate-500 dark:text-slate-400">Valor NF:</span> R$ {params.nfValue.toFixed(2)}</div>
+        </div>
+      </div>
+
+      {/* Lista de cálculos */}
+      <div className="space-y-3">
+        {calculations.map((calc) => (
+          <OrderFreightCard
+            key={calc.id}
+            orderId={orderId}
+            calc={calc}
+            order={order}
+            params={params}
+            availableHubs={availableHubs}
+            onEdit={() => setEditingId(calc.id)}
+            onDelete={handleDeleted}
+            onCalculate={loadCalculations}
+            isEditing={editingId === calc.id}
+            onCloseEdit={() => setEditingId(null)}
+            onSaved={handleUpdated}
+            isHub={isHub}
+            userHubId={userHubId}
+          />
+        ))}
+      </div>
+
+      {addingNew && (
+        <OrderFreightForm
+          orderId={orderId}
+          order={order}
+          params={params}
+          availableHubs={availableHubs}
+          onSaved={handleCreated}
+          onCancel={() => setAddingNew(false)}
+          isHub={isHub}
+          userHubId={userHubId}
+        />
+      )}
+
+      {!addingNew && (
+        <button
+          type="button"
+          onClick={() => setAddingNew(true)}
+          className="w-full py-3 border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg text-slate-600 dark:text-slate-400 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors font-medium"
+        >
+          + Adicionar cálculo
+        </button>
+      )}
+    </div>
+  );
+};
+
+function getOrderParams(order: OrderFreightCalculationSectionProps['order']) {
+  const inv = order.invoicesRel ?? [];
+  const cd = (order.collectionData ?? {}) as Record<string, unknown>;
+  const volumes = inv.reduce((s, i) => s + (i.volumes ?? 0), 0) || (cd.volumes != null ? Number(cd.volumes) : 0);
+  const weight = inv.reduce((s, i) => s + (i.weight ?? 0), 0) || (cd.weight != null ? Number(cd.weight) : 0);
+  const value = inv.reduce((s, i) => s + (i.value ?? 0), 0) || (cd.nfValue != null ? Number(cd.nfValue) : 0);
+  let cubedVolume = inv.reduce((s, i) => s + (i.cubedVolume ?? 0), 0);
+  if (cubedVolume === 0 && cd.cubedVolume != null) cubedVolume = Number(cd.cubedVolume);
+  return { volumes, weight, cubage: cubedVolume > 0 ? cubedVolume : undefined, nfValue: value };
+}
+
+function useEmissorHubs(isHub: boolean, userHubId?: string): Hub[] {
+  const [hubs, setHubs] = useState<Hub[]>([]);
+  useEffect(() => {
+    hubsApi.list().then((r: any) => {
+      const data = (r?.data ?? r) || [];
+      const list = Array.isArray(data) ? data : [];
+      // Apenas hubs com CNPJ (person) vinculado podem emitir documentos
+      const withCnpj = list.filter((h: Hub) => h.person?.document);
+      if (isHub && userHubId) {
+        setHubs(withCnpj.filter((h: Hub) => h.id === userHubId));
+      } else {
+        setHubs(withCnpj);
+      }
+    }).catch(() => setHubs([]));
+  }, [isHub, userHubId]);
+  return hubs;
+}
+
+interface OrderFreightCardProps {
+  orderId: string;
+  calc: OrderFreightCalculation;
+  order: OrderFreightCalculationSectionProps['order'];
+  params: { volumes: number; weight: number; cubage?: number; nfValue: number };
+  availableHubs: Hub[];
+  onEdit: () => void;
+  onDelete: () => void;
+  onCalculate: () => void;
+  isEditing: boolean;
+  onCloseEdit: () => void;
+  onSaved: () => void;
+  isHub?: boolean;
+  userHubId?: string;
+}
+
+function OrderFreightCard({
+  orderId,
+  calc,
+  order,
+  params,
+  availableHubs,
+  onEdit,
+  onDelete,
+  onCalculate,
+  isEditing,
+  onCloseEdit,
+  onSaved,
+  isHub,
+  userHubId,
+}: OrderFreightCardProps) {
+  const [calculating, setCalculating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [emittingMinuta, setEmittingMinuta] = useState(false);
+  const [emittingCte, setEmittingCte] = useState(false);
+
+  const headerLabel = calc.documentType === 'CTE' ? 'CT-e' : 'Minuta';
+  const emissorLabel = calc.emissor
+    ? `${calc.emissor.code ?? calc.emissor.name} ${(calc.emissor as any)?.person?.document ?? ''}`
+    : 'Emissor';
+
+  const canEmitMinuta = calc.documentType === 'MINUTA' && calc.status !== 'MINUTA_EMITTED' && (calc.freightTotal ?? 0) > 0;
+  const canEmitCte = calc.documentType === 'CTE' && calc.status !== 'CTE_AUTHORIZED' && (calc.freightTotal ?? 0) > 0;
+
+  const handleCalculate = async () => {
+    if (calc.calculationMethod === 'INFORMADO') return;
+    setCalculating(true);
+    try {
+      await ordersFreightApi.calculate(orderId, calc.id);
+      onCalculate();
+    } catch {
+      // erro mostrado em toast/global
+    } finally {
+      setCalculating(false);
+    }
+  };
+
+  const handleEmitMinuta = async () => {
+    setEmittingMinuta(true);
+    try {
+      await ordersFreightApi.emitMinuta(orderId, calc.id);
+      onCalculate();
+    } catch {
+      // erro mostrado em toast/global
+    } finally {
+      setEmittingMinuta(false);
+    }
+  };
+
+  const handleEmitCte = async () => {
+    setEmittingCte(true);
+    try {
+      await ordersFreightApi.emitCte(orderId, calc.id);
+      onCalculate();
+    } catch {
+      // erro mostrado em toast/global
+    } finally {
+      setEmittingCte(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!window.confirm('Remover este cálculo?')) return;
+    setDeleting(true);
+    try {
+      await ordersFreightApi.delete(orderId, calc.id);
+      onDelete();
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  if (isEditing) {
+    return (
+      <OrderFreightForm
+        orderId={orderId}
+        calc={calc}
+        order={order}
+        params={params}
+        availableHubs={availableHubs}
+        onSaved={() => { onSaved(); onCloseEdit(); }}
+        onCancel={onCloseEdit}
+        isHub={isHub}
+        userHubId={userHubId}
+      />
+    );
+  }
+
+  return (
+    <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl p-4">
+      <div className="flex justify-between items-start">
+        <div>
+          <span className="font-semibold text-slate-800 dark:text-slate-100">{headerLabel} - {emissorLabel}</span>
+          <span className="ml-2 px-2 py-0.5 rounded text-xs bg-slate-100 dark:bg-slate-600 text-slate-600 dark:text-slate-300">
+            {calc.status}
+          </span>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          {calc.calculationMethod !== 'INFORMADO' && calc.status === 'DRAFT' && (
+            <button
+              type="button"
+              onClick={handleCalculate}
+              disabled={calculating}
+              className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {calculating ? 'Calculando...' : 'Calcular'}
+            </button>
+          )}
+          {canEmitMinuta && (
+            <button
+              type="button"
+              onClick={handleEmitMinuta}
+              disabled={emittingMinuta}
+              className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+            >
+              {emittingMinuta ? 'Emitindo...' : 'Emitir Minuta'}
+            </button>
+          )}
+          {canEmitCte && (
+            <button
+              type="button"
+              onClick={handleEmitCte}
+              disabled={emittingCte}
+              className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+            >
+              {emittingCte ? 'Emitindo...' : 'Emitir CT-e'}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onEdit}
+            className="px-3 py-1.5 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"
+          >
+            Editar
+          </button>
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={deleting}
+            className="px-3 py-1.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg disabled:opacity-50"
+          >
+            {deleting ? '...' : 'Remover'}
+          </button>
+        </div>
+      </div>
+      <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+        Método: {calc.calculationMethod === 'ESPECIAL' ? 'Especial' : calc.calculationMethod === 'TARIFA_GERAL' ? 'Tarifa Geral' : 'Informado'}
+        {calc.pricingTable && ` · Tabela: ${calc.pricingTable.description}`}
+      </div>
+      {calc.freightTotal > 0 && (
+        <div className="mt-2 flex items-center gap-4 flex-wrap">
+          <span className="text-lg font-bold text-emerald-600 dark:text-emerald-400">R$ {calc.freightTotal.toFixed(2)}</span>
+          {calc.breakdown && Object.entries(calc.breakdown).map(([k, v]) => (
+            v > 0 && <span key={k} className="text-xs text-slate-500 dark:text-slate-400">{BREAKDOWN_LABELS[k] ?? k}: R$ {Number(v).toFixed(2)}</span>
+          ))}
+        </div>
+      )}
+      {(calc.minutaNumber || calc.cteAccessKey) && (
+        <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-600 text-sm">
+          {calc.minutaNumber && (
+            <div className="text-slate-600 dark:text-slate-300">
+              <span className="font-medium">Minuta nº</span> {calc.minutaNumber}
+            </div>
+          )}
+          {calc.cteAccessKey && (
+            <div className="text-slate-600 dark:text-slate-300 mt-1">
+              <span className="font-medium">Chave CT-e:</span>{' '}
+              <span className="font-mono text-xs break-all">{calc.cteAccessKey}</span>
+            </div>
+          )}
+          {calc.cteProtocol && (
+            <div className="text-slate-600 dark:text-slate-300 mt-0.5">
+              <span className="font-medium">Protocolo:</span> {calc.cteProtocol}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface OrderFreightFormProps {
+  orderId: string;
+  calc?: OrderFreightCalculation;
+  order: OrderFreightCalculationSectionProps['order'];
+  params: { volumes: number; weight: number; cubage?: number; nfValue: number };
+  availableHubs: Hub[];
+  onSaved: () => void;
+  onCancel: () => void;
+  isHub?: boolean;
+  userHubId?: string;
+}
+
+function OrderFreightForm({
+  orderId,
+  calc,
+  order,
+  params,
+  availableHubs,
+  onSaved,
+  onCancel,
+  isHub,
+  userHubId,
+}: OrderFreightFormProps) {
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [routes, setRoutes] = useState<PricingRoute[]>([]);
+  const [specialTables, setSpecialTables] = useState<PricingTable[]>([]);
+  const [payerClientId, setPayerClientId] = useState<string | null>(null);
+  const [generalTables, setGeneralTables] = useState<PricingTable[]>([]);
+  const [preview, setPreview] = useState<{ total: number; breakdown: Record<string, number>; tableName?: string } | null>(null);
+
+  const [form, setForm] = useState({
+    documentType: (calc?.documentType ?? 'MINUTA') as 'CTE' | 'MINUTA',
+    emissorId: calc?.emissorId ?? (isHub ? userHubId ?? '' : availableHubs[0]?.id ?? ''),
+    calculationMethod: (calc?.calculationMethod ?? 'ESPECIAL') as 'ESPECIAL' | 'TARIFA_GERAL' | 'INFORMADO',
+    pricingTableId: calc?.pricingTableId ?? '',
+    routeId: calc?.routeId ?? order.routeId ?? '',
+    originCity: calc?.originCity ?? order.origemPrestacao ?? '',
+    destCity: calc?.destCity ?? order.fimPrestacao ?? '',
+    cfop: calc?.cfop ?? '',
+    tipoFrete: calc?.tipoFrete ?? 'Normal',
+    cst: calc?.cst ?? '',
+    observacoes: calc?.observacoes ?? '',
+    freightTotal: calc?.freightTotal ?? 0,
+    breakdown: (calc?.breakdown ?? { freightBase: 0, adValorem: 0, gris: 0, toll: 0, dispatch: 0, others: 0, icms: 0 }) as Record<string, number>,
+  });
+
+  useEffect(() => {
+    pricingApi.listRoutes({ includeInactive: false }).then((r: any) => {
+      const data = (r?.data ?? r) ?? [];
+      setRoutes(Array.isArray(data) ? data : []);
+    }).catch(() => {});
+
+    const payerPersonId = getPayerPersonId(order);
+    if (payerPersonId) {
+      clientsApi.list().then((r: any) => {
+        const clients = (r?.data ?? r) ?? [];
+        const c = (Array.isArray(clients) ? clients : []).find(
+          (cl: Client) => (cl as any).personId === payerPersonId || cl.person?.id === payerPersonId
+        );
+        if (c) {
+          setPayerClientId(c.id);
+          pricingApi.listTables({ clientId: c.id, type: 'SPECIAL', active: true }).then((rt: any) => {
+            const t = (rt?.data ?? rt) ?? [];
+            setSpecialTables(Array.isArray(t) ? t : []);
+          }).catch(() => {});
+        }
+      }).catch(() => {});
+    }
+  }, [order]);
+
+  useEffect(() => {
+    if (form.calculationMethod === 'INFORMADO') {
+      const b = form.breakdown;
+      const total = (b.freightBase ?? 0) + (b.adValorem ?? 0) + (b.gris ?? 0) + (b.toll ?? 0) + (b.dispatch ?? 0) + (b.others ?? 0) + (b.icms ?? 0);
+      setForm((f) => ({ ...f, freightTotal: total }));
+    }
+  }, [form.breakdown, form.calculationMethod]);
+
+  // Carrega tabelas GENERAL da rota selecionada (TARIFA_GERAL)
+  useEffect(() => {
+    if (form.calculationMethod !== 'TARIFA_GERAL' || !form.routeId) {
+      setGeneralTables([]);
+      setPreview(null);
+      return;
+    }
+    pricingApi.listTables({ routeId: form.routeId, type: 'GENERAL', active: true })
+      .then((r: any) => {
+        const tables = (r?.data ?? r) ?? [];
+        const list = Array.isArray(tables) ? tables : [];
+        setGeneralTables(list);
+        if (list.length === 1) {
+          setForm((f) => ({ ...f, pricingTableId: list[0].id }));
+        }
+      })
+      .catch(() => setGeneralTables([]));
+  }, [form.routeId, form.calculationMethod]);
+
+  // Calcula prévia client-side ao selecionar/trocar tabela no modo TARIFA_GERAL
+  useEffect(() => {
+    if (form.calculationMethod !== 'TARIFA_GERAL' || !form.routeId) {
+      setPreview(null);
+      return;
+    }
+    if (generalTables.length === 0) return;
+
+    // Tabela a usar: selecionada pelo usuário ou a de maior prioridade
+    const table = (form.pricingTableId
+      ? generalTables.find((t) => t.id === form.pricingTableId)
+      : generalTables.slice().sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))[0]) ?? null;
+
+    if (!table) { setPreview(null); return; }
+
+    const cubeFactor = table.cubeFactor ?? 300;
+    const cubage = params.cubage ?? (params.weight / 300);
+    const cubedWeight = cubage * cubeFactor;
+    const effectiveWeight = table.cubeEnabled ? Math.max(params.weight, cubedWeight) : params.weight;
+
+    let baseFreight = 0;
+    switch (table.freightUnit) {
+      case 'RS_KG':   baseFreight = effectiveWeight * (table.freightValue ?? 0); break;
+      case 'RS_M3':   baseFreight = cubage * (table.freightValue ?? 0); break;
+      case 'RS_UNIT': baseFreight = (params.volumes || 1) * (table.freightValue ?? 0); break;
+      case 'PERCENT': baseFreight = params.nfValue * (table.freightValue ?? 0) / 100; break;
+    }
+
+    const ranges = table.minFreightRanges ?? [];
+    if (ranges.length > 0) {
+      const range = ranges.find(
+        (r) => effectiveWeight >= r.minWeight && (r.maxWeight == null || effectiveWeight <= r.maxWeight)
+      );
+      if (range && range.value > baseFreight) baseFreight = range.value;
+    } else if ((table.minFreightValue ?? 0) > baseFreight) {
+      baseFreight = table.minFreightValue ?? 0;
+    }
+
+    const adValorem = (table.adValoremPercent ?? 0) * (params.nfValue / 1000);
+    const gris      = (table.grisPercent ?? 0) * (params.nfValue / 1000);
+    const toll      = table.tollUnit === 'RS_KG'
+      ? effectiveWeight * (table.tollValue ?? 0)
+      : table.tollUnit === 'FIXED' ? (table.tollValue ?? 0) : 0;
+    const dispatch  = table.dispatchFee ?? 0;
+    const others    = table.otherFees ?? 0;
+    const subtotal  = baseFreight + adValorem + gris + toll + dispatch + others;
+    const icms      = !table.icmsIncluded && (table.icmsPercent ?? 0) > 0
+      ? subtotal * ((table.icmsPercent ?? 0) / 100)
+      : 0;
+    const total = subtotal + icms;
+
+    setPreview({
+      total,
+      breakdown: { freightBase: baseFreight, adValorem, gris, toll, dispatch, others, icms },
+      tableName: table.description,
+    });
+  }, [form.routeId, form.calculationMethod, form.pricingTableId, generalTables, params.weight, params.nfValue, params.cubage, params.volumes]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErr(null);
+    setSaving(true);
+    try {
+      if (calc) {
+        const payload: Parameters<typeof ordersFreightApi.update>[2] = {
+          documentType: form.documentType,
+          emissorId: form.emissorId,
+          calculationMethod: form.calculationMethod,
+          pricingTableId: form.pricingTableId || null,
+          routeId: form.routeId || null,
+          originCity: form.originCity || null,
+          destCity: form.destCity || null,
+          cfop: form.cfop || null,
+          tipoFrete: form.tipoFrete || null,
+          cst: form.cst || null,
+          observacoes: form.observacoes || null,
+        };
+        if (form.calculationMethod === 'INFORMADO') {
+          payload.freightTotal = form.freightTotal;
+          payload.breakdown = form.breakdown;
+          payload.icmsValue = form.breakdown.icms ?? null;
+        }
+        await ordersFreightApi.update(orderId, calc.id, payload);
+      } else {
+        const createRes = await ordersFreightApi.create(orderId, {
+          documentType: form.documentType,
+          emissorId: form.emissorId,
+          calculationMethod: form.calculationMethod,
+          pricingTableId: form.pricingTableId || null,
+          routeId: form.routeId || null,
+          originCity: form.originCity || null,
+          destCity: form.destCity || null,
+          cfop: form.cfop || null,
+          tipoFrete: form.tipoFrete || null,
+          cst: form.cst || null,
+          observacoes: form.observacoes || null,
+        });
+        const created = (createRes as { data?: OrderFreightCalculation })?.data;
+        if (form.calculationMethod === 'INFORMADO' && created?.id) {
+          await ordersFreightApi.update(orderId, created.id, {
+            freightTotal: form.freightTotal,
+            breakdown: form.breakdown,
+            icmsValue: form.breakdown.icms ?? null,
+          });
+        }
+      }
+      onSaved();
+    } catch (e: any) {
+      setErr(e.response?.data?.error ?? e.response?.data?.message ?? e.message ?? 'Erro ao salvar');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl p-6">
+      <h4 className="font-semibold text-slate-800 dark:text-slate-100 mb-4">
+        {calc ? 'Editar cálculo' : 'Novo cálculo de frete'}
+      </h4>
+      {err && <p className="text-red-600 dark:text-red-400 text-sm mb-4">{err}</p>}
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Emissor (Hub) *</label>
+            <select
+              value={form.emissorId}
+              onChange={(e) => setForm((f) => ({ ...f, emissorId: e.target.value }))}
+              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+              required
+            >
+              <option value="">Selecione</option>
+              {availableHubs.map((h) => (
+                <option key={h.id} value={h.id}>{h.name} ({h.code})</option>
+              ))}
+            </select>
+            {availableHubs.length === 0 && (
+              <p className="text-amber-600 dark:text-amber-400 text-xs mt-1">
+                Nenhum Hub com CNPJ cadastrado. Vincule um CNPJ ao Hub em Configurações → Hubs para emitir documentos.
+              </p>
+            )}
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Documento</label>
+            <div className="flex gap-4 pt-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  checked={form.documentType === 'CTE'}
+                  onChange={() => setForm((f) => ({ ...f, documentType: 'CTE' }))}
+                />
+                <span>CT-e</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  checked={form.documentType === 'MINUTA'}
+                  onChange={() => setForm((f) => ({ ...f, documentType: 'MINUTA' }))}
+                />
+                <span>Minuta</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Início prestação</label>
+            <input
+              type="text"
+              value={form.originCity}
+              onChange={(e) => setForm((f) => ({ ...f, originCity: e.target.value }))}
+              placeholder="Ex: São Paulo, SP"
+              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Fim prestação</label>
+            <input
+              type="text"
+              value={form.destCity}
+              onChange={(e) => setForm((f) => ({ ...f, destCity: e.target.value }))}
+              placeholder="Ex: Imperatriz, MA"
+              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">CFOP</label>
+            <select
+              value={form.cfop}
+              onChange={(e) => setForm((f) => ({ ...f, cfop: e.target.value }))}
+              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700"
+            >
+              <option value="">Selecione</option>
+              {CFOP_OPTIONS.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Tipo Frete</label>
+            <select
+              value={form.tipoFrete}
+              onChange={(e) => setForm((f) => ({ ...f, tipoFrete: e.target.value }))}
+              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700"
+            >
+              {TIPO_FRETE_OPTIONS.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Método de cálculo</label>
+          <div className="flex flex-wrap gap-6">
+            {(['ESPECIAL', 'TARIFA_GERAL', 'INFORMADO'] as const).map((m) => (
+              <label key={m} className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  checked={form.calculationMethod === m}
+                  onChange={() => setForm((f) => ({
+                    ...f,
+                    calculationMethod: m,
+                    pricingTableId: m === 'ESPECIAL' ? f.pricingTableId : '',
+                    routeId: m === 'TARIFA_GERAL' ? f.routeId : '',
+                  }))}
+                />
+                <span>{m === 'ESPECIAL' ? 'Especial' : m === 'TARIFA_GERAL' ? 'Tarifa Geral' : 'Informado'}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {form.calculationMethod === 'ESPECIAL' && (
+          <div>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Tabela (tarifa do pagador)</label>
+            <select
+              value={form.pricingTableId}
+              onChange={(e) => setForm((f) => ({ ...f, pricingTableId: e.target.value }))}
+              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700"
+            >
+              <option value="">Selecione uma tarifa</option>
+              {specialTables.map((t) => (
+                <option key={t.id} value={t.id}>{t.description}</option>
+              ))}
+            </select>
+            {payerClientId && specialTables.length === 0 && (
+              <p className="text-amber-600 dark:text-amber-400 text-xs mt-1">Nenhuma tabela especial para o pagador.</p>
+            )}
+          </div>
+        )}
+
+        {form.calculationMethod === 'TARIFA_GERAL' && (
+          <div className="space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Rota</label>
+              <select
+                value={form.routeId}
+                onChange={(e) => setForm((f) => ({ ...f, routeId: e.target.value, pricingTableId: '' }))}
+                className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700"
+              >
+                <option value="">Selecione a rota</option>
+                {routes.filter((r) => r.active !== false).map((r) => (
+                  <option key={r.id} value={r.id}>{r.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {form.routeId && generalTables.length > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Tabela da rota</label>
+                <select
+                  value={form.pricingTableId}
+                  onChange={(e) => setForm((f) => ({ ...f, pricingTableId: e.target.value }))}
+                  className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700"
+                >
+                  <option value="">Auto (maior prioridade)</option>
+                  {generalTables.map((t) => (
+                    <option key={t.id} value={t.id}>{t.description}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {form.routeId && generalTables.length === 0 && (
+              <p className="text-amber-600 dark:text-amber-400 text-xs">
+                Nenhuma tabela GERAL cadastrada para esta rota. Cadastre em Comercial → Tarifas.
+              </p>
+            )}
+
+            {preview && (
+              <div className="bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-700 rounded-lg p-3">
+                <h5 className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 mb-2">
+                  {`Prévia${preview.tableName ? ` · ${preview.tableName}` : ''}`}
+                </h5>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                  {Object.entries(preview.breakdown).map(([k, v]) =>
+                    Number(v) > 0 ? (
+                      <span key={k} className="text-slate-600 dark:text-slate-300">
+                        {BREAKDOWN_LABELS[k] ?? k}: <strong>R$ {Number(v).toFixed(2)}</strong>
+                      </span>
+                    ) : null
+                  )}
+                  <span className="text-indigo-700 dark:text-indigo-200 font-bold">
+                    Total: R$ {preview.total.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {form.calculationMethod === 'INFORMADO' && (
+          <div className="bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
+            <h5 className="text-sm font-semibold text-amber-800 dark:text-amber-200 mb-2">Calculadora de Frete</h5>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {Object.entries(BREAKDOWN_LABELS).map(([key, label]) => (
+                <div key={key}>
+                  <label className="block text-xs text-slate-600 dark:text-slate-400">{label}</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={form.breakdown[key] ?? 0}
+                    onChange={(e) => setForm((f) => ({
+                      ...f,
+                      breakdown: { ...f.breakdown, [key]: Number(e.target.value) || 0 },
+                    }))}
+                    className="w-full border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-sm"
+                  />
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+              Total: R$ {form.freightTotal.toFixed(2)}
+            </p>
+          </div>
+        )}
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">CST</label>
+          <input
+            type="text"
+            value={form.cst}
+            onChange={(e) => setForm((f) => ({ ...f, cst: e.target.value }))}
+            placeholder="CST"
+            className="w-full max-w-xs border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Observações</label>
+          <textarea
+            value={form.observacoes}
+            onChange={(e) => setForm((f) => ({ ...f, observacoes: e.target.value }))}
+            rows={2}
+            className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700"
+          />
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            type="submit"
+            disabled={saving}
+            className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {saving ? 'Salvando...' : 'Salvar'}
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-4 py-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"
+          >
+            Cancelar
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function getPayerPersonId(order: OrderFreightCalculationSectionProps['order']): string | null {
+  const ft = order.freightTerm ?? 'CIF';
+  if (ft === 'CIF') return order.remetentePersonId ?? null;
+  if (ft === 'FOB') return order.destinatarioPersonId ?? null;
+  return order.consignatarioPersonId ?? order.destinatarioPersonId ?? null;
+}

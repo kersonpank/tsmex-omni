@@ -1,0 +1,368 @@
+# TSM EX OMNI - Plano MVP Realista
+
+> **Minha Função**: Arquiteto de Sistemas Sênior focado em logística e orquestração. Minha missão é garantir que construamos algo que **funcione de verdade**, não um protótipo bonito.
+
+---
+
+## 1. Diagnóstico Honesto
+
+### O que realmente temos ✅
+
+| Componente | Estado | Arquivo |
+|------------|--------|---------|
+| **Schema Prisma** | 🟢 Robusto | 15 modelos completos (User, Client, Link, Hub, Demand, Manifest, Pricing...) |
+| **API Backend** | 🟢 Funcional | 8 rotas: auth, clients, demands, hubs, links, manifests, pricing, vehicleTypes |
+| **Pricing Engine** | 🟢 Backend pronto | Algoritmo completo com faixas, ad valorem, GRIS, cubagem |
+| **Consolidação** | 🟢 Lógica existe | [manifests.ts](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/server/src/routes/manifests.ts) com validação de capacidade |
+| **Docker** | 🟢 Configurado | PostgreSQL + Redis rodando |
+
+### O que NÃO funciona ❌
+
+| Problema | Impacto | Arquivo Afetado |
+|----------|---------|-----------------|
+| **Frontend usa localStorage** | Dados perdidos ao limpar browser | [App.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/App.tsx), [AdminDashboard.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/AdminDashboard.tsx) |
+| **Chat IA não persiste** | Conversa morre, demanda nunca é criada | [ChatWeb.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/ChatWeb.tsx) |
+| **Tipos desincronizados** | [types.ts](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/types.ts) frontend ≠ Prisma schema | [types.ts](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/types.ts) vs [schema.prisma](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/server/prisma/schema.prisma) |
+| **Sem cliente HTTP** | Nenhuma chamada à API | Não existe `api.ts` |
+| **AdminDashboard desconectado** | Recebe dados por props de [App.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/App.tsx), não do banco | [AdminDashboard.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/AdminDashboard.tsx) |
+
+### A Verdade Dura
+
+> [!CAUTION]
+> **O backend está 80% pronto. O frontend está 10% conectado.**
+> 
+> Temos um carro com motor potente mas sem volante. O usuário não consegue dirigir.
+
+---
+
+## 2. A Visão do Negócio (Resumida do Blueprint)
+
+```mermaid
+graph LR
+    subgraph ENTRADA
+        D[Demanda do Cliente]
+    end
+    
+    subgraph CEREBRO["🧠 CÉREBRO TSM EX"]
+        C1[Cotação Automática]
+        C2[Sugestão de Consolidação]
+        C3[Alocação para LINK]
+    end
+    
+    subgraph REDE["🌐 A TEIA"]
+        H[HUBs]
+        L[LINKs]
+    end
+    
+    D --> C1
+    C1 --> C2
+    C2 --> C3
+    C3 --> H & L
+```
+
+**O Sistema Precisa**:
+1. Receber demandas (via chat ou form)
+2. Cotar automaticamente (motor de pricing já existe no backend)
+3. Agrupar demandas compatíveis por destino (consolidação)
+4. Sugerir alocação para veículo adequado
+5. Notificar LINK via WhatsApp/Email
+
+---
+
+## 3. MVP Pragmático - 3 Fases
+
+### 🎯 Fase 0: Conectar o Sistema (URGENTE)
+
+**Objetivo**: Frontend conversa com backend. Dados persistem no banco.
+
+**Estimativa**: 2-3 dias
+
+#### Arquivos a Criar
+
+##### [NOVO] [api.ts](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/lib/api.ts)
+
+```typescript
+// Cliente HTTP centralizado
+import axios from 'axios';
+
+const api = axios.create({
+  baseURL: 'http://localhost:3002/api',
+});
+
+// Interceptor para adicionar token JWT
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
+export const demandsApi = {
+  list: () => api.get('/demands'),
+  create: (data) => api.post('/demands'),
+  updateStatus: (id, status) => api.patch(`/demands/${id}/status`, { status }),
+  quote: (id, price) => api.patch(`/demands/${id}/quote`, { price }),
+};
+
+export const manifestsApi = {
+  list: () => api.get('/manifests'),
+  create: (data) => api.post('/manifests'),
+  // ...
+};
+
+export default api;
+```
+
+##### [NOVO] [types/prisma.ts](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/types/prisma.ts)
+
+Tipos sincronizados com o schema Prisma.
+
+#### Arquivos a Modificar
+
+##### [MODIFICAR] [AdminDashboard.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/AdminDashboard.tsx)
+
+- Remover recebimento de `cargas` por props
+- Adicionar `useEffect(() => { demandsApi.list() })`
+- Cotar via API ao invés de `onUpdate`
+
+##### [MODIFICAR] [App.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/App.tsx)
+
+- Remover estado `cargas` e `partners` do localStorage
+- Componentes buscam próprios dados
+
+#### Verificação Fase 0
+
+```
+1. Login como admin@tsmex.com
+2. Acessar /admin
+3. Ver demandas do banco (não vazias se tiver seed)
+4. Cotar uma demanda → Verificar no banco se status mudou
+```
+
+---
+
+### 🎯 Fase 1: Chat que Funciona de Verdade
+
+**Objetivo**: Cliente conversa, demanda é criada e cotada automaticamente.
+
+**Estimativa**: 3-4 dias
+
+#### Fluxo Ideal
+
+```mermaid
+sequenceDiagram
+    participant C as Cliente
+    participant IA as Chat Gemini
+    participant API as Backend
+    
+    C->>IA: "Preciso enviar 500kg para Imperatriz-MA"
+    IA->>IA: Coleta: origem, destino, peso, valor NF
+    IA->>C: "Confirma: SP→MA, 500kg, R$50k?"
+    C->>IA: "Confirma"
+    IA->>API: POST /api/demands
+    API->>API: Aplica pricing automaticamente
+    API-->>IA: Demanda criada + cotação R$ 850
+    IA->>C: "Cotação: R$ 850. Quer que colete?"
+```
+
+#### Mudanças Necessárias
+
+##### [MODIFICAR] [geminiService.ts](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/geminiService.ts)
+
+```typescript
+// Adicionar função que extrai dados estruturados
+export const extractDemandData = async (conversation: Message[]) => {
+  const ai = getAI();
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: `Analise esta conversa e extraia os dados da demanda.
+    Conversa: ${JSON.stringify(conversation)}
+    
+    Retorne APENAS se todos os campos obrigatórios estiverem preenchidos.`,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          complete: { type: Type.BOOLEAN },
+          data: {
+            type: Type.OBJECT,
+            properties: {
+              origin: { type: Type.STRING },
+              destination: { type: Type.STRING },
+              weight: { type: Type.NUMBER },
+              nfValue: { type: Type.NUMBER },
+              commodity: { type: Type.STRING },
+            }
+          },
+          missingFields: { type: Type.ARRAY, items: { type: Type.STRING } }
+        }
+      }
+    }
+  });
+  
+  return JSON.parse(response.text || '{}');
+};
+```
+
+##### [MODIFICAR] [ChatWeb.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/ChatWeb.tsx)
+
+- Após cada mensagem, chamar `extractDemandData()`
+- Se `complete: true`, mostrar card de confirmação
+- Ao confirmar, chamar `demandsApi.create()`
+- Chamar `/api/pricing/calculate` para mostrar cotação
+
+#### Verificação Fase 1
+
+```
+1. Acessar /chat/demo
+2. Conversar com IA: "Quero enviar 500kg de SP para Imperatriz-MA"
+3. Responder perguntas (valor NF, mercadoria, etc)
+4. Ver card de confirmação com cotação
+5. Confirmar → Verificar demanda criada no /admin
+```
+
+---
+
+### 🎯 Fase 2: Consolidação Inteligente
+
+**Objetivo**: Sistema sugere agrupamento de demandas e IA explica decisão.
+
+**Estimativa**: 4-5 dias
+
+#### O Algoritmo Simples (que funciona)
+
+```typescript
+// Pseudocódigo do algoritmo de sugestão
+function sugerirConsolidacao(demandas: Demand[]): Sugestao[] {
+  // 1. Agrupar por região de destino (HUB que atende aquela cidade)
+  const porDestino = agruparPorHubDestino(demandas);
+  
+  // 2. Para cada grupo, ver se cabe em um veículo
+  const manifestos: Sugestao[] = [];
+  
+  for (const [hub, group] of porDestino) {
+    const pesoTotal = somar(group, 'weight');
+    const volumeTotal = somar(group, 'volume');
+    
+    // Encontrar menor veículo que comporta
+    const veiculo = encontrarVeiculoAdequado(pesoTotal, volumeTotal);
+    
+    if (veiculo) {
+      manifestos.push({
+        hub,
+        demandas: group,
+        veiculo,
+        ocupacao: {
+          peso: pesoTotal / veiculo.maxWeight,
+          volume: volumeTotal / veiculo.maxVolume
+        }
+      });
+    }
+  }
+  
+  return manifestos;
+}
+```
+
+#### Interface de Consolidação
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  🧠 Sugestão de Consolidação                                 │
+├──────────────────────────────────────────────────────────────┤
+│                                                               │
+│  "Você tem 5 demandas para região MA. Sugiro:"               │
+│                                                               │
+│  ┌─ Manifesto 1 ──────────┐  ┌─ Manifesto 2 ────────────┐   │
+│  │ 🚚 Truck (14t)         │  │ 🚐 Van (1.5t)            │   │
+│  │                        │  │                          │   │
+│  │ NF 1234 - Imperatriz   │  │ NF 1237 - Arame         │   │
+│  │ NF 1235 - Imperatriz   │  │                          │   │
+│  │ NF 1236 - Buriticupu   │  │ Peso: 400kg / 1.500kg   │   │
+│  │                        │  │ ████░░░░░░░░░░░ 27%     │   │
+│  │ Peso: 1.600kg / 14.000 │  │                          │   │
+│  │ ████░░░░░░░░░░░░ 11%   │  │ [✓ Aprovar]             │   │
+│  │                        │  │                          │   │
+│  │ [✓ Aprovar]            │  └──────────────────────────┘   │
+│  └────────────────────────┘                                  │
+│                                                               │
+│  ⚠️ 1 demanda não agrupada: NF 1238 (destino sem HUB)        │
+│                                                               │
+└──────────────────────────────────────────────────────────────┘
+```
+
+#### Verificação Fase 2
+
+```
+1. Criar 5 demandas para destinos similares (região MA)
+2. Acessar /admin/consolidation
+3. Clicar "Sugerir Agrupamentos"
+4. Ver manifestos sugeridos com ocupação
+5. Aprovar um manifesto → Verificar no banco
+```
+
+---
+
+## 4. O Que NÃO Entra no MVP
+
+> [!WARNING]
+> Para manter foco, estes itens ficam para depois:
+
+| Item | Motivo |
+|------|--------|
+| Integração Lonngren | Complexo, precisa de API ou scraping |
+| WhatsApp Evolution API | Funciona, mas pode esperar |
+| App Mobile LINK | PWA básico já serve |
+| OCR de NF via imagem | Gemini pode fazer, mas não é crítico |
+| Machine Learning | Sistema precisa funcionar antes de aprender |
+| Multi-tenant | Um cliente só por agora |
+
+---
+
+## 5. Verificação do MVP Completo
+
+### Cenário E2E: Do Chat à Entrega
+
+```
+1. [CLIENTE] Acessa /chat, conversa com IA
+2. [SISTEMA] IA coleta dados, cria demanda, cotação automática
+3. [CLIENTE] Confirma cotação
+4. [ADMIN] Vê demanda no /admin
+5. [ADMIN] Sistema sugere consolidação com outras demandas da região
+6. [ADMIN] Aprova manifesto com veículo Truck
+7. [ADMIN] Atribui a um LINK
+8. [LINK] Recebe notificação (MVP: email, futuro: WhatsApp)
+9. [LINK] Aceita manifesto
+10. [SISTEMA] Status muda para EM_TRANSITO
+11. [CLIENTE] Vê tracking em /tracking/{id}
+```
+
+---
+
+## 6. Próximos Passos Imediatos
+
+> [!IMPORTANT]
+> **Comece pela Fase 0** - Sem conexão frontend↔backend, nada mais funciona.
+
+### Ordem de Implementação
+
+1. **Criar [lib/api.ts](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/lib/api.ts)** - Cliente HTTP centralizado
+2. **Atualizar `types/`** - Sincronizar com Prisma
+3. **Modificar [AdminDashboard.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/AdminDashboard.tsx)** - Buscar demandas via API
+4. **Modificar [ChatWeb.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/ChatWeb.tsx)** - Persistir demandas + cotação automática
+5. **Criar `ConsolidationWorkspace.tsx`** - Interface de agrupamento
+
+### Perguntas para Validar
+
+> [!CAUTION]
+> **Confirme antes de eu começar a implementar:**
+>
+> 1. **Fase 0 primeiro?** Quero conectar frontend↔backend antes de qualquer coisa. OK?
+>
+> 2. **Backend está rodando?** O servidor Node está ativo na porta 3002 com o banco populado?
+>
+> 3. **Prioridade do Chat**: Quer que o chat seja a única entrada de demandas, ou quer manter o OnboardingWizard como alternativa?
+>
+> 4. **LINK no MVP?** Incluímos interface básica para o LINK aceitar manifestos ou isso fica para depois?
+>
+> 5. **Notificações**: Email simples (Nodemailer) para o MVP ou já quer WhatsApp desde o início?

@@ -1,0 +1,105 @@
+# TSM EX OMNI - Walkthrough da Fase 0
+
+## ✅ O que foi implementado
+
+### Conexão Frontend ↔ Backend
+
+O frontend agora **conversa com o backend real**. Todas as operações persistem no banco PostgreSQL.
+
+---
+
+## Arquivos Criados
+
+### [types/index.ts](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/types/index.ts)
+- 30+ tipos sincronizados com schema Prisma
+- Enums: [DemandStatus](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/types/index.ts#12-23), [RiskClass](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/types/index.ts#24-25), [ManifestStatus](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/types/index.ts#26-33), etc.
+- Interfaces: [Demand](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/types/index.ts#133-159), [Manifest](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/types/index.ts#160-185), [Hub](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/types/index.ts#83-102), [Link](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/types/index.ts#103-122), [PricingTable](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/types/index.ts#204-231), etc.
+- Tipos de request/response para API
+
+---
+
+## Arquivos Modificados
+
+### [lib/api.ts](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/lib/api.ts)
+- Expandido com funções tipadas
+- `demandsApi`: list, create, quote, updateStatus
+- `manifestsApi`: list, create, assignLink
+- `hubsApi`, `linksApi`, `vehicleTypesApi`, `pricingApi`
+
+### [App.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/App.tsx)
+- Removido estado `cargas` e `partners`
+- Removido localStorage
+- Componentes buscam seus próprios dados
+
+### [AdminDashboard.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/AdminDashboard.tsx)
+- Busca demandas via `GET /api/demands`
+- Cotação via `PATCH /api/demands/:id/quote`
+- Status via `PATCH /api/demands/:id/status`
+- Loading/error states
+
+### [TrackingView.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/TrackingView.tsx)
+- Busca demanda via API
+- Timeline de eventos real do banco
+
+### [OnboardingWizard.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/OnboardingWizard.tsx)
+- Cria demandas via `POST /api/demands`
+- Campos obrigatórios: riskClass, intentType, nfNumber, etc.
+
+### [ChatWeb.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/ChatWeb.tsx)
+- Extrai dados da conversa
+- Card de confirmação quando dados completos
+- Cotação automática via `pricingApi.calculate()`
+- Cria demanda ao confirmar
+
+---
+
+## Como Testar
+
+### 1. Iniciar o Backend
+
+```bash
+cd server
+docker-compose up -d   # PostgreSQL + Redis
+npm run dev            # Porta 3002
+```
+
+### 2. Iniciar o Frontend
+
+```bash
+npm run dev            # Porta 3000
+```
+
+### 3. Testar Fluxos
+
+#### Login
+1. Acessar `http://localhost:3000`
+2. Login: `admin@tsmex.com` / `admin123` (do seed)
+
+#### Chat → Demanda
+1. Ir para `/chat/demo`
+2. Escrever: "Preciso enviar 500kg de São Paulo para Imperatriz-MA, valor da NF é 50 mil"
+3. Ver card de confirmação
+4. Clicar "Confirmar e Criar"
+5. Verificar demanda no `/admin`
+
+#### Formulário → Demanda
+1. Ir para `/app`
+2. Preencher formulário
+3. Ver demanda no `/admin`
+
+#### Cotar Demanda
+1. No `/admin`, clicar "Cotar" em demanda pendente
+2. Informar valor
+3. Ver status mudar para "Cotado"
+
+#### Tracking
+1. Clicar "Ver Tracking" em qualquer demanda
+2. Ver timeline de eventos
+
+---
+
+## Próximos Passos
+
+- [ ] Fase 1: Melhorar extração de dados do chat via IA
+- [ ] Fase 2: Workspace de consolidação de demandas
+- [ ] Notificações por email

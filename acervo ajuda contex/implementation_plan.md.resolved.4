@@ -1,0 +1,220 @@
+# Redesign: Sistema LLM para Agentes Autônomos
+
+## 📊 Análise do Estado Atual
+
+### O que temos hoje:
+| Componente | Limitação |
+|------------|-----------|
+| [llmService.ts](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/server/src/services/llmService.ts) | Switch/case hardcoded (só OpenAI, Gemini, Claude, Ollama) |
+| Schema Prisma | Apenas campos básicos (name, modelId, capabilities) |
+| [SettingsLLM.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/settings/SettingsLLM.tsx) | Form simples, faltam campos avançados e JSON config |
+| Chamadas | Apenas chat básico, **sem function calling** |
+
+### O que falta para Agentes:
+1. **Function Calling** - IAs precisam chamar funções (criar demanda, consultar preço, etc.)
+2. **Providers Customizados** - Adicionar DeepSeek, Groq, Together, etc. via UI
+3. **Config via JSON** - Flexibilidade total para qualquer formato de request
+4. **Compatible OpenAI-like** - Maioria das APIs segue padrão OpenAI
+
+---
+
+## 🎯 Solução Proposta
+
+### Insight Chave: Padrão OpenAI-Compatible
+
+A maioria das APIs LLM modernas (DeepSeek, Groq, Together, Mistral, etc.) são **OpenAI-compatible**:
+- Mesmo formato de `/v1/chat/completions`
+- Mesmo formato de `tools`/`functions`
+- Apenas muda `baseUrl` e `apiKey`
+
+```mermaid
+graph LR
+    A[Qualquer API<br/>OpenAI-compatible] --> B[LLM Service<br/>Universal]
+    B --> C[Function Calling]
+    C --> D[Executar Ações<br/>no Sistema]
+```
+
+---
+
+## Proposed Changes
+
+### 1. Schema Prisma - Evoluir Provider
+
+#### [MODIFY] [schema.prisma](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/server/prisma/schema.prisma)
+
+```prisma
+model LLMProvider {
+  id          String   @id @default(uuid())
+  name        String   
+  code        String   @unique
+  
+  // Tipo de compatibilidade
+  apiType     String   @default("openai")  // "openai", "gemini", "anthropic", "custom"
+  
+  // Configuração de endpoint
+  baseUrl     String   // ex: "https://api.openai.com/v1" ou "https://api.deepseek.com"
+  
+  // Headers customizados (JSON)
+  customHeaders Json?  // {"Authorization": "Bearer {apiKey}", "x-custom": "value"}
+  
+  // Request body template (permite customização total)
+  requestTemplate Json?  // Template Mustache/JSON com placeholders
+  
+  // Response parser (caminho para extrair resposta)
+  responsePath  String   @default("choices[0].message.content")
+  
+  // Suporte a features
+  supportsTools     Boolean @default(false)  // Function calling
+  supportsVision    Boolean @default(false)
+  supportsStreaming Boolean @default(true)
+  
+  // Sistema
+  isBuiltIn   Boolean  @default(false)  // Providers pré-configurados
+  active      Boolean  @default(true)
+  
+  models      LLMModel[]
+  apiKey      LLMApiKey?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+```
+
+---
+
+### 2. UI - Adicionar Provider Custom via JSON
+
+#### [MODIFY] [SettingsLLM.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/settings/SettingsLLM.tsx)
+
+Nova seção "Adicionar Provider Personalizado" com:
+- Campo `baseUrl` (obrigatório)
+- Toggle "OpenAI-compatible" (simplifica)
+- Editor JSON para headers customizados
+- Editor JSON para request template (avançado)
+
+#### Adicionar Modelo - Campos Completos:
+| Campo | Descrição |
+|-------|-----------|
+| Provider | Dropdown (incluindo custom) |
+| Nome | Nome amigável |
+| Model ID | ID da API |
+| Capabilities | Checkboxes: chat, vision, tools, json_mode |
+| Context Window | Slider/input |
+| Max Output | Slider/input |
+| Preço Input | R$/1M tokens |
+| Preço Output | R$/1M tokens |
+
+---
+
+### 3. llmService.ts - Universal + Function Calling
+
+#### [MODIFY] [llmService.ts](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/server/src/services/llmService.ts)
+
+Remover switch/case e implementar:
+
+```typescript
+interface LLMCallOptions {
+  model: string;
+  messages: ChatMessage[];
+  tools?: ToolDefinition[];  // Function calling
+  toolChoice?: 'auto' | 'required' | { type: 'function', function: { name: string } };
+}
+
+async function callLLM(provider: ProviderConfig, options: LLMCallOptions): Promise<LLMResponse> {
+  // 1. Monta URL baseada em apiType
+  // 2. Monta headers (com customHeaders se houver)
+  // 3. Monta body baseado em apiType ou requestTemplate
+  // 4. Faz request
+  // 5. Extrai resposta usando responsePath
+  // 6. Se tiver tool_calls, retorna para executor
+}
+```
+
+---
+
+### 4. Tools/Functions para Agentes
+
+#### [NEW] Registrar funções disponíveis para o agente:
+
+```typescript
+const AVAILABLE_TOOLS: ToolDefinition[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'create_demand',
+      description: 'Cria uma nova demanda de transporte',
+      parameters: {
+        type: 'object',
+        properties: {
+          origin: { type: 'string', description: 'Cidade de origem' },
+          destination: { type: 'string', description: 'Cidade de destino' },
+          commodity: { type: 'string', description: 'Tipo de mercadoria' },
+          weight: { type: 'number', description: 'Peso em kg' },
+          nfValue: { type: 'number', description: 'Valor da NF em R$' },
+        },
+        required: ['origin', 'destination', 'commodity']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_quote',
+      description: 'Obtém cotação de frete',
+      parameters: { ... }
+    }
+  },
+  // ... mais funções
+];
+```
+
+---
+
+## Resumo Visual
+
+```mermaid
+graph TB
+    subgraph "UI - Configurações"
+        A[+ Adicionar Provider] --> B{OpenAI<br/>Compatible?}
+        B -->|Sim| C[Apenas baseUrl]
+        B -->|Não| D[JSON Config<br/>Completo]
+    end
+    
+    subgraph "Backend"
+        E[LLM Service<br/>Universal] --> F[Function Calling]
+        F --> G[Tool Executor]
+        G --> H[(Database)]
+    end
+    
+    C --> E
+    D --> E
+```
+
+---
+
+## Implementação em Fases
+
+### Fase 1 (Prioridade Alta)
+1. Atualizar schema com campos para provider flexível
+2. Refatorar llmService para chamadas universais (sem switch/case)
+3. Adicionar campos completos no modal "Adicionar Modelo"
+
+### Fase 2 (Function Calling)
+1. Definir AVAILABLE_TOOLS
+2. Implementar tool executor
+3. Conectar com ChatWeb.tsx
+
+### Fase 3 (UI Avançada)
+1. "Adicionar Provider Personalizado" com editor JSON
+2. Teste de modelo com function calling
+3. Dashboard de uso/custos
+
+---
+
+## Decisão Necessária
+
+> [!IMPORTANT]
+> **Para continuar, me confirme:**
+> 1. Começamos pela Fase 1 (provider flexível + form completo)?
+> 2. Quais funções/tools o agente precisa executar? (criar demanda, consultar preço, etc.)
+

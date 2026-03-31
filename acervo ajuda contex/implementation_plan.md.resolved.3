@@ -1,0 +1,171 @@
+# Implementação: Sistema de Gerenciamento de LLMs
+
+## Visão Geral
+
+Sistema robusto para gerenciar múltiplos providers de LLM, permitindo adicionar, configurar, testar e alternar entre modelos de IA.
+
+```mermaid
+graph TB
+    subgraph Frontend
+        ADMIN[Admin Panel] --> SETTINGS[Settings Tab]
+        SETTINGS --> LLM_UI[LLM Management]
+    end
+    subgraph Backend
+        API[/api/settings/llm] --> LLM_SVC[LLM Service]
+        LLM_SVC --> GEMINI[Gemini]
+        LLM_SVC --> OPENAI[OpenAI]
+        LLM_SVC --> CLAUDE[Anthropic]
+        LLM_SVC --> OLLAMA[Ollama<br/>Local]
+    end
+    LLM_UI --> API
+```
+
+---
+
+## Proposed Changes
+
+### Database - Prisma Schema
+
+#### [MODIFY] [schema.prisma](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/server/prisma/schema.prisma)
+
+Adicionar modelos para LLM:
+
+```prisma
+// ========================================
+// LLM CONFIGURATION
+// ========================================
+
+model LLMProvider {
+  id          String   @id @default(uuid())
+  name        String   // "OpenAI", "Google", "Anthropic", "Ollama"
+  code        String   @unique // "openai", "gemini", "claude", "ollama"
+  baseUrl     String?  // Custom endpoint (for Ollama/self-hosted)
+  active      Boolean  @default(true)
+  
+  models      LLMModel[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model LLMModel {
+  id            String   @id @default(uuid())
+  
+  // Provider relationship
+  providerId    String
+  provider      LLMProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  
+  // Model info
+  name          String   // "GPT-4o", "Gemini Pro", "Claude 3.5 Sonnet"
+  modelId       String   // "gpt-4o", "gemini-pro", "claude-3-5-sonnet"
+  description   String?
+  
+  // Capabilities
+  capabilities  String[] // ["chat", "vision", "function_calling", "json_mode"]
+  contextWindow Int      @default(8192) // tokens
+  maxOutput     Int      @default(4096)
+  
+  // Pricing (per 1M tokens)
+  inputPrice    Float?   // USD
+  outputPrice   Float?   // USD
+  
+  // Status
+  isDefault     Boolean  @default(false) // Default for its capability
+  active        Boolean  @default(true)
+  
+  // Usage tracking
+  totalTokens   Int      @default(0)
+  totalCalls    Int      @default(0)
+  lastUsedAt    DateTime?
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  @@unique([providerId, modelId])
+}
+
+model LLMApiKey {
+  id          String   @id @default(uuid())
+  providerId  String
+  
+  // Encrypted API key
+  keyHash     String   // Last 4 chars visible
+  encryptedKey String  // AES-256 encrypted
+  
+  // Metadata
+  label       String?  // "Production Key", "Dev Key"
+  active      Boolean  @default(true)
+  
+  // Usage limits
+  monthlyLimit  Float?  // USD
+  monthlyUsage  Float   @default(0)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@unique([providerId])
+}
+```
+
+---
+
+### Backend API
+
+#### [NEW] [settings.ts](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/server/src/routes/settings.ts)
+
+Endpoints:
+- `GET /api/settings/llm/providers` - Listar providers
+- `POST /api/settings/llm/providers` - Criar provider
+- `GET /api/settings/llm/models` - Listar modelos
+- `POST /api/settings/llm/models` - Adicionar modelo
+- `PATCH /api/settings/llm/models/:id` - Atualizar modelo
+- `DELETE /api/settings/llm/models/:id` - Remover modelo
+- `POST /api/settings/llm/models/:id/test` - Testar modelo
+- `POST /api/settings/llm/models/:id/set-default` - Definir como padrão
+- `POST /api/settings/llm/api-keys` - Salvar API key (encrypted)
+- `DELETE /api/settings/llm/api-keys/:providerId` - Remover key
+
+---
+
+#### [NEW] [llmService.ts](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/server/src/services/llmService.ts)
+
+Serviço abstrato que:
+1. Carrega modelo ativo do banco
+2. Inicializa cliente do provider correto
+3. Expõe métodos unificados: [chat()](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/geminiService.ts#35-60), [complete()](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/lib/api.ts#151-155), `embed()`
+
+---
+
+### Frontend
+
+#### [MODIFY] [AdminDashboard.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/AdminDashboard.tsx)
+
+Adicionar sistema de abas:
+- Demandas (atual)
+- Configurações → LLM
+
+#### [NEW] [SettingsLLM.tsx](file:///d:/Kerson%20Company%20Tech/TSM%20EX/TSM%20EX%20JAN%202026/tsm%20ex%20omni/components/settings/SettingsLLM.tsx)
+
+Interface para:
+- Lista de modelos com toggle ativo/inativo
+- Indicador visual do modelo padrão
+- Modal para adicionar novo modelo
+- Teste de conexão
+- Estatísticas de uso
+
+---
+
+## Verification Plan
+
+### Automated Tests
+```bash
+# Teste de API
+curl -X POST http://localhost:3002/api/settings/llm/models/test -H "Content-Type: application/json"
+```
+
+### Manual Verification
+1. Acessar Admin → Configurações → LLM
+2. Adicionar API key do Gemini
+3. Testar conexão
+4. Enviar mensagem no Chat e verificar se usa modelo configurado
+
