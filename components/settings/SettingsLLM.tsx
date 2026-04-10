@@ -51,9 +51,7 @@ interface ChatLLMConfig {
     active: boolean;
 }
 
-const API_URL = window.location.hostname === 'localhost' && window.location.port === '3000'
-    ? '/api'
-    : 'http://localhost:3002/api';
+const API_URL = import.meta.env.DEV ? 'http://localhost:3002/api' : '/api';
 
 const CAPABILITIES = [
     { value: 'chat', label: 'Chat' },

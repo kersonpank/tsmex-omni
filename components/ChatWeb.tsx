@@ -44,9 +44,7 @@ interface Opportunity {
 
 // ==================== CONFIG ====================
 
-const API_URL = (window.location.hostname === 'localhost' && window.location.port === '3000')
-  ? '/api'
-  : 'http://localhost:3002/api';
+const API_URL = import.meta.env.DEV ? 'http://localhost:3002/api' : '/api';
 
 function formatCnpjDisplay(v: string): string {
   const d = v.replace(/\D/g, '');
