@@ -40,10 +40,9 @@ export const useAuthStore = create<AuthState>()(
             },
 
             login: async (email, password) => {
-                // Em produção (Docker), usa proxy nginx. Em dev, direto ao backend.
-                const apiUrl = window.location.hostname === 'localhost' && window.location.port === '3000'
-                    ? '/api/auth/login'  // Nginx proxy
-                    : 'http://localhost:3002/api/auth/login';  // Dev local
+                const apiUrl = import.meta.env.DEV
+                    ? 'http://localhost:3002/api/auth/login'
+                    : '/api/auth/login';
 
                 const response = await fetch(apiUrl, {
                     method: 'POST',
