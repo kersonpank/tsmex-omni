@@ -22,25 +22,9 @@ import type {
     PaginatedResponse,
 } from '../types/index';
 
-// Em produção (Docker), o nginx faz proxy de /api para o backend
-// Em desenvolvimento, conecta diretamente ao backend na porta 3002
-// Detecta ambiente: se está rodando no navegador em localhost:3000, usa proxy nginx (/api)
-// Se está em desenvolvimento local (Vite dev server), usa localhost:3002
-const isDocker = typeof window !== 'undefined' && 
-                 (window.location.hostname === 'localhost' && window.location.port === '3000') ||
-                 import.meta.env.PROD;
-const API_URL = isDocker ? '/api' : 'http://localhost:3002/api';
-
-// Log para debug (remover em produção)
-if (typeof window !== 'undefined') {
-    console.log('[API Config]', { 
-        hostname: window.location.hostname, 
-        port: window.location.port,
-        isDocker,
-        API_URL,
-        PROD: import.meta.env.PROD
-    });
-}
+// Em produção, o nginx faz proxy de /api → backend (URL relativa)
+// Em desenvolvimento local, conecta direto ao backend na porta 3002
+const API_URL = import.meta.env.DEV ? 'http://localhost:3002/api' : '/api';
 
 export const api = axios.create({
     baseURL: API_URL,
