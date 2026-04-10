@@ -1,0 +1,106 @@
+version: "3.8"
+
+# =============================================================
+# TSM EX OMNI — Docker Swarm Stack: STAGING
+# Domínio: tsm.mesquitagrupo.com.br
+# Deploy: automático via GitHub Actions (branch develop)
+# =============================================================
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: tsmex
+    volumes:
+      - postgres_staging_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tsmex-staging-internal
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_staging_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tsmex-staging-internal
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  migrate:
+    image: ghcr.io/${GITHUB_REPOSITORY}/tsmex-migrate:staging
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+    networks:
+      - tsmex-staging-internal
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: none
+
+  api:
+    image: ghcr.io/${GITHUB_REPOSITORY}/tsmex-api:staging
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      PORT: 3002
+      NODE_ENV: production
+      CORS_ORIGIN: https://tsm.mesquitagrupo.com.br
+    networks:
+      - tsmex-staging-internal
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+
+  web:
+    image: ghcr.io/${GITHUB_REPOSITORY}/tsmex-web:staging
+    networks:
+      - tsmex-staging-internal
+      - ProxyGM
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=ProxyGM"
+        # Roteamento HTTP → redirect HTTPS
+        - "traefik.http.routers.tsmex-staging-http.rule=Host(`tsm.mesquitagrupo.com.br`)"
+        - "traefik.http.routers.tsmex-staging-http.entrypoints=web"
+        - "traefik.http.routers.tsmex-staging-http.middlewares=redirect-to-https"
+        - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+        # Roteamento HTTPS
+        - "traefik.http.routers.tsmex-staging.rule=Host(`tsm.mesquitagrupo.com.br`)"
+        - "traefik.http.routers.tsmex-staging.entrypoints=websecure"
+        - "traefik.http.routers.tsmex-staging.tls=true"
+        - "traefik.http.routers.tsmex-staging.tls.certresolver=letsencrypt"
+        - "traefik.http.services.tsmex-staging.loadbalancer.server.port=80"
+
+volumes:
+  postgres_staging_data:
+  redis_staging_data:
+
+networks:
+  tsmex-staging-internal:
+    driver: overlay
+  ProxyGM:
+    external: true

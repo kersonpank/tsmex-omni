@@ -34,6 +34,7 @@ interface OrderNFFormProps {
   onAdded: () => void;
   disabled?: boolean;
   collectionData?: Record<string, unknown>;
+  prescanNfe?: { chave: string; numero: string; emissionDate: string } | null;
 }
 
 /** Converte collectionData da coleta para pré-preenchimento do form de NF */
@@ -75,7 +76,7 @@ function calcCubFromVolumes(volumesList: VolumeItem[]): number {
   return Math.round(total * 1000) / 1000;
 }
 
-const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, disabled, collectionData }) => {
+const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, disabled, collectionData, prescanNfe }) => {
   const [tab, setTab] = useState<'NFE' | 'OUTRAS'>('NFE');
   const [speciesList, setSpeciesList] = useState<NfSpecies[]>([]);
   const [speciesOther, setSpeciesOther] = useState(false);
@@ -110,6 +111,18 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
       setVolumesList(volList);
     }
   }, [collectionData, editingInvoice]);
+
+  useEffect(() => {
+    if (!prescanNfe || invoices.length > 0) return;
+    setForm(f => ({
+      ...f,
+      nfKey: prescanNfe.chave,
+      nfNumber: prescanNfe.numero,
+      emissionDate: prescanNfe.emissionDate
+        ? prescanNfe.emissionDate.split('-').reverse().join('/')
+        : f.emissionDate,
+    }));
+  }, [prescanNfe]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     nfSpeciesApi.list({ active: true }).then((r: any) => {
@@ -324,6 +337,9 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
                 <span>⚠ {nfeLookupError} — preencha manualmente.</span>
                 <button type="button" onClick={clearNfeError} className="underline">OK</button>
               </p>
+            )}
+            {prescanNfe && form.nfKey === prescanNfe.chave && (
+              <p className="mt-1 text-xs text-emerald-600 dark:text-emerald-400">✓ Chave pré-escaneada</p>
             )}
           </div>
         )}

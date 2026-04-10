@@ -1,0 +1,118 @@
+version: "3.8"
+
+# =============================================================
+# TSM EX OMNI — Docker Swarm Stack: PRODUÇÃO
+# Domínio: tsmex.com.br
+# Deploy: via GitHub Actions (branch main) com approval manual
+# =============================================================
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: tsmex
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tsmex-prod-internal
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints: [node.role == manager]
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_prod_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tsmex-prod-internal
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  migrate:
+    image: ghcr.io/${GITHUB_REPOSITORY}/tsmex-migrate:latest
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      # Em produção usa migrate deploy (seguro, sem perda de dados)
+      MIGRATE_MODE: deploy
+    networks:
+      - tsmex-prod-internal
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: none
+
+  api:
+    image: ghcr.io/${GITHUB_REPOSITORY}/tsmex-api:latest
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      PORT: 3002
+      NODE_ENV: production
+      CORS_ORIGIN: https://tsmex.com.br
+    networks:
+      - tsmex-prod-internal
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+
+  web:
+    image: ghcr.io/${GITHUB_REPOSITORY}/tsmex-web:latest
+    networks:
+      - tsmex-prod-internal
+      - ProxyGM
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 5s
+        order: start-first
+      restart_policy:
+        condition: on-failure
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=ProxyGM"
+        # Roteamento HTTP → redirect HTTPS
+        - "traefik.http.routers.tsmex-prod-http.rule=Host(`tsmex.com.br`)"
+        - "traefik.http.routers.tsmex-prod-http.entrypoints=web"
+        - "traefik.http.routers.tsmex-prod-http.middlewares=redirect-to-https"
+        - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+        # Roteamento HTTPS
+        - "traefik.http.routers.tsmex-prod.rule=Host(`tsmex.com.br`)"
+        - "traefik.http.routers.tsmex-prod.entrypoints=websecure"
+        - "traefik.http.routers.tsmex-prod.tls=true"
+        - "traefik.http.routers.tsmex-prod.tls.certresolver=letsencrypt"
+        - "traefik.http.services.tsmex-prod.loadbalancer.server.port=80"
+
+volumes:
+  postgres_prod_data:
+  redis_prod_data:
+
+networks:
+  tsmex-prod-internal:
+    driver: overlay
+  ProxyGM:
+    external: true

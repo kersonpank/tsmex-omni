@@ -42,6 +42,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.api
+    image: ghcr.io/${GITHUB_REPOSITORY:-local/tsmex}/tsmex-api:${IMAGE_TAG:-local}
     container_name: tsmex-api
     restart: unless-stopped
     ports:
@@ -66,6 +67,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.migrate
+    image: ghcr.io/${GITHUB_REPOSITORY:-local/tsmex}/tsmex-migrate:${IMAGE_TAG:-local}
     container_name: tsmex-migrate
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/tsmex?schema=public
@@ -80,6 +82,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.web
+    image: ghcr.io/${GITHUB_REPOSITORY:-local/tsmex}/tsmex-web:${IMAGE_TAG:-local}
     container_name: tsmex-web
     restart: unless-stopped
     ports:

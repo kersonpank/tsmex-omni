@@ -93,6 +93,11 @@ router.get('/:chave', authenticate, async (req: Request, res: Response, next: Ne
     // Busca razão social do emitente via BrasilAPI (gratuita, sem autenticação)
     let emitenteRazaoSocial: string | null = null;
     let emitenteTradeName: string | null = null;
+    let emitenteMunicipio: string | null = null;
+    let emitenteCep: string | null = null;
+    let emitenteLogradouro: string | null = null;
+    let emitenteNumero: string | null = null;
+    let emitenteBairro: string | null = null;
     try {
       const cnpjRes = await axios.get(
         `https://brasilapi.com.br/api/cnpj/v1/${parsed.cnpjEmit}`,
@@ -100,6 +105,11 @@ router.get('/:chave', authenticate, async (req: Request, res: Response, next: Ne
       );
       emitenteRazaoSocial = cnpjRes.data?.razao_social ?? null;
       emitenteTradeName = cnpjRes.data?.nome_fantasia ?? null;
+      emitenteMunicipio = cnpjRes.data?.municipio ?? null;
+      emitenteCep = cnpjRes.data?.cep ? String(cnpjRes.data.cep).replace(/\D/g, '') : null;
+      emitenteLogradouro = cnpjRes.data?.logradouro ?? null;
+      emitenteNumero = cnpjRes.data?.numero ?? null;
+      emitenteBairro = cnpjRes.data?.bairro ?? null;
     } catch {
       // BrasilAPI falhou — retorna sem razão social, não bloqueia operação
     }
@@ -115,6 +125,11 @@ router.get('/:chave', authenticate, async (req: Request, res: Response, next: Ne
         cnpjEmitente: parsed.cnpjEmit,
         emitenteRazaoSocial,
         emitenteTradeName,
+        emitenteMunicipio,
+        emitenteCep,
+        emitenteLogradouro,
+        emitenteNumero,
+        emitenteBairro,
         modelo: parsed.mod === '55' ? 'NF-e' : parsed.mod === '57' ? 'CT-e' : parsed.mod,
       },
     });

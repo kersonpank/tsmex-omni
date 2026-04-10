@@ -1,0 +1,116 @@
+name: Deploy Production
+
+on:
+  # ⚠️ Deploy de produção é MANUAL — vá em Actions → Deploy Production → Run workflow
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Digite DEPLOY para confirmar o deploy em produção'
+        required: true
+        default: ''
+
+env:
+  IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+
+jobs:
+  validate:
+    name: Validar confirmação
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checar confirmação
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "DEPLOY" ]; then
+            echo "❌ Confirmação inválida. Digite DEPLOY para prosseguir."
+            exit 1
+          fi
+          echo "✅ Confirmado. Iniciando build de produção..."
+
+  build-and-push:
+    name: Build & Push Production Images
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      sha_tag: ${{ steps.vars.outputs.SHA_TAG }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Set image tag (short SHA)
+        id: vars
+        run: echo "SHA_TAG=sha-$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & Push API
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.api
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/tsmex-api:latest
+            ${{ env.IMAGE_PREFIX }}/tsmex-api:${{ steps.vars.outputs.SHA_TAG }}
+          cache-from: type=registry,ref=${{ env.IMAGE_PREFIX }}/tsmex-api:latest
+          cache-to: type=inline
+
+      - name: Build & Push Web
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.web
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/tsmex-web:latest
+            ${{ env.IMAGE_PREFIX }}/tsmex-web:${{ steps.vars.outputs.SHA_TAG }}
+          cache-from: type=registry,ref=${{ env.IMAGE_PREFIX }}/tsmex-web:latest
+          cache-to: type=inline
+
+      - name: Build & Push Migrate
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.migrate
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/tsmex-migrate:latest
+            ${{ env.IMAGE_PREFIX }}/tsmex-migrate:${{ steps.vars.outputs.SHA_TAG }}
+          cache-from: type=registry,ref=${{ env.IMAGE_PREFIX }}/tsmex-migrate:latest
+          cache-to: type=inline
+
+  deploy-production:
+    name: Deploy to Production
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to Production via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            docker service update \
+              --image ${{ env.IMAGE_PREFIX }}/tsmex-api:latest \
+              --with-registry-auth \
+              --force \
+              prod-tsmex_api
+            docker service update \
+              --image ${{ env.IMAGE_PREFIX }}/tsmex-web:latest \
+              --with-registry-auth \
+              --force \
+              prod-tsmex_web
+            echo "Produção deploy OK: ${{ needs.build-and-push.outputs.sha_tag }}"

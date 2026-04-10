@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import {
   ordersApi,
   ordersEntradaApi,
@@ -11,6 +11,8 @@ import { useAuthStore } from '../../store/authStore';
 import { PersonAutocomplete } from '../ui/PersonAutocomplete';
 import { CityAutocomplete } from '../ui/CityAutocomplete';
 import OrderNFForm, { type OrderInvoiceItem } from './OrderNFForm';
+import { useNfeLookup } from '../../hooks/useNfeLookup';
+const QRCodeScanner = lazy(() => import('../ui/QRCodeScanner'));
 import { OrderColetaForm } from './OrderColetaForm';
 import { OrderFreightCalculationSection } from './OrderFreightCalculationSection';
 import type { Person, Hub, PricingRoute } from '../../types/index';
@@ -70,8 +72,25 @@ const EntradaTab: React.FC = () => {
     routeId: '',
     hubId: '',
   });
+  interface NfPrescanData {
+    chave: string;
+    numero: string;
+    emissionDate: string;
+    cnpjEmitente: string;
+    emitenteRazaoSocial: string | null;
+    emitenteTradeName: string | null;
+  }
+
+  const [nfPrescan, setNfPrescan] = useState<NfPrescanData | null>(null);
+  const [showPrescanQR, setShowPrescanQR] = useState(false);
+  const [prescanError, setPrescanError] = useState<string | null>(null);
+  const [prescanChaveInput, setPrescanChaveInput] = useState('');
+  const { lookup: lookupNfe, loading: nfeLookupLoading } = useNfeLookup();
+
   const [peopleSaving, setPeopleSaving] = useState(false);
   const [addClientModalPerson, setAddClientModalPerson] = useState<Person | null>(null);
+  const [addClientModalRetryOnSuccess, setAddClientModalRetryOnSuccess] = useState(false);
+  const [prescanAutoCreatedPerson, setPrescanAutoCreatedPerson] = useState<Person | null>(null);
   const [needsCollectionActive, setNeedsCollectionActive] = useState(false);
 
   const loadOrders = async () => {
@@ -130,6 +149,8 @@ const EntradaTab: React.FC = () => {
   useEffect(() => {
     if (selectedOrderId) {
       setIsCreatingNew(false);
+      setNfPrescan(null);
+      setPrescanChaveInput('');
       loadOrder(selectedOrderId);
     } else if (!isCreatingNew) {
       setOrder(null);
@@ -162,6 +183,11 @@ const EntradaTab: React.FC = () => {
     setOrder(null);
     setShowExpedidorRedespachante(false);
     setNeedsCollectionActive(false);
+    setNfPrescan(null);
+    setPrescanError(null);
+    setPrescanChaveInput('');
+    setPrescanAutoCreatedPerson(null);
+    setAddClientModalRetryOnSuccess(false);
     setPeopleForm({
       freightTerm: null,
       remetente: null,
@@ -175,6 +201,62 @@ const EntradaTab: React.FC = () => {
       hubId: isHub ? hubId ?? '' : '',
     });
     setSectionsExpanded({ ...sectionsExpanded, pessoas: true });
+  };
+
+  const handlePrescanQR = async (rawScan: string) => {
+    setShowPrescanQR(false);
+    setPrescanError(null);
+
+    const data = await lookupNfe(rawScan);
+    if (!data) {
+      setPrescanError('Não foi possível ler o QR Code. Tente manualmente ou insira a chave abaixo.');
+      return;
+    }
+
+    setNfPrescan({
+      chave: data.chave,
+      numero: data.numero,
+      emissionDate: data.emissionDate,
+      cnpjEmitente: data.cnpjEmitente,
+      emitenteRazaoSocial: data.emitenteRazaoSocial,
+      emitenteTradeName: data.emitenteTradeName,
+    });
+
+    if (data.cnpjEmitente) {
+      try {
+        const res = await personsApi.search(data.cnpjEmitente);
+        const persons: Person[] = (res as any)?.data ?? [];
+        const match = persons.find(
+          (p) => p.document.replace(/\D/g, '') === data.cnpjEmitente.replace(/\D/g, '')
+        );
+        if (match) {
+          setPeopleForm((f) => ({ ...f, remetente: match }));
+        } else if (data.emitenteRazaoSocial) {
+          // CNPJ não está no banco — auto-cria a Person com os dados da NF
+          try {
+            const createRes = await personsApi.create({
+              documentType: 'CNPJ',
+              document: data.cnpjEmitente,
+              legalName: data.emitenteRazaoSocial,
+              ...(data.emitenteTradeName ? { tradeName: data.emitenteTradeName } : {}),
+              ...(data.emitenteMunicipio ? { city: data.emitenteMunicipio } : {}),
+              ...(data.uf ? { state: data.uf } : {}),
+              ...(data.emitenteCep ? { cep: data.emitenteCep } : {}),
+              ...(data.emitenteLogradouro ? { address: data.emitenteLogradouro } : {}),
+              ...(data.emitenteNumero ? { number: data.emitenteNumero } : {}),
+              ...(data.emitenteBairro ? { neighborhood: data.emitenteBairro } : {}),
+            });
+            const newPerson: Person = (createRes as any)?.data ?? createRes;
+            setPeopleForm((f) => ({ ...f, remetente: newPerson }));
+            setPrescanAutoCreatedPerson(newPerson);
+          } catch {
+            // silencioso — usuário seleciona Remetente manualmente
+          }
+        }
+      } catch {
+        // silencioso — usuário seleciona Remetente manualmente
+      }
+    }
   };
 
   const getPayerPerson = (): Person | null => {
@@ -260,7 +342,10 @@ const EntradaTab: React.FC = () => {
       setError(msg);
       if (e.response?.status === 400 && typeof msg === 'string' && msg.includes('Cliente')) {
         const payer = getPayerPerson();
-        if (payer) setAddClientModalPerson(payer);
+        if (payer) {
+          setAddClientModalRetryOnSuccess(true);
+          setAddClientModalPerson(payer);
+        }
       } else {
         setAddClientModalPerson(null);
       }
@@ -375,6 +460,123 @@ const EntradaTab: React.FC = () => {
             <div className="py-12 text-center text-slate-500 dark:text-slate-400">Carregando...</div>
           ) : (
             <>
+              {/* PRÉ-SCAN QR NF-e */}
+              {isCreatingNew && (
+                <div className={`rounded-xl border-2 p-5 ${
+                  nfPrescan
+                    ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-300 dark:border-emerald-700'
+                    : 'bg-indigo-50 dark:bg-indigo-900/20 border-dashed border-indigo-300 dark:border-indigo-700'
+                }`}>
+                  {!nfPrescan ? (
+                    <div className="space-y-3">
+                      <div>
+                        <h3 className="text-sm font-bold text-indigo-800 dark:text-indigo-200">
+                          Identificar NF-e antes de preencher
+                        </h3>
+                        <p className="text-xs text-indigo-600 dark:text-indigo-300 mt-0.5">
+                          Opcional — pré-preenche a nota fiscal e identifica o remetente automaticamente.
+                        </p>
+                        {prescanError && (
+                          <p className="text-xs text-red-600 dark:text-red-400 mt-1">{prescanError}</p>
+                        )}
+                      </div>
+                      {/* Câmera — código de barras OU QR Code */}
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowPrescanQR(true)}
+                          disabled={nfeLookupLoading}
+                          className="flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-semibold rounded-lg"
+                        >
+                          {nfeLookupLoading ? (
+                            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                            </svg>
+                          ) : (
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
+                            </svg>
+                          )}
+                          Escanear cód. de barras / QR Code
+                        </button>
+                      </div>
+                      {/* Ou: colar a chave manualmente */}
+                      <div className="flex gap-2 items-center">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          maxLength={44}
+                          placeholder="Ou cole/digite a chave de 44 dígitos"
+                          value={prescanChaveInput}
+                          onChange={e => setPrescanChaveInput(e.target.value.replace(/\D/g, '').slice(0, 44))}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' && prescanChaveInput.length === 44) {
+                              e.preventDefault();
+                              handlePrescanQR(prescanChaveInput);
+                            }
+                          }}
+                          className="flex-1 px-3 py-2 rounded-lg border border-indigo-200 dark:border-indigo-700 bg-white dark:bg-slate-700 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                          disabled={nfeLookupLoading}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handlePrescanQR(prescanChaveInput)}
+                          disabled={prescanChaveInput.length !== 44 || nfeLookupLoading}
+                          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-sm font-semibold rounded-lg whitespace-nowrap"
+                        >
+                          {nfeLookupLoading ? '...' : 'Buscar'}
+                        </button>
+                      </div>
+                      <p className="text-xs text-indigo-500 dark:text-indigo-400">
+                        {prescanChaveInput.length}/44 dígitos
+                        {prescanChaveInput.length === 44 && <span className="text-emerald-600 dark:text-emerald-400 ml-2">✓ pronto</span>}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                      <div className="flex-1 space-y-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <svg className="w-4 h-4 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/>
+                          </svg>
+                          <span className="text-sm font-bold text-emerald-800 dark:text-emerald-200">NF capturada</span>
+                        </div>
+                        <p className="text-sm text-slate-700 dark:text-slate-300">
+                          <strong>NF {nfPrescan.numero}</strong>
+                          {nfPrescan.emitenteRazaoSocial && <> — {nfPrescan.emitenteRazaoSocial}</>}
+                        </p>
+                        <p className="text-xs font-mono text-slate-400 dark:text-slate-500 truncate">{nfPrescan.chave}</p>
+                        {peopleForm.remetente ? (
+                          prescanAutoCreatedPerson?.id === peopleForm.remetente.id ? (
+                            <p className="text-xs text-indigo-600 dark:text-indigo-400">
+                              ✓ Remetente importado da NF: {peopleForm.remetente.legalName} — selecione o frete para definir dados comerciais.
+                            </p>
+                          ) : (
+                            <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                              ✓ Remetente identificado: {peopleForm.remetente.legalName ?? peopleForm.remetente.tradeName}
+                            </p>
+                          )
+                        ) : (
+                          <p className="text-xs text-amber-600 dark:text-amber-400">
+                            CNPJ {nfPrescan.cnpjEmitente} não encontrado — selecione o Remetente abaixo.
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => { setNfPrescan(null); setPrescanError(null); setPrescanChaveInput(''); }}
+                        className="text-xs text-slate-400 hover:text-slate-600 underline whitespace-nowrap"
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <Section title="PESSOAS" expanded={sectionsExpanded.pessoas} onToggle={() => toggleSection('pessoas')}>
                 <form onSubmit={handleGravarPessoas} className="space-y-6">
                   <div className="bg-amber-50 dark:bg-amber-900/30 border-2 border-amber-200 dark:border-amber-800 rounded-xl p-6">
@@ -386,11 +588,24 @@ const EntradaTab: React.FC = () => {
                             type="radio"
                             name="freightTerm"
                             checked={peopleForm.freightTerm === ft}
-                            onChange={() => setPeopleForm((f) => ({
-                              ...f,
-                              freightTerm: ft,
-                              ...(ft !== 'REDESPACHO' && { consignatario: null }),
-                            }))}
+                            onChange={() => {
+                              setPeopleForm((f) => ({
+                                ...f,
+                                freightTerm: ft,
+                                ...(ft !== 'REDESPACHO' && { consignatario: null }),
+                              }));
+                              // Se há pessoa auto-criada do prescan, verifica se ela será o pagador
+                              if (prescanAutoCreatedPerson) {
+                                const payer =
+                                  ft === 'CIF' ? peopleForm.remetente :
+                                  ft === 'FOB' ? peopleForm.destinatario :
+                                  peopleForm.consignatario ?? peopleForm.destinatario;
+                                if (payer?.id === prescanAutoCreatedPerson.id) {
+                                  setAddClientModalRetryOnSuccess(false);
+                                  setAddClientModalPerson(payer);
+                                }
+                              }
+                            }}
                             className="w-5 h-5 text-amber-600"
                           />
                           <span className="text-base font-medium text-slate-800 dark:text-slate-100">{ft === 'REDESPACHO' ? 'Outro' : ft}</span>
@@ -557,6 +772,11 @@ const EntradaTab: React.FC = () => {
                     invoices={invoicesRel}
                     onAdded={() => loadOrder(selectedOrderId)}
                     collectionData={order?.collectionData as Record<string, unknown> | undefined}
+                    prescanNfe={nfPrescan ? {
+                      chave: nfPrescan.chave,
+                      numero: nfPrescan.numero,
+                      emissionDate: nfPrescan.emissionDate,
+                    } : null}
                   />
                 ) : (
                   <p className="text-slate-500 dark:text-slate-400 text-sm">Grave as pessoas primeiro para adicionar notas fiscais.</p>
@@ -629,13 +849,22 @@ const EntradaTab: React.FC = () => {
           )}
         </div>
       )}
+      {showPrescanQR && (
+        <Suspense fallback={null}>
+          <QRCodeScanner onScan={handlePrescanQR} onClose={() => setShowPrescanQR(false)} />
+        </Suspense>
+      )}
       {addClientModalPerson && (
         <AddClientModal
           person={addClientModalPerson}
           onClose={() => setAddClientModalPerson(null)}
           onSuccess={() => {
             setAddClientModalPerson(null);
-            doGravarPessoas();
+            setPrescanAutoCreatedPerson(null);
+            if (addClientModalRetryOnSuccess) {
+              setAddClientModalRetryOnSuccess(false);
+              doGravarPessoas();
+            }
           }}
         />
       )}

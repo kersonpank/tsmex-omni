@@ -164,22 +164,15 @@ const ManifestModal: React.FC<ManifestModalProps> = ({
         .map((o) => o.demand?.id ?? o.demandId ?? o.id)
         .filter(Boolean) as string[];
 
-      const res = await manifestsApi.create({
+      await manifestsApi.create({
         vehicleTypeId,
         origin,
         destination,
         demandIds,
         linkId,
-      });
-
-      const manifest: Manifest = res.data;
-
-      // addDemand for each order (in case backend doesn't handle demandIds on create)
-      if (manifest?.id && demandIds.length > 0) {
-        await Promise.allSettled(
-          demandIds.map((did) => manifestsApi.addDemand(manifest.id, did))
-        );
-      }
+        ...(scheduledDate ? { scheduledDate } : {}),
+        ...(notes.trim() ? { notes: notes.trim() } : {}),
+      } as any);
 
       onCreated();
     } catch (e: any) {

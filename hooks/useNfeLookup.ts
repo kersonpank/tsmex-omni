@@ -10,6 +10,11 @@ export interface NfeLookupResult {
   cnpjEmitente: string;
   emitenteRazaoSocial: string | null;
   emitenteTradeName: string | null;
+  emitenteMunicipio: string | null;
+  emitenteCep: string | null;
+  emitenteLogradouro: string | null;
+  emitenteNumero: string | null;
+  emitenteBairro: string | null;
   modelo: string;
 }
 

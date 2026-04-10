@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/HOME/.claude/**)",
+      "mcp__github__get_me"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\HOME\\.claude"
+    ]
+  }
+}
