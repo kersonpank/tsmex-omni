@@ -94,17 +94,9 @@ services:
         condition: on-failure
       labels:
         - "traefik.enable=true"
-        - "traefik.docker.network=ProxyGM"
-        # Roteamento HTTP → redirect HTTPS
-        - "traefik.http.routers.tsmex-prod-http.rule=Host(`tsmex.com.br`)"
-        - "traefik.http.routers.tsmex-prod-http.entrypoints=web"
-        - "traefik.http.routers.tsmex-prod-http.middlewares=redirect-to-https"
-        - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
-        # Roteamento HTTPS
         - "traefik.http.routers.tsmex-prod.rule=Host(`tsmex.com.br`)"
         - "traefik.http.routers.tsmex-prod.entrypoints=websecure"
-        - "traefik.http.routers.tsmex-prod.tls=true"
-        - "traefik.http.routers.tsmex-prod.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.tsmex-prod.tls.certresolver=letsencryptresolver"
         - "traefik.http.services.tsmex-prod.loadbalancer.server.port=80"
 
 volumes:
