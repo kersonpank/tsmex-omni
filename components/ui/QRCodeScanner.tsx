@@ -98,7 +98,7 @@ const QRCodeScanner: React.FC<QRCodeScannerProps> = ({ onScan, onClose }) => {
       await video.play();
 
       setStatus('scanning');
-      intervalRef.current = setInterval(decodeFrame, 200);
+      intervalRef.current = setInterval(decodeFrame, 500);
     } catch {
       setError('Não foi possível acessar a câmera. Verifique as permissões do navegador.');
     }

@@ -149,7 +149,6 @@ const EntradaTab: React.FC = () => {
   useEffect(() => {
     if (selectedOrderId) {
       setIsCreatingNew(false);
-      setNfPrescan(null);
       setPrescanChaveInput('');
       loadOrder(selectedOrderId);
     } else if (!isCreatingNew) {
@@ -281,16 +280,19 @@ const EntradaTab: React.FC = () => {
         const destId = peopleForm.destinatario?.id?.trim();
         if (!remId || !destId) return;
         const routeVal = (peopleForm.routeId || '').trim();
+        const consignatarioIdU = peopleForm.consignatario?.id?.trim();
+        const expedidorIdU = peopleForm.expedidor?.id?.trim();
+        const redespachanteIdU = peopleForm.redespachante?.id?.trim();
         const res = await ordersEntradaApi.updatePeople(selectedOrderId, {
           freightTerm: peopleForm.freightTerm,
           remetentePersonId: remId,
           destinatarioPersonId: destId,
-          consignatarioPersonId: peopleForm.consignatario?.id?.trim() || null,
-          expedidorPersonId: peopleForm.expedidor?.id?.trim() || null,
-          redespachantePersonId: peopleForm.redespachante?.id?.trim() || null,
+          consignatarioPersonId: (consignatarioIdU && UUID_REGEX.test(consignatarioIdU)) ? consignatarioIdU : null,
+          expedidorPersonId: (expedidorIdU && UUID_REGEX.test(expedidorIdU)) ? expedidorIdU : null,
+          redespachantePersonId: (redespachanteIdU && UUID_REGEX.test(redespachanteIdU)) ? redespachanteIdU : null,
           origemPrestacao: peopleForm.origemPrestacao,
           fimPrestacao: peopleForm.fimPrestacao,
-          routeId: routeVal || null,
+          routeId: (routeVal && UUID_REGEX.test(routeVal)) ? routeVal : null,
         });
         const o = (res as any)?.data ?? res;
         setOrder(o);
