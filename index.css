@@ -1,0 +1,128 @@
+@import "tailwindcss";
+
+/* Torre de controle — tokens (Tailwind v4 @theme) */
+@theme {
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Syne", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --color-tower-50: #f4f6f8;
+  --color-tower-100: #e8ecf1;
+  --color-tower-200: #cfd8e3;
+  --color-tower-300: #a8b6c9;
+  --color-tower-400: #7a8aa3;
+  --color-tower-500: #5c6b82;
+  --color-tower-600: #4a5568;
+  --color-tower-700: #3d4654;
+  --color-tower-800: #252d38;
+  --color-tower-900: #161c24;
+  --color-tower-950: #0c0f14;
+
+  --color-accent-400: #34d399;
+  --color-accent-500: #10b981;
+  --color-accent-600: #059669;
+
+  --color-amber-ctrl: #f59e0b;
+  --color-danger-ctrl: #ef4444;
+}
+
+/* Design tokens semânticos (uso em CSS puro + arbitrary values) */
+:root {
+  --app-nav-bg: #ffffff;
+  --app-nav-border: var(--color-tower-200);
+  --app-accent: var(--color-accent-500);
+  --app-accent-hover: var(--color-accent-600);
+}
+
+.dark:root {
+  --app-nav-bg: var(--color-tower-900);
+  --app-nav-border: var(--color-tower-700);
+  --app-accent: var(--color-accent-400);
+  --app-accent-hover: var(--color-accent-500);
+}
+
+@layer base {
+  html {
+    @apply font-sans text-tower-900 bg-tower-50 antialiased;
+  }
+  html.dark {
+    @apply text-tower-100 bg-tower-950;
+  }
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-mono-ids {
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+
+/* Casca admin — textura sutil */
+.admin-shell-bg {
+  background-color: var(--color-tower-50);
+  background-image:
+    radial-gradient(ellipse 120% 80% at 50% -20%, rgb(16 185 129 / 0.08), transparent 55%),
+    radial-gradient(ellipse 80% 50% at 100% 50%, rgb(15 23 42 / 0.04), transparent 45%);
+}
+
+.dark .admin-shell-bg {
+  background-color: var(--color-tower-950);
+  background-image:
+    radial-gradient(ellipse 100% 60% at 50% 0%, rgb(16 185 129 / 0.12), transparent 50%),
+    radial-gradient(ellipse 60% 40% at 0% 100%, rgb(52 211 153 / 0.06), transparent 40%);
+}
+
+.admin-grain {
+  position: relative;
+}
+
+.admin-grain::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  opacity: 0.35;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+}
+
+.dark .admin-grain::after {
+  opacity: 0.12;
+  mix-blend-mode: soft-light;
+}
+
+/* Transição leve ao trocar painel */
+@keyframes admin-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.admin-panel-animate {
+  animation: admin-fade-in 0.35s ease-out both;
+}
+
+/* Foco visível acessível */
+.admin-focus:focus-visible {
+  outline: 2px solid var(--color-accent-500);
+  outline-offset: 2px;
+}
+
+.dark .admin-focus:focus-visible {
+  outline-color: var(--color-accent-400);
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

@@ -1,6 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { manifestsApi, vehicleTypesApi, linksApi, demandsApi, hubsApi } from '../../lib/api';
 import type { Manifest, VehicleType, Link, Demand, Hub } from '../../types/index';
+import type { StatusTone } from '../../lib/demandStatusUi';
+import EmptyState from '../ui/EmptyState';
+import InlineNotice from '../ui/InlineNotice';
+import LoadingPanel from '../ui/LoadingPanel';
+import StatusBadge from '../ui/StatusBadge';
 import { CityAutocomplete } from '../ui/CityAutocomplete';
 
 const statusLabels: Record<string, string> = {
@@ -10,6 +15,16 @@ const statusLabels: Record<string, string> = {
   IN_PROGRESS: 'Em andamento',
   COMPLETED: 'Concluído',
   REJECTED: 'Recusado',
+};
+
+const manifestTone: Record<string, StatusTone> = {
+  DRAFT: 'neutral',
+  PENDING_ACCEPT: 'warning',
+  ACCEPTED: 'info',
+  IN_PROGRESS: 'info',
+  COMPLETED: 'success',
+  CANCELLED: 'danger',
+  REJECTED: 'danger',
 };
 
 const ManifestsTab: React.FC = () => {
@@ -158,21 +173,25 @@ const ManifestsTab: React.FC = () => {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-lg font-bold text-slate-700">Viagens (Manifestos)</h2>
+      <div className="mb-6 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+        <p className="text-sm text-tower-600 dark:text-tower-400">Consolide demandas, atribua motorista e acompanhe o ciclo da viagem.</p>
         <button
           type="button"
           onClick={() => setShowCreate(true)}
-          className="px-4 py-2 text-sm bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700"
+          className="admin-focus rounded-xl bg-accent-600 px-4 py-2 text-sm font-bold text-white hover:bg-accent-500"
         >
           + Nova viagem
         </button>
       </div>
       {error && (
-        <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>
+        <div className="mb-4">
+          <InlineNotice variant="error" message={error} onDismiss={() => setError(null)} />
+        </div>
       )}
       {success && (
-        <div className="mb-4 bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-xl text-sm">{success}</div>
+        <div className="mb-4">
+          <InlineNotice variant="success" message={success} onDismiss={() => setSuccess(null)} />
+        </div>
       )}
 
       {showCreate && (
@@ -281,22 +300,22 @@ const ManifestsTab: React.FC = () => {
       )}
 
       {loading ? (
-        <div className="py-12 text-center text-slate-500">Carregando...</div>
+        <LoadingPanel label="Carregando viagens…" />
       ) : manifests.length === 0 ? (
-        <div className="bg-white border-2 border-dashed border-slate-200 rounded-xl p-12 text-center text-slate-500">Nenhuma viagem cadastrada.</div>
+        <EmptyState title="Nenhuma viagem" description="Crie uma nova viagem para começar a consolidar demandas." />
       ) : (
         <div className="space-y-4">
           {manifests.map((m) => (
-            <div key={m.id} className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[10px] font-bold text-slate-400">#{m.id.slice(0, 8)}</span>
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${m.status === 'DRAFT' ? 'bg-slate-100 text-slate-600' : m.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-100 text-indigo-700'}`}>
-                    {statusLabels[m.status] ?? m.status}
+            <div key={m.id} className="rounded-xl border border-tower-200 bg-white/95 p-5 shadow-sm dark:border-tower-700 dark:bg-tower-900/80">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono-ids text-[10px] font-bold text-tower-400">#{m.id.slice(0, 8)}</span>
+                  <StatusBadge label={statusLabels[m.status] ?? m.status} tone={manifestTone[m.status] ?? 'neutral'} />
+                  <span className="font-bold text-tower-900 dark:text-tower-50">
+                    {m.origin} → {m.destination}
                   </span>
-                  <span className="font-bold text-slate-900">{m.origin} → {m.destination}</span>
-                  {m.vehicleType && <span className="text-slate-500 text-sm">({m.vehicleType.name})</span>}
-                  {m.link && <span className="text-slate-600 text-sm">· Motorista: {m.link.name}</span>}
+                  {m.vehicleType && <span className="text-sm text-tower-500">({m.vehicleType.name})</span>}
+                  {m.link && <span className="text-sm text-tower-600 dark:text-tower-300">· Motorista: {m.link.name}</span>}
                 </div>
                 <div className="flex gap-2">
                   {m.status === 'DRAFT' && (

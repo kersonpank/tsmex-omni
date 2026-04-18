@@ -50,29 +50,29 @@ const Navigation: React.FC = () => {
   const navLinks = (
     <>
       {(role === 'ADMIN' || role === 'HUB') && (
-        <Link to="/gestao" className="text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 font-medium transition-colors" onClick={() => setMobileOpen(false)}>
+        <Link to="/gestao" className="admin-focus font-medium text-tower-600 transition hover:text-accent-600 dark:text-tower-300 dark:hover:text-accent-400" onClick={() => setMobileOpen(false)}>
           {role === 'HUB' ? 'Operação' : 'Torre de Controle'}
         </Link>
       )}
       {role === 'CLIENT' && (
-        <Link to="/client" className="text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 font-medium transition-colors" onClick={() => setMobileOpen(false)}>
+        <Link to="/client" className="admin-focus font-medium text-tower-600 transition hover:text-accent-600 dark:text-tower-300 dark:hover:text-accent-400" onClick={() => setMobileOpen(false)}>
           Dashboard
         </Link>
       )}
       {role === 'LINK' && (
-        <Link to="/link" className="text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 font-medium transition-colors" onClick={() => setMobileOpen(false)}>
+        <Link to="/link" className="admin-focus font-medium text-tower-600 transition hover:text-accent-600 dark:text-tower-300 dark:hover:text-accent-400" onClick={() => setMobileOpen(false)}>
           Minha Carga
         </Link>
       )}
-      <Link to="/chat/demo" className="text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 font-medium transition-colors" onClick={() => setMobileOpen(false)}>
+      <Link to="/chat/demo" className="admin-focus font-medium text-tower-600 transition hover:text-accent-600 dark:text-tower-300 dark:hover:text-accent-400" onClick={() => setMobileOpen(false)}>
         Minhas Demandas
       </Link>
       {role === 'CLIENT' && (
         <>
-          <Link to="/form/cotacao" className="text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 font-medium transition-colors" onClick={() => setMobileOpen(false)}>
+          <Link to="/form/cotacao" className="admin-focus font-medium text-tower-600 transition hover:text-accent-600 dark:text-tower-300 dark:hover:text-accent-400" onClick={() => setMobileOpen(false)}>
             Cotação
           </Link>
-          <Link to="/form/coleta" className="text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 font-medium transition-colors" onClick={() => setMobileOpen(false)}>
+          <Link to="/form/coleta" className="admin-focus font-medium text-tower-600 transition hover:text-accent-600 dark:text-tower-300 dark:hover:text-accent-400" onClick={() => setMobileOpen(false)}>
             Coleta
           </Link>
         </>
@@ -81,35 +81,37 @@ const Navigation: React.FC = () => {
   );
 
   return (
-    <nav className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between h-16 items-center">
+    <nav className="sticky top-0 z-50 border-b border-tower-200/90 bg-white/95 backdrop-blur-md dark:border-tower-800 dark:bg-tower-950/90">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="flex h-16 items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-xl">TSM</span>
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-tower-900 dark:bg-tower-100">
+              <span className="font-display text-lg font-extrabold text-white dark:text-tower-900">TSM</span>
             </div>
-            <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-violet-600">
-              EX OMNI
-            </span>
+            <span className="font-display text-xl font-bold tracking-tight text-tower-900 dark:text-tower-50">EX OMNI</span>
           </div>
 
-          <div className="hidden md:flex items-center space-x-8">
+          <div className="hidden items-center space-x-8 md:flex">
             {isAuthenticated && (
               <>
                 {navLinks}
-                <div className="flex items-center gap-4 border-l border-slate-200 dark:border-slate-600 pl-4">
+                <div className="flex items-center gap-4 border-l border-tower-200 pl-4 dark:border-tower-700">
                   <ThemeToggle />
                   {hasMultipleRoles && (
-                    <div className="relative group">
-                      <button className="px-3 py-1.5 text-sm font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/40 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/60">
+                    <div className="group relative">
+                      <button
+                        type="button"
+                        className="rounded-lg bg-accent-500/15 px-3 py-1.5 text-sm font-medium text-accent-700 hover:bg-accent-500/25 dark:text-accent-300 dark:hover:bg-accent-500/20"
+                      >
                         Ver como {roleLabels[role ?? ''] ?? role}
                       </button>
-                      <div className="absolute right-0 mt-1 py-1 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 min-w-[140px]">
+                      <div className="invisible absolute right-0 z-50 mt-1 min-w-[140px] rounded-lg border border-tower-200 bg-white py-1 opacity-0 shadow-lg transition-all group-hover:visible group-hover:opacity-100 dark:border-tower-700 dark:bg-tower-900">
                         {user?.roles?.map((r) => (
                           <button
                             key={r}
+                            type="button"
                             onClick={() => handleRoleSwitch(r)}
-                            className={`block w-full text-left px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 ${r === role ? 'text-indigo-600 dark:text-indigo-400 font-medium' : 'text-slate-700 dark:text-slate-300'}`}
+                            className={`block w-full px-4 py-2 text-left text-sm hover:bg-tower-50 dark:hover:bg-tower-800 ${r === role ? 'font-medium text-accent-600 dark:text-accent-400' : 'text-tower-700 dark:text-tower-300'}`}
                           >
                             {roleLabels[r] ?? r}
                           </button>
@@ -118,12 +120,13 @@ const Navigation: React.FC = () => {
                     </div>
                   )}
                   <div className="text-sm">
-                    <div className="font-medium text-slate-900 dark:text-slate-100">{user?.email}</div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400">{roleLabels[role ?? ''] ?? role ?? '—'}</div>
+                    <div className="font-medium text-tower-900 dark:text-tower-100">{user?.email}</div>
+                    <div className="text-xs text-tower-500 dark:text-tower-400">{roleLabels[role ?? ''] ?? role ?? '—'}</div>
                   </div>
                   <button
+                    type="button"
                     onClick={logout}
-                    className="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                    className="px-4 py-2 text-sm font-medium text-tower-600 transition hover:text-red-600 dark:text-tower-300 dark:hover:text-red-400"
                   >
                     Sair
                   </button>
@@ -133,12 +136,12 @@ const Navigation: React.FC = () => {
           </div>
 
           {isAuthenticated && (
-            <div className="flex md:hidden items-center gap-2">
+            <div className="flex items-center gap-2 md:hidden">
               <ThemeToggle />
               <button
                 type="button"
                 onClick={() => setMobileOpen((o) => !o)}
-                className="p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"
+                className="admin-focus rounded-lg p-2 text-tower-600 hover:bg-tower-100 dark:text-tower-300 dark:hover:bg-tower-800"
                 aria-label="Abrir menu"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -154,46 +157,71 @@ const Navigation: React.FC = () => {
         </div>
 
         {isAuthenticated && mobileOpen && (
-          <div className="md:hidden border-t border-slate-200 dark:border-slate-700 py-4 space-y-1">
+          <div className="space-y-1 border-t border-tower-200 py-4 dark:border-tower-700 md:hidden">
             <div className="flex flex-col gap-1">
               {(role === 'ADMIN' || role === 'HUB') && (
-                <Link to="/gestao" className="px-3 py-2 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 font-medium" onClick={() => setMobileOpen(false)}>
+                <Link
+                  to="/gestao"
+                  className="admin-focus rounded-lg px-3 py-2 font-medium text-tower-800 hover:bg-tower-100 dark:text-tower-200 dark:hover:bg-tower-800"
+                  onClick={() => setMobileOpen(false)}
+                >
                   {role === 'HUB' ? 'Operação' : 'Torre de Controle'}
                 </Link>
               )}
               {role === 'CLIENT' && (
-                <Link to="/client" className="px-3 py-2 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 font-medium" onClick={() => setMobileOpen(false)}>
+                <Link
+                  to="/client"
+                  className="admin-focus rounded-lg px-3 py-2 font-medium text-tower-800 hover:bg-tower-100 dark:text-tower-200 dark:hover:bg-tower-800"
+                  onClick={() => setMobileOpen(false)}
+                >
                   Dashboard
                 </Link>
               )}
               {role === 'LINK' && (
-                <Link to="/link" className="px-3 py-2 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 font-medium" onClick={() => setMobileOpen(false)}>
+                <Link
+                  to="/link"
+                  className="admin-focus rounded-lg px-3 py-2 font-medium text-tower-800 hover:bg-tower-100 dark:text-tower-200 dark:hover:bg-tower-800"
+                  onClick={() => setMobileOpen(false)}
+                >
                   Minha Carga
                 </Link>
               )}
-              <Link to="/chat/demo" className="px-3 py-2 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 font-medium" onClick={() => setMobileOpen(false)}>
+              <Link
+                to="/chat/demo"
+                className="admin-focus rounded-lg px-3 py-2 font-medium text-tower-800 hover:bg-tower-100 dark:text-tower-200 dark:hover:bg-tower-800"
+                onClick={() => setMobileOpen(false)}
+              >
                 Minhas Demandas
               </Link>
               {role === 'CLIENT' && (
                 <>
-                  <Link to="/form/cotacao" className="px-3 py-2 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 font-medium" onClick={() => setMobileOpen(false)}>
+                  <Link
+                    to="/form/cotacao"
+                    className="admin-focus rounded-lg px-3 py-2 font-medium text-tower-800 hover:bg-tower-100 dark:text-tower-200 dark:hover:bg-tower-800"
+                    onClick={() => setMobileOpen(false)}
+                  >
                     Cotação
                   </Link>
-                  <Link to="/form/coleta" className="px-3 py-2 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 font-medium" onClick={() => setMobileOpen(false)}>
+                  <Link
+                    to="/form/coleta"
+                    className="admin-focus rounded-lg px-3 py-2 font-medium text-tower-800 hover:bg-tower-100 dark:text-tower-200 dark:hover:bg-tower-800"
+                    onClick={() => setMobileOpen(false)}
+                  >
                     Coleta
                   </Link>
                 </>
               )}
             </div>
             {hasMultipleRoles && (
-              <div className="px-3 py-2 border-t border-slate-200 dark:border-slate-700">
-                <div className="text-xs text-slate-500 dark:text-slate-400 mb-2">Trocar painel</div>
+              <div className="border-t border-tower-200 px-3 py-2 dark:border-tower-700">
+                <div className="mb-2 text-xs text-tower-500 dark:text-tower-400">Trocar painel</div>
                 <div className="flex flex-wrap gap-1">
                   {user?.roles?.map((r) => (
                     <button
                       key={r}
+                      type="button"
                       onClick={() => handleRoleSwitch(r)}
-                      className={`px-3 py-1.5 text-sm rounded-lg ${r === role ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 font-medium' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400'}`}
+                      className={`rounded-lg px-3 py-1.5 text-sm ${r === role ? 'bg-accent-500/20 font-medium text-accent-800 dark:text-accent-200' : 'bg-tower-100 text-tower-600 dark:bg-tower-800 dark:text-tower-400'}`}
                     >
                       {roleLabels[r] ?? r}
                     </button>
@@ -201,11 +229,15 @@ const Navigation: React.FC = () => {
                 </div>
               </div>
             )}
-            <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 px-3">
-              <div className="text-sm text-slate-500 dark:text-slate-400 mb-2">{user?.email}</div>
+            <div className="mt-4 border-t border-tower-200 px-3 pt-4 dark:border-tower-700">
+              <div className="mb-2 text-sm text-tower-500 dark:text-tower-400">{user?.email}</div>
               <button
-                onClick={() => { setMobileOpen(false); logout(); }}
-                className="w-full text-left px-3 py-2 rounded-lg text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 font-medium"
+                type="button"
+                onClick={() => {
+                  setMobileOpen(false);
+                  logout();
+                }}
+                className="w-full rounded-lg px-3 py-2 text-left font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
               >
                 Sair
               </button>
@@ -223,7 +255,7 @@ const App: React.FC = () => {
 
   return (
     <HashRouter>
-      <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100">
+      <div className="flex min-h-screen flex-col bg-tower-50 text-tower-900 dark:bg-tower-950 dark:text-tower-100">
         <Navigation />
         <main className="flex-grow">
           <Routes>
@@ -281,13 +313,19 @@ const App: React.FC = () => {
           </Routes>
         </main>
 
-        <footer className="bg-slate-900 dark:bg-slate-950 text-slate-500 dark:text-slate-400 py-8 px-4 mt-auto">
-          <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4 text-xs font-medium uppercase tracking-widest">
-            <div>TSM EX • Sistema Conectado ao Backend</div>
+        <footer className="mt-auto border-t border-tower-800 bg-tower-900 px-4 py-8 text-tower-500 dark:bg-tower-950 dark:text-tower-500">
+          <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 text-xs font-medium uppercase tracking-widest md:flex-row">
+            <div>TSM EX · Sistema conectado ao backend</div>
             <div className="flex gap-6">
-              <a href="#" className="hover:text-white transition-colors">Documentação</a>
-              <a href="#" className="hover:text-white transition-colors">SLA de IA</a>
-              <a href="#" className="hover:text-white transition-colors">Suporte</a>
+              <a href="#" className="transition-colors hover:text-accent-400">
+                Documentação
+              </a>
+              <a href="#" className="transition-colors hover:text-accent-400">
+                SLA de IA
+              </a>
+              <a href="#" className="transition-colors hover:text-accent-400">
+                Suporte
+              </a>
             </div>
           </div>
         </footer>

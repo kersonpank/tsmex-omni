@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { Link as RouterLink } from 'react-router-dom';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { demandsApi } from '../lib/api';
+import { demandStatusLabels, demandStatusTones } from '../lib/demandStatusUi';
 import { useAuthStore } from '../store/authStore';
-import type { Demand, DemandStatus, RiskClass } from '../types/index';
+import type { Demand, DemandStatus, PaginatedResponse } from '../types/index';
 import SettingsLLM from './settings/SettingsLLM';
 import EspeciesTab from './admin/EspeciesTab';
 import CommercialTab from './CommercialTab';
@@ -17,97 +18,228 @@ import FrotaTab from './admin/FrotaTab';
 import FaturasTab from './admin/FaturasTab';
 import EntradaTab from './admin/EntradaTab';
 import TarifasTab from './commercial/TarifasTab';
+import AdminShell, { type AdminNavSection } from './admin/layout/AdminShell';
+import {
+  adminStateToSearchParams,
+  getAdminBreadcrumbs,
+  getAdminPageTitle,
+  parseAdminSearchParams,
+  type AdminNavState,
+} from './admin/layout/adminQuery';
+import EmptyState from './ui/EmptyState';
+import ErrorPanel from './ui/ErrorPanel';
+import InlineNotice from './ui/InlineNotice';
+import LoadingPanel from './ui/LoadingPanel';
+import StatusBadge from './ui/StatusBadge';
 
-// Mapear status do backend para labels em português
-const statusLabels: Record<DemandStatus, string> = {
-  PENDING: 'Pendente',
-  QUOTED: 'Cotado',
-  APPROVED: 'Aprovado',
-  ASSIGNED: 'Em Manifesto',
-  COLLECTED: 'Coletado',
-  IN_TRANSIT: 'Em Trânsito',
-  AT_HUB: 'No HUB',
-  OUT_FOR_DELIVERY: 'Saiu para Entrega',
-  DELIVERED: 'Entregue',
-  CANCELLED: 'Cancelado',
-};
-
-const statusColors: Record<DemandStatus, string> = {
-  PENDING: 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-200',
-  QUOTED: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200',
-  APPROVED: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-200',
-  ASSIGNED: 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-200',
-  COLLECTED: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/50 dark:text-cyan-200',
-  IN_TRANSIT: 'bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-200',
-  AT_HUB: 'bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-200',
-  OUT_FOR_DELIVERY: 'bg-teal-100 text-teal-700 dark:bg-teal-900/50 dark:text-teal-200',
-  DELIVERED: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-200',
-  CANCELLED: 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-200',
-};
-
-type Category = 'pessoas' | 'transport' | 'commercial' | 'fleet' | 'finance' | 'general';
-type TransportSubTab = 'demands' | 'viagens' | 'pedidos' | 'motoristas' | 'rotas' | 'hubs' | 'entrada';
-type CommercialSubTab = 'cotacoes' | 'clientes' | 'tarifas';
-type GeneralSubTab = 'settings' | 'especies';
-
-const HUB_PERMISSIONS = ['entrada', 'pedidos', 'manifestos', 'demandas'] as const;
+const PAGE_SIZE = 15;
 
 const AdminDashboard: React.FC = () => {
   const { user } = useAuthStore();
   const isHub = user?.roles?.includes('HUB') ?? false;
   const hubPermissions = (user?.profile as { hub?: { permissions?: string[] } })?.hub?.permissions ?? (user as { permissions?: string[] })?.permissions ?? [];
-  const hasPermission = (p: string) => !isHub || hubPermissions.length === 0 || hubPermissions.includes(p);
+  const hasPermission = useCallback(
+    (p: string) => !isHub || hubPermissions.length === 0 || hubPermissions.includes(p),
+    [isHub, hubPermissions]
+  );
 
-  const [category, setCategory] = useState<Category>('transport');
-  const [transportSubTab, setTransportSubTab] = useState<TransportSubTab>('demands');
-  const [commercialSubTab, setCommercialSubTab] = useState<CommercialSubTab>('cotacoes');
-  const [generalSubTab, setGeneralSubTab] = useState<GeneralSubTab>('settings');
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const navState = useMemo(
+    () => parseAdminSearchParams(searchParams, isHub, hasPermission),
+    [searchParams, isHub, hasPermission]
+  );
+
+  const setNavState = useCallback(
+    (patch: Partial<AdminNavState>) => {
+      setSearchParams(
+        (prev) => {
+          const current = parseAdminSearchParams(prev, isHub, hasPermission);
+          return adminStateToSearchParams({ ...current, ...patch }, isHub);
+        },
+        { replace: true }
+      );
+    },
+    [isHub, hasPermission, setSearchParams]
+  );
+
+  const hubContextLine = useMemo(() => {
+    if (!isHub) return null;
+    const hub = (user?.profile as { hub?: { name?: string; code?: string } })?.hub;
+    const name = hub?.name ?? hub?.code;
+    return name ? `Depósito: ${name}` : 'Modo operador de hub';
+  }, [isHub, user?.profile]);
+
+  const navSections = useMemo((): AdminNavSection[] => {
+    const { category, transportSubTab, commercialSubTab, generalSubTab } = navState;
+    const go = (patch: Partial<AdminNavState>) => () => setNavState(patch);
+
+    if (isHub) {
+      const items: AdminNavSection['items'] = [];
+      if (hasPermission('entrada')) {
+        items.push({
+          id: 'entrada',
+          label: 'Entrada',
+          active: transportSubTab === 'entrada',
+          onSelect: go({ category: 'transport', transportSubTab: 'entrada' }),
+        });
+      }
+      if (hasPermission('demandas')) {
+        items.push({
+          id: 'demands',
+          label: 'Demandas',
+          active: transportSubTab === 'demands',
+          onSelect: go({ category: 'transport', transportSubTab: 'demands' }),
+        });
+      }
+      if (hasPermission('manifestos')) {
+        items.push({
+          id: 'viagens',
+          label: 'Viagens',
+          active: transportSubTab === 'viagens',
+          onSelect: go({ category: 'transport', transportSubTab: 'viagens' }),
+        });
+      }
+      if (hasPermission('pedidos')) {
+        items.push({
+          id: 'pedidos',
+          label: 'Pedidos',
+          active: transportSubTab === 'pedidos',
+          onSelect: go({ category: 'transport', transportSubTab: 'pedidos' }),
+        });
+      }
+      return [{ title: 'Operação', items }];
+    }
+
+    return [
+      {
+        title: 'Comercial',
+        items: [
+          { id: 'co', label: 'Cotações', active: category === 'commercial' && commercialSubTab === 'cotacoes', onSelect: go({ category: 'commercial', commercialSubTab: 'cotacoes' }) },
+          { id: 'cl', label: 'Clientes', active: category === 'commercial' && commercialSubTab === 'clientes', onSelect: go({ category: 'commercial', commercialSubTab: 'clientes' }) },
+          { id: 'ta', label: 'Tarifas', active: category === 'commercial' && commercialSubTab === 'tarifas', onSelect: go({ category: 'commercial', commercialSubTab: 'tarifas' }) },
+        ],
+      },
+      {
+        title: 'Rede',
+        items: [
+          { id: 'en', label: 'Entrada', active: category === 'transport' && transportSubTab === 'entrada', onSelect: go({ category: 'transport', transportSubTab: 'entrada' }) },
+          { id: 'de', label: 'Demandas', active: category === 'transport' && transportSubTab === 'demands', onSelect: go({ category: 'transport', transportSubTab: 'demands' }) },
+          { id: 'vi', label: 'Viagens', active: category === 'transport' && transportSubTab === 'viagens', onSelect: go({ category: 'transport', transportSubTab: 'viagens' }) },
+          { id: 'pe', label: 'Pedidos', active: category === 'transport' && transportSubTab === 'pedidos', onSelect: go({ category: 'transport', transportSubTab: 'pedidos' }) },
+          { id: 'mo', label: 'Motoristas', active: category === 'transport' && transportSubTab === 'motoristas', onSelect: go({ category: 'transport', transportSubTab: 'motoristas' }) },
+          { id: 'ro', label: 'Rotas', active: category === 'transport' && transportSubTab === 'rotas', onSelect: go({ category: 'transport', transportSubTab: 'rotas' }) },
+          { id: 'hu', label: 'Hubs', active: category === 'transport' && transportSubTab === 'hubs', onSelect: go({ category: 'transport', transportSubTab: 'hubs' }) },
+        ],
+      },
+      {
+        title: 'Cadastros',
+        items: [{ id: 'pes', label: 'Pessoas', active: category === 'pessoas', onSelect: go({ category: 'pessoas' }) }],
+      },
+      {
+        title: 'Frota',
+        items: [{ id: 'fr', label: 'Tipos de veículo', active: category === 'fleet', onSelect: go({ category: 'fleet' }) }],
+      },
+      {
+        title: 'Finanças',
+        items: [{ id: 'fat', label: 'Faturas', active: category === 'finance', onSelect: go({ category: 'finance' }) }],
+      },
+      {
+        title: 'Sistema',
+        items: [
+          { id: 'llm', label: 'Configurações LLM', active: category === 'general' && generalSubTab === 'settings', onSelect: go({ category: 'general', generalSubTab: 'settings' }) },
+          { id: 'esp', label: 'Espécies NF', active: category === 'general' && generalSubTab === 'especies', onSelect: go({ category: 'general', generalSubTab: 'especies' }) },
+        ],
+      },
+    ];
+  }, [navState, isHub, hasPermission, setNavState]);
+
+  const isDemandsView = navState.category === 'transport' && navState.transportSubTab === 'demands';
+
   const [demands, setDemands] = useState<Demand[]>([]);
+  const [totalDemands, setTotalDemands] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedDemand, setSelectedDemand] = useState<Demand | null>(null);
-  const [quotePrice, setQuotePrice] = useState<string>('');
-
-  const isDemandsView = category === 'transport' && transportSubTab === 'demands';
+  const [quotePrice, setQuotePrice] = useState('');
+  const [apiStatus, setApiStatus] = useState<string>('');
+  const [destFilter, setDestFilter] = useState('');
+  const [textQ, setTextQ] = useState('');
+  const [page, setPage] = useState(0);
+  const [notice, setNotice] = useState<{ variant: 'error' | 'success' | 'info'; message: string } | null>(null);
 
   useEffect(() => {
-    if (isDemandsView) loadDemands();
-  }, [isDemandsView]);
+    setPage(0);
+  }, [apiStatus, destFilter]);
 
-  useEffect(() => {
-    if (isHub && hasPermission('entrada') && transportSubTab === 'demands') {
-      setTransportSubTab('entrada');
-    }
-  }, [isHub]);
-
-  const loadDemands = async () => {
+  const loadDemands = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const response = await demandsApi.list({ limit: 50 });
-      const data = (response as any)?.data ?? response;
-      setDemands(Array.isArray(data) ? data : []);
-    } catch (err: any) {
-      console.error('Erro ao carregar demandas:', err);
-      setError(err.response?.data?.error || 'Erro ao carregar demandas');
+      const res = (await demandsApi.list({
+        limit: PAGE_SIZE,
+        offset: page * PAGE_SIZE,
+        ...(apiStatus ? { status: apiStatus } : {}),
+        ...(destFilter.trim() ? { destination: destFilter.trim() } : {}),
+      })) as PaginatedResponse<Demand>;
+      const list = Array.isArray(res?.data) ? res.data : [];
+      const total = res?.pagination?.total ?? list.length;
+      setDemands(list);
+      setTotalDemands(total);
+    } catch (err: unknown) {
+      console.error(err);
+      const msg = err && typeof err === 'object' && 'response' in err ? (err as { response?: { data?: { error?: string } } }).response?.data?.error : undefined;
+      setError(msg || 'Erro ao carregar demandas');
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, apiStatus, destFilter]);
+
+  useEffect(() => {
+    if (isDemandsView) void loadDemands();
+  }, [isDemandsView, loadDemands]);
+
+  const displayedDemands = useMemo(() => {
+    const q = textQ.trim().toLowerCase();
+    if (!q) return demands;
+    return demands.filter((d) => {
+      const clientName = d.client?.companyName?.toLowerCase() ?? '';
+      return (
+        d.origin.toLowerCase().includes(q) ||
+        d.destination.toLowerCase().includes(q) ||
+        d.commodity.toLowerCase().includes(q) ||
+        d.nfNumber.toLowerCase().includes(q) ||
+        clientName.includes(q)
+      );
+    });
+  }, [demands, textQ]);
+
+  const stats = useMemo(() => {
+    const src = displayedDemands;
+    return {
+      inTransit: src.filter((d) => d.status === 'IN_TRANSIT').length,
+      highRisk: src.filter((d) => d.riskClass === 'A').length,
+      pending: src.filter((d) => d.status === 'PENDING').length,
+      totalValue: src.reduce((acc, d) => acc + (d.quotedPrice || 0), 0),
+      count: src.length,
+    };
+  }, [displayedDemands]);
+
+  const totalPages = Math.max(1, Math.ceil(totalDemands / PAGE_SIZE));
 
   const handleQuote = async () => {
     if (!selectedDemand || !quotePrice) return;
-
     try {
-      await demandsApi.quote(selectedDemand.id, {
-        price: parseFloat(quotePrice),
-      });
+      await demandsApi.quote(selectedDemand.id, { price: parseFloat(quotePrice) });
       setSelectedDemand(null);
       setQuotePrice('');
-      loadDemands(); // Recarregar lista
-    } catch (err: any) {
-      console.error('Erro ao cotar:', err);
-      alert(err.response?.data?.error || 'Erro ao enviar cotação');
+      setNotice({ variant: 'success', message: 'Cotação enviada com sucesso.' });
+      await loadDemands();
+    } catch (err: unknown) {
+      console.error(err);
+      const msg =
+        err && typeof err === 'object' && 'response' in err ? (err as { response?: { data?: { error?: string } } }).response?.data?.error : undefined;
+      setNotice({ variant: 'error', message: msg || 'Erro ao enviar cotação.' });
     }
   };
 
@@ -121,387 +253,393 @@ const AdminDashboard: React.FC = () => {
       'OUT_FOR_DELIVERY',
       'DELIVERED',
     ];
-
     const currentIndex = statusFlow.indexOf(demand.status);
     if (currentIndex < statusFlow.length - 1) {
       const nextStatus = statusFlow[currentIndex + 1];
       try {
         await demandsApi.updateStatus(demand.id, {
           status: nextStatus,
-          description: `Status atualizado para ${statusLabels[nextStatus]}`,
+          description: `Status atualizado para ${demandStatusLabels[nextStatus]}`,
         });
-        loadDemands();
-      } catch (err: any) {
-        console.error('Erro ao atualizar status:', err);
-        alert(err.response?.data?.error || 'Erro ao atualizar status');
+        setNotice({ variant: 'success', message: `Status: ${demandStatusLabels[nextStatus]}.` });
+        await loadDemands();
+      } catch (err: unknown) {
+        console.error(err);
+        const msg =
+          err && typeof err === 'object' && 'response' in err ? (err as { response?: { data?: { error?: string } } }).response?.data?.error : undefined;
+        setNotice({ variant: 'error', message: msg || 'Erro ao atualizar status.' });
       }
     }
   };
 
-  // Estatísticas
-  const stats = {
-    inTransit: demands.filter(d => d.status === 'IN_TRANSIT').length,
-    highRisk: demands.filter(d => d.riskClass === 'A').length,
-    pending: demands.filter(d => d.status === 'PENDING').length,
-    totalValue: demands.reduce((acc, d) => acc + (d.quotedPrice || 0), 0),
-  };
+  const { title: pageTitle, subtitle: pageSubtitle } = getAdminPageTitle(navState, isHub);
+  const breadcrumbs = getAdminBreadcrumbs(navState, isHub);
 
   const showGlobalLoading = isDemandsView && loading;
   const showGlobalError = isDemandsView && !!error;
 
-  return (
-    <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{isHub ? 'Operação do Depósito' : 'Torre de Controle TSM'}</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-sm">{isHub ? 'Entrada, pedidos e viagens do seu depósito.' : 'Orquestração de demandas e controle de risco.'}</p>
-        </div>
-      </div>
+  const statusOptions: { value: string; label: string }[] = [
+    { value: '', label: 'Todos (API)' },
+    { value: 'PENDING', label: 'Pendente' },
+    { value: 'QUOTED', label: 'Cotado' },
+    { value: 'APPROVED', label: 'Aprovado' },
+    { value: 'ASSIGNED', label: 'Em manifesto' },
+    { value: 'COLLECTED', label: 'Coletado' },
+    { value: 'IN_TRANSIT', label: 'Em trânsito' },
+    { value: 'AT_HUB', label: 'No hub' },
+    { value: 'OUT_FOR_DELIVERY', label: 'Saiu p/ entrega' },
+    { value: 'DELIVERED', label: 'Entregue' },
+    { value: 'CANCELLED', label: 'Cancelado' },
+  ];
 
-      {/* Categorias (menu principal) - HUB vê só Transporte */}
-      <div className="flex flex-wrap border-b border-slate-200 dark:border-slate-700 mb-2">
-        {!isHub && (
-          <>
-            <button onClick={() => setCategory('pessoas')} className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors ${category === 'pessoas' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}`}>👤 Pessoas</button>
-            <button onClick={() => setCategory('transport')} className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors ${category === 'transport' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}`}>🚚 Transporte</button>
-            <button onClick={() => setCategory('commercial')} className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors ${category === 'commercial' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}`}>💼 Comercial</button>
-            <button onClick={() => setCategory('fleet')} className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors ${category === 'fleet' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}`}>🚛 Frota</button>
-            <button onClick={() => setCategory('finance')} className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors ${category === 'finance' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}`}>💰 Finanças</button>
-            <button onClick={() => setCategory('general')} className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors ${category === 'general' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}`}>⚙️ Gerais</button>
-          </>
-        )}
-        {isHub && (
-          <button onClick={() => setCategory('transport')} className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors ${category === 'transport' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}`}>🚚 Operação</button>
-        )}
-      </div>
+  const mainPanel = (
+    <>
+      {navState.category === 'pessoas' && <PessoasTab />}
+      {navState.category === 'general' && navState.generalSubTab === 'settings' && <SettingsLLM />}
+      {navState.category === 'general' && navState.generalSubTab === 'especies' && <EspeciesTab />}
+      {navState.category === 'fleet' && <FrotaTab />}
+      {navState.category === 'finance' && <FaturasTab />}
+      {navState.category === 'transport' && navState.transportSubTab === 'entrada' && <EntradaTab />}
+      {navState.category === 'transport' && navState.transportSubTab === 'viagens' && <ManifestsTab />}
+      {navState.category === 'transport' && navState.transportSubTab === 'pedidos' && <PedidosTab />}
+      {navState.category === 'transport' && navState.transportSubTab === 'motoristas' && <MotoristasTab />}
+      {navState.category === 'transport' && navState.transportSubTab === 'rotas' && <TransportTab />}
+      {navState.category === 'transport' && navState.transportSubTab === 'hubs' && <HubsTab />}
+      {navState.category === 'commercial' && navState.commercialSubTab === 'cotacoes' && <CommercialTab forceSubTab="pipeline" />}
+      {navState.category === 'commercial' && navState.commercialSubTab === 'clientes' && <ClientesTab />}
+      {navState.category === 'commercial' && navState.commercialSubTab === 'tarifas' && <TarifasTab />}
 
-      {/* Sub-abas Transporte */}
-      {category === 'transport' && (
-        <div className="flex flex-wrap gap-1 mb-6">
-          {(!isHub || hasPermission('entrada')) && (
-            <button onClick={() => setTransportSubTab('entrada')} className={`px-3 py-2 text-sm rounded-lg ${transportSubTab === 'entrada' ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-200 font-medium' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Entrada</button>
-          )}
-          {(!isHub || hasPermission('demandas')) && (
-            <button onClick={() => setTransportSubTab('demands')} className={`px-3 py-2 text-sm rounded-lg ${transportSubTab === 'demands' ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-200 font-medium' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Demandas</button>
-          )}
-          {(!isHub || hasPermission('manifestos')) && (
-            <button onClick={() => setTransportSubTab('viagens')} className={`px-3 py-2 text-sm rounded-lg ${transportSubTab === 'viagens' ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-200 font-medium' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Viagens</button>
-          )}
-          {(!isHub || hasPermission('pedidos')) && (
-            <button onClick={() => setTransportSubTab('pedidos')} className={`px-3 py-2 text-sm rounded-lg ${transportSubTab === 'pedidos' ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-200 font-medium' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Pedidos</button>
-          )}
-          {!isHub && (
-            <>
-              <button onClick={() => setTransportSubTab('motoristas')} className={`px-3 py-2 text-sm rounded-lg ${transportSubTab === 'motoristas' ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-200 font-medium' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Motoristas</button>
-              <button onClick={() => setTransportSubTab('rotas')} className={`px-3 py-2 text-sm rounded-lg ${transportSubTab === 'rotas' ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-200 font-medium' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Rotas</button>
-              <button onClick={() => setTransportSubTab('hubs')} className={`px-3 py-2 text-sm rounded-lg ${transportSubTab === 'hubs' ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-200 font-medium' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Hubs</button>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Sub-abas Gerais */}
-      {category === 'general' && (
-        <div className="flex flex-wrap gap-1 mb-6">
-          <button onClick={() => setGeneralSubTab('settings')} className={`px-3 py-2 text-sm rounded-lg ${generalSubTab === 'settings' ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-200 font-medium' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Configurações LLM</button>
-          <button onClick={() => setGeneralSubTab('especies')} className={`px-3 py-2 text-sm rounded-lg ${generalSubTab === 'especies' ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-200 font-medium' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Espécies NF</button>
-        </div>
-      )}
-
-      {/* Sub-abas Comercial */}
-      {category === 'commercial' && (
-        <div className="flex flex-wrap gap-1 mb-6">
-          <button onClick={() => setCommercialSubTab('cotacoes')} className={`px-3 py-2 text-sm rounded-lg ${commercialSubTab === 'cotacoes' ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-200 font-medium' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Cotações / Oportunidades</button>
-          <button onClick={() => setCommercialSubTab('clientes')} className={`px-3 py-2 text-sm rounded-lg ${commercialSubTab === 'clientes' ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-200 font-medium' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Clientes</button>
-          <button onClick={() => setCommercialSubTab('tarifas')} className={`px-3 py-2 text-sm rounded-lg ${commercialSubTab === 'tarifas' ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-200 font-medium' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Tarifas</button>
-        </div>
-      )}
-
-      {/* Conteúdo por categoria */}
-      {category === 'pessoas' && <PessoasTab />}
-      {category === 'general' && generalSubTab === 'settings' && <SettingsLLM />}
-      {category === 'general' && generalSubTab === 'especies' && <EspeciesTab />}
-      {category === 'fleet' && <FrotaTab />}
-      {category === 'finance' && <FaturasTab />}
-      {category === 'transport' && transportSubTab === 'entrada' && <EntradaTab />}
-      {category === 'transport' && transportSubTab === 'viagens' && <ManifestsTab />}
-      {category === 'transport' && transportSubTab === 'pedidos' && <PedidosTab />}
-      {category === 'transport' && transportSubTab === 'motoristas' && <MotoristasTab />}
-      {category === 'transport' && transportSubTab === 'rotas' && <TransportTab />}
-      {category === 'transport' && transportSubTab === 'hubs' && <HubsTab />}
-      {category === 'commercial' && commercialSubTab === 'cotacoes' && <CommercialTab forceSubTab="pipeline" />}
-      {category === 'commercial' && commercialSubTab === 'clientes' && <ClientesTab />}
-      {category === 'commercial' && commercialSubTab === 'tarifas' && <TarifasTab />}
-
-      {/* Conteúdo Demandas (Transporte > Demandas) */}
-      {category === 'transport' && transportSubTab === 'demands' && (
+      {isDemandsView && (
         <>
-          {showGlobalLoading && (
-            <div className="flex items-center justify-center py-12">
-              <div className="text-center">
-                <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                <p className="text-slate-500 dark:text-slate-400">Carregando demandas...</p>
-              </div>
+          {notice && (
+            <div className="mb-4">
+              <InlineNotice variant={notice.variant} message={notice.message} onDismiss={() => setNotice(null)} />
             </div>
           )}
-          {!showGlobalLoading && showGlobalError && (
-            <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-2xl p-8 text-center">
-              <p className="text-red-600 dark:text-red-300 font-medium mb-4">{error}</p>
-              <button onClick={loadDemands} className="px-6 py-2 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors">Tentar Novamente</button>
-            </div>
-          )}
+
+          {showGlobalLoading && <LoadingPanel label="Carregando demandas…" />}
+          {!showGlobalLoading && showGlobalError && <ErrorPanel message={error!} onRetry={() => void loadDemands()} />}
           {!showGlobalLoading && !showGlobalError && (
-        <>
-          {/* Stats cards */}
-          <div className="flex gap-3 overflow-x-auto pb-4 mb-6">
-            <div className="bg-white dark:bg-slate-800 border dark:border-slate-700 p-3 rounded-xl shadow-sm text-center min-w-[140px]">
-              <span className="block text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase mb-1">Pendentes</span>
-              <span className="text-xl font-bold text-amber-600 dark:text-amber-400">{stats.pending}</span>
-            </div>
-            <div className="bg-white dark:bg-slate-800 border dark:border-slate-700 p-3 rounded-xl shadow-sm text-center min-w-[140px]">
-              <span className="block text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase mb-1">Em Trânsito</span>
-              <span className="text-xl font-bold text-indigo-600 dark:text-indigo-400">{stats.inTransit}</span>
-            </div>
-            <div className="bg-white dark:bg-slate-800 border dark:border-slate-700 p-3 rounded-xl shadow-sm text-center min-w-[140px]">
-              <span className="block text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase mb-1">Alerta Risco A</span>
-              <span className="text-xl font-bold text-red-500 dark:text-red-400">{stats.highRisk}</span>
-            </div>
-            <div className="bg-white dark:bg-slate-800 border dark:border-slate-700 p-3 rounded-xl shadow-sm text-center min-w-[140px]">
-              <span className="block text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase mb-1">Faturado</span>
-              <span className="text-xl font-bold text-emerald-600 dark:text-emerald-400">R$ {stats.totalValue.toLocaleString()}</span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="lg:col-span-2 space-y-4">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-sm font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Monitor de Demandas</h2>
+            <>
+              <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
+                <div className="flex flex-1 flex-wrap gap-2">
+                  <label className="sr-only" htmlFor="adm-status">
+                    Status na API
+                  </label>
+                  <select
+                    id="adm-status"
+                    value={apiStatus}
+                    onChange={(e) => setApiStatus(e.target.value)}
+                    className="admin-focus rounded-xl border border-tower-200 bg-white px-3 py-2 text-sm text-tower-900 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100"
+                  >
+                    {statusOptions.map((o) => (
+                      <option key={o.value || 'all'} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="search"
+                    placeholder="Destino (contém, API)"
+                    value={destFilter}
+                    onChange={(e) => setDestFilter(e.target.value)}
+                    className="admin-focus min-w-[160px] flex-1 rounded-xl border border-tower-200 bg-white px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100"
+                  />
+                  <input
+                    type="search"
+                    placeholder="Filtrar nesta página (origem, NF, cliente…)"
+                    value={textQ}
+                    onChange={(e) => setTextQ(e.target.value)}
+                    className="admin-focus min-w-[200px] flex-1 rounded-xl border border-tower-200 bg-white px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100"
+                  />
+                </div>
                 <button
-                  onClick={loadDemands}
-                  className="text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-medium"
+                  type="button"
+                  onClick={() => void loadDemands()}
+                  className="admin-focus rounded-xl border border-tower-200 px-4 py-2 text-sm font-semibold text-tower-700 hover:bg-tower-100 dark:border-tower-600 dark:text-tower-200 dark:hover:bg-tower-800"
                 >
-                  ↻ Atualizar
+                  Atualizar
                 </button>
               </div>
 
-              {demands.length === 0 ? (
-                <div className="bg-white dark:bg-slate-800 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl p-12 text-center text-slate-400 dark:text-slate-500">
-                  Nenhuma demanda encontrada. Aguardando novas solicitações...
+              <p className="mb-3 text-xs text-tower-500 dark:text-tower-400">
+                Resumo abaixo considera apenas os registros visíveis após o filtro &quot;nesta página&quot;. Paginação: {PAGE_SIZE} por página · Total na API: {totalDemands}.
+              </p>
+
+              <div className="mb-6 flex gap-3 overflow-x-auto pb-2">
+                <div className="min-w-[132px] rounded-xl border border-tower-200 bg-white/90 p-3 text-center shadow-sm dark:border-tower-700 dark:bg-tower-900/80">
+                  <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-tower-400">Pendentes</span>
+                  <span className="text-xl font-bold text-amber-600 dark:text-amber-400">{stats.pending}</span>
                 </div>
-              ) : (
-                demands.map(demand => (
-                  <div
-                    key={demand.id}
-                    className={`bg-white dark:bg-slate-800 border rounded-2xl p-5 hover:shadow-md dark:hover:shadow-slate-900/20 transition-all ${demand.riskClass === 'A' ? 'border-l-4 border-l-red-500' : 'border-slate-200 dark:border-slate-700'
-                      }`}
-                  >
-                    <div className="flex flex-col md:flex-row justify-between gap-4">
-                      <div className="flex-grow">
-                        <div className="flex items-center gap-2 mb-2 flex-wrap">
-                          <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">#{demand.id.slice(0, 8)}</span>
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${statusColors[demand.status]}`}>
-                            {statusLabels[demand.status]}
-                          </span>
-                          {demand.quotedPrice && (
-                            <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/40 px-2 py-0.5 rounded">
-                              R$ {demand.quotedPrice.toLocaleString()}
-                            </span>
-                          )}
-                          <span className="text-[10px] text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded">
-                            via {demand.sourceType}
-                          </span>
-                        </div>
-                        <h3 className="font-bold text-slate-900 dark:text-slate-100 text-lg">
-                          {demand.origin} <span className="text-slate-300 dark:text-slate-500 mx-1">→</span> {demand.destination}
-                        </h3>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-3">
-                          <div className="text-xs">
-                            <span className="block text-slate-400 dark:text-slate-500">Mercadoria</span>
-                            <span className="font-medium text-slate-700 dark:text-slate-300 truncate block">{demand.commodity}</span>
-                          </div>
-                          <div className="text-xs">
-                            <span className="block text-slate-400 dark:text-slate-500">Valor NF</span>
-                            <span className="font-medium text-slate-700 dark:text-slate-300">R$ {demand.nfValue.toLocaleString()}</span>
-                          </div>
-                          <div className="text-xs">
-                            <span className="block text-slate-400 dark:text-slate-500">Peso</span>
-                            <span className="font-medium text-slate-700 dark:text-slate-300">{demand.weight}kg</span>
-                          </div>
-                          <div className="text-xs">
-                            <span className="block text-slate-400 dark:text-slate-500">Risco</span>
-                            <span className={`font-bold ${demand.riskClass === 'A' ? 'text-red-500 dark:text-red-400' : 'text-indigo-600 dark:text-indigo-400'}`}>
-                              CLASSE {demand.riskClass}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
+                <div className="min-w-[132px] rounded-xl border border-tower-200 bg-white/90 p-3 text-center shadow-sm dark:border-tower-700 dark:bg-tower-900/80">
+                  <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-tower-400">Em trânsito</span>
+                  <span className="text-xl font-bold text-accent-600 dark:text-accent-400">{stats.inTransit}</span>
+                </div>
+                <div className="min-w-[132px] rounded-xl border border-tower-200 bg-white/90 p-3 text-center shadow-sm dark:border-tower-700 dark:bg-tower-900/80">
+                  <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-tower-400">Risco A</span>
+                  <span className="text-xl font-bold text-red-500 dark:text-red-400">{stats.highRisk}</span>
+                </div>
+                <div className="min-w-[132px] rounded-xl border border-tower-200 bg-white/90 p-3 text-center shadow-sm dark:border-tower-700 dark:bg-tower-900/80">
+                  <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-tower-400">Faturado (página)</span>
+                  <span className="text-xl font-bold text-emerald-600 dark:text-emerald-400">R$ {stats.totalValue.toLocaleString('pt-BR')}</span>
+                </div>
+              </div>
 
-                      <div className="flex flex-row md:flex-col justify-end gap-2 shrink-0">
-                        {!isHub && demand.status === 'PENDING' && (
-                          <button
-                            onClick={() => setSelectedDemand(demand)}
-                            className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-xl text-sm hover:bg-indigo-700 transition-all shadow-sm"
-                          >
-                            Cotar
-                          </button>
-                        )}
-                        {demand.status !== 'PENDING' && demand.status !== 'DELIVERED' && demand.status !== 'CANCELLED' && (
-                          <button
-                            onClick={() => advanceStatus(demand)}
-                            className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-sm hover:bg-slate-200 dark:hover:bg-slate-600 transition-all"
-                          >
-                            Avançar Status
-                          </button>
-                        )}
+              <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+                <div className="space-y-4 lg:col-span-2">
+                  <div className="mb-2 flex items-center justify-between">
+                    <h2 className="text-xs font-bold uppercase tracking-wider text-tower-500 dark:text-tower-400">Monitor de demandas</h2>
+                  </div>
+
+                  {displayedDemands.length === 0 ? (
+                    <EmptyState
+                      title="Nenhuma demanda nesta visão"
+                      description="Ajuste filtros ou aguarde novas solicitações."
+                      action={
                         <RouterLink
-                          to={`/tracking/${demand.id}`}
-                          className="px-4 py-2 text-slate-500 dark:text-slate-400 text-sm font-medium hover:text-indigo-600 dark:hover:text-indigo-400 text-center"
+                          to="/chat/demo"
+                          className="admin-focus inline-flex rounded-xl bg-accent-600 px-4 py-2 text-sm font-bold text-white hover:bg-accent-500"
                         >
-                          Ver Tracking
+                          Abrir chat
                         </RouterLink>
-                      </div>
-                    </div>
-
-                    {/* Eventos Recentes */}
-                    {demand.events && demand.events.length > 0 && (
-                      <div className="mt-4 pt-4 border-t border-slate-50 dark:border-slate-700 flex items-center gap-4 overflow-x-auto no-scrollbar">
-                        {demand.events.slice(-3).map(event => (
-                          <div key={event.id} className="flex-shrink-0 flex items-center gap-2">
-                            <div className="w-2 h-2 rounded-full bg-indigo-400"></div>
-                            <div className="text-[10px]">
-                              <span className="block font-bold text-slate-700 dark:text-slate-300 uppercase">{statusLabels[event.status]}</span>
-                              <span className="text-slate-400 dark:text-slate-500">
-                                {new Date(event.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </span>
+                      }
+                    />
+                  ) : (
+                    displayedDemands.map((demand) => (
+                      <article
+                        key={demand.id}
+                        className={`rounded-2xl border border-tower-200 bg-white/95 p-5 shadow-sm transition hover:shadow-md dark:border-tower-700 dark:bg-tower-900/80 ${
+                          demand.riskClass === 'A' ? 'border-l-4 border-l-red-500' : ''
+                        }`}
+                      >
+                        <div className="flex flex-col justify-between gap-4 md:flex-row">
+                          <div className="min-w-0 flex-grow">
+                            <div className="mb-2 flex flex-wrap items-center gap-2">
+                              <span className="font-mono-ids text-[10px] font-semibold text-tower-400">#{demand.id.slice(0, 8)}</span>
+                              <StatusBadge label={demandStatusLabels[demand.status]} tone={demandStatusTones[demand.status]} />
+                              {demand.quotedPrice != null && (
+                                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+                                  R$ {demand.quotedPrice.toLocaleString('pt-BR')}
+                                </span>
+                              )}
+                              <span className="rounded bg-tower-100 px-2 py-0.5 text-[10px] text-tower-600 dark:bg-tower-800 dark:text-tower-300">via {demand.sourceType}</span>
+                            </div>
+                            <h3 className="text-lg font-bold text-tower-900 dark:text-tower-50">
+                              {demand.origin} <span className="mx-1 text-tower-300 dark:text-tower-600">→</span> {demand.destination}
+                            </h3>
+                            <div className="mt-3 grid grid-cols-2 gap-4 md:grid-cols-4">
+                              <div className="text-xs">
+                                <span className="block text-tower-500">Mercadoria</span>
+                                <span className="block truncate font-medium text-tower-800 dark:text-tower-200">{demand.commodity}</span>
+                              </div>
+                              <div className="text-xs">
+                                <span className="block text-tower-500">Valor NF</span>
+                                <span className="font-medium text-tower-800 dark:text-tower-200">R$ {demand.nfValue.toLocaleString('pt-BR')}</span>
+                              </div>
+                              <div className="text-xs">
+                                <span className="block text-tower-500">Peso</span>
+                                <span className="font-medium text-tower-800 dark:text-tower-200">{demand.weight} kg</span>
+                              </div>
+                              <div className="text-xs">
+                                <span className="block text-tower-500">Risco</span>
+                                <span className={`font-bold ${demand.riskClass === 'A' ? 'text-red-500' : 'text-accent-600'}`}>Classe {demand.riskClass}</span>
+                              </div>
                             </div>
                           </div>
-                        ))}
+                          <div className="flex shrink-0 flex-row gap-2 md:flex-col md:justify-end">
+                            {!isHub && demand.status === 'PENDING' && (
+                              <button
+                                type="button"
+                                onClick={() => setSelectedDemand(demand)}
+                                className="admin-focus rounded-xl bg-accent-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-accent-500"
+                              >
+                                Cotar
+                              </button>
+                            )}
+                            {demand.status !== 'PENDING' && demand.status !== 'DELIVERED' && demand.status !== 'CANCELLED' && (
+                              <button
+                                type="button"
+                                onClick={() => void advanceStatus(demand)}
+                                className="admin-focus rounded-xl border border-tower-200 bg-tower-50 px-4 py-2 text-sm font-bold text-tower-800 hover:bg-tower-100 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100 dark:hover:bg-tower-700"
+                              >
+                                Avançar status
+                              </button>
+                            )}
+                            <RouterLink
+                              to={`/tracking/${demand.id}`}
+                              className="admin-focus px-4 py-2 text-center text-sm font-medium text-tower-500 hover:text-accent-600 dark:text-tower-400"
+                            >
+                              Ver tracking
+                            </RouterLink>
+                          </div>
+                        </div>
+                        {demand.events && demand.events.length > 0 && (
+                          <div className="no-scrollbar mt-4 flex items-center gap-4 overflow-x-auto border-t border-tower-100 pt-4 dark:border-tower-800">
+                            {demand.events.slice(-3).map((event) => (
+                              <div key={event.id} className="flex flex-shrink-0 items-center gap-2">
+                                <div className="h-2 w-2 rounded-full bg-accent-500" />
+                                <div className="text-[10px]">
+                                  <span className="block font-bold uppercase text-tower-700 dark:text-tower-200">{demandStatusLabels[event.status]}</span>
+                                  <span className="text-tower-400">
+                                    {new Date(event.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </article>
+                    ))
+                  )}
+
+                  {totalPages > 1 && (
+                    <div className="flex flex-wrap items-center justify-between gap-3 pt-4">
+                      <p className="text-sm text-tower-600 dark:text-tower-400">
+                        Página {page + 1} de {totalPages}
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          disabled={page <= 0}
+                          onClick={() => setPage((p) => Math.max(0, p - 1))}
+                          className="admin-focus rounded-xl border border-tower-200 px-4 py-2 text-sm font-semibold disabled:opacity-40 dark:border-tower-600"
+                        >
+                          Anterior
+                        </button>
+                        <button
+                          type="button"
+                          disabled={page >= totalPages - 1}
+                          onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                          className="admin-focus rounded-xl border border-tower-200 px-4 py-2 text-sm font-semibold disabled:opacity-40 dark:border-tower-600"
+                        >
+                          Próxima
+                        </button>
                       </div>
-                    )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-6">
+                  {!isHub && (
+                    <div className="rounded-2xl border border-tower-200 bg-white/95 p-6 shadow-sm dark:border-tower-700 dark:bg-tower-900/80">
+                      <h2 className="mb-4 text-xs font-bold uppercase tracking-wider text-tower-500">Ações rápidas</h2>
+                      <RouterLink
+                        to="/chat/demo"
+                        className="admin-focus block w-full rounded-xl bg-accent-600 py-3 text-center text-sm font-bold text-white hover:bg-accent-500"
+                      >
+                        Novo via chat
+                      </RouterLink>
+                    </div>
+                  )}
+                  <div className="rounded-2xl border border-tower-800 bg-tower-900 p-6 text-tower-100 dark:border-tower-700">
+                    <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-accent-400">Resumo da lista</h3>
+                    <div className="space-y-3 text-xs">
+                      <div className="flex justify-between">
+                        <span>Itens na página (filtro local)</span>
+                        <span className="font-bold">{stats.count}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Aguardando cotação</span>
+                        <span className="font-bold">{stats.pending}</span>
+                      </div>
+                      <div className="flex justify-between border-t border-tower-700 pt-3">
+                        <span className="text-tower-400">Atualizado</span>
+                        <span className="font-medium text-accent-400">{new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                    </div>
                   </div>
-                ))
+                </div>
+              </div>
+
+              {selectedDemand && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-tower-950/80 p-4 backdrop-blur-md">
+                  <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-tower-200 bg-white shadow-2xl dark:border-tower-700 dark:bg-tower-900">
+                    <div className="bg-accent-600 p-6 text-white">
+                      <h2 className="text-xl font-bold">Cotar demanda</h2>
+                      <p className="text-sm text-white/90">
+                        {selectedDemand.origin} → {selectedDemand.destination}
+                      </p>
+                    </div>
+                    <div className="space-y-6 p-8">
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <span className="block text-tower-500">Mercadoria</span>
+                          <span className="font-medium text-tower-900 dark:text-tower-100">{selectedDemand.commodity}</span>
+                        </div>
+                        <div>
+                          <span className="block text-tower-500">Peso</span>
+                          <span className="font-medium text-tower-900 dark:text-tower-100">{selectedDemand.weight} kg</span>
+                        </div>
+                        <div>
+                          <span className="block text-tower-500">Valor NF</span>
+                          <span className="font-medium text-tower-900 dark:text-tower-100">R$ {selectedDemand.nfValue.toLocaleString('pt-BR')}</span>
+                        </div>
+                        <div>
+                          <span className="block text-tower-500">Volume</span>
+                          <span className="font-medium text-tower-900 dark:text-tower-100">{selectedDemand.volume} m³</span>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-[10px] font-bold uppercase text-tower-500" htmlFor="quote-input">
+                          Valor da cotação (R$)
+                        </label>
+                        <input
+                          id="quote-input"
+                          type="number"
+                          className="admin-focus w-full rounded-xl border border-tower-200 bg-tower-50 p-3 text-2xl font-bold text-accent-600 outline-none dark:border-tower-600 dark:bg-tower-800 dark:text-accent-400"
+                          value={quotePrice}
+                          onChange={(e) => setQuotePrice(e.target.value)}
+                          placeholder="0,00"
+                          autoFocus
+                        />
+                      </div>
+                      <div className="flex gap-3 rounded-xl border border-accent-200 bg-accent-50/80 p-4 dark:border-accent-900/40 dark:bg-accent-950/30">
+                        <p className="text-xs leading-relaxed text-tower-800 dark:text-tower-200">
+                          Risco <strong>{selectedDemand.riskClass}</strong> · Intenção <strong>{selectedDemand.intentType}</strong>
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex gap-3 border-t border-tower-100 bg-tower-50/80 p-6 dark:border-tower-800 dark:bg-tower-950/50">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedDemand(null);
+                          setQuotePrice('');
+                        }}
+                        className="admin-focus flex-1 rounded-2xl py-3 text-sm font-bold text-tower-600 dark:text-tower-300"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!quotePrice}
+                        onClick={() => void handleQuote()}
+                        className="admin-focus flex-1 rounded-2xl bg-accent-600 py-3 text-sm font-bold text-white shadow-lg disabled:opacity-50 hover:bg-accent-500"
+                      >
+                        Enviar cotação
+                      </button>
+                    </div>
+                  </div>
+                </div>
               )}
-            </div>
-
-            <div className="space-y-6">
-              {!isHub && (
-              <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-6 shadow-sm">
-                <h2 className="text-sm font-bold text-slate-400 dark:text-slate-500 uppercase mb-4">Ações Rápidas</h2>
-                <div className="space-y-3">
-                  <RouterLink
-                    to="/chat/demo"
-                    className="block w-full px-4 py-3 bg-indigo-600 text-white font-bold rounded-xl text-center hover:bg-indigo-700 transition-all"
-                  >
-                    💬 Novo via Chat
-                  </RouterLink>
-                </div>
-              </div>
-              )}
-
-              <div className="bg-slate-900 dark:bg-slate-800 rounded-2xl p-6 text-white border border-slate-800 dark:border-slate-700">
-                <h3 className="font-bold text-indigo-400 text-sm uppercase mb-3 tracking-widest">Resumo</h3>
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center text-xs">
-                    <span>Total de Demandas</span>
-                    <span className="font-bold">{demands.length}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-xs">
-                    <span>Aguardando Cotação</span>
-                    <span className="font-bold">{stats.pending}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-xs border-t border-slate-800 pt-3">
-                    <span className="text-slate-400">Última atualização</span>
-                    <span className="text-emerald-400 font-medium">{new Date().toLocaleTimeString()}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Modal de Cotação */}
-          {selectedDemand && (
-            <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
-              <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200 dark:border-slate-700">
-                <div className="bg-indigo-600 p-6 text-white">
-                  <h2 className="text-xl font-bold">Cotar Demanda</h2>
-                  <p className="text-indigo-100 text-sm">
-                    {selectedDemand.origin} → {selectedDemand.destination}
-                  </p>
-                </div>
-
-                <div className="p-8 space-y-6">
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-slate-400 dark:text-slate-500 block">Mercadoria</span>
-                      <span className="font-medium text-slate-900 dark:text-slate-100">{selectedDemand.commodity}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 dark:text-slate-500 block">Peso</span>
-                      <span className="font-medium text-slate-900 dark:text-slate-100">{selectedDemand.weight}kg</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 dark:text-slate-500 block">Valor NF</span>
-                      <span className="font-medium text-slate-900 dark:text-slate-100">R$ {selectedDemand.nfValue.toLocaleString()}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 dark:text-slate-500 block">Volume</span>
-                      <span className="font-medium text-slate-900 dark:text-slate-100">{selectedDemand.volume} m³</span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase mb-1">
-                      Valor da Cotação (R$)
-                    </label>
-                    <input
-                      type="number"
-                      className="w-full p-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-2xl text-indigo-600 dark:text-indigo-400"
-                      value={quotePrice}
-                      onChange={e => setQuotePrice(e.target.value)}
-                      placeholder="0,00"
-                      autoFocus
-                    />
-                  </div>
-
-                  <div className="bg-indigo-50 dark:bg-indigo-900/30 p-4 rounded-xl border border-indigo-100 dark:border-indigo-800 flex gap-3 items-center">
-                    <div className="w-10 h-10 bg-white dark:bg-slate-800 rounded-lg flex items-center justify-center text-indigo-600 dark:text-indigo-400 shadow-sm">
-                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                      </svg>
-                    </div>
-                    <div className="text-xs text-indigo-800 dark:text-indigo-200 leading-relaxed">
-                      Classe de Risco <strong>{selectedDemand.riskClass}</strong> |
-                      Intenção: <strong>{selectedDemand.intentType}</strong>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-6 bg-slate-50 dark:bg-slate-800/50 flex gap-3">
-                  <button
-                    onClick={() => {
-                      setSelectedDemand(null);
-                      setQuotePrice('');
-                    }}
-                    className="flex-1 px-4 py-3 font-bold text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    disabled={!quotePrice}
-                    onClick={handleQuote}
-                    className="flex-1 px-4 py-3 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 dark:shadow-indigo-900/30 disabled:opacity-50"
-                  >
-                    Enviar Cotação
-                  </button>
-                </div>
-              </div>
-            </div>
+            </>
           )}
         </>
-          )}
-      </>
       )}
-    </div>
+    </>
+  );
+
+  return (
+    <AdminShell
+      isHub={isHub}
+      hubContextLine={hubContextLine}
+      pageTitle={pageTitle}
+      pageSubtitle={pageSubtitle}
+      breadcrumbs={breadcrumbs}
+      navSections={navSections}
+    >
+      {mainPanel}
+    </AdminShell>
   );
 };
 
