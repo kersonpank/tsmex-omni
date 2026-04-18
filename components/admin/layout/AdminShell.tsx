@@ -39,13 +39,13 @@ const AdminShell: React.FC<AdminShellProps> = ({
       <div className="mx-auto flex max-w-[1600px] gap-0 lg:gap-8">
         {/* Sidebar desktop */}
         <aside
-          className="sticky top-16 hidden h-[calc(100vh-4rem)] w-56 shrink-0 flex-col border-r border-brand-200/70 bg-white/80 py-6 backdrop-blur-md dark:border-brand-800/50 dark:bg-brand-950/55 lg:flex"
+          className="sticky top-16 hidden h-[calc(100vh-4rem)] w-56 shrink-0 flex-col border-r border-brand-200/80 bg-white/95 py-6 backdrop-blur-md dark:border-brand-800/50 dark:bg-brand-950/90 lg:flex"
           aria-label="Navegação do painel"
         >
           <nav className="flex flex-1 flex-col gap-6 overflow-y-auto px-3" id={navId}>
             {navSections.map((section) => (
               <div key={section.title}>
-                <p className="mb-2 px-2 text-[10px] font-bold uppercase tracking-wider text-tower-400 dark:text-tower-500">
+                <p className="mb-2 px-2 text-[10px] font-bold uppercase tracking-wider text-tower-600 dark:text-tower-400">
                   {section.title}
                 </p>
                 <ul className="flex flex-col gap-0.5" role="tablist" aria-label={section.title}>
@@ -62,7 +62,7 @@ const AdminShell: React.FC<AdminShellProps> = ({
                         className={`admin-focus flex w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
                           item.active
                             ? 'border border-brand-200 bg-brand-100 text-brand-900 dark:border-brand-600/50 dark:bg-brand-800/90 dark:text-tower-50'
-                            : 'text-tower-600 hover:bg-brand-50/90 dark:text-tower-400 dark:hover:bg-brand-900/50'
+                            : 'text-tower-800 hover:bg-brand-50/90 dark:text-tower-200 dark:hover:bg-brand-900/50'
                         }`}
                       >
                         {item.label}
@@ -120,7 +120,7 @@ const AdminShell: React.FC<AdminShellProps> = ({
             <nav className="max-h-[calc(100vh-3.5rem)] overflow-y-auto p-3" aria-label="Navegação do painel (mobile)">
               {navSections.map((section) => (
                 <div key={`m-${section.title}`} className="mb-6">
-                  <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-tower-400">{section.title}</p>
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-tower-600 dark:text-tower-400">{section.title}</p>
                   <ul className="flex flex-col gap-1" role="tablist" aria-label={`${section.title} (mobile)`}>
                     {section.items.map((item) => (
                       <li key={item.id} role="none">
@@ -135,7 +135,7 @@ const AdminShell: React.FC<AdminShellProps> = ({
                           className={`admin-focus w-full rounded-lg px-3 py-2.5 text-left text-sm font-medium ${
                             item.active
                               ? 'border border-brand-200 bg-brand-100 text-brand-900 dark:border-brand-600/50 dark:bg-brand-800/90 dark:text-tower-50'
-                              : 'text-tower-700 dark:text-tower-300'
+                              : 'text-tower-800 dark:text-tower-200'
                           }`}
                         >
                           {item.label}

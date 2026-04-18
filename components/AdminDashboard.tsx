@@ -362,25 +362,25 @@ const AdminDashboard: React.FC = () => {
                 </button>
               </div>
 
-              <p className="mb-3 text-xs text-tower-500 dark:text-tower-400">
+              <p className="mb-3 text-xs text-tower-700 dark:text-tower-300">
                 Resumo abaixo considera apenas os registros visíveis após o filtro &quot;nesta página&quot;. Paginação: {PAGE_SIZE} por página · Total na API: {totalDemands}.
               </p>
 
               <div className="mb-6 flex gap-3 overflow-x-auto pb-2">
                 <div className="min-w-[132px] rounded-xl border border-tower-200 bg-white/90 p-3 text-center shadow-sm dark:border-tower-700 dark:bg-tower-900/80">
-                  <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-tower-400">Pendentes</span>
+                  <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-tower-600 dark:text-tower-400">Pendentes</span>
                   <span className="text-xl font-bold text-amber-600 dark:text-amber-400">{stats.pending}</span>
                 </div>
                 <div className="min-w-[132px] rounded-xl border border-tower-200 bg-white/90 p-3 text-center shadow-sm dark:border-tower-700 dark:bg-tower-900/80">
-                  <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-tower-400">Em trânsito</span>
+                  <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-tower-600 dark:text-tower-400">Em trânsito</span>
                   <span className="text-xl font-bold text-brand-600 dark:text-brand-300">{stats.inTransit}</span>
                 </div>
                 <div className="min-w-[132px] rounded-xl border border-tower-200 bg-white/90 p-3 text-center shadow-sm dark:border-tower-700 dark:bg-tower-900/80">
-                  <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-tower-400">Risco A</span>
+                  <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-tower-600 dark:text-tower-400">Risco A</span>
                   <span className="text-xl font-bold text-red-500 dark:text-red-400">{stats.highRisk}</span>
                 </div>
                 <div className="min-w-[132px] rounded-xl border border-tower-200 bg-white/90 p-3 text-center shadow-sm dark:border-tower-700 dark:bg-tower-900/80">
-                  <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-tower-400">Faturado (página)</span>
+                  <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-tower-600 dark:text-tower-400">Faturado (página)</span>
                   <span className="text-xl font-bold text-brand-700 dark:text-brand-200">R$ {stats.totalValue.toLocaleString('pt-BR')}</span>
                 </div>
               </div>
@@ -388,7 +388,7 @@ const AdminDashboard: React.FC = () => {
               <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
                 <div className="space-y-4 lg:col-span-2">
                   <div className="mb-2 flex items-center justify-between">
-                    <h2 className="text-xs font-bold uppercase tracking-wider text-tower-500 dark:text-tower-400">Monitor de demandas</h2>
+                    <h2 className="text-xs font-bold uppercase tracking-wider text-tower-700 dark:text-tower-300">Monitor de demandas</h2>
                   </div>
 
                   {displayedDemands.length === 0 ? (
@@ -415,7 +415,7 @@ const AdminDashboard: React.FC = () => {
                         <div className="flex flex-col justify-between gap-4 md:flex-row">
                           <div className="min-w-0 flex-grow">
                             <div className="mb-2 flex flex-wrap items-center gap-2">
-                              <span className="font-mono-ids text-[10px] font-semibold text-tower-400">#{demand.id.slice(0, 8)}</span>
+                              <span className="font-mono-ids text-[10px] font-semibold text-tower-600 dark:text-tower-400">#{demand.id.slice(0, 8)}</span>
                               <StatusBadge label={demandStatusLabels[demand.status]} tone={demandStatusTones[demand.status]} />
                               {demand.quotedPrice != null && (
                                 <span className="rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-bold text-brand-800 dark:bg-brand-900/60 dark:text-brand-100">
@@ -429,19 +429,19 @@ const AdminDashboard: React.FC = () => {
                             </h3>
                             <div className="mt-3 grid grid-cols-2 gap-4 md:grid-cols-4">
                               <div className="text-xs">
-                                <span className="block text-tower-500">Mercadoria</span>
+                                <span className="block text-tower-700 dark:text-tower-300">Mercadoria</span>
                                 <span className="block truncate font-medium text-tower-800 dark:text-tower-200">{demand.commodity}</span>
                               </div>
                               <div className="text-xs">
-                                <span className="block text-tower-500">Valor NF</span>
+                                <span className="block text-tower-700 dark:text-tower-300">Valor NF</span>
                                 <span className="font-medium text-tower-800 dark:text-tower-200">R$ {demand.nfValue.toLocaleString('pt-BR')}</span>
                               </div>
                               <div className="text-xs">
-                                <span className="block text-tower-500">Peso</span>
+                                <span className="block text-tower-700 dark:text-tower-300">Peso</span>
                                 <span className="font-medium text-tower-800 dark:text-tower-200">{demand.weight} kg</span>
                               </div>
                               <div className="text-xs">
-                                <span className="block text-tower-500">Risco</span>
+                                <span className="block text-tower-700 dark:text-tower-300">Risco</span>
                                 <span className={`font-bold ${demand.riskClass === 'A' ? 'text-red-500' : 'text-brand-600 dark:text-brand-300'}`}>Classe {demand.riskClass}</span>
                               </div>
                             </div>
@@ -467,7 +467,7 @@ const AdminDashboard: React.FC = () => {
                             )}
                             <RouterLink
                               to={`/tracking/${demand.id}`}
-                              className="admin-focus px-4 py-2 text-center text-sm font-medium text-tower-500 hover:text-brand-600 dark:text-tower-400"
+                              className="admin-focus px-4 py-2 text-center text-sm font-medium text-tower-700 hover:text-brand-600 dark:text-tower-300"
                             >
                               Ver tracking
                             </RouterLink>
@@ -480,7 +480,7 @@ const AdminDashboard: React.FC = () => {
                                 <div className="h-2 w-2 rounded-full bg-brand-500" />
                                 <div className="text-[10px]">
                                   <span className="block font-bold uppercase text-tower-700 dark:text-tower-200">{demandStatusLabels[event.status]}</span>
-                                  <span className="text-tower-400">
+                                  <span className="text-tower-600 dark:text-tower-400">
                                     {new Date(event.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                   </span>
                                 </div>
@@ -502,7 +502,7 @@ const AdminDashboard: React.FC = () => {
                           type="button"
                           disabled={page <= 0}
                           onClick={() => setPage((p) => Math.max(0, p - 1))}
-                          className="admin-focus rounded-xl border border-tower-200 px-4 py-2 text-sm font-semibold disabled:opacity-40 dark:border-tower-600"
+                          className="admin-focus rounded-xl border border-tower-200 bg-white px-4 py-2 text-sm font-semibold text-tower-800 hover:bg-tower-50 disabled:opacity-40 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100 dark:hover:bg-tower-700"
                         >
                           Anterior
                         </button>
@@ -510,7 +510,7 @@ const AdminDashboard: React.FC = () => {
                           type="button"
                           disabled={page >= totalPages - 1}
                           onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-                          className="admin-focus rounded-xl border border-tower-200 px-4 py-2 text-sm font-semibold disabled:opacity-40 dark:border-tower-600"
+                          className="admin-focus rounded-xl border border-tower-200 bg-white px-4 py-2 text-sm font-semibold text-tower-800 hover:bg-tower-50 disabled:opacity-40 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100 dark:hover:bg-tower-700"
                         >
                           Próxima
                         </button>
@@ -522,7 +522,7 @@ const AdminDashboard: React.FC = () => {
                 <div className="space-y-6">
                   {!isHub && (
                     <div className="rounded-2xl border border-tower-200 bg-white/95 p-6 shadow-sm dark:border-tower-700 dark:bg-tower-900/80">
-                      <h2 className="mb-4 text-xs font-bold uppercase tracking-wider text-tower-500">Ações rápidas</h2>
+                      <h2 className="mb-4 text-xs font-bold uppercase tracking-wider text-tower-700 dark:text-tower-300">Ações rápidas</h2>
                       <RouterLink
                         to="/chat/demo"
                         className="admin-focus block w-full rounded-xl bg-brand-600 py-3 text-center text-sm font-bold text-white hover:bg-brand-500"
@@ -532,7 +532,7 @@ const AdminDashboard: React.FC = () => {
                     </div>
                   )}
                   <div className="rounded-2xl border border-tower-800 bg-tower-900 p-6 text-tower-100 dark:border-tower-700">
-                    <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-brand-400">Resumo da lista</h3>
+                    <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-tower-100">Resumo da lista</h3>
                     <div className="space-y-3 text-xs">
                       <div className="flex justify-between">
                         <span>Itens na página (filtro local)</span>
@@ -543,8 +543,8 @@ const AdminDashboard: React.FC = () => {
                         <span className="font-bold">{stats.pending}</span>
                       </div>
                       <div className="flex justify-between border-t border-tower-700 pt-3">
-                        <span className="text-tower-400">Atualizado</span>
-                        <span className="font-medium text-brand-400">{new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                        <span className="text-tower-600 dark:text-tower-400">Atualizado</span>
+                        <span className="font-medium text-brand-200">{new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
                       </div>
                     </div>
                   </div>
@@ -563,24 +563,24 @@ const AdminDashboard: React.FC = () => {
                     <div className="space-y-6 p-8">
                       <div className="grid grid-cols-2 gap-4 text-sm">
                         <div>
-                          <span className="block text-tower-500">Mercadoria</span>
+                          <span className="block text-tower-700 dark:text-tower-300">Mercadoria</span>
                           <span className="font-medium text-tower-900 dark:text-tower-100">{selectedDemand.commodity}</span>
                         </div>
                         <div>
-                          <span className="block text-tower-500">Peso</span>
+                          <span className="block text-tower-700 dark:text-tower-300">Peso</span>
                           <span className="font-medium text-tower-900 dark:text-tower-100">{selectedDemand.weight} kg</span>
                         </div>
                         <div>
-                          <span className="block text-tower-500">Valor NF</span>
+                          <span className="block text-tower-700 dark:text-tower-300">Valor NF</span>
                           <span className="font-medium text-tower-900 dark:text-tower-100">R$ {selectedDemand.nfValue.toLocaleString('pt-BR')}</span>
                         </div>
                         <div>
-                          <span className="block text-tower-500">Volume</span>
+                          <span className="block text-tower-700 dark:text-tower-300">Volume</span>
                           <span className="font-medium text-tower-900 dark:text-tower-100">{selectedDemand.volume} m³</span>
                         </div>
                       </div>
                       <div>
-                        <label className="mb-1 block text-[10px] font-bold uppercase text-tower-500" htmlFor="quote-input">
+                        <label className="mb-1 block text-[10px] font-bold uppercase text-tower-700 dark:text-tower-300" htmlFor="quote-input">
                           Valor da cotação (R$)
                         </label>
                         <input

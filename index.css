@@ -63,6 +63,9 @@
   --app-accent-hover: var(--color-brand-600);
   --app-surface-elevated: #ffffff;
   --app-text-muted: var(--color-tower-500);
+  --app-fg-muted: var(--color-tower-600);
+  --app-fg-subtle: var(--color-tower-700);
+  --app-border: var(--color-tower-200);
 }
 
 .dark:root {
@@ -72,6 +75,9 @@
   --app-accent-hover: #a8aedf;
   --app-surface-elevated: #16183f;
   --app-text-muted: #a8b0d0;
+  --app-fg-muted: #c5c9e8;
+  --app-fg-subtle: #d0d5e8;
+  --app-border: color-mix(in srgb, var(--color-tower-400) 35%, transparent);
 }
 
 @layer base {
@@ -107,23 +113,24 @@
     radial-gradient(ellipse 55% 45% at 0% 100%, rgb(111 120 196 / 0.12), transparent 42%);
 }
 
+/* Ruído só atrás do conteúdo — sem mix-blend (evita “lavar” texto e sidebar) */
 .admin-grain {
   position: relative;
+  isolation: isolate;
 }
 
-.admin-grain::after {
+.admin-grain::before {
   content: "";
   pointer-events: none;
   position: absolute;
   inset: 0;
-  opacity: 0.35;
+  z-index: -1;
+  opacity: 0.14;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  mix-blend-mode: overlay;
 }
 
-.dark .admin-grain::after {
-  opacity: 0.1;
-  mix-blend-mode: soft-light;
+.dark .admin-grain::before {
+  opacity: 0.07;
 }
 
 @keyframes admin-fade-in {

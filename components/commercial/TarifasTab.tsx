@@ -277,12 +277,12 @@ const TarifasTab: React.FC = () => {
   return (
     <div>
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-        <h2 className="text-lg font-bold text-slate-700">Tabelas de preço (Tarifas)</h2>
+        <h2 className="text-lg font-bold text-tower-800 dark:text-tower-200">Tabelas de preço (Tarifas)</h2>
         <div className="flex flex-wrap items-center gap-2">
           <select
             value={filterRouteId}
             onChange={(e) => setFilterRouteId(e.target.value)}
-            className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
+            className="px-3 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-sm text-tower-900 dark:bg-tower-800 dark:text-tower-100"
           >
             <option value="">Todas as rotas</option>
             {routes.map((r) => (
@@ -294,7 +294,7 @@ const TarifasTab: React.FC = () => {
           <select
             value={filterType}
             onChange={(e) => setFilterType(e.target.value)}
-            className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
+            className="px-3 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-sm text-tower-900 dark:bg-tower-800 dark:text-tower-100"
           >
             <option value="">Todos os tipos</option>
             <option value="GENERAL">Geral</option>
@@ -303,14 +303,14 @@ const TarifasTab: React.FC = () => {
           <button
             type="button"
             onClick={openNew}
-            className="px-4 py-2 text-sm bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700"
+            className="px-4 py-2 text-sm bg-brand-600 text-white font-bold rounded-lg hover:bg-brand-500 dark:hover:bg-brand-400"
           >
             + Nova divisão
           </button>
           <button
             type="button"
             onClick={loadTables}
-            className="px-4 py-2 text-sm text-slate-600 font-medium hover:bg-slate-100 rounded-lg"
+            className="px-4 py-2 text-sm text-tower-700 dark:text-tower-300 font-medium hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg"
           >
             Atualizar
           </button>
@@ -318,39 +318,39 @@ const TarifasTab: React.FC = () => {
       </div>
 
       {error && (
-        <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-800/80 dark:bg-red-950/40 dark:text-red-200">
           {error}
         </div>
       )}
       {success && (
-        <div className="mb-4 bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-xl text-sm">
+        <div className="mb-4 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-900 dark:border-brand-600/50 dark:bg-brand-900/50 dark:text-tower-100">
           {success}
         </div>
       )}
 
       {showForm && (
-        <div className="mb-8 bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
-          <h3 className="text-base font-bold text-slate-800 mb-4">
+        <div className="mb-8 rounded-xl border border-tower-200 bg-white p-6 shadow-sm dark:border-tower-600 dark:bg-tower-900">
+          <h3 className="text-base font-bold text-tower-900 dark:text-tower-100 mb-4">
             {editingId ? `Editar divisão` : 'Nova divisão'}
           </h3>
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-slate-700 mb-1">Descrição</label>
+                <label className="block text-sm font-medium text-tower-800 dark:text-tower-200 mb-1">Descrição</label>
                 <input
                   type="text"
                   value={form.description}
                   onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                  className="w-full px-3 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-tower-900 dark:bg-tower-800 dark:text-tower-100"
                   placeholder="Ex: FRETE PESO/CUB 300: 1.15KG + 10/1000 ADV + R$35,00 TAXA"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Rota</label>
+                <label className="block text-sm font-medium text-tower-800 dark:text-tower-200 mb-1">Rota</label>
                 <select
                   value={form.routeId ?? ''}
                   onChange={(e) => setForm((f) => ({ ...f, routeId: e.target.value || undefined }))}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                  className="w-full px-3 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-tower-900 dark:bg-tower-800 dark:text-tower-100"
                 >
                   <option value="">Nenhuma</option>
                   {routes.map((r) => (
@@ -361,11 +361,11 @@ const TarifasTab: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Tipo</label>
+                <label className="block text-sm font-medium text-tower-800 dark:text-tower-200 mb-1">Tipo</label>
                 <select
                   value={form.type}
                   onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as PricingTableType }))}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                  className="w-full px-3 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-tower-900 dark:bg-tower-800 dark:text-tower-100"
                 >
                   <option value="GENERAL">Geral</option>
                   <option value="SPECIAL">Especial</option>
@@ -373,11 +373,11 @@ const TarifasTab: React.FC = () => {
               </div>
               {form.type === 'SPECIAL' && (
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Cliente</label>
+                  <label className="block text-sm font-medium text-tower-800 dark:text-tower-200 mb-1">Cliente</label>
                   <select
                     value={form.clientId ?? ''}
                     onChange={(e) => setForm((f) => ({ ...f, clientId: e.target.value || undefined }))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                    className="w-full px-3 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-tower-900 dark:bg-tower-800 dark:text-tower-100"
                   >
                     <option value="">Nenhum</option>
                     {clients.map((c) => (
@@ -390,11 +390,11 @@ const TarifasTab: React.FC = () => {
               )}
             </div>
 
-            <div className="border-t border-slate-200 pt-4">
-              <h4 className="text-sm font-semibold text-slate-700 mb-3">Valores e unidades</h4>
+            <div className="border-t border-tower-200 dark:border-tower-600 pt-4">
+              <h4 className="text-sm font-semibold text-tower-800 dark:text-tower-200 mb-3">Valores e unidades</h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Frete</label>
+                  <label className="block text-sm font-medium text-tower-800 dark:text-tower-200 mb-1">Frete</label>
                   <div className="flex gap-1">
                     <input
                       type="number"
@@ -403,12 +403,12 @@ const TarifasTab: React.FC = () => {
                       onChange={(e) =>
                         setForm((f) => ({ ...f, freightValue: e.target.value === '' ? undefined : Number(e.target.value) }))
                       }
-                      className="flex-1 px-3 py-2 border border-slate-200 rounded-lg"
+                      className="flex-1 px-3 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-tower-900 dark:bg-tower-800 dark:text-tower-100"
                     />
                     <select
                       value={form.freightUnit}
                       onChange={(e) => setForm((f) => ({ ...f, freightUnit: e.target.value as FreightUnit }))}
-                      className="w-24 px-2 py-2 border border-slate-200 rounded-lg text-sm"
+                      className="w-24 px-2 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-sm text-tower-900 dark:bg-tower-800 dark:text-tower-100"
                     >
                       {(Object.keys(FREIGHT_UNIT_LABELS) as FreightUnit[]).map((u) => (
                         <option key={u} value={u}>
@@ -419,7 +419,7 @@ const TarifasTab: React.FC = () => {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">F. Mínimo</label>
+                  <label className="block text-sm font-medium text-tower-800 dark:text-tower-200 mb-1">F. Mínimo</label>
                   <div className="flex gap-1">
                     <input
                       type="number"
@@ -431,12 +431,12 @@ const TarifasTab: React.FC = () => {
                           minFreightValue: e.target.value === '' ? undefined : Number(e.target.value),
                         }))
                       }
-                      className="flex-1 px-3 py-2 border border-slate-200 rounded-lg"
+                      className="flex-1 px-3 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-tower-900 dark:bg-tower-800 dark:text-tower-100"
                     />
                     <select
                       value={form.minFreightUnit}
                       onChange={(e) => setForm((f) => ({ ...f, minFreightUnit: e.target.value as MinFreightUnit }))}
-                      className="w-16 px-2 py-2 border border-slate-200 rounded-lg text-sm"
+                      className="w-16 px-2 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-sm text-tower-900 dark:bg-tower-800 dark:text-tower-100"
                     >
                       {(Object.keys(MIN_FREIGHT_UNIT_LABELS) as MinFreightUnit[]).map((u) => (
                         <option key={u} value={u}>
@@ -447,7 +447,7 @@ const TarifasTab: React.FC = () => {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Advalor (p/R$ 1000)</label>
+                  <label className="block text-sm font-medium text-tower-800 dark:text-tower-200 mb-1">Advalor (p/R$ 1000)</label>
                   <input
                     type="number"
                     step="any"
@@ -458,11 +458,11 @@ const TarifasTab: React.FC = () => {
                         adValoremPercent: e.target.value === '' ? undefined : Number(e.target.value),
                       }))
                     }
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                    className="w-full px-3 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-tower-900 dark:bg-tower-800 dark:text-tower-100"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">GRIS (p/R$ 1000)</label>
+                  <label className="block text-sm font-medium text-tower-800 dark:text-tower-200 mb-1">GRIS (p/R$ 1000)</label>
                   <input
                     type="number"
                     step="any"
@@ -473,11 +473,11 @@ const TarifasTab: React.FC = () => {
                         grisPercent: e.target.value === '' ? undefined : Number(e.target.value),
                       }))
                     }
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                    className="w-full px-3 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-tower-900 dark:bg-tower-800 dark:text-tower-100"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Pedágio</label>
+                  <label className="block text-sm font-medium text-tower-800 dark:text-tower-200 mb-1">Pedágio</label>
                   <div className="flex gap-1">
                     <input
                       type="number"
@@ -489,12 +489,12 @@ const TarifasTab: React.FC = () => {
                           tollValue: e.target.value === '' ? undefined : Number(e.target.value),
                         }))
                       }
-                      className="flex-1 px-3 py-2 border border-slate-200 rounded-lg"
+                      className="flex-1 px-3 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-tower-900 dark:bg-tower-800 dark:text-tower-100"
                     />
                     <select
                       value={form.tollUnit}
                       onChange={(e) => setForm((f) => ({ ...f, tollUnit: e.target.value as TollUnit }))}
-                      className="w-20 px-2 py-2 border border-slate-200 rounded-lg text-sm"
+                      className="w-20 px-2 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-sm text-tower-900 dark:bg-tower-800 dark:text-tower-100"
                     >
                       {(Object.keys(TOLL_UNIT_LABELS) as TollUnit[]).map((u) => (
                         <option key={u} value={u}>
@@ -505,7 +505,7 @@ const TarifasTab: React.FC = () => {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Despacho (R$)</label>
+                  <label className="block text-sm font-medium text-tower-800 dark:text-tower-200 mb-1">Despacho (R$)</label>
                   <input
                     type="number"
                     step="any"
@@ -516,11 +516,11 @@ const TarifasTab: React.FC = () => {
                         dispatchFee: e.target.value === '' ? undefined : Number(e.target.value),
                       }))
                     }
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                    className="w-full px-3 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-tower-900 dark:bg-tower-800 dark:text-tower-100"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Outros (R$)</label>
+                  <label className="block text-sm font-medium text-tower-800 dark:text-tower-200 mb-1">Outros (R$)</label>
                   <input
                     type="number"
                     step="any"
@@ -531,18 +531,18 @@ const TarifasTab: React.FC = () => {
                         otherFees: e.target.value === '' ? undefined : Number(e.target.value),
                       }))
                     }
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                    className="w-full px-3 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-tower-900 dark:bg-tower-800 dark:text-tower-100"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Cubagem</label>
+                  <label className="block text-sm font-medium text-tower-800 dark:text-tower-200 mb-1">Cubagem</label>
                   <div className="flex items-center gap-2">
                     <input
                       type="checkbox"
                       checked={form.cubeEnabled}
                       onChange={(e) => setForm((f) => ({ ...f, cubeEnabled: e.target.checked }))}
                     />
-                    <span className="text-sm text-slate-600">Kg/m³</span>
+                    <span className="text-sm text-tower-700 dark:text-tower-300">Kg/m³</span>
                     <input
                       type="number"
                       step="any"
@@ -553,7 +553,7 @@ const TarifasTab: React.FC = () => {
                           cubeFactor: e.target.value === '' ? undefined : Number(e.target.value),
                         }))
                       }
-                      className="w-20 px-2 py-2 border border-slate-200 rounded-lg text-sm"
+                      className="w-20 px-2 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-sm text-tower-900 dark:bg-tower-800 dark:text-tower-100"
                       placeholder="300"
                     />
                   </div>
@@ -561,8 +561,8 @@ const TarifasTab: React.FC = () => {
               </div>
             </div>
 
-            <div className="border-t border-slate-200 pt-4">
-              <h4 className="text-sm font-semibold text-slate-700 mb-2">ICMS</h4>
+            <div className="border-t border-tower-200 dark:border-tower-600 pt-4">
+              <h4 className="text-sm font-semibold text-tower-800 dark:text-tower-200 mb-2">ICMS</h4>
               <div className="flex gap-4">
                 <label className="flex items-center gap-2">
                   <input
@@ -595,15 +595,15 @@ const TarifasTab: React.FC = () => {
                         icmsPercent: e.target.value === '' ? undefined : Number(e.target.value),
                       }))
                     }
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                    className="w-full px-3 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-tower-900 dark:bg-tower-800 dark:text-tower-100"
                     placeholder="%"
                   />
                 </div>
               )}
             </div>
 
-            <div className="border-t border-slate-200 pt-4">
-              <h4 className="text-sm font-semibold text-slate-700 mb-2">Fretes mínimos (faixas por peso)</h4>
+            <div className="border-t border-tower-200 dark:border-tower-600 pt-4">
+              <h4 className="text-sm font-semibold text-tower-800 dark:text-tower-200 mb-2">Fretes mínimos (faixas por peso)</h4>
               <div className="space-y-2">
                 {form.minFreightRanges.map((r, i) => (
                   <div key={i} className="flex items-center gap-2 flex-wrap">
@@ -612,7 +612,7 @@ const TarifasTab: React.FC = () => {
                       step="any"
                       value={r.minWeight}
                       onChange={(e) => updateRange(i, 'minWeight', Number(e.target.value))}
-                      className="w-24 px-2 py-2 border border-slate-200 rounded-lg text-sm"
+                      className="w-24 px-2 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-sm text-tower-900 dark:bg-tower-800 dark:text-tower-100"
                       placeholder="Kgs"
                     />
                     <input
@@ -622,16 +622,16 @@ const TarifasTab: React.FC = () => {
                       onChange={(e) =>
                         updateRange(i, 'maxWeight', e.target.value === '' ? 0 : Number(e.target.value))
                       }
-                      className="w-24 px-2 py-2 border border-slate-200 rounded-lg text-sm"
+                      className="w-24 px-2 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-sm text-tower-900 dark:bg-tower-800 dark:text-tower-100"
                       placeholder="Kgs máx"
                     />
-                    <span className="text-slate-500">R$</span>
+                    <span className="text-tower-600 dark:text-tower-400">R$</span>
                     <input
                       type="number"
                       step="any"
                       value={r.value}
                       onChange={(e) => updateRange(i, 'value', Number(e.target.value))}
-                      className="w-28 px-2 py-2 border border-slate-200 rounded-lg text-sm"
+                      className="w-28 px-2 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-sm text-tower-900 dark:bg-tower-800 dark:text-tower-100"
                     />
                     <button
                       type="button"
@@ -642,14 +642,14 @@ const TarifasTab: React.FC = () => {
                     </button>
                   </div>
                 ))}
-                <button type="button" onClick={addRange} className="text-sm text-indigo-600 hover:text-indigo-800">
+                <button type="button" onClick={addRange} className="text-sm font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300">
                   + Adicionar faixa
                 </button>
               </div>
             </div>
 
-            <div className="border-t border-slate-200 pt-4">
-              <label className="block text-sm font-medium text-slate-700 mb-1">
+            <div className="border-t border-tower-200 dark:border-tower-600 pt-4">
+              <label className="block text-sm font-medium text-tower-800 dark:text-tower-200 mb-1">
                 Se o valor da mercadoria ultrapassar o limite de R$
               </label>
               <input
@@ -662,22 +662,22 @@ const TarifasTab: React.FC = () => {
                     adValoremThreshold: e.target.value === '' ? undefined : Number(e.target.value),
                   }))
                 }
-                className="w-40 px-3 py-2 border border-slate-200 rounded-lg"
+                className="w-40 px-3 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-tower-900 dark:bg-tower-800 dark:text-tower-100"
               />
-              <span className="text-sm text-slate-500 ml-2">Cobrar Advalorem à parte.</span>
+              <span className="text-sm text-tower-600 dark:text-tower-400 ml-2">Cobrar Advalorem à parte.</span>
             </div>
 
-            <div className="border-t border-slate-200 pt-4 flex items-center gap-4">
+            <div className="border-t border-tower-200 dark:border-tower-600 pt-4 flex items-center gap-4">
               <label className="flex items-center gap-2">
                 <input
                   type="checkbox"
                   checked={form.active}
                   onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))}
                 />
-                <span className="text-sm font-medium text-slate-700">Divisão liberada</span>
+                <span className="text-sm font-medium text-tower-800 dark:text-tower-200">Divisão liberada</span>
               </label>
               {!form.active && (
-                <p className="text-sm text-amber-700 bg-amber-50 px-3 py-2 rounded-lg">
+                <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
                   Tabela bloqueada. Esta divisão não estará disponível para cálculo de frete.
                 </p>
               )}
@@ -686,7 +686,7 @@ const TarifasTab: React.FC = () => {
             <div className="flex gap-2 pt-2">
               <button
                 type="submit"
-                className="px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700"
+                className="rounded-lg bg-brand-600 px-4 py-2 font-medium text-white hover:bg-brand-500 dark:hover:bg-brand-400"
               >
                 {editingId ? 'Gravar divisão' : 'Criar divisão'}
               </button>
@@ -697,7 +697,7 @@ const TarifasTab: React.FC = () => {
                   setEditingId(null);
                   setError(null);
                 }}
-                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg"
+                className="px-4 py-2 text-tower-700 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg"
               >
                 Cancelar
               </button>
@@ -705,7 +705,7 @@ const TarifasTab: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => handleDeactivate(editingId)}
-                  className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg"
+                  className="rounded-lg px-4 py-2 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
                 >
                   Desativar
                 </button>
@@ -715,56 +715,58 @@ const TarifasTab: React.FC = () => {
         </div>
       )}
 
-      <p className="text-sm text-slate-500 mb-4">
+      <p className="text-sm text-tower-600 dark:text-tower-400 mb-4">
         {tables.length} divisão(tabelas)
       </p>
 
       {loading ? (
-        <div className="py-12 text-center text-slate-500">Carregando tarifas...</div>
+        <div className="py-12 text-center text-tower-600 dark:text-tower-400">Carregando tarifas...</div>
       ) : tables.length === 0 ? (
-        <div className="bg-white border-2 border-dashed border-slate-200 rounded-xl p-12 text-center text-slate-400">
+        <div className="rounded-xl border-2 border-dashed border-tower-200 bg-white p-12 text-center text-tower-600 dark:border-tower-600 dark:bg-tower-900 dark:text-tower-400">
           Nenhuma tarifa encontrada. Crie uma divisão para usar no cálculo de frete.
         </div>
       ) : (
-        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <div className="overflow-hidden rounded-xl border border-tower-200 bg-white dark:border-tower-600 dark:bg-tower-900">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="text-left py-3 px-4 font-semibold text-slate-700">Descrição</th>
-                  <th className="text-left py-3 px-4 font-semibold text-slate-700">Alteração</th>
-                  <th className="text-left py-3 px-4 font-semibold text-slate-700">Rota</th>
-                  <th className="text-left py-3 px-4 font-semibold text-slate-700">Min. único</th>
-                  <th className="text-left py-3 px-4 font-semibold text-slate-700">Frete</th>
-                  <th className="text-left py-3 px-4 font-semibold text-slate-700">Cubar</th>
-                  <th className="text-left py-3 px-4 font-semibold text-slate-700">Status</th>
-                  <th className="text-right py-3 px-4 font-semibold text-slate-700">Ações</th>
+                <tr className="bg-tower-50 dark:bg-tower-800/70 border-b border-tower-200 dark:border-tower-600">
+                  <th className="text-left py-3 px-4 font-semibold text-tower-800 dark:text-tower-200">Descrição</th>
+                  <th className="text-left py-3 px-4 font-semibold text-tower-800 dark:text-tower-200">Alteração</th>
+                  <th className="text-left py-3 px-4 font-semibold text-tower-800 dark:text-tower-200">Rota</th>
+                  <th className="text-left py-3 px-4 font-semibold text-tower-800 dark:text-tower-200">Min. único</th>
+                  <th className="text-left py-3 px-4 font-semibold text-tower-800 dark:text-tower-200">Frete</th>
+                  <th className="text-left py-3 px-4 font-semibold text-tower-800 dark:text-tower-200">Cubar</th>
+                  <th className="text-left py-3 px-4 font-semibold text-tower-800 dark:text-tower-200">Status</th>
+                  <th className="text-right py-3 px-4 font-semibold text-tower-800 dark:text-tower-200">Ações</th>
                 </tr>
               </thead>
               <tbody>
                 {tables.map((t) => (
                   <tr
                     key={t.id}
-                    className={`border-b border-slate-100 hover:bg-slate-50 ${!t.active ? 'bg-slate-50 opacity-75' : ''}`}
+                    className={`border-b border-tower-100 dark:border-tower-800 hover:bg-tower-50 dark:hover:bg-tower-800/40 ${!t.active ? 'bg-tower-50 opacity-75 dark:bg-tower-800/50' : ''}`}
                   >
-                    <td className="py-3 px-4 text-slate-800 max-w-xs truncate" title={t.description}>
+                    <td className="py-3 px-4 text-tower-900 dark:text-tower-100 max-w-xs truncate" title={t.description}>
                       {t.description}
                     </td>
-                    <td className="py-3 px-4 text-slate-600">
+                    <td className="py-3 px-4 text-tower-700 dark:text-tower-300">
                       {t.updatedAt ? new Date(t.updatedAt).toLocaleDateString('pt-BR') : '-'}
                     </td>
-                    <td className="py-3 px-4 text-slate-600">{t.route?.name ?? 'Nenhuma'}</td>
-                    <td className="py-3 px-4 text-slate-600">
+                    <td className="py-3 px-4 text-tower-700 dark:text-tower-300">{t.route?.name ?? 'Nenhuma'}</td>
+                    <td className="py-3 px-4 text-tower-700 dark:text-tower-300">
                       {t.minFreightValue != null ? t.minFreightValue.toLocaleString('pt-BR') : '-'}
                     </td>
-                    <td className="py-3 px-4 text-slate-600">{formatFreightDisplay(t)}</td>
-                    <td className="py-3 px-4 text-slate-600">
+                    <td className="py-3 px-4 text-tower-700 dark:text-tower-300">{formatFreightDisplay(t)}</td>
+                    <td className="py-3 px-4 text-tower-700 dark:text-tower-300">
                       {t.cubeEnabled ? `${t.cubeFactor ?? '-'} Kg/m³` : '-'}
                     </td>
                     <td className="py-3 px-4">
                       <span
                         className={`px-2 py-0.5 rounded text-xs font-medium ${
-                          t.active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'
+                          t.active
+                            ? 'bg-brand-100 text-brand-800 dark:bg-brand-800/90 dark:text-brand-100'
+                            : 'bg-tower-200 text-tower-800 dark:bg-tower-700 dark:text-tower-200'
                         }`}
                       >
                         {t.active ? 'Ativa' : 'Inativa'}
@@ -774,7 +776,7 @@ const TarifasTab: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => openEdit(t.id)}
-                        className="text-indigo-600 hover:text-indigo-800 font-medium mr-3"
+                        className="mr-3 font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300"
                       >
                         Editar
                       </button>
