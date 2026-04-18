@@ -19,10 +19,10 @@ const ImportCNPJModal: React.FC<ImportCNPJModalProps> = ({ isOpen, onClose, cnpj
       <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
         <div className="p-6">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-2xl font-bold text-slate-900">Dados Importados do Sintegra</h2>
+            <h2 className="text-2xl font-bold text-tower-900">Dados Importados do Sintegra</h2>
             <button
               onClick={onClose}
-              className="text-slate-400 hover:text-slate-600 text-2xl"
+              className="text-tower-400 hover:text-tower-600 text-2xl"
             >
               ×
             </button>
@@ -30,23 +30,23 @@ const ImportCNPJModal: React.FC<ImportCNPJModalProps> = ({ isOpen, onClose, cnpj
 
           <div className="space-y-4 mb-6">
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">CNPJ</label>
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+              <label className="block text-xs font-bold text-tower-500 uppercase tracking-wide mb-1">CNPJ</label>
+              <div className="p-3 bg-tower-50 border border-tower-200 rounded-xl">
                 {cnpjData.cnpj?.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')}
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Razão Social</label>
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+              <label className="block text-xs font-bold text-tower-500 uppercase tracking-wide mb-1">Razão Social</label>
+              <div className="p-3 bg-tower-50 border border-tower-200 rounded-xl">
                 {cnpjData.legalName || '-'}
               </div>
             </div>
 
             {cnpjData.tradeName && (
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Nome Fantasia</label>
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                <label className="block text-xs font-bold text-tower-500 uppercase tracking-wide mb-1">Nome Fantasia</label>
+                <div className="p-3 bg-tower-50 border border-tower-200 rounded-xl">
                   {cnpjData.tradeName}
                 </div>
               </div>
@@ -54,8 +54,8 @@ const ImportCNPJModal: React.FC<ImportCNPJModalProps> = ({ isOpen, onClose, cnpj
 
             {address.street && (
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Endereço</label>
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                <label className="block text-xs font-bold text-tower-500 uppercase tracking-wide mb-1">Endereço</label>
+                <div className="p-3 bg-tower-50 border border-tower-200 rounded-xl">
                   {[address.street, address.number, address.complement].filter(Boolean).join(', ')}
                   {address.neighborhood && ` - ${address.neighborhood}`}
                   {address.city && address.state && ` - ${address.city}/${address.state}`}
@@ -66,8 +66,8 @@ const ImportCNPJModal: React.FC<ImportCNPJModalProps> = ({ isOpen, onClose, cnpj
 
             {cnpjData.phone && (
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Telefone</label>
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                <label className="block text-xs font-bold text-tower-500 uppercase tracking-wide mb-1">Telefone</label>
+                <div className="p-3 bg-tower-50 border border-tower-200 rounded-xl">
                   {cnpjData.phone}
                 </div>
               </div>
@@ -75,15 +75,15 @@ const ImportCNPJModal: React.FC<ImportCNPJModalProps> = ({ isOpen, onClose, cnpj
 
             {cnpjData.email && (
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Email</label>
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                <label className="block text-xs font-bold text-tower-500 uppercase tracking-wide mb-1">Email</label>
+                <div className="p-3 bg-tower-50 border border-tower-200 rounded-xl">
                   {cnpjData.email}
                 </div>
               </div>
             )}
           </div>
 
-          <div className="mb-6 p-4 bg-indigo-50 border border-indigo-200 rounded-xl">
+          <div className="mb-6 p-4 bg-brand-50 border border-brand-200 rounded-xl">
             <label className="flex items-start gap-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -92,8 +92,8 @@ const ImportCNPJModal: React.FC<ImportCNPJModalProps> = ({ isOpen, onClose, cnpj
                 className="mt-1 rounded"
               />
               <div>
-                <div className="font-medium text-indigo-900">Esse CNPJ é meu e quero ter os benefícios nele que tenho na minha conta</div>
-                <div className="text-sm text-indigo-700 mt-1">
+                <div className="font-medium text-brand-900">Esse CNPJ é meu e quero ter os benefícios nele que tenho na minha conta</div>
+                <div className="text-sm text-brand-700 mt-1">
                   Se marcado, o CNPJ será adicionado à sua conta e você terá acesso a todos os benefícios e histórico relacionados a ele.
                 </div>
               </div>
@@ -103,13 +103,13 @@ const ImportCNPJModal: React.FC<ImportCNPJModalProps> = ({ isOpen, onClose, cnpj
           <div className="flex gap-3 justify-end">
             <button
               onClick={onClose}
-              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-medium transition-colors"
+              className="px-4 py-2 bg-tower-100 hover:bg-tower-200 text-tower-700 rounded-xl font-medium transition-colors"
             >
               Cancelar
             </button>
             <button
               onClick={() => onConfirm(addToAccount)}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium transition-colors"
+              className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl font-medium transition-colors"
             >
               Confirmar
             </button>

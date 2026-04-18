@@ -64,10 +64,10 @@ const AddCPFModal: React.FC<AddCPFModalProps> = ({ isOpen, onClose, cpf, onSubmi
       <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full mx-4">
         <div className="p-6">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-2xl font-bold text-slate-900">Cadastrar CPF</h2>
+            <h2 className="text-2xl font-bold text-tower-900">Cadastrar CPF</h2>
             <button
               onClick={onClose}
-              className="text-slate-400 hover:text-slate-600 text-2xl"
+              className="text-tower-400 hover:text-tower-600 text-2xl"
             >
               ×
             </button>
@@ -86,68 +86,68 @@ const AddCPFModal: React.FC<AddCPFModalProps> = ({ isOpen, onClose, cpf, onSubmi
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">
+              <label className="block text-xs font-bold text-tower-500 uppercase tracking-wide mb-1">
                 Nome completo *
               </label>
               <input
                 type="text"
                 value={formData.fullName}
                 onChange={e => setFormData({ ...formData, fullName: e.target.value })}
-                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl"
+                className="w-full p-3 bg-tower-50 border border-tower-200 rounded-xl"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">
+              <label className="block text-xs font-bold text-tower-500 uppercase tracking-wide mb-1">
                 Endereço
               </label>
               <input
                 type="text"
                 value={formData.address}
                 onChange={e => setFormData({ ...formData, address: e.target.value })}
-                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl"
+                className="w-full p-3 bg-tower-50 border border-tower-200 rounded-xl"
                 placeholder="Rua, número, complemento"
               />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">
+                <label className="block text-xs font-bold text-tower-500 uppercase tracking-wide mb-1">
                   Telefone
                 </label>
                 <input
                   type="text"
                   value={formData.phone}
                   onChange={e => setFormData({ ...formData, phone: e.target.value })}
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl"
+                  className="w-full p-3 bg-tower-50 border border-tower-200 rounded-xl"
                   placeholder="(00) 0000-0000"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">
+                <label className="block text-xs font-bold text-tower-500 uppercase tracking-wide mb-1">
                   WhatsApp
                 </label>
                 <input
                   type="text"
                   value={maskPhone(formData.whatsapp)}
                   onChange={e => setFormData({ ...formData, whatsapp: e.target.value.replace(/\D/g, '') })}
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl"
+                  className="w-full p-3 bg-tower-50 border border-tower-200 rounded-xl"
                   placeholder="(00) 00000-0000"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">
+              <label className="block text-xs font-bold text-tower-500 uppercase tracking-wide mb-1">
                 Email
               </label>
               <input
                 type="email"
                 value={formData.email}
                 onChange={e => setFormData({ ...formData, email: e.target.value })}
-                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl"
+                className="w-full p-3 bg-tower-50 border border-tower-200 rounded-xl"
                 placeholder="email@exemplo.com"
               />
             </div>
@@ -156,13 +156,13 @@ const AddCPFModal: React.FC<AddCPFModalProps> = ({ isOpen, onClose, cpf, onSubmi
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-medium transition-colors"
+                className="px-4 py-2 bg-tower-100 hover:bg-tower-200 text-tower-700 rounded-xl font-medium transition-colors"
               >
                 Cancelar
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium transition-colors"
+                className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl font-medium transition-colors"
               >
                 Cadastrar
               </button>

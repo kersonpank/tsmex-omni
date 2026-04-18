@@ -60,8 +60,8 @@ const OperacaoApp: React.FC = () => {
 
   if (!meLoaded || !user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <p className="text-slate-600">Carregando...</p>
+      <div className="min-h-screen flex items-center justify-center bg-tower-50">
+        <p className="text-tower-600">Carregando...</p>
       </div>
     );
   }
@@ -72,16 +72,16 @@ const OperacaoApp: React.FC = () => {
     }
     if (linkPending) {
       return (
-        <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-          <div className="max-w-md w-full bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-8 text-center">
-            <h1 className="text-xl font-bold text-slate-900 mb-2">Cadastro em análise</h1>
-            <p className="text-slate-600 mb-6">
+        <div className="min-h-screen flex items-center justify-center bg-tower-50 p-4">
+          <div className="max-w-md w-full bg-white dark:bg-tower-800 rounded-2xl shadow-lg p-8 text-center">
+            <h1 className="text-xl font-bold text-tower-900 mb-2">Cadastro em análise</h1>
+            <p className="text-tower-600 mb-6">
               Seu cadastro foi recebido e está sendo analisado pela nossa equipe. Você receberá um aviso quando for aprovado e poderá acessar ofertas e viagens.
             </p>
             <button
               type="button"
               onClick={() => logout()}
-              className="text-slate-500 hover:text-slate-700 text-sm font-medium"
+              className="text-tower-500 hover:text-tower-700 text-sm font-medium"
             >
               Sair
             </button>
@@ -96,8 +96,8 @@ const OperacaoApp: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4">
-      <p className="text-slate-600">Acesso não autorizado.</p>
+    <div className="min-h-screen flex items-center justify-center bg-tower-100 p-4">
+      <p className="text-tower-600">Acesso não autorizado.</p>
     </div>
   );
 };

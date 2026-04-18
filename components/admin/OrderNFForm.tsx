@@ -274,21 +274,21 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-slate-600 dark:text-slate-300">
+      <p className="text-sm text-tower-600 dark:text-tower-300">
         Adicione quantas notas forem necessárias (mesmo remetente e destinatário).
       </p>
-      <div className="flex gap-2 border-b border-slate-200 dark:border-slate-700">
+      <div className="flex gap-2 border-b border-tower-200 dark:border-tower-700">
         <button
           type="button"
           onClick={() => setTab('NFE')}
-          className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${tab === 'NFE' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+          className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${tab === 'NFE' ? 'border-brand-600 text-brand-600 dark:text-brand-400' : 'border-transparent text-tower-500 dark:text-tower-400 hover:text-tower-700 dark:hover:text-tower-200'}`}
         >
           NF-e
         </button>
         <button
           type="button"
           onClick={() => setTab('OUTRAS')}
-          className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${tab === 'OUTRAS' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+          className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${tab === 'OUTRAS' ? 'border-brand-600 text-brand-600 dark:text-brand-400' : 'border-transparent text-tower-500 dark:text-tower-400 hover:text-tower-700 dark:hover:text-tower-200'}`}
         >
           Outras (Declaração)
         </button>
@@ -298,7 +298,7 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
         {error && <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-300 text-sm">{error}</div>}
         {tab === 'NFE' && (
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">
               Chave NF-e (44 dígitos)
             </label>
             <div className="flex gap-2">
@@ -309,7 +309,7 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
                 onChange={e => setForm(prev => ({ ...prev, nfKey: e.target.value.replace(/\D/g, '') }))}
                 onBlur={handleNfKeyBlur}
                 placeholder="Digite ou escaneie a chave de 44 dígitos"
-                className="flex-1 px-3 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="flex-1 px-3 py-2.5 rounded-lg border border-tower-300 dark:border-tower-600 bg-white dark:bg-tower-700 text-tower-900 dark:text-white text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent"
                 disabled={disabled || nfeLookupLoading}
               />
               <button
@@ -317,7 +317,7 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
                 onClick={() => setShowQRScanner(true)}
                 disabled={disabled || nfeLookupLoading}
                 title="Escanear QR Code da DANFE"
-                className="px-3 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 transition-colors disabled:opacity-50"
+                className="px-3 py-2.5 rounded-lg border border-tower-300 dark:border-tower-600 bg-white dark:bg-tower-700 hover:bg-tower-50 dark:hover:bg-tower-600 text-tower-600 dark:text-tower-300 transition-colors disabled:opacity-50"
               >
                 {nfeLookupLoading ? (
                   <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -339,7 +339,7 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
               </p>
             )}
             {prescanNfe && form.nfKey === prescanNfe.chave && (
-              <p className="mt-1 text-xs text-emerald-600 dark:text-emerald-400">✓ Chave pré-escaneada</p>
+              <p className="mt-1 text-xs text-brand-600 dark:text-brand-400">✓ Chave pré-escaneada</p>
             )}
           </div>
         )}
@@ -351,19 +351,19 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
               </p>
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Descrição dos itens *</label>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Descrição dos itens *</label>
               <textarea
                 rows={3}
                 value={form.nature}
                 onChange={e => setForm(prev => ({ ...prev, nature: e.target.value }))}
                 placeholder="Ex: Roupas, utensílios domésticos, eletrônicos pessoais..."
-                className="w-full px-3 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-3 py-2.5 rounded-lg border border-tower-300 dark:border-tower-600 bg-white dark:bg-tower-700 text-tower-900 dark:text-white text-sm focus:ring-2 focus:ring-brand-500"
                 disabled={disabled}
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Peso estimado (kg) *</label>
+                <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Peso estimado (kg) *</label>
                 <input
                   type="number"
                   min="0"
@@ -371,12 +371,12 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
                   value={form.weight || ''}
                   onChange={e => setForm(prev => ({ ...prev, weight: parseFloat(e.target.value) || 0 }))}
                   placeholder="0.0"
-                  className="w-full px-3 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm"
+                  className="w-full px-3 py-2.5 rounded-lg border border-tower-300 dark:border-tower-600 bg-white dark:bg-tower-700 text-tower-900 dark:text-white text-sm"
                   disabled={disabled}
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Valor declarado (R$) *</label>
+                <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Valor declarado (R$) *</label>
                 <input
                   type="number"
                   min="0"
@@ -384,13 +384,13 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
                   value={form.value || ''}
                   onChange={e => setForm(prev => ({ ...prev, value: parseFloat(e.target.value) || 0 }))}
                   placeholder="0.00"
-                  className="w-full px-3 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm"
+                  className="w-full px-3 py-2.5 rounded-lg border border-tower-300 dark:border-tower-600 bg-white dark:bg-tower-700 text-tower-900 dark:text-white text-sm"
                   disabled={disabled}
                 />
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Número de volumes *</label>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Número de volumes *</label>
               <input
                 type="number"
                 min="1"
@@ -402,7 +402,7 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
                   else nl.push({ qty: v, altura: 0, largura: 0, comprimento: 0 });
                   setVolumesList(nl);
                 }}
-                className="w-full px-3 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm"
+                className="w-full px-3 py-2.5 rounded-lg border border-tower-300 dark:border-tower-600 bg-white dark:bg-tower-700 text-tower-900 dark:text-white text-sm"
                 disabled={disabled}
               />
             </div>
@@ -410,38 +410,38 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
         )}
         {tab === 'NFE' && <><div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Número *</label>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Número *</label>
             <input
               type="text"
               value={form.nfNumber}
               onChange={e => setForm(f => ({ ...f, nfNumber: e.target.value }))}
-              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100"
               required
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Emissão (DD/MM/AAAA)</label>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Emissão (DD/MM/AAAA)</label>
             <input
               type="text"
               value={form.emissionDate}
               onChange={e => setForm(f => ({ ...f, emissionDate: maskDateDDMMYYYY(e.target.value) }))}
               placeholder="dd/mm/aaaa"
               maxLength={10}
-              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Natureza</label>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Natureza</label>
             <input
               type="text"
               value={form.nature}
               onChange={e => setForm(f => ({ ...f, nature: e.target.value }))}
               placeholder="Ex: VETERINARIO"
-              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Espécie</label>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Espécie</label>
             <select
               value={speciesOther ? '_outro' : form.speciesId}
               onChange={e => {
@@ -454,7 +454,7 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
                   setForm(f => ({ ...f, speciesId: v, speciesOtherText: '' }));
                 }
               }}
-              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100"
             >
               <option value="">Selecione</option>
               {speciesList.map(s => (
@@ -468,13 +468,13 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
                 value={form.speciesOtherText}
                 onChange={e => setForm(f => ({ ...f, speciesOtherText: e.target.value }))}
                 placeholder="Informe a espécie"
-                className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 mt-1 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 mt-1 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
               />
             )}
           </div>
         </div>
-        <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-4 bg-slate-50 dark:bg-slate-800">
-          <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">Volumes para cubagem</h4>
+        <div className="border border-tower-200 dark:border-tower-700 rounded-lg p-4 bg-tower-50 dark:bg-tower-800">
+          <h4 className="text-sm font-semibold text-tower-700 dark:text-tower-200 mb-3">Volumes para cubagem</h4>
           {volumesList.map((vol, idx) => (
             <div key={idx} className="flex flex-wrap gap-2 items-center mb-2">
               <input
@@ -487,7 +487,7 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
                   nl[idx] = { ...vol, qty: parseInt(e.target.value, 10) || 0 };
                   setVolumesList(nl);
                 }}
-                className="w-16 p-2 border border-slate-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                className="w-16 p-2 border border-tower-200 dark:border-tower-600 rounded-lg text-sm bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
               />
               <input
                 type="number"
@@ -499,7 +499,7 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
                   nl[idx] = { ...vol, altura: parseFloat(e.target.value) || 0 };
                   setVolumesList(nl);
                 }}
-                className="w-20 p-2 border border-slate-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                className="w-20 p-2 border border-tower-200 dark:border-tower-600 rounded-lg text-sm bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
               />
               <input
                 type="number"
@@ -511,7 +511,7 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
                   nl[idx] = { ...vol, largura: parseFloat(e.target.value) || 0 };
                   setVolumesList(nl);
                 }}
-                className="w-20 p-2 border border-slate-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                className="w-20 p-2 border border-tower-200 dark:border-tower-600 rounded-lg text-sm bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
               />
               <input
                 type="number"
@@ -523,7 +523,7 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
                   nl[idx] = { ...vol, comprimento: parseFloat(e.target.value) || 0 };
                   setVolumesList(nl);
                 }}
-                className="w-20 p-2 border border-slate-200 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                className="w-20 p-2 border border-tower-200 dark:border-tower-600 rounded-lg text-sm bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
               />
               {volumesList.length > 1 && (
                 <button
@@ -539,14 +539,14 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
           <button
             type="button"
             onClick={() => setVolumesList([...volumesList, { qty: 1, altura: 0, largura: 0, comprimento: 0 }])}
-            className="text-sm text-indigo-600 dark:text-indigo-400 font-medium hover:underline mt-1"
+            className="text-sm text-brand-600 dark:text-brand-400 font-medium hover:underline mt-1"
           >
             + Adicionar volume
           </button>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Volumes</label>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Volumes</label>
             <input
               type="number"
               min={0}
@@ -558,41 +558,41 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
                 else nl.push({ qty: v, altura: 0, largura: 0, comprimento: 0 });
                 setVolumesList(nl);
               }}
-              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Peso (kg)</label>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Peso (kg)</label>
             <input
               type="number"
               step="0.0001"
               value={form.weight || ''}
               onChange={e => setForm(f => ({ ...f, weight: parseFloat(e.target.value) || 0 }))}
-              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Cub (m³)</label>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Cub (m³)</label>
             <input
               type="number"
               step="0.001"
               value={form.cubedVolumeManual !== '' ? form.cubedVolumeManual : (cubCalculated || '')}
               onChange={e => setForm(f => ({ ...f, cubedVolumeManual: e.target.value }))}
               placeholder="Auto ou manual"
-              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
             />
             {cubCalculated > 0 && form.cubedVolumeManual === '' && (
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Calculado: {cubCalculated.toFixed(3)} m³</p>
+              <p className="text-xs text-tower-500 dark:text-tower-400 mt-0.5">Calculado: {cubCalculated.toFixed(3)} m³</p>
             )}
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Valor (R$)</label>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Valor (R$)</label>
             <input
               type="number"
               step="0.01"
               value={form.value || ''}
               onChange={e => setForm(f => ({ ...f, value: parseFloat(e.target.value) || 0 }))}
-              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100"
             />
           </div>
         </div>
@@ -601,7 +601,7 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
           <button
             type="submit"
             disabled={saving || disabled}
-            className="px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2"
+            className="px-4 py-2 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50 flex items-center gap-2"
           >
             <span>✓</span> {editingInvoice ? 'Atualizar Nota' : 'Gravar Nota'}
           </button>
@@ -609,7 +609,7 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
             <button
               type="button"
               onClick={cancelEdit}
-              className="px-4 py-2 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"
+              className="px-4 py-2 text-tower-600 dark:text-tower-400 hover:bg-tower-100 dark:hover:bg-tower-700 rounded-lg"
             >
               Cancelar
             </button>
@@ -621,7 +621,7 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
           <button
             type="button"
             onClick={() => setShowForm(true)}
-            className="px-4 py-3 border-2 border-dashed border-indigo-300 dark:border-indigo-600 rounded-xl text-indigo-600 dark:text-indigo-400 font-medium hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+            className="px-4 py-3 border-2 border-dashed border-brand-300 dark:border-brand-600 rounded-xl text-brand-600 dark:text-brand-400 font-medium hover:bg-brand-50 dark:hover:bg-brand-900/20 transition-colors"
           >
             {tab === 'NFE' ? '+ Adicionar mais NF' : '+ Adicionar outra declaração'}
           </button>
@@ -629,41 +629,41 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
       )}
       {invoices.length > 0 && (
         <div className="mt-6">
-          <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">{invoices.length} Nota(s)</h4>
-          <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+          <h4 className="text-sm font-semibold text-tower-700 dark:text-tower-200 mb-2">{invoices.length} Nota(s)</h4>
+          <div className="border border-tower-200 dark:border-tower-700 rounded-lg overflow-hidden">
             <table className="w-full text-sm">
-              <thead className="bg-slate-50 dark:bg-slate-700">
+              <thead className="bg-tower-50 dark:bg-tower-700">
                 <tr>
-                  <th className="text-left py-2 px-3 font-medium text-slate-700 dark:text-slate-200">Número</th>
-                  <th className="text-left py-2 px-3 font-medium text-slate-700 dark:text-slate-200">Emissão</th>
-                  <th className="text-left py-2 px-3 font-medium text-slate-700 dark:text-slate-200">Natureza</th>
-                  <th className="text-left py-2 px-3 font-medium text-slate-700 dark:text-slate-200">Espécie</th>
-                  <th className="text-right py-2 px-3 font-medium text-slate-700 dark:text-slate-200">Vol.</th>
-                  <th className="text-right py-2 px-3 font-medium text-slate-700 dark:text-slate-200">Peso</th>
-                  <th className="text-right py-2 px-3 font-medium text-slate-700 dark:text-slate-200">Cub</th>
-                  <th className="text-right py-2 px-3 font-medium text-slate-700 dark:text-slate-200">Valor</th>
-                  <th className="text-right py-2 px-3 font-medium text-slate-700 dark:text-slate-200">Ações</th>
+                  <th className="text-left py-2 px-3 font-medium text-tower-700 dark:text-tower-200">Número</th>
+                  <th className="text-left py-2 px-3 font-medium text-tower-700 dark:text-tower-200">Emissão</th>
+                  <th className="text-left py-2 px-3 font-medium text-tower-700 dark:text-tower-200">Natureza</th>
+                  <th className="text-left py-2 px-3 font-medium text-tower-700 dark:text-tower-200">Espécie</th>
+                  <th className="text-right py-2 px-3 font-medium text-tower-700 dark:text-tower-200">Vol.</th>
+                  <th className="text-right py-2 px-3 font-medium text-tower-700 dark:text-tower-200">Peso</th>
+                  <th className="text-right py-2 px-3 font-medium text-tower-700 dark:text-tower-200">Cub</th>
+                  <th className="text-right py-2 px-3 font-medium text-tower-700 dark:text-tower-200">Valor</th>
+                  <th className="text-right py-2 px-3 font-medium text-tower-700 dark:text-tower-200">Ações</th>
                 </tr>
               </thead>
               <tbody>
                 {invoices.map((inv) => (
                   <tr
                     key={inv.id}
-                    className={`border-t border-slate-100 dark:border-slate-700 ${editingInvoice?.id === inv.id ? 'bg-amber-50 dark:bg-amber-900/20' : 'bg-white dark:bg-slate-800'}`}
+                    className={`border-t border-tower-100 dark:border-tower-700 ${editingInvoice?.id === inv.id ? 'bg-amber-50 dark:bg-amber-900/20' : 'bg-white dark:bg-tower-800'}`}
                   >
-                    <td className="py-2 px-3 font-mono text-slate-900 dark:text-slate-200">{inv.nfNumber}</td>
-                    <td className="py-2 px-3 text-slate-900 dark:text-slate-200">{formatDateToDDMMYYYY(inv.emissionDate) || '-'}</td>
-                    <td className="py-2 px-3 text-slate-900 dark:text-slate-200">{inv.nature || '-'}</td>
-                    <td className="py-2 px-3 text-slate-900 dark:text-slate-200">{inv.species || '-'}</td>
-                    <td className="py-2 px-3 text-right text-slate-900 dark:text-slate-200">{inv.volumes}</td>
-                    <td className="py-2 px-3 text-right text-slate-900 dark:text-slate-200">{inv.weight} kg</td>
-                    <td className="py-2 px-3 text-right text-slate-900 dark:text-slate-200">{inv.cubedVolume != null ? `${inv.cubedVolume} m³` : '-'}</td>
-                    <td className="py-2 px-3 text-right text-slate-900 dark:text-slate-200">R$ {inv.value.toLocaleString('pt-BR')}</td>
+                    <td className="py-2 px-3 font-mono text-tower-900 dark:text-tower-200">{inv.nfNumber}</td>
+                    <td className="py-2 px-3 text-tower-900 dark:text-tower-200">{formatDateToDDMMYYYY(inv.emissionDate) || '-'}</td>
+                    <td className="py-2 px-3 text-tower-900 dark:text-tower-200">{inv.nature || '-'}</td>
+                    <td className="py-2 px-3 text-tower-900 dark:text-tower-200">{inv.species || '-'}</td>
+                    <td className="py-2 px-3 text-right text-tower-900 dark:text-tower-200">{inv.volumes}</td>
+                    <td className="py-2 px-3 text-right text-tower-900 dark:text-tower-200">{inv.weight} kg</td>
+                    <td className="py-2 px-3 text-right text-tower-900 dark:text-tower-200">{inv.cubedVolume != null ? `${inv.cubedVolume} m³` : '-'}</td>
+                    <td className="py-2 px-3 text-right text-tower-900 dark:text-tower-200">R$ {inv.value.toLocaleString('pt-BR')}</td>
                     <td className="py-2 px-3 text-right">
                       <button
                         type="button"
                         onClick={() => handleEdit(inv)}
-                        className="text-indigo-600 dark:text-indigo-400 hover:underline text-sm font-medium"
+                        className="text-brand-600 dark:text-brand-400 hover:underline text-sm font-medium"
                       >
                         Editar
                       </button>
@@ -671,12 +671,12 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
                   </tr>
                 ))}
               </tbody>
-              <tfoot className="bg-slate-100 dark:bg-slate-700 border-t-2 border-slate-200 dark:border-slate-600">
+              <tfoot className="bg-tower-100 dark:bg-tower-700 border-t-2 border-tower-200 dark:border-tower-600">
                 <tr className="font-semibold">
-                  <td colSpan={8} className="py-2 px-3 text-right text-slate-600 dark:text-slate-200">Total:</td>
-                  <td className="py-2 px-3 text-right text-slate-900 dark:text-slate-200">{totals.weight} kg</td>
-                  <td className="py-2 px-3 text-right text-slate-900 dark:text-slate-200">{totals.cub > 0 ? `${totals.cub} m³` : '-'}</td>
-                  <td className="py-2 px-3 text-right text-slate-900 dark:text-slate-200">R$ {totals.value.toLocaleString('pt-BR')}</td>
+                  <td colSpan={8} className="py-2 px-3 text-right text-tower-600 dark:text-tower-200">Total:</td>
+                  <td className="py-2 px-3 text-right text-tower-900 dark:text-tower-200">{totals.weight} kg</td>
+                  <td className="py-2 px-3 text-right text-tower-900 dark:text-tower-200">{totals.cub > 0 ? `${totals.cub} m³` : '-'}</td>
+                  <td className="py-2 px-3 text-right text-tower-900 dark:text-tower-200">R$ {totals.value.toLocaleString('pt-BR')}</td>
                 </tr>
               </tfoot>
             </table>

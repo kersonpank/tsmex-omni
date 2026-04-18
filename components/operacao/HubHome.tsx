@@ -39,7 +39,7 @@ const STATUS_LABEL: Record<string, string> = {
 const STATUS_COLOR: Record<string, string> = {
   PENDING: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
   AT_HUB: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  IN_TRANSIT: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400',
+  IN_TRANSIT: 'bg-brand-100 text-brand-700 dark:bg-brand-900/30 dark:text-brand-400',
   OUT_FOR_DELIVERY: 'bg-purple-100 text-purple-700',
   DELIVERED: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
   CANCELLED: 'bg-red-100 text-red-700',
@@ -55,10 +55,10 @@ const MANIFEST_STATUS_LABEL: Record<string, string> = {
 };
 
 const MANIFEST_STATUS_COLOR: Record<string, string> = {
-  DRAFT: 'bg-slate-100 text-slate-600',
+  DRAFT: 'bg-tower-100 text-tower-600',
   PENDING_ACCEPT: 'bg-amber-100 text-amber-700',
   ACCEPTED: 'bg-blue-100 text-blue-700',
-  IN_PROGRESS: 'bg-indigo-100 text-indigo-700',
+  IN_PROGRESS: 'bg-brand-100 text-brand-700',
   COMPLETED: 'bg-green-100 text-green-700',
   CANCELLED: 'bg-red-100 text-red-700',
 };
@@ -188,12 +188,12 @@ const ManifestModal: React.FC<ManifestModalProps> = ({
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
 
       {/* Sheet */}
-      <div className="relative bg-white dark:bg-slate-900 rounded-t-2xl max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
-          <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+      <div className="relative bg-white dark:bg-tower-900 rounded-t-2xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-4 border-b border-tower-200 dark:border-tower-700">
+          <h2 className="text-base font-semibold text-tower-900 dark:text-white">
             Criar Manifesto ({selectedOrders.length} pedido{selectedOrders.length !== 1 ? 's' : ''})
           </h2>
-          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600">
+          <button type="button" onClick={onClose} className="text-tower-400 hover:text-tower-600">
             <IconX />
           </button>
         </div>
@@ -204,9 +204,9 @@ const ManifestModal: React.FC<ManifestModalProps> = ({
           )}
 
           {/* Orders summary */}
-          <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-3 space-y-1">
+          <div className="bg-tower-50 dark:bg-tower-800 rounded-lg p-3 space-y-1">
             {selectedOrders.map((o) => (
-              <div key={o.id} className="text-xs text-slate-600 dark:text-slate-300">
+              <div key={o.id} className="text-xs text-tower-600 dark:text-tower-300">
                 NF {getOrderNf(o)} → {getOrderDestination(o)}
               </div>
             ))}
@@ -215,32 +215,32 @@ const ManifestModal: React.FC<ManifestModalProps> = ({
           {/* Route */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Origem</label>
+              <label className="block text-xs font-medium text-tower-600 mb-1">Origem</label>
               <input
                 type="text"
                 value={origin}
                 readOnly
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-slate-50"
+                className="w-full border border-tower-300 rounded-lg px-3 py-2 text-sm bg-tower-50"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Destino</label>
+              <label className="block text-xs font-medium text-tower-600 mb-1">Destino</label>
               <input
                 type="text"
                 value={destination}
                 readOnly
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-slate-50"
+                className="w-full border border-tower-300 rounded-lg px-3 py-2 text-sm bg-tower-50"
               />
             </div>
           </div>
 
           {/* Link */}
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">Motorista (Link) *</label>
+            <label className="block text-xs font-medium text-tower-600 mb-1">Motorista (Link) *</label>
             <select
               value={linkId}
               onChange={(e) => setLinkId(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              className="w-full border border-tower-300 rounded-lg px-3 py-2 text-sm"
               required
             >
               <option value="">Selecione o motorista</option>
@@ -254,11 +254,11 @@ const ManifestModal: React.FC<ManifestModalProps> = ({
 
           {/* Vehicle Type */}
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">Tipo de veículo *</label>
+            <label className="block text-xs font-medium text-tower-600 mb-1">Tipo de veículo *</label>
             <select
               value={vehicleTypeId}
               onChange={(e) => setVehicleTypeId(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              className="w-full border border-tower-300 rounded-lg px-3 py-2 text-sm"
               required
             >
               <option value="">Selecione o veículo</option>
@@ -272,23 +272,23 @@ const ManifestModal: React.FC<ManifestModalProps> = ({
 
           {/* Scheduled date */}
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">Data prevista de saída</label>
+            <label className="block text-xs font-medium text-tower-600 mb-1">Data prevista de saída</label>
             <input
               type="date"
               value={scheduledDate}
               onChange={(e) => setScheduledDate(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              className="w-full border border-tower-300 rounded-lg px-3 py-2 text-sm"
             />
           </div>
 
           {/* Notes */}
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">Observações</label>
+            <label className="block text-xs font-medium text-tower-600 mb-1">Observações</label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={3}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm resize-none"
+              className="w-full border border-tower-300 rounded-lg px-3 py-2 text-sm resize-none"
               placeholder="Observações sobre o manifesto..."
             />
           </div>
@@ -296,7 +296,7 @@ const ManifestModal: React.FC<ManifestModalProps> = ({
           <button
             type="submit"
             disabled={saving}
-            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg disabled:opacity-50 transition-colors"
+            className="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-lg disabled:opacity-50 transition-colors"
           >
             {saving ? 'Criando manifesto...' : 'Criar Manifesto'}
           </button>
@@ -421,18 +421,18 @@ const HubHome: React.FC = () => {
   // ── Render ─────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 pb-20">
+    <div className="min-h-screen bg-tower-100 dark:bg-tower-950 pb-20">
       {/* Header */}
-      <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-30">
+      <header className="bg-white dark:bg-tower-800 border-b border-tower-200 dark:border-tower-700 sticky top-0 z-30">
         <div className="px-4 py-3 flex justify-between items-center">
           <div>
-            <h1 className="text-lg font-bold text-slate-900 dark:text-white">TSM Hub</h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400">{user?.email}</p>
+            <h1 className="text-lg font-bold text-tower-900 dark:text-white">TSM Hub</h1>
+            <p className="text-xs text-tower-500 dark:text-tower-400">{user?.email}</p>
           </div>
           <button
             type="button"
             onClick={logout}
-            className="text-sm text-slate-600 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 font-medium"
+            className="text-sm text-tower-600 dark:text-tower-400 hover:text-red-600 dark:hover:text-red-400 font-medium"
           >
             Sair
           </button>
@@ -445,7 +445,7 @@ const HubHome: React.FC = () => {
           <button
             type="button"
             onClick={() => setShowModal(true)}
-            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl shadow-lg text-sm transition-colors"
+            className="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl shadow-lg text-sm transition-colors"
           >
             Manifesto ({selectedOrderIds.size})
           </button>
@@ -470,7 +470,7 @@ const HubHome: React.FC = () => {
 
         {/* Loading spinner */}
         {loading && (
-          <div className="flex flex-col items-center justify-center py-16 gap-3 text-slate-500">
+          <div className="flex flex-col items-center justify-center py-16 gap-3 text-tower-500">
             <svg className="w-8 h-8 animate-spin" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z" />
@@ -486,49 +486,49 @@ const HubHome: React.FC = () => {
               <div className="space-y-4">
                 {/* Summary cards */}
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm border border-slate-200 dark:border-slate-700">
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Para manifesto</p>
-                    <p className="text-3xl font-bold text-indigo-600 dark:text-indigo-400 mt-1">
+                  <div className="bg-white dark:bg-tower-800 rounded-xl p-4 shadow-sm border border-tower-200 dark:border-tower-700">
+                    <p className="text-xs text-tower-500 dark:text-tower-400">Para manifesto</p>
+                    <p className="text-3xl font-bold text-brand-600 dark:text-brand-400 mt-1">
                       {pedidosSemManifesto.length}
                     </p>
-                    <p className="text-xs text-slate-400 mt-1">pedidos</p>
+                    <p className="text-xs text-tower-400 mt-1">pedidos</p>
                   </div>
-                  <div className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm border border-slate-200 dark:border-slate-700">
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Em andamento</p>
+                  <div className="bg-white dark:bg-tower-800 rounded-xl p-4 shadow-sm border border-tower-200 dark:border-tower-700">
+                    <p className="text-xs text-tower-500 dark:text-tower-400">Em andamento</p>
                     <p className="text-3xl font-bold text-amber-600 dark:text-amber-400 mt-1">
                       {manifestosAtivos.length}
                     </p>
-                    <p className="text-xs text-slate-400 mt-1">manifestos</p>
+                    <p className="text-xs text-tower-400 mt-1">manifestos</p>
                   </div>
                 </div>
 
                 {/* Grouped orders */}
                 {pedidosSemManifesto.length === 0 ? (
-                  <div className="bg-white dark:bg-slate-800 rounded-xl p-6 text-center text-slate-500 dark:text-slate-400 text-sm border border-slate-200 dark:border-slate-700">
+                  <div className="bg-white dark:bg-tower-800 rounded-xl p-6 text-center text-tower-500 dark:text-tower-400 text-sm border border-tower-200 dark:border-tower-700">
                     Nenhum pedido aguardando manifesto.
                   </div>
                 ) : (
                   <>
-                    <h2 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                    <h2 className="text-xs font-semibold text-tower-500 dark:text-tower-400 uppercase tracking-wider">
                       Pedidos por destino
                     </h2>
                     {(Object.entries(groupedByDestination) as [string, Order[]][]).map(([dest, destOrders]) => (
                       <div
                         key={dest}
-                        className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden"
+                        className="bg-white dark:bg-tower-800 rounded-xl shadow-sm border border-tower-200 dark:border-tower-700 overflow-hidden"
                       >
                         {/* Group header */}
-                        <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-700/50 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
-                          <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                        <div className="px-4 py-2.5 bg-tower-50 dark:bg-tower-700/50 border-b border-tower-200 dark:border-tower-700 flex items-center justify-between">
+                          <span className="text-sm font-semibold text-tower-700 dark:text-tower-200">
                             {dest}
                           </span>
-                          <span className="text-xs text-slate-500">
+                          <span className="text-xs text-tower-500">
                             {destOrders.length} pedido{destOrders.length !== 1 ? 's' : ''}
                           </span>
                         </div>
 
                         {/* Orders in group */}
-                        <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                        <div className="divide-y divide-tower-100 dark:divide-tower-700">
                           {destOrders.map((order) => (
                             <label
                               key={order.id}
@@ -538,26 +538,26 @@ const HubHome: React.FC = () => {
                                 type="checkbox"
                                 checked={selectedOrderIds.has(order.id)}
                                 onChange={() => toggleOrder(order.id)}
-                                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600"
+                                className="mt-0.5 h-4 w-4 rounded border-tower-300 text-brand-600"
                               />
                               <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-slate-900 dark:text-white">
+                                <p className="text-sm font-medium text-tower-900 dark:text-white">
                                   NF {getOrderNf(order)}
                                 </p>
                                 {order.demand?.commodity && (
-                                  <p className="text-xs text-slate-500 truncate">
+                                  <p className="text-xs text-tower-500 truncate">
                                     {order.demand.commodity}
                                   </p>
                                 )}
                                 {order.demand?.weight && (
-                                  <p className="text-xs text-slate-400">
+                                  <p className="text-xs text-tower-400">
                                     {order.demand.weight} kg
                                   </p>
                                 )}
                               </div>
                               <span
                                 className={`shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ${
-                                  STATUS_COLOR[order.status] ?? 'bg-slate-100 text-slate-600'
+                                  STATUS_COLOR[order.status] ?? 'bg-tower-100 text-tower-600'
                                 }`}
                               >
                                 {STATUS_LABEL[order.status] ?? order.status}
@@ -578,43 +578,43 @@ const HubHome: React.FC = () => {
             {/* ── Tab: pedidos ─────────────────────────────────── */}
             {tab === 'pedidos' && (
               <div className="space-y-3">
-                <h2 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                <h2 className="text-xs font-semibold text-tower-500 dark:text-tower-400 uppercase tracking-wider">
                   Todos os pedidos ({orders.length})
                 </h2>
                 {orders.length === 0 ? (
-                  <div className="bg-white dark:bg-slate-800 rounded-xl p-6 text-center text-slate-500 text-sm border border-slate-200 dark:border-slate-700">
+                  <div className="bg-white dark:bg-tower-800 rounded-xl p-6 text-center text-tower-500 text-sm border border-tower-200 dark:border-tower-700">
                     Nenhum pedido encontrado.
                   </div>
                 ) : (
                   orders.map((order) => (
                     <div
                       key={order.id}
-                      className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm border border-slate-200 dark:border-slate-700"
+                      className="bg-white dark:bg-tower-800 rounded-xl p-4 shadow-sm border border-tower-200 dark:border-tower-700"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <p className="font-medium text-slate-900 dark:text-white text-sm">
+                          <p className="font-medium text-tower-900 dark:text-white text-sm">
                             NF {getOrderNf(order)}
                           </p>
-                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                          <p className="text-xs text-tower-500 dark:text-tower-400 mt-0.5">
                             {order.demand?.origin ?? '—'} → {getOrderDestination(order)}
                           </p>
                           {order.demand?.commodity && (
-                            <p className="text-xs text-slate-400 mt-0.5 truncate">
+                            <p className="text-xs text-tower-400 mt-0.5 truncate">
                               {order.demand.commodity}
                             </p>
                           )}
                         </div>
                         <span
                           className={`shrink-0 text-xs font-medium px-2 py-1 rounded-full ${
-                            STATUS_COLOR[order.status] ?? 'bg-slate-100 text-slate-600'
+                            STATUS_COLOR[order.status] ?? 'bg-tower-100 text-tower-600'
                           }`}
                         >
                           {STATUS_LABEL[order.status] ?? order.status}
                         </span>
                       </div>
                       {(order.demand?.weight || order.demand?.volume) && (
-                        <p className="text-xs text-slate-400 mt-2">
+                        <p className="text-xs text-tower-400 mt-2">
                           {order.demand.weight ? `${order.demand.weight} kg` : ''}
                           {order.demand.weight && order.demand.volume ? ' · ' : ''}
                           {order.demand.volume ? `${order.demand.volume} m³` : ''}
@@ -629,41 +629,41 @@ const HubHome: React.FC = () => {
             {/* ── Tab: manifestos ──────────────────────────────── */}
             {tab === 'manifestos' && (
               <div className="space-y-3">
-                <h2 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                <h2 className="text-xs font-semibold text-tower-500 dark:text-tower-400 uppercase tracking-wider">
                   Manifestos ativos ({manifestosAtivos.length})
                 </h2>
                 {manifestosAtivos.length === 0 ? (
-                  <div className="bg-white dark:bg-slate-800 rounded-xl p-6 text-center text-slate-500 text-sm border border-slate-200 dark:border-slate-700">
+                  <div className="bg-white dark:bg-tower-800 rounded-xl p-6 text-center text-tower-500 text-sm border border-tower-200 dark:border-tower-700">
                     Nenhum manifesto ativo no momento.
                   </div>
                 ) : (
                   manifestosAtivos.map((m) => (
                     <div
                       key={m.id}
-                      className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm border border-slate-200 dark:border-slate-700"
+                      className="bg-white dark:bg-tower-800 rounded-xl p-4 shadow-sm border border-tower-200 dark:border-tower-700"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <p className="font-medium text-slate-900 dark:text-white text-sm">
+                          <p className="font-medium text-tower-900 dark:text-white text-sm">
                             {m.link?.name ?? 'Sem motorista'}
                           </p>
-                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                          <p className="text-xs text-tower-500 dark:text-tower-400 mt-0.5">
                             {m.origin} → {m.destination}
                           </p>
-                          <p className="text-xs text-slate-400 mt-0.5">
+                          <p className="text-xs text-tower-400 mt-0.5">
                             {m.demands?.length ?? 0} pedido{(m.demands?.length ?? 0) !== 1 ? 's' : ''}
                             {m.vehicleType ? ` · ${m.vehicleType.name}` : ''}
                           </p>
                         </div>
                         <span
                           className={`shrink-0 text-xs font-medium px-2 py-1 rounded-full ${
-                            MANIFEST_STATUS_COLOR[m.status] ?? 'bg-slate-100 text-slate-600'
+                            MANIFEST_STATUS_COLOR[m.status] ?? 'bg-tower-100 text-tower-600'
                           }`}
                         >
                           {MANIFEST_STATUS_LABEL[m.status] ?? m.status}
                         </span>
                       </div>
-                      <div className="mt-2 flex gap-2 text-xs text-slate-400">
+                      <div className="mt-2 flex gap-2 text-xs text-tower-400">
                         <span>{m.totalWeight} kg</span>
                         <span>·</span>
                         <span>{m.totalVolume} m³</span>
@@ -676,7 +676,7 @@ const HubHome: React.FC = () => {
                 {manifestos.filter((m) => !ACTIVE_MANIFEST_STATUSES.includes(m.status)).length >
                   0 && (
                   <>
-                    <h2 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider pt-2">
+                    <h2 className="text-xs font-semibold text-tower-500 dark:text-tower-400 uppercase tracking-wider pt-2">
                       Histórico
                     </h2>
                     {manifestos
@@ -684,20 +684,20 @@ const HubHome: React.FC = () => {
                       .map((m) => (
                         <div
                           key={m.id}
-                          className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm border border-slate-200 dark:border-slate-700 opacity-70"
+                          className="bg-white dark:bg-tower-800 rounded-xl p-4 shadow-sm border border-tower-200 dark:border-tower-700 opacity-70"
                         >
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
-                              <p className="font-medium text-slate-700 dark:text-slate-300 text-sm">
+                              <p className="font-medium text-tower-700 dark:text-tower-300 text-sm">
                                 {m.link?.name ?? 'Sem motorista'}
                               </p>
-                              <p className="text-xs text-slate-500 mt-0.5">
+                              <p className="text-xs text-tower-500 mt-0.5">
                                 {m.origin} → {m.destination}
                               </p>
                             </div>
                             <span
                               className={`shrink-0 text-xs font-medium px-2 py-1 rounded-full ${
-                                MANIFEST_STATUS_COLOR[m.status] ?? 'bg-slate-100 text-slate-600'
+                                MANIFEST_STATUS_COLOR[m.status] ?? 'bg-tower-100 text-tower-600'
                               }`}
                             >
                               {MANIFEST_STATUS_LABEL[m.status] ?? m.status}

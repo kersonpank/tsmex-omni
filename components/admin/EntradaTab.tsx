@@ -386,58 +386,58 @@ const EntradaTab: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h2 className="text-lg font-bold text-slate-700 dark:text-slate-200">PEDIDOS</h2>
+        <h2 className="text-lg font-bold text-tower-700 dark:text-tower-200">PEDIDOS</h2>
         <div className="flex gap-2 items-center">
           <button
             type="button"
             onClick={loadOrders}
-            className="px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"
+            className="px-4 py-2 text-sm text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-700 rounded-lg"
           >
             Lista
           </button>
           <button
             type="button"
             onClick={handleNovoPedido}
-            className="px-4 py-2 text-sm bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700"
+            className="px-4 py-2 text-sm bg-brand-600 text-white font-bold rounded-lg hover:bg-brand-700"
           >
             + Novo Pedido
           </button>
           {selectedOrderId && (
-            <span className="text-sm font-mono text-slate-600 dark:text-slate-400">#{selectedOrderId.slice(0, 8)}</span>
+            <span className="text-sm font-mono text-tower-600 dark:text-tower-400">#{selectedOrderId.slice(0, 8)}</span>
           )}
         </div>
       </div>
 
       {error && <div className="p-4 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-300 text-sm">{error}</div>}
-      {success && <div className="p-4 bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 rounded-xl text-emerald-700 dark:text-emerald-300 text-sm">{success}</div>}
+      {success && <div className="p-4 bg-brand-50 dark:bg-brand-900/30 border border-brand-200 dark:border-brand-800 rounded-xl text-brand-700 dark:text-brand-300 text-sm">{success}</div>}
 
       {!selectedOrderId && !isCreatingNew ? (
         loading ? (
-          <div className="py-12 text-center text-slate-500 dark:text-slate-400">Carregando pedidos...</div>
+          <div className="py-12 text-center text-tower-500 dark:text-tower-400">Carregando pedidos...</div>
         ) : orders.length === 0 ? (
-          <div className="bg-white dark:bg-slate-800 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-12 text-center text-slate-500 dark:text-slate-400">
+          <div className="bg-white dark:bg-tower-800 border-2 border-dashed border-tower-200 dark:border-tower-700 rounded-xl p-12 text-center text-tower-500 dark:text-tower-400">
             Nenhum pedido. Clique em &quot;+ Novo Pedido&quot; para criar.
           </div>
         ) : (
-          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+          <div className="bg-white dark:bg-tower-800 border border-tower-200 dark:border-tower-700 rounded-xl overflow-hidden">
             <table className="w-full">
-              <thead className="bg-slate-50 dark:bg-slate-700">
+              <thead className="bg-tower-50 dark:bg-tower-700">
                 <tr>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-200">ID</th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-200">Origem → Destino</th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-200">Status</th>
-                  <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-200">Ações</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700 dark:text-tower-200">ID</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700 dark:text-tower-200">Origem → Destino</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700 dark:text-tower-200">Status</th>
+                  <th className="text-right py-3 px-4 text-sm font-semibold text-tower-700 dark:text-tower-200">Ações</th>
                 </tr>
               </thead>
               <tbody>
                 {orders.map((o) => (
-                  <tr key={o.id} className="border-b border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                    <td className="py-3 px-4 font-mono text-sm text-slate-900 dark:text-slate-200">{o.id.slice(0, 8)}</td>
-                    <td className="py-3 px-4 text-slate-900 dark:text-slate-200">
+                  <tr key={o.id} className="border-b border-tower-100 dark:border-tower-700 hover:bg-tower-50 dark:hover:bg-tower-700/50">
+                    <td className="py-3 px-4 font-mono text-sm text-tower-900 dark:text-tower-200">{o.id.slice(0, 8)}</td>
+                    <td className="py-3 px-4 text-tower-900 dark:text-tower-200">
                       {(o.origemPrestacao || o.demand?.origin) ?? '-'} → {(o.fimPrestacao || o.demand?.destination) ?? '-'}
                     </td>
                     <td className="py-3 px-4">
-                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700 dark:bg-slate-600 dark:text-slate-200">
+                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-tower-100 text-tower-700 dark:bg-tower-600 dark:text-tower-200">
                         {o.status}
                       </span>
                     </td>
@@ -445,7 +445,7 @@ const EntradaTab: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setSelectedOrderId(o.id)}
-                        className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 text-sm font-medium"
+                        className="text-brand-600 dark:text-brand-400 hover:text-brand-800 dark:hover:text-brand-300 text-sm font-medium"
                       >
                         Abrir
                       </button>
@@ -459,23 +459,23 @@ const EntradaTab: React.FC = () => {
       ) : (
         <div className="space-y-4">
           {orderLoading ? (
-            <div className="py-12 text-center text-slate-500 dark:text-slate-400">Carregando...</div>
+            <div className="py-12 text-center text-tower-500 dark:text-tower-400">Carregando...</div>
           ) : (
             <>
               {/* PRÉ-SCAN QR NF-e */}
               {isCreatingNew && (
                 <div className={`rounded-xl border-2 p-5 ${
                   nfPrescan
-                    ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-300 dark:border-emerald-700'
-                    : 'bg-indigo-50 dark:bg-indigo-900/20 border-dashed border-indigo-300 dark:border-indigo-700'
+                    ? 'bg-brand-50 dark:bg-brand-900/20 border-brand-300 dark:border-brand-700'
+                    : 'bg-brand-50 dark:bg-brand-900/20 border-dashed border-brand-300 dark:border-brand-700'
                 }`}>
                   {!nfPrescan ? (
                     <div className="space-y-3">
                       <div>
-                        <h3 className="text-sm font-bold text-indigo-800 dark:text-indigo-200">
+                        <h3 className="text-sm font-bold text-brand-800 dark:text-brand-200">
                           Identificar NF-e antes de preencher
                         </h3>
-                        <p className="text-xs text-indigo-600 dark:text-indigo-300 mt-0.5">
+                        <p className="text-xs text-brand-600 dark:text-brand-300 mt-0.5">
                           Opcional — pré-preenche a nota fiscal e identifica o remetente automaticamente.
                         </p>
                         {prescanError && (
@@ -488,7 +488,7 @@ const EntradaTab: React.FC = () => {
                           type="button"
                           onClick={() => setShowPrescanQR(true)}
                           disabled={nfeLookupLoading}
-                          className="flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-semibold rounded-lg"
+                          className="flex items-center justify-center gap-2 px-4 py-2.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-semibold rounded-lg"
                         >
                           {nfeLookupLoading ? (
                             <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -520,44 +520,44 @@ const EntradaTab: React.FC = () => {
                               handlePrescanQR(prescanChaveInput);
                             }
                           }}
-                          className="flex-1 px-3 py-2 rounded-lg border border-indigo-200 dark:border-indigo-700 bg-white dark:bg-slate-700 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                          className="flex-1 px-3 py-2 rounded-lg border border-brand-200 dark:border-brand-700 bg-white dark:bg-tower-700 text-sm text-tower-900 dark:text-white placeholder-tower-400 focus:ring-2 focus:ring-brand-500 focus:border-transparent"
                           disabled={nfeLookupLoading}
                         />
                         <button
                           type="button"
                           onClick={() => handlePrescanQR(prescanChaveInput)}
                           disabled={prescanChaveInput.length !== 44 || nfeLookupLoading}
-                          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-sm font-semibold rounded-lg whitespace-nowrap"
+                          className="px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white text-sm font-semibold rounded-lg whitespace-nowrap"
                         >
                           {nfeLookupLoading ? '...' : 'Buscar'}
                         </button>
                       </div>
-                      <p className="text-xs text-indigo-500 dark:text-indigo-400">
+                      <p className="text-xs text-brand-500 dark:text-brand-400">
                         {prescanChaveInput.length}/44 dígitos
-                        {prescanChaveInput.length === 44 && <span className="text-emerald-600 dark:text-emerald-400 ml-2">✓ pronto</span>}
+                        {prescanChaveInput.length === 44 && <span className="text-brand-600 dark:text-brand-400 ml-2">✓ pronto</span>}
                       </p>
                     </div>
                   ) : (
                     <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
                       <div className="flex-1 space-y-0.5">
                         <div className="flex items-center gap-1.5">
-                          <svg className="w-4 h-4 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-4 h-4 text-brand-600 dark:text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/>
                           </svg>
-                          <span className="text-sm font-bold text-emerald-800 dark:text-emerald-200">NF capturada</span>
+                          <span className="text-sm font-bold text-brand-800 dark:text-brand-200">NF capturada</span>
                         </div>
-                        <p className="text-sm text-slate-700 dark:text-slate-300">
+                        <p className="text-sm text-tower-700 dark:text-tower-300">
                           <strong>NF {nfPrescan.numero}</strong>
                           {nfPrescan.emitenteRazaoSocial && <> — {nfPrescan.emitenteRazaoSocial}</>}
                         </p>
-                        <p className="text-xs font-mono text-slate-400 dark:text-slate-500 truncate">{nfPrescan.chave}</p>
+                        <p className="text-xs font-mono text-tower-400 dark:text-tower-500 truncate">{nfPrescan.chave}</p>
                         {peopleForm.remetente ? (
                           prescanAutoCreatedPerson?.id === peopleForm.remetente.id ? (
-                            <p className="text-xs text-indigo-600 dark:text-indigo-400">
+                            <p className="text-xs text-brand-600 dark:text-brand-400">
                               ✓ Remetente importado da NF: {peopleForm.remetente.legalName} — selecione o frete para definir dados comerciais.
                             </p>
                           ) : (
-                            <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                            <p className="text-xs text-brand-600 dark:text-brand-400">
                               ✓ Remetente identificado: {peopleForm.remetente.legalName ?? peopleForm.remetente.tradeName}
                             </p>
                           )
@@ -570,7 +570,7 @@ const EntradaTab: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => { setNfPrescan(null); setPrescanError(null); setPrescanChaveInput(''); }}
-                        className="text-xs text-slate-400 hover:text-slate-600 underline whitespace-nowrap"
+                        className="text-xs text-tower-400 hover:text-tower-600 underline whitespace-nowrap"
                       >
                         Remover
                       </button>
@@ -582,7 +582,7 @@ const EntradaTab: React.FC = () => {
               <Section title="PESSOAS" expanded={sectionsExpanded.pessoas} onToggle={() => toggleSection('pessoas')}>
                 <form onSubmit={handleGravarPessoas} className="space-y-6">
                   <div className="bg-amber-50 dark:bg-amber-900/30 border-2 border-amber-200 dark:border-amber-800 rounded-xl p-6">
-                    <h4 className="text-base font-bold text-slate-800 dark:text-slate-100 mb-4">1. Quem paga o frete?</h4>
+                    <h4 className="text-base font-bold text-tower-800 dark:text-tower-100 mb-4">1. Quem paga o frete?</h4>
                     <div className="flex flex-wrap gap-6 items-center">
                       {(['CIF', 'FOB', 'REDESPACHO'] as const).map((ft) => (
                         <label key={ft} className="flex items-center gap-3 cursor-pointer p-3 rounded-lg hover:bg-amber-100/50 dark:hover:bg-amber-800/50 min-w-[120px]">
@@ -610,15 +610,15 @@ const EntradaTab: React.FC = () => {
                             }}
                             className="w-5 h-5 text-amber-600"
                           />
-                          <span className="text-base font-medium text-slate-800 dark:text-slate-100">{ft === 'REDESPACHO' ? 'Outro' : ft}</span>
+                          <span className="text-base font-medium text-tower-800 dark:text-tower-100">{ft === 'REDESPACHO' ? 'Outro' : ft}</span>
                         </label>
                       ))}
                     </div>
-                    <p className="text-xs text-slate-600 dark:text-slate-300 mt-2">CIF: remetente paga · FOB: destinatário paga · Outro: consignatário paga</p>
+                    <p className="text-xs text-tower-600 dark:text-tower-300 mt-2">CIF: remetente paga · FOB: destinatário paga · Outro: consignatário paga</p>
                   </div>
 
                   {!peopleForm.freightTerm ? (
-                    <p className="text-slate-500 dark:text-slate-400 text-sm py-4">Selecione quem paga o frete acima para continuar.</p>
+                    <p className="text-tower-500 dark:text-tower-400 text-sm py-4">Selecione quem paga o frete acima para continuar.</p>
                   ) : (
                   <>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -661,9 +661,9 @@ const EntradaTab: React.FC = () => {
                         }
                       }}
                     />
-                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Operação com Expedidor / Redespachante</span>
+                    <span className="text-sm font-medium text-tower-700 dark:text-tower-300">Operação com Expedidor / Redespachante</span>
                   </label>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 -mt-1 ml-6">Marque quando a carga envolver expedidor e/ou redespachante.</p>
+                  <p className="text-xs text-tower-500 dark:text-tower-400 -mt-1 ml-6">Marque quando a carga envolver expedidor e/ou redespachante.</p>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {showExpedidorRedespachante && (
                       <>
@@ -690,23 +690,23 @@ const EntradaTab: React.FC = () => {
                       onChange={(v) => setPeopleForm((f) => ({ ...f, origemPrestacao: v }))}
                       placeholder="Origem da prestação"
                       required
-                      className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                      className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100"
                     />
                     <CityAutocomplete
                       value={peopleForm.fimPrestacao}
                       onChange={(v) => setPeopleForm((f) => ({ ...f, fimPrestacao: v }))}
                       placeholder="Fim da prestação"
                       required
-                      className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                      className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100"
                     />
                   </div>
                   <div className="flex flex-wrap gap-4 items-center">
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Rota</label>
+                      <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Rota</label>
                       <select
                         value={peopleForm.routeId}
                         onChange={(e) => setPeopleForm((f) => ({ ...f, routeId: e.target.value }))}
-                        className="border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm min-w-[180px] bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                        className="border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 text-sm min-w-[180px] bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100"
                       >
                         <option value="">Selecione</option>
                         {routes.filter((r) => r.active).map((r) => (
@@ -716,11 +716,11 @@ const EntradaTab: React.FC = () => {
                     </div>
                     {!isHub && (
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Hub</label>
+                        <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Hub</label>
                         <select
                           value={peopleForm.hubId}
                           onChange={(e) => setPeopleForm((f) => ({ ...f, hubId: e.target.value }))}
-                          className="border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm min-w-[180px] bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                          className="border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 text-sm min-w-[180px] bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100"
                         >
                           <option value="">Nenhum</option>
                           {hubs.filter((h) => h.active).map((h) => (
@@ -733,7 +733,7 @@ const EntradaTab: React.FC = () => {
                   <button
                     type="submit"
                     disabled={peopleSaving || !peopleForm.freightTerm}
-                    className="px-6 py-3 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2"
+                    className="px-6 py-3 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50 flex items-center gap-2"
                   >
                     <span>✓</span> Gravar Pessoas
                   </button>
@@ -744,7 +744,7 @@ const EntradaTab: React.FC = () => {
 
               <Section title="COLETA" expanded={sectionsExpanded.coleta} onToggle={() => toggleSection('coleta')}>
                 {!selectedOrderId ? (
-                  <p className="text-slate-500 dark:text-slate-400 text-sm">Grave as pessoas primeiro para preencher dados de coleta.</p>
+                  <p className="text-tower-500 dark:text-tower-400 text-sm">Grave as pessoas primeiro para preencher dados de coleta.</p>
                 ) : needsCollectionActive || order?.collectionData ? (
                   <OrderColetaForm
                     orderId={selectedOrderId}
@@ -753,13 +753,13 @@ const EntradaTab: React.FC = () => {
                   />
                 ) : (
                   <div className="space-y-4">
-                    <p className="text-slate-600 dark:text-slate-300 text-sm">
+                    <p className="text-tower-600 dark:text-tower-300 text-sm">
                       Na maioria dos casos a carga foi entregue direto no HUB/CD e não há necessidade de coleta. Se este pedido precisar de coleta no remetente, clique no botão abaixo.
                     </p>
                     <button
                       type="button"
                       onClick={() => { setNeedsCollectionActive(true); setSectionsExpanded(s => ({ ...s, coleta: true })); }}
-                      className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700"
+                      className="px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700"
                     >
                       Gerar coleta
                     </button>
@@ -781,7 +781,7 @@ const EntradaTab: React.FC = () => {
                     } : null}
                   />
                 ) : (
-                  <p className="text-slate-500 dark:text-slate-400 text-sm">Grave as pessoas primeiro para adicionar notas fiscais.</p>
+                  <p className="text-tower-500 dark:text-tower-400 text-sm">Grave as pessoas primeiro para adicionar notas fiscais.</p>
                 )}
               </Section>
 
@@ -807,7 +807,7 @@ const EntradaTab: React.FC = () => {
                     userHubId={hubId ?? undefined}
                   />
                 ) : (
-                  <p className="text-slate-500 dark:text-slate-400 text-sm">Grave as pessoas primeiro para calcular o frete.</p>
+                  <p className="text-tower-500 dark:text-tower-400 text-sm">Grave as pessoas primeiro para calcular o frete.</p>
                 )}
               </Section>
 
@@ -816,23 +816,23 @@ const EntradaTab: React.FC = () => {
                   <ul className="space-y-2">
                     {order.history.map((h: any) => (
                       <li key={h.id} className="flex items-center gap-2 text-sm">
-                        <span className="w-2 h-2 rounded-full bg-indigo-400" />
-                        <span className="font-medium text-slate-900 dark:text-slate-100">{h.eventType}</span>
-                        <span className="text-slate-500 dark:text-slate-400">- {h.description}</span>
-                        <span className="text-slate-400 dark:text-slate-500 text-xs">{new Date(h.createdAt).toLocaleString('pt-BR')}</span>
+                        <span className="w-2 h-2 rounded-full bg-brand-400" />
+                        <span className="font-medium text-tower-900 dark:text-tower-100">{h.eventType}</span>
+                        <span className="text-tower-500 dark:text-tower-400">- {h.description}</span>
+                        <span className="text-tower-400 dark:text-tower-500 text-xs">{new Date(h.createdAt).toLocaleString('pt-BR')}</span>
                       </li>
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-slate-500 dark:text-slate-400 text-sm">Nenhum evento ainda.</p>
+                  <p className="text-tower-500 dark:text-tower-400 text-sm">Nenhum evento ainda.</p>
                 )}
               </Section>
 
               <Section title="IMAGENS" expanded={sectionsExpanded.imagens} onToggle={() => toggleSection('imagens')}>
-                <p className="text-slate-500 dark:text-slate-400 text-sm">Em breve.</p>
+                <p className="text-tower-500 dark:text-tower-400 text-sm">Em breve.</p>
               </Section>
 
-              <div className="flex justify-between items-center pt-4 border-t border-slate-200 dark:border-slate-700 text-sm text-slate-500 dark:text-slate-400">
+              <div className="flex justify-between items-center pt-4 border-t border-tower-200 dark:border-tower-700 text-sm text-tower-500 dark:text-tower-400">
                 <div>
                   {order?.createdAt && (
                     <span>Data de Abertura: {new Date(order.createdAt).toLocaleString('pt-BR')}</span>
@@ -842,7 +842,7 @@ const EntradaTab: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => { setSelectedOrderId(null); setIsCreatingNew(false); }}
-                  className="text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                  className="text-tower-500 dark:text-tower-400 hover:text-tower-700 dark:hover:text-tower-200"
                 >
                   Fechar pedido
                 </button>
@@ -912,34 +912,34 @@ function AddClientModal({ person, onClose, onSuccess }: { person: Person; onClos
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50" onClick={onClose} role="dialog">
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl max-w-md w-full p-6 border border-slate-200 dark:border-slate-700" onClick={e => e.stopPropagation()}>
-        <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 mb-4">Adicionar como Cliente</h3>
-        <p className="text-sm text-slate-600 dark:text-slate-300 mb-4">
+      <div className="bg-white dark:bg-tower-800 rounded-2xl shadow-xl max-w-md w-full p-6 border border-tower-200 dark:border-tower-700" onClick={e => e.stopPropagation()}>
+        <h3 className="text-lg font-bold text-tower-900 dark:text-tower-100 mb-4">Adicionar como Cliente</h3>
+        <p className="text-sm text-tower-600 dark:text-tower-300 mb-4">
           O pagador ({person.legalName || 'esta pessoa'}) precisa ser Cliente. Preencha os dados abaixo.
         </p>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+        <p className="text-xs text-tower-500 dark:text-tower-400 mb-4">
           Não tem os contatos? Use &quot;Preencher via Comercial&quot; para enviar para a área comercial concluir o cadastro. O pedido poderá seguir e a tarefa ficará na pipeline.
         </p>
         {err && <p className="text-red-600 dark:text-red-400 text-sm mb-4">{err}</p>}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Email</label>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" required />
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Email</label>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100" required />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Senha</label>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" required minLength={6} />
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Senha</label>
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100" required minLength={6} />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Nome do contato</label>
-            <input type="text" value={contactName} onChange={e => setContactName(e.target.value)} className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" required />
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Nome do contato</label>
+            <input type="text" value={contactName} onChange={e => setContactName(e.target.value)} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100" required />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Telefone</label>
-            <input type="tel" value={maskPhone(phone)} onChange={e => setPhone(e.target.value.replace(/\D/g, ''))} className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500" placeholder="(11) 99999-9999" required maxLength={15} />
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Telefone</label>
+            <input type="tel" value={maskPhone(phone)} onChange={e => setPhone(e.target.value.replace(/\D/g, ''))} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500" placeholder="(11) 99999-9999" required maxLength={15} />
           </div>
           <div className="flex flex-wrap gap-2 justify-end pt-4">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg">Cancelar</button>
+            <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-700 rounded-lg">Cancelar</button>
             <button
               type="button"
               onClick={handlePreencherViaComercial}
@@ -948,7 +948,7 @@ function AddClientModal({ person, onClose, onSuccess }: { person: Person; onClos
             >
               {savingPending ? 'Enviando...' : 'Preencher via Comercial'}
             </button>
-            <button type="submit" disabled={saving || savingPending} className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50">{saving ? 'Salvando...' : 'Adicionar e continuar'}</button>
+            <button type="submit" disabled={saving || savingPending} className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50">{saving ? 'Salvando...' : 'Adicionar e continuar'}</button>
           </div>
         </form>
       </div>
@@ -970,21 +970,21 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+    <div className="bg-white dark:bg-tower-800 border border-tower-200 dark:border-tower-700 rounded-xl overflow-hidden">
       <button
         type="button"
         onClick={onToggle}
-        className="w-full flex justify-between items-center px-4 py-3 bg-slate-50 dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 text-left font-semibold text-slate-800 dark:text-slate-100"
+        className="w-full flex justify-between items-center px-4 py-3 bg-tower-50 dark:bg-tower-700 hover:bg-tower-100 dark:hover:bg-tower-600 text-left font-semibold text-tower-800 dark:text-tower-100"
       >
         <span>{title}</span>
         {badge != null && badge > 0 && (
-          <span className="w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-200 text-xs font-bold flex items-center justify-center">
+          <span className="w-6 h-6 rounded-full bg-brand-100 dark:bg-brand-900/50 text-brand-700 dark:text-brand-200 text-xs font-bold flex items-center justify-center">
             {badge}
           </span>
         )}
-        <span className="text-slate-400 dark:text-slate-500">{expanded ? '▼' : '▶'}</span>
+        <span className="text-tower-400 dark:text-tower-500">{expanded ? '▼' : '▶'}</span>
       </button>
-      {expanded && <div className="p-6 border-t border-slate-100 dark:border-slate-700">{children}</div>}
+      {expanded && <div className="p-6 border-t border-tower-100 dark:border-tower-700">{children}</div>}
     </div>
   );
 }

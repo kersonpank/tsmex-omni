@@ -88,13 +88,13 @@ const statusLabels: Record<string, string> = {
 const statusColors: Record<string, string> = {
     PENDING: 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-200',
     QUOTED: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200',
-    APPROVED: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-200',
+    APPROVED: 'bg-brand-100 text-brand-700 dark:bg-brand-900/50 dark:text-brand-200',
     ASSIGNED: 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-200',
     COLLECTED: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/50 dark:text-cyan-200',
     IN_TRANSIT: 'bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-200',
     AT_HUB: 'bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-200',
     OUT_FOR_DELIVERY: 'bg-teal-100 text-teal-700 dark:bg-teal-900/50 dark:text-teal-200',
-    DELIVERED: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-200',
+    DELIVERED: 'bg-brand-100 text-brand-700 dark:bg-brand-900/50 dark:text-brand-200',
     CANCELLED: 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-200',
 };
 
@@ -320,8 +320,8 @@ const ClientDashboard: React.FC = () => {
         return (
             <div className="flex items-center justify-center min-h-screen">
                 <div className="text-center">
-                    <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                    <p className="text-slate-500 dark:text-slate-400">Carregando...</p>
+                    <div className="w-12 h-12 border-4 border-brand-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                    <p className="text-tower-500 dark:text-tower-400">Carregando...</p>
                 </div>
             </div>
         );
@@ -348,25 +348,25 @@ const ClientDashboard: React.FC = () => {
             {/* Header */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                 <div>
-                    <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{account.name}</h1>
-                    <p className="text-slate-500 dark:text-slate-400 text-sm">Dashboard do Cliente</p>
+                    <h1 className="text-2xl font-bold text-tower-900 dark:text-tower-100">{account.name}</h1>
+                    <p className="text-tower-500 dark:text-tower-400 text-sm">Dashboard do Cliente</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                     <RouterLink
                         to="/form/cotacao"
-                        className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-xl text-sm hover:bg-indigo-700 transition-all shadow-sm"
+                        className="px-4 py-2 bg-brand-600 text-white font-bold rounded-xl text-sm hover:bg-brand-700 transition-all shadow-sm"
                     >
                         📋 Cotação
                     </RouterLink>
                     <RouterLink
                         to="/form/coleta"
-                        className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-xl text-sm hover:bg-slate-200 dark:hover:bg-slate-600 transition-all"
+                        className="px-4 py-2 bg-tower-100 dark:bg-tower-700 text-tower-700 dark:text-tower-200 font-bold rounded-xl text-sm hover:bg-tower-200 dark:hover:bg-tower-600 transition-all"
                     >
                         🚛 Coleta
                     </RouterLink>
                     <RouterLink
                         to="/chat/demo"
-                        className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-xl text-sm hover:bg-slate-200 dark:hover:bg-slate-600 transition-all"
+                        className="px-4 py-2 bg-tower-100 dark:bg-tower-700 text-tower-700 dark:text-tower-200 font-bold rounded-xl text-sm hover:bg-tower-200 dark:hover:bg-tower-600 transition-all"
                     >
                         💬 Chat
                     </RouterLink>
@@ -374,13 +374,13 @@ const ClientDashboard: React.FC = () => {
             </div>
 
             {/* Tabs */}
-            <div className="flex border-b border-slate-200 dark:border-slate-700 mb-8 overflow-x-auto">
+            <div className="flex border-b border-tower-200 dark:border-tower-700 mb-8 overflow-x-auto">
                 <button
                     onClick={() => setActiveTab('overview')}
                     className={`px-6 py-3 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${
                         activeTab === 'overview'
-                            ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                            : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
+                            ? 'border-brand-600 text-brand-600 dark:text-brand-400'
+                            : 'border-transparent text-tower-500 dark:text-tower-400 hover:text-tower-700 dark:hover:text-tower-300'
                     }`}
                 >
                     📊 Visão Geral
@@ -389,8 +389,8 @@ const ClientDashboard: React.FC = () => {
                     onClick={() => setActiveTab('demands')}
                     className={`px-6 py-3 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${
                         activeTab === 'demands'
-                            ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                            : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
+                            ? 'border-brand-600 text-brand-600 dark:text-brand-400'
+                            : 'border-transparent text-tower-500 dark:text-tower-400 hover:text-tower-700 dark:hover:text-tower-300'
                     }`}
                 >
                     📦 Minhas Demandas
@@ -399,8 +399,8 @@ const ClientDashboard: React.FC = () => {
                     onClick={() => setActiveTab('companies')}
                     className={`px-6 py-3 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${
                         activeTab === 'companies'
-                            ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                            : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
+                            ? 'border-brand-600 text-brand-600 dark:text-brand-400'
+                            : 'border-transparent text-tower-500 dark:text-tower-400 hover:text-tower-700 dark:hover:text-tower-300'
                     }`}
                 >
                     🏢 CNPJs
@@ -409,8 +409,8 @@ const ClientDashboard: React.FC = () => {
                     onClick={() => setActiveTab('users')}
                     className={`px-6 py-3 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${
                         activeTab === 'users'
-                            ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                            : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
+                            ? 'border-brand-600 text-brand-600 dark:text-brand-400'
+                            : 'border-transparent text-tower-500 dark:text-tower-400 hover:text-tower-700 dark:hover:text-tower-300'
                     }`}
                 >
                     👥 Usuários
@@ -419,8 +419,8 @@ const ClientDashboard: React.FC = () => {
                     onClick={() => setActiveTab('contacts')}
                     className={`px-6 py-3 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${
                         activeTab === 'contacts'
-                            ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                            : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
+                            ? 'border-brand-600 text-brand-600 dark:text-brand-400'
+                            : 'border-transparent text-tower-500 dark:text-tower-400 hover:text-tower-700 dark:hover:text-tower-300'
                     }`}
                 >
                     📞 Contatos
@@ -429,8 +429,8 @@ const ClientDashboard: React.FC = () => {
                     onClick={() => setActiveTab('pricing')}
                     className={`px-6 py-3 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${
                         activeTab === 'pricing'
-                            ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                            : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
+                            ? 'border-brand-600 text-brand-600 dark:text-brand-400'
+                            : 'border-transparent text-tower-500 dark:text-tower-400 hover:text-tower-700 dark:hover:text-tower-300'
                     }`}
                 >
                     💰 Tabelas de Preço
@@ -442,43 +442,43 @@ const ClientDashboard: React.FC = () => {
                 <div className="space-y-6">
                     {/* Stats Cards */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div className="bg-white dark:bg-slate-800 border dark:border-slate-700 p-4 rounded-xl shadow-sm">
-                            <span className="block text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase mb-1">Total Demandas</span>
-                            <span className="text-2xl font-bold text-slate-900 dark:text-slate-100">{stats.totalDemands}</span>
+                        <div className="bg-white dark:bg-tower-800 border dark:border-tower-700 p-4 rounded-xl shadow-sm">
+                            <span className="block text-[10px] text-tower-400 dark:text-tower-500 font-bold uppercase mb-1">Total Demandas</span>
+                            <span className="text-2xl font-bold text-tower-900 dark:text-tower-100">{stats.totalDemands}</span>
                         </div>
-                        <div className="bg-white dark:bg-slate-800 border dark:border-slate-700 p-4 rounded-xl shadow-sm">
-                            <span className="block text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase mb-1">Em Trânsito</span>
-                            <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">{stats.inTransit}</span>
+                        <div className="bg-white dark:bg-tower-800 border dark:border-tower-700 p-4 rounded-xl shadow-sm">
+                            <span className="block text-[10px] text-tower-400 dark:text-tower-500 font-bold uppercase mb-1">Em Trânsito</span>
+                            <span className="text-2xl font-bold text-brand-600 dark:text-brand-400">{stats.inTransit}</span>
                         </div>
-                        <div className="bg-white dark:bg-slate-800 border dark:border-slate-700 p-4 rounded-xl shadow-sm">
-                            <span className="block text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase mb-1">Pendentes</span>
+                        <div className="bg-white dark:bg-tower-800 border dark:border-tower-700 p-4 rounded-xl shadow-sm">
+                            <span className="block text-[10px] text-tower-400 dark:text-tower-500 font-bold uppercase mb-1">Pendentes</span>
                             <span className="text-2xl font-bold text-amber-600 dark:text-amber-400">{stats.pending}</span>
                         </div>
-                        <div className="bg-white dark:bg-slate-800 border dark:border-slate-700 p-4 rounded-xl shadow-sm">
-                            <span className="block text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase mb-1">Faturado</span>
-                            <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">R$ {stats.totalValue.toLocaleString()}</span>
+                        <div className="bg-white dark:bg-tower-800 border dark:border-tower-700 p-4 rounded-xl shadow-sm">
+                            <span className="block text-[10px] text-tower-400 dark:text-tower-500 font-bold uppercase mb-1">Faturado</span>
+                            <span className="text-2xl font-bold text-brand-600 dark:text-brand-400">R$ {stats.totalValue.toLocaleString()}</span>
                         </div>
                     </div>
 
                     {/* Ações rápidas */}
-                    <div className="bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-2xl p-6">
-                        <h3 className="text-sm font-bold text-slate-400 dark:text-slate-500 uppercase mb-4">Ações rápidas</h3>
+                    <div className="bg-white dark:bg-tower-800 border dark:border-tower-700 rounded-2xl p-6">
+                        <h3 className="text-sm font-bold text-tower-400 dark:text-tower-500 uppercase mb-4">Ações rápidas</h3>
                         <div className="flex flex-wrap gap-3">
                             <RouterLink
                                 to="/form/cotacao"
-                                className="px-4 py-3 bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 font-medium rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors"
+                                className="px-4 py-3 bg-brand-50 dark:bg-brand-900/40 text-brand-700 dark:text-brand-300 font-medium rounded-xl hover:bg-brand-100 dark:hover:bg-brand-900/60 transition-colors"
                             >
                                 📋 Cotação (várias de uma vez)
                             </RouterLink>
                             <RouterLink
                                 to="/form/coleta"
-                                className="px-4 py-3 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium rounded-xl hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
+                                className="px-4 py-3 bg-tower-100 dark:bg-tower-700 text-tower-700 dark:text-tower-300 font-medium rounded-xl hover:bg-tower-200 dark:hover:bg-tower-600 transition-colors"
                             >
                                 🚛 Solicitar coleta
                             </RouterLink>
                             <RouterLink
                                 to="/chat/demo"
-                                className="px-4 py-3 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium rounded-xl hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
+                                className="px-4 py-3 bg-tower-100 dark:bg-tower-700 text-tower-700 dark:text-tower-300 font-medium rounded-xl hover:bg-tower-200 dark:hover:bg-tower-600 transition-colors"
                             >
                                 💬 Chat
                             </RouterLink>
@@ -486,16 +486,16 @@ const ClientDashboard: React.FC = () => {
                     </div>
 
                     {/* CNPJs Ativos */}
-                    <div className="bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-2xl p-6">
-                        <h3 className="text-sm font-bold text-slate-400 dark:text-slate-500 uppercase mb-4">CNPJs Ativos</h3>
+                    <div className="bg-white dark:bg-tower-800 border dark:border-tower-700 rounded-2xl p-6">
+                        <h3 className="text-sm font-bold text-tower-400 dark:text-tower-500 uppercase mb-4">CNPJs Ativos</h3>
                         <div className="flex flex-wrap gap-2">
                             {account.companies.map(company => (
                                 <div
                                     key={company.id}
                                     className={`px-3 py-1 rounded-lg text-xs font-medium ${
                                         company.isPrimary
-                                            ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700'
-                                            : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                                            ? 'bg-brand-100 dark:bg-brand-900/50 text-brand-700 dark:text-brand-300 border border-brand-300 dark:border-brand-700'
+                                            : 'bg-tower-100 dark:bg-tower-700 text-tower-700 dark:text-tower-300'
                                     }`}
                                 >
                                     {company.cnpj} {company.isPrimary && '⭐'}
@@ -505,46 +505,46 @@ const ClientDashboard: React.FC = () => {
                     </div>
 
                     {/* Minhas Demandas (Unificado) */}
-                    <div className="bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-2xl p-6">
+                    <div className="bg-white dark:bg-tower-800 border dark:border-tower-700 rounded-2xl p-6">
                         <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-sm font-bold text-slate-400 dark:text-slate-500 uppercase">Minhas Demandas</h3>
+                            <h3 className="text-sm font-bold text-tower-400 dark:text-tower-500 uppercase">Minhas Demandas</h3>
                             <RouterLink
                                 to="#"
                                 onClick={() => setActiveTab('demands')}
-                                className="text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-medium"
+                                className="text-sm text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 font-medium"
                             >
                                 Ver todas →
                             </RouterLink>
                         </div>
                         {unifiedItems.length === 0 ? (
-                            <p className="text-slate-400 dark:text-slate-500 text-sm text-center py-4">Nenhuma demanda ainda</p>
+                            <p className="text-tower-400 dark:text-tower-500 text-sm text-center py-4">Nenhuma demanda ainda</p>
                         ) : (
                             <div className="space-y-3">
                                 {unifiedItems.slice(0, 5).map((item: any) => (
-                                    <div key={item.id} className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-700/50 rounded-xl">
+                                    <div key={item.id} className="flex justify-between items-center p-3 bg-tower-50 dark:bg-tower-700/50 rounded-xl">
                                         <div className="flex-grow">
                                             <div className="flex items-center gap-2 mb-1 flex-wrap">
-                                                <span className="text-xs font-bold text-slate-400 dark:text-slate-500">#{item.id.slice(0, 8)}</span>
+                                                <span className="text-xs font-bold text-tower-400 dark:text-tower-500">#{item.id.slice(0, 8)}</span>
                                                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
                                                     item.type === 'OPPORTUNITY' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200' :
                                                     item.type === 'ORDER' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-200' :
-                                                    statusColors[item.status] || 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300'
+                                                    statusColors[item.status] || 'bg-tower-100 text-tower-700 dark:bg-tower-700 dark:text-tower-300'
                                                 }`}>
                                                     {item.type === 'OPPORTUNITY' ? 'Cotação' :
                                                      item.type === 'ORDER' ? 'Pedido' :
                                                      statusLabels[item.status] || item.status}
                                                 </span>
                                                 {item.quotedPrice && (
-                                                    <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/40 px-2 py-0.5 rounded">
+                                                    <span className="text-xs font-bold text-brand-600 dark:text-brand-400 bg-brand-50 dark:bg-brand-900/40 px-2 py-0.5 rounded">
                                                         R$ {item.quotedPrice.toLocaleString()}
                                                     </span>
                                                 )}
                                             </div>
-                                            <div className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                                            <div className="text-sm font-medium text-tower-700 dark:text-tower-300">
                                                 {item.origin} → {item.destination}
                                             </div>
                                             {item.commodity && (
-                                                <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                                                <div className="text-xs text-tower-500 dark:text-tower-400 mt-1">
                                                     {item.commodity} • {item.weight}kg • {item.volumes} vol
                                                 </div>
                                             )}
@@ -553,7 +553,7 @@ const ClientDashboard: React.FC = () => {
                                             {item.type === 'OPPORTUNITY' && item.needsCollection && item.status !== 'COLLECTION_REQUESTED' && (
                                                 <RouterLink
                                                     to={`/form/coleta/${item.id}`}
-                                                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition-colors"
+                                                    className="px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold rounded-lg transition-colors"
                                                 >
                                                     🚛 Solicitar Coleta
                                                 </RouterLink>
@@ -561,7 +561,7 @@ const ClientDashboard: React.FC = () => {
                                             {item.type === 'DEMAND' && (
                                                 <RouterLink
                                                     to={`/tracking/${item.id}`}
-                                                    className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-medium"
+                                                    className="text-xs text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 font-medium"
                                                 >
                                                     Ver tracking →
                                                 </RouterLink>
@@ -569,12 +569,12 @@ const ClientDashboard: React.FC = () => {
                                             {item.type === 'ORDER' && (
                                                 <RouterLink
                                                     to={`/orders/${item.id}`}
-                                                    className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-medium"
+                                                    className="text-xs text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 font-medium"
                                                 >
                                                     Ver pedido →
                                                 </RouterLink>
                                             )}
-                                            <span className="text-xs text-slate-400 dark:text-slate-500">
+                                            <span className="text-xs text-tower-400 dark:text-tower-500">
                                                 {new Date(item.createdAt).toLocaleDateString('pt-BR')}
                                             </span>
                                         </div>
@@ -589,13 +589,13 @@ const ClientDashboard: React.FC = () => {
             {activeTab === 'demands' && (
                 <div className="space-y-4">
                     {/* Filters */}
-                    <div className="bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-2xl p-4 flex flex-wrap gap-4">
+                    <div className="bg-white dark:bg-tower-800 border dark:border-tower-700 rounded-2xl p-4 flex flex-wrap gap-4">
                         <div>
-                            <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase mb-1">CNPJ</label>
+                            <label className="block text-xs font-bold text-tower-400 dark:text-tower-500 uppercase mb-1">CNPJ</label>
                             <select
                                 value={selectedCompany}
                                 onChange={e => setSelectedCompany(e.target.value)}
-                                className="px-3 py-2 border border-slate-200 dark:border-slate-600 rounded-xl text-sm bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                                className="px-3 py-2 border border-tower-200 dark:border-tower-600 rounded-xl text-sm bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100"
                             >
                                 <option value="all">Todos</option>
                                 {account.companies.map(c => (
@@ -604,11 +604,11 @@ const ClientDashboard: React.FC = () => {
                             </select>
                         </div>
                         <div>
-                            <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase mb-1">Status</label>
+                            <label className="block text-xs font-bold text-tower-400 dark:text-tower-500 uppercase mb-1">Status</label>
                             <select
                                 value={demandStatusFilter}
                                 onChange={e => setDemandStatusFilter(e.target.value)}
-                                className="px-3 py-2 border border-slate-200 dark:border-slate-600 rounded-xl text-sm bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                                className="px-3 py-2 border border-tower-200 dark:border-tower-600 rounded-xl text-sm bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100"
                             >
                                 <option value="all">Todos</option>
                                 {Object.keys(statusLabels).map(status => (
@@ -620,7 +620,7 @@ const ClientDashboard: React.FC = () => {
 
                     {/* Unified Demands List */}
                     {unifiedItems.length === 0 ? (
-                        <div className="bg-white dark:bg-slate-800 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl p-12 text-center text-slate-400 dark:text-slate-500">
+                        <div className="bg-white dark:bg-tower-800 border-2 border-dashed border-tower-200 dark:border-tower-700 rounded-2xl p-12 text-center text-tower-400 dark:text-tower-500">
                             Nenhuma demanda encontrada.
                         </div>
                     ) : (
@@ -638,52 +638,52 @@ const ClientDashboard: React.FC = () => {
                                 .map((item: any) => (
                                 <div
                                     key={item.id}
-                                    className="bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-2xl p-5 hover:shadow-md dark:hover:shadow-slate-900/20 transition-all"
+                                    className="bg-white dark:bg-tower-800 border dark:border-tower-700 rounded-2xl p-5 hover:shadow-md dark:hover:shadow-tower-900/20 transition-all"
                                 >
                                     <div className="flex flex-col md:flex-row justify-between gap-4">
                                         <div className="flex-grow">
                                             <div className="flex items-center gap-2 mb-2 flex-wrap">
-                                                <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">#{item.id.slice(0, 8)}</span>
+                                                <span className="text-[10px] font-bold text-tower-400 dark:text-tower-500">#{item.id.slice(0, 8)}</span>
                                                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
                                                     item.type === 'OPPORTUNITY' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200' :
                                                     item.type === 'ORDER' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-200' :
-                                                    statusColors[item.status] || 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300'
+                                                    statusColors[item.status] || 'bg-tower-100 text-tower-700 dark:bg-tower-700 dark:text-tower-300'
                                                 }`}>
                                                     {item.type === 'OPPORTUNITY' ? 'Cotação' :
                                                      item.type === 'ORDER' ? 'Pedido' :
                                                      statusLabels[item.status] || item.status}
                                                 </span>
                                                 {item.quotedPrice && (
-                                                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/40 px-2 py-0.5 rounded">
+                                                    <span className="text-[10px] font-bold text-brand-600 dark:text-brand-400 bg-brand-50 dark:bg-brand-900/40 px-2 py-0.5 rounded">
                                                         R$ {item.quotedPrice.toLocaleString()}
                                                     </span>
                                                 )}
                                             </div>
-                                            <h3 className="font-bold text-slate-900 dark:text-slate-100 text-lg mb-2">
-                                                {item.origin} <span className="text-slate-300 dark:text-slate-500 mx-1">→</span> {item.destination}
+                                            <h3 className="font-bold text-tower-900 dark:text-tower-100 text-lg mb-2">
+                                                {item.origin} <span className="text-tower-300 dark:text-tower-500 mx-1">→</span> {item.destination}
                                             </h3>
                                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
                                                 {item.commodity && (
                                                     <div>
-                                                        <span className="block text-slate-400 dark:text-slate-500">Mercadoria</span>
-                                                        <span className="font-medium text-slate-700 dark:text-slate-300">{item.commodity}</span>
+                                                        <span className="block text-tower-400 dark:text-tower-500">Mercadoria</span>
+                                                        <span className="font-medium text-tower-700 dark:text-tower-300">{item.commodity}</span>
                                                     </div>
                                                 )}
                                                 {item.weight && (
                                                     <div>
-                                                        <span className="block text-slate-400 dark:text-slate-500">Peso</span>
-                                                        <span className="font-medium text-slate-700 dark:text-slate-300">{item.weight}kg</span>
+                                                        <span className="block text-tower-400 dark:text-tower-500">Peso</span>
+                                                        <span className="font-medium text-tower-700 dark:text-tower-300">{item.weight}kg</span>
                                                     </div>
                                                 )}
                                                 {item.nfValue && (
                                                     <div>
-                                                        <span className="block text-slate-400 dark:text-slate-500">Valor NF</span>
-                                                        <span className="font-medium text-slate-700 dark:text-slate-300">R$ {item.nfValue.toLocaleString()}</span>
+                                                        <span className="block text-tower-400 dark:text-tower-500">Valor NF</span>
+                                                        <span className="font-medium text-tower-700 dark:text-tower-300">R$ {item.nfValue.toLocaleString()}</span>
                                                     </div>
                                                 )}
                                                 <div>
-                                                    <span className="block text-slate-400 dark:text-slate-500">Data</span>
-                                                    <span className="font-medium text-slate-700 dark:text-slate-300">
+                                                    <span className="block text-tower-400 dark:text-tower-500">Data</span>
+                                                    <span className="font-medium text-tower-700 dark:text-tower-300">
                                                         {new Date(item.createdAt).toLocaleDateString('pt-BR')}
                                                     </span>
                                                 </div>
@@ -693,7 +693,7 @@ const ClientDashboard: React.FC = () => {
                                             {item.type === 'OPPORTUNITY' && item.needsCollection && item.status !== 'COLLECTION_REQUESTED' && (
                                                 <RouterLink
                                                     to={`/form/coleta/${item.id}`}
-                                                    className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-xl text-sm hover:bg-indigo-700 transition-all shadow-sm text-center"
+                                                    className="px-4 py-2 bg-brand-600 text-white font-bold rounded-xl text-sm hover:bg-brand-700 transition-all shadow-sm text-center"
                                                 >
                                                     🚛 Solicitar Coleta
                                                 </RouterLink>
@@ -701,7 +701,7 @@ const ClientDashboard: React.FC = () => {
                                             {item.type === 'DEMAND' && (
                                                 <RouterLink
                                                     to={`/tracking/${item.id}`}
-                                                    className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-xl text-sm hover:bg-indigo-700 transition-all shadow-sm text-center"
+                                                    className="px-4 py-2 bg-brand-600 text-white font-bold rounded-xl text-sm hover:bg-brand-700 transition-all shadow-sm text-center"
                                                 >
                                                     Ver Tracking
                                                 </RouterLink>
@@ -709,7 +709,7 @@ const ClientDashboard: React.FC = () => {
                                             {item.type === 'ORDER' && (
                                                 <RouterLink
                                                     to={`/orders/${item.id}`}
-                                                    className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-xl text-sm hover:bg-indigo-700 transition-all shadow-sm text-center"
+                                                    className="px-4 py-2 bg-brand-600 text-white font-bold rounded-xl text-sm hover:bg-brand-700 transition-all shadow-sm text-center"
                                                 >
                                                     Ver Pedido
                                                 </RouterLink>
@@ -726,45 +726,45 @@ const ClientDashboard: React.FC = () => {
             {activeTab === 'companies' && (
                 <div className="space-y-4">
                     <div className="flex justify-between items-center">
-                        <h2 className="text-lg font-bold text-slate-700 dark:text-slate-200">Gestão de CNPJs</h2>
+                        <h2 className="text-lg font-bold text-tower-700 dark:text-tower-200">Gestão de CNPJs</h2>
                         <button
                             onClick={() => setShowAddCNPJ(true)}
-                            className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-xl text-sm hover:bg-indigo-700 transition-all"
+                            className="px-4 py-2 bg-brand-600 text-white font-bold rounded-xl text-sm hover:bg-brand-700 transition-all"
                         >
                             + Adicionar CNPJ
                         </button>
                     </div>
 
                     {account.companies.length === 0 ? (
-                        <div className="bg-white dark:bg-slate-800 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl p-12 text-center text-slate-400 dark:text-slate-500">
+                        <div className="bg-white dark:bg-tower-800 border-2 border-dashed border-tower-200 dark:border-tower-700 rounded-2xl p-12 text-center text-tower-400 dark:text-tower-500">
                             Nenhum CNPJ cadastrado.
                         </div>
                     ) : (
                         <div className="grid gap-4">
                             {account.companies.map(company => (
-                                <div key={company.id} className="bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-2xl p-6">
+                                <div key={company.id} className="bg-white dark:bg-tower-800 border dark:border-tower-700 rounded-2xl p-6">
                                     <div className="flex justify-between items-start mb-4">
                                         <div>
                                             <div className="flex items-center gap-2 mb-2">
-                                                <span className="text-lg font-bold text-slate-900 dark:text-slate-100">{company.cnpj}</span>
+                                                <span className="text-lg font-bold text-tower-900 dark:text-tower-100">{company.cnpj}</span>
                                                 {company.isPrimary && (
-                                                    <span className="px-2 py-1 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 text-xs font-bold rounded">
+                                                    <span className="px-2 py-1 bg-brand-100 dark:bg-brand-900/50 text-brand-700 dark:text-brand-300 text-xs font-bold rounded">
                                                         PRIMÁRIO
                                                     </span>
                                                 )}
                                             </div>
-                                            <div className="text-sm text-slate-600 dark:text-slate-400">
+                                            <div className="text-sm text-tower-600 dark:text-tower-400">
                                                 <div className="font-medium">{company.legalName}</div>
                                                 {company.tradeName && (
-                                                    <div className="text-slate-500 dark:text-slate-400">Nome Fantasia: {company.tradeName}</div>
+                                                    <div className="text-tower-500 dark:text-tower-400">Nome Fantasia: {company.tradeName}</div>
                                                 )}
                                                 {company.city && company.state && (
-                                                    <div className="text-slate-500 dark:text-slate-400">{company.city}, {company.state}</div>
+                                                    <div className="text-tower-500 dark:text-tower-400">{company.city}, {company.state}</div>
                                                 )}
                                             </div>
                                         </div>
                                         <div className="flex gap-2">
-                                            <button className="px-3 py-1 text-sm text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 font-medium">
+                                            <button className="px-3 py-1 text-sm text-tower-600 dark:text-tower-400 hover:text-brand-600 dark:hover:text-brand-400 font-medium">
                                                 Editar
                                             </button>
                                             {!company.isPrimary && (
@@ -784,27 +784,27 @@ const ClientDashboard: React.FC = () => {
             {activeTab === 'users' && (
                 <div className="space-y-4">
                     <div className="flex justify-between items-center">
-                        <h2 className="text-lg font-bold text-slate-700 dark:text-slate-200">Gestão de Usuários</h2>
+                        <h2 className="text-lg font-bold text-tower-700 dark:text-tower-200">Gestão de Usuários</h2>
                         <button
                             onClick={() => setShowAddUser(true)}
-                            className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-xl text-sm hover:bg-indigo-700 transition-all"
+                            className="px-4 py-2 bg-brand-600 text-white font-bold rounded-xl text-sm hover:bg-brand-700 transition-all"
                         >
                             + Adicionar Usuário
                         </button>
                     </div>
 
                     {account.users.length === 0 ? (
-                        <div className="bg-white dark:bg-slate-800 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl p-12 text-center text-slate-400 dark:text-slate-500">
+                        <div className="bg-white dark:bg-tower-800 border-2 border-dashed border-tower-200 dark:border-tower-700 rounded-2xl p-12 text-center text-tower-400 dark:text-tower-500">
                             Nenhum usuário cadastrado.
                         </div>
                     ) : (
                         <div className="grid gap-4">
                             {account.users.map((user: AccountUser) => (
-                                <div key={user.id} className="bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-2xl p-6">
+                                <div key={user.id} className="bg-white dark:bg-tower-800 border dark:border-tower-700 rounded-2xl p-6">
                                     <div className="flex justify-between items-start">
                                         <div>
                                             <div className="flex items-center gap-2 mb-2">
-                                                <span className="font-bold text-slate-900 dark:text-slate-100">{user.email}</span>
+                                                <span className="font-bold text-tower-900 dark:text-tower-100">{user.email}</span>
                                                 {!user.active && (
                                                     <span className="px-2 py-1 bg-red-100 text-red-700 text-xs font-bold rounded">
                                                         INATIVO
@@ -812,17 +812,17 @@ const ClientDashboard: React.FC = () => {
                                                 )}
                                             </div>
                                             {user.client && (
-                                                <div className="text-sm text-slate-600 dark:text-slate-400">
+                                                <div className="text-sm text-tower-600 dark:text-tower-400">
                                                     <div>CNPJ: {user.client.document}</div>
                                                     <div>{user.client.companyName}</div>
                                                 </div>
                                             )}
-                                            <div className="text-xs text-slate-400 dark:text-slate-500 mt-2">
+                                            <div className="text-xs text-tower-400 dark:text-tower-500 mt-2">
                                                 Criado em {new Date(user.createdAt).toLocaleDateString('pt-BR')}
                                             </div>
                                         </div>
                                         <div className="flex gap-2">
-                                            <button className="px-3 py-1 text-sm text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 font-medium">
+                                            <button className="px-3 py-1 text-sm text-tower-600 dark:text-tower-400 hover:text-brand-600 dark:hover:text-brand-400 font-medium">
                                                 Editar
                                             </button>
                                             {user.active && (
@@ -842,44 +842,44 @@ const ClientDashboard: React.FC = () => {
             {activeTab === 'contacts' && (
                 <div className="space-y-4">
                     <div className="flex justify-between items-center">
-                        <h2 className="text-lg font-bold text-slate-700 dark:text-slate-200">Contatos</h2>
+                        <h2 className="text-lg font-bold text-tower-700 dark:text-tower-200">Contatos</h2>
                         <button
                             onClick={() => setShowAddContact(true)}
-                            className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-xl text-sm hover:bg-indigo-700 transition-all"
+                            className="px-4 py-2 bg-brand-600 text-white font-bold rounded-xl text-sm hover:bg-brand-700 transition-all"
                         >
                             + Adicionar Contato
                         </button>
                     </div>
 
                     {account.contacts.length === 0 ? (
-                        <div className="bg-white dark:bg-slate-800 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl p-12 text-center text-slate-400 dark:text-slate-500">
+                        <div className="bg-white dark:bg-tower-800 border-2 border-dashed border-tower-200 dark:border-tower-700 rounded-2xl p-12 text-center text-tower-400 dark:text-tower-500">
                             Nenhum contato cadastrado.
                         </div>
                     ) : (
                         <div className="grid gap-4">
                             {account.contacts.map(contact => (
-                                <div key={contact.id} className="bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-2xl p-6">
+                                <div key={contact.id} className="bg-white dark:bg-tower-800 border dark:border-tower-700 rounded-2xl p-6">
                                     <div className="flex justify-between items-start">
                                         <div>
                                             <div className="flex items-center gap-2 mb-2">
-                                                <span className="font-bold text-slate-900 dark:text-slate-100">{contact.name}</span>
+                                                <span className="font-bold text-tower-900 dark:text-tower-100">{contact.name}</span>
                                                 {contact.isPrimary && (
-                                                    <span className="px-2 py-1 bg-indigo-100 text-indigo-700 text-xs font-bold rounded">
+                                                    <span className="px-2 py-1 bg-brand-100 text-brand-700 text-xs font-bold rounded">
                                                         TOMADOR DE DECISÃO
                                                     </span>
                                                 )}
                                             </div>
                                             {contact.role && (
-                                                <div className="text-sm text-slate-600 mb-2">{contact.role}</div>
+                                                <div className="text-sm text-tower-600 mb-2">{contact.role}</div>
                                             )}
-                                            <div className="text-sm text-slate-500 dark:text-slate-400 space-y-1">
+                                            <div className="text-sm text-tower-500 dark:text-tower-400 space-y-1">
                                                 {contact.email && <div>📧 {contact.email}</div>}
                                                 {contact.phone && <div>📞 {contact.phone}</div>}
                                                 {contact.whatsapp && <div>💬 {contact.whatsapp}</div>}
                                             </div>
                                         </div>
                                         <div className="flex gap-2">
-                                            <button className="px-3 py-1 text-sm text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 font-medium">
+                                            <button className="px-3 py-1 text-sm text-tower-600 dark:text-tower-400 hover:text-brand-600 dark:hover:text-brand-400 font-medium">
                                                 Editar
                                             </button>
                                             <button className="px-3 py-1 text-sm text-red-600 hover:text-red-700 font-medium">
@@ -896,9 +896,9 @@ const ClientDashboard: React.FC = () => {
 
             {activeTab === 'pricing' && (
                 <div className="space-y-4">
-                    <h2 className="text-lg font-bold text-slate-700 dark:text-slate-200">Tabelas de Preço Especiais</h2>
-                    <div className="bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-2xl p-6">
-                        <p className="text-slate-500 dark:text-slate-400 text-sm">
+                    <h2 className="text-lg font-bold text-tower-700 dark:text-tower-200">Tabelas de Preço Especiais</h2>
+                    <div className="bg-white dark:bg-tower-800 border dark:border-tower-700 rounded-2xl p-6">
+                        <p className="text-tower-500 dark:text-tower-400 text-sm">
                             As tabelas de preço especiais são compartilhadas entre todos os CNPJs da sua conta.
                             Entre em contato com o administrador para configurar tabelas personalizadas.
                         </p>

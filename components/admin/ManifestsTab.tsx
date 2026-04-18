@@ -195,15 +195,15 @@ const ManifestsTab: React.FC = () => {
       )}
 
       {showCreate && (
-        <div className="mb-6 bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
-          <h3 className="text-base font-bold text-slate-800 mb-4">Nova viagem</h3>
+        <div className="mb-6 bg-white border border-tower-200 rounded-xl p-6 shadow-sm">
+          <h3 className="text-base font-bold text-tower-800 mb-4">Nova viagem</h3>
           <form onSubmit={handleCreate} className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Tipo de veículo</label>
+              <label className="block text-sm font-medium text-tower-700 mb-1">Tipo de veículo</label>
               <select
                 value={createForm.vehicleTypeId}
                 onChange={(e) => setCreateForm((f) => ({ ...f, vehicleTypeId: e.target.value }))}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                className="w-full px-3 py-2 border border-tower-200 rounded-lg"
                 required
               >
                 <option value="">Selecione</option>
@@ -213,11 +213,11 @@ const ManifestsTab: React.FC = () => {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Hub (opcional)</label>
+              <label className="block text-sm font-medium text-tower-700 mb-1">Hub (opcional)</label>
               <select
                 value={createForm.hubId}
                 onChange={(e) => setCreateForm((f) => ({ ...f, hubId: e.target.value }))}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                className="w-full px-3 py-2 border border-tower-200 rounded-lg"
               >
                 <option value="">Nenhum</option>
                 {hubs.map((h) => (
@@ -226,43 +226,43 @@ const ManifestsTab: React.FC = () => {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Origem</label>
+              <label className="block text-sm font-medium text-tower-700 mb-1">Origem</label>
               <CityAutocomplete
                 value={createForm.origin}
                 onChange={(v) => setCreateForm((f) => ({ ...f, origin: v }))}
                 placeholder="Ex: São Paulo, SP"
                 required
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                className="w-full px-3 py-2 border border-tower-200 rounded-lg"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Destino</label>
+              <label className="block text-sm font-medium text-tower-700 mb-1">Destino</label>
               <CityAutocomplete
                 value={createForm.destination}
                 onChange={(v) => setCreateForm((f) => ({ ...f, destination: v }))}
                 placeholder="Ex: Imperatriz, MA"
                 required
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                className="w-full px-3 py-2 border border-tower-200 rounded-lg"
               />
             </div>
             <div className="md:col-span-2 flex gap-2">
               <button type="submit" className="px-4 py-2 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700">Criar</button>
-              <button type="button" onClick={() => { setShowCreate(false); setError(null); }} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
+              <button type="button" onClick={() => { setShowCreate(false); setError(null); }} className="px-4 py-2 text-tower-600 hover:bg-tower-100 rounded-lg">Cancelar</button>
             </div>
           </form>
         </div>
       )}
 
       {showAddDemand && (
-        <div className="mb-6 bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
-          <h3 className="text-base font-bold text-slate-800 mb-4">Adicionar demanda à viagem</h3>
+        <div className="mb-6 bg-white border border-tower-200 rounded-xl p-6 shadow-sm">
+          <h3 className="text-base font-bold text-tower-800 mb-4">Adicionar demanda à viagem</h3>
           <div className="flex gap-2 items-end">
             <div className="flex-1">
-              <label className="block text-sm font-medium text-slate-700 mb-1">Demanda aprovada (sem viagem)</label>
+              <label className="block text-sm font-medium text-tower-700 mb-1">Demanda aprovada (sem viagem)</label>
               <select
                 value={selectedDemandId}
                 onChange={(e) => setSelectedDemandId(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                className="w-full px-3 py-2 border border-tower-200 rounded-lg"
               >
                 <option value="">Selecione</option>
                 {demandsAvailable.map((d) => (
@@ -271,21 +271,21 @@ const ManifestsTab: React.FC = () => {
               </select>
             </div>
             <button type="button" onClick={handleAddDemand} disabled={!selectedDemandId} className="px-4 py-2 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50">Adicionar</button>
-            <button type="button" onClick={() => { setShowAddDemand(null); setSelectedDemandId(''); }} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">Fechar</button>
+            <button type="button" onClick={() => { setShowAddDemand(null); setSelectedDemandId(''); }} className="px-4 py-2 text-tower-600 hover:bg-tower-100 rounded-lg">Fechar</button>
           </div>
         </div>
       )}
 
       {showAssign && (
-        <div className="mb-6 bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
-          <h3 className="text-base font-bold text-slate-800 mb-4">Atribuir motorista (Link)</h3>
+        <div className="mb-6 bg-white border border-tower-200 rounded-xl p-6 shadow-sm">
+          <h3 className="text-base font-bold text-tower-800 mb-4">Atribuir motorista (Link)</h3>
           <div className="flex gap-2 items-end">
             <div className="flex-1">
-              <label className="block text-sm font-medium text-slate-700 mb-1">Motorista</label>
+              <label className="block text-sm font-medium text-tower-700 mb-1">Motorista</label>
               <select
                 value={assignLinkId}
                 onChange={(e) => setAssignLinkId(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                className="w-full px-3 py-2 border border-tower-200 rounded-lg"
               >
                 <option value="">Selecione</option>
                 {links.filter((l) => l.approvalStatus === 'APPROVED').map((l) => (
@@ -294,7 +294,7 @@ const ManifestsTab: React.FC = () => {
               </select>
             </div>
             <button type="button" onClick={handleAssign} disabled={!assignLinkId} className="px-4 py-2 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50">Atribuir</button>
-            <button type="button" onClick={() => { setShowAssign(null); setAssignLinkId(''); }} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">Fechar</button>
+            <button type="button" onClick={() => { setShowAssign(null); setAssignLinkId(''); }} className="px-4 py-2 text-tower-600 hover:bg-tower-100 rounded-lg">Fechar</button>
           </div>
         </div>
       )}
@@ -320,8 +320,8 @@ const ManifestsTab: React.FC = () => {
                 <div className="flex gap-2">
                   {m.status === 'DRAFT' && (
                     <>
-                      <button type="button" onClick={() => openAddDemand(m.id)} className="px-3 py-1.5 text-sm bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200">+ Demanda</button>
-                      <button type="button" onClick={() => { setShowAssign(m.id); setAssignLinkId(m.linkId || ''); }} className="px-3 py-1.5 text-sm bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200">Atribuir motorista</button>
+                      <button type="button" onClick={() => openAddDemand(m.id)} className="px-3 py-1.5 text-sm bg-tower-100 text-tower-700 rounded-lg hover:bg-tower-200">+ Demanda</button>
+                      <button type="button" onClick={() => { setShowAssign(m.id); setAssignLinkId(m.linkId || ''); }} className="px-3 py-1.5 text-sm bg-tower-100 text-tower-700 rounded-lg hover:bg-tower-200">Atribuir motorista</button>
                       {m.demands && m.demands.length > 0 && (
                         <button type="button" onClick={() => handleOffer(m.id)} className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm text-white hover:bg-brand-700">Enviar oferta</button>
                       )}
@@ -341,7 +341,7 @@ const ManifestsTab: React.FC = () => {
                           setError(e.response?.data?.error || e.message || 'Erro ao iniciar viagem');
                         }
                       }}
-                      className="px-3 py-1.5 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700"
+                      className="px-3 py-1.5 text-sm rounded-lg bg-brand-600 text-white hover:bg-brand-500 dark:hover:bg-brand-400"
                     >
                       Iniciar viagem
                     </button>
@@ -368,8 +368,8 @@ const ManifestsTab: React.FC = () => {
                 </div>
               </div>
               {m.demands && m.demands.length > 0 && (
-                <div className="border-t border-slate-100 pt-3 mt-3">
-                  <span className="text-xs font-semibold text-slate-500 uppercase">Demandas na viagem</span>
+                <div className="border-t border-tower-100 pt-3 mt-3">
+                  <span className="text-xs font-semibold text-tower-500 uppercase">Demandas na viagem</span>
                   <ul className="mt-1 space-y-1">
                     {m.demands.map((d) => (
                       <li key={d.id} className="flex items-center justify-between text-sm">

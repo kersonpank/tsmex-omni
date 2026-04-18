@@ -74,11 +74,11 @@ const AddUserModal: React.FC<AddUserModalProps> = ({ isOpen, onClose, onSubmit, 
     };
 
     return (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-tower-900/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden">
-                <div className="bg-indigo-600 p-6 text-white">
+                <div className="bg-brand-600 p-6 text-white">
                     <h2 className="text-xl font-bold">Adicionar Usuário</h2>
-                    <p className="text-indigo-100 text-sm">Adicione um novo usuário à sua conta</p>
+                    <p className="text-brand-100 text-sm">Adicione um novo usuário à sua conta</p>
                 </div>
 
                 <form onSubmit={handleSubmit} className="p-8 space-y-6">
@@ -89,13 +89,13 @@ const AddUserModal: React.FC<AddUserModalProps> = ({ isOpen, onClose, onSubmit, 
                     )}
 
                     <div>
-                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                        <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                             Nome *
                         </label>
                         <input
                             type="text"
                             placeholder="Nome completo"
-                            className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-indigo-500 focus:bg-white outline-none transition-all font-medium"
+                            className="w-full p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white outline-none transition-all font-medium"
                             value={formData.name}
                             onChange={e => setFormData({ ...formData, name: e.target.value })}
                             required
@@ -103,13 +103,13 @@ const AddUserModal: React.FC<AddUserModalProps> = ({ isOpen, onClose, onSubmit, 
                     </div>
 
                     <div>
-                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                        <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                             Email *
                         </label>
                         <input
                             type="email"
                             placeholder="usuario@exemplo.com"
-                            className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-indigo-500 focus:bg-white outline-none transition-all font-medium"
+                            className="w-full p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white outline-none transition-all font-medium"
                             value={formData.email}
                             onChange={e => setFormData({ ...formData, email: e.target.value })}
                             required
@@ -118,26 +118,26 @@ const AddUserModal: React.FC<AddUserModalProps> = ({ isOpen, onClose, onSubmit, 
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                            <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                                 Senha *
                             </label>
                             <input
                                 type="password"
                                 placeholder="Mínimo 6 caracteres"
-                                className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-indigo-500 focus:bg-white outline-none transition-all font-medium"
+                                className="w-full p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white outline-none transition-all font-medium"
                                 value={formData.password}
                                 onChange={e => setFormData({ ...formData, password: e.target.value })}
                                 required
                             />
                         </div>
                         <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                            <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                                 Confirmar Senha *
                             </label>
                             <input
                                 type="password"
                                 placeholder="Repita a senha"
-                                className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-indigo-500 focus:bg-white outline-none transition-all font-medium"
+                                className="w-full p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white outline-none transition-all font-medium"
                                 value={formData.confirmPassword}
                                 onChange={e => setFormData({ ...formData, confirmPassword: e.target.value })}
                                 required
@@ -147,11 +147,11 @@ const AddUserModal: React.FC<AddUserModalProps> = ({ isOpen, onClose, onSubmit, 
 
                     {companies.length > 0 && (
                         <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                            <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                                 CNPJ Associado (Opcional)
                             </label>
                             <select
-                                className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-indigo-500 focus:bg-white outline-none transition-all font-medium"
+                                className="w-full p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white outline-none transition-all font-medium"
                                 value={formData.accountCompanyId}
                                 onChange={e => setFormData({ ...formData, accountCompanyId: e.target.value })}
                             >
@@ -169,14 +169,14 @@ const AddUserModal: React.FC<AddUserModalProps> = ({ isOpen, onClose, onSubmit, 
                         <button
                             type="button"
                             onClick={onClose}
-                            className="flex-1 px-4 py-3 font-bold text-slate-500 hover:text-slate-700 transition-colors"
+                            className="flex-1 px-4 py-3 font-bold text-tower-500 hover:text-tower-700 transition-colors"
                         >
                             Cancelar
                         </button>
                         <button
                             type="submit"
                             disabled={loading}
-                            className="flex-1 px-4 py-3 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50"
+                            className="flex-1 px-4 py-3 bg-brand-600 text-white font-bold rounded-2xl hover:bg-brand-700 transition-all shadow-lg shadow-brand-200 disabled:opacity-50"
                         >
                             {loading ? 'Criando...' : 'Criar Usuário'}
                         </button>

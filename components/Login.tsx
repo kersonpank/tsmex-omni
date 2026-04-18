@@ -48,26 +48,26 @@ const Login: React.FC = () => {
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-indigo-50 dark:from-slate-900 dark:to-slate-800 relative">
+        <div className="relative flex min-h-screen items-center justify-center bg-gradient-to-br from-tower-50 to-brand-100 dark:from-brand-950 dark:to-tower-900">
             <div className="absolute top-4 right-4">
                 <ThemeToggle />
             </div>
             <div className="max-w-md w-full mx-4">
-                <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl shadow-indigo-100/50 dark:shadow-none border border-slate-200 dark:border-slate-700 p-8 md:p-12">
+                <div className="rounded-3xl border border-tower-200 bg-white p-8 shadow-2xl shadow-brand-900/10 dark:border-tower-700 dark:bg-tower-900 dark:shadow-none md:p-12">
                     {/* Logo */}
                     <div className="flex items-center justify-center gap-3 mb-8">
-                        <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center">
+                        <div className="w-14 h-14 bg-brand-600 rounded-2xl flex items-center justify-center">
                             <span className="text-white font-bold text-2xl">TSM</span>
                         </div>
-                        <div className="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-violet-600">
+                        <div className="bg-gradient-to-r from-brand-600 to-brand-400 bg-clip-text text-2xl font-black text-transparent">
                             EX OMNI
                         </div>
                     </div>
 
-                    <h1 className="text-3xl font-black text-slate-900 dark:text-slate-100 text-center mb-2">
+                    <h1 className="text-3xl font-black text-tower-900 dark:text-tower-100 text-center mb-2">
                         Bem-vindo
                     </h1>
-                    <p className="text-slate-500 dark:text-slate-400 text-center mb-8">
+                    <p className="text-tower-500 dark:text-tower-400 text-center mb-8">
                         Faça login para acessar a plataforma
                     </p>
 
@@ -79,28 +79,28 @@ const Login: React.FC = () => {
 
                     <form onSubmit={handleSubmit} className="space-y-6">
                         <div>
-                            <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2">
+                            <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-tower-600 dark:text-tower-400">
                                 Email
                             </label>
                             <input
                                 type="email"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
-                                className="w-full p-4 bg-slate-50 dark:bg-slate-700/50 border-2 border-slate-100 dark:border-slate-600 rounded-2xl focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-700 outline-none transition-all text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                                className="w-full p-4 bg-tower-50 dark:bg-tower-700/50 border-2 border-tower-100 dark:border-tower-600 rounded-2xl focus:border-brand-500 focus:bg-white dark:focus:bg-tower-700 outline-none transition-all text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
                                 placeholder="seu@email.com"
                                 required
                             />
                         </div>
 
                         <div>
-                            <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2">
+                            <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-tower-600 dark:text-tower-400">
                                 Senha
                             </label>
                             <input
                                 type="password"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
-                                className="w-full p-4 bg-slate-50 dark:bg-slate-700/50 border-2 border-slate-100 dark:border-slate-600 rounded-2xl focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-700 outline-none transition-all text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                                className="w-full p-4 bg-tower-50 dark:bg-tower-700/50 border-2 border-tower-100 dark:border-tower-600 rounded-2xl focus:border-brand-500 focus:bg-white dark:focus:bg-tower-700 outline-none transition-all text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
                                 placeholder="••••••••"
                                 required
                             />
@@ -109,51 +109,51 @@ const Login: React.FC = () => {
                         <button
                             type="submit"
                             disabled={loading}
-                            className="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 dark:shadow-indigo-900/30 disabled:opacity-50"
+                            className="w-full rounded-2xl bg-brand-600 py-4 font-bold text-white shadow-lg shadow-brand-900/15 transition-all hover:bg-brand-500 disabled:opacity-50 dark:shadow-brand-900/30 dark:hover:bg-brand-400"
                         >
                             {loading ? 'Entrando...' : 'Entrar'}
                         </button>
                     </form>
 
                     <div className="mt-6 text-center space-y-2">
-                        <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">
+                        <p className="text-sm text-tower-500 dark:text-tower-400 mb-2">
                             Não tem uma conta?
                         </p>
                         <Link
                             to="/onboarding"
-                            className="block text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-medium text-sm transition-colors"
+                            className="block text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 font-medium text-sm transition-colors"
                         >
                             Criar Conta Empresarial
                         </Link>
                         <Link
                             to="/link/cadastro"
-                            className="block text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-medium text-sm transition-colors"
+                            className="block text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 font-medium text-sm transition-colors"
                         >
                             Cadastre-se como motorista (Link)
                         </Link>
                     </div>
 
                     {/* Quick login buttons */}
-                    <div className="mt-8 pt-8 border-t border-slate-100 dark:border-slate-700">
-                        <p className="text-xs text-slate-400 dark:text-slate-500 uppercase tracking-wider text-center mb-4">
+                    <div className="mt-8 pt-8 border-t border-tower-100 dark:border-tower-700">
+                        <p className="text-xs text-tower-400 dark:text-tower-500 uppercase tracking-wider text-center mb-4">
                             Acesso Rápido (Teste)
                         </p>
                         <div className="grid grid-cols-3 gap-2">
                             <button
                                 onClick={() => fillCredentials('admin')}
-                                className="py-2 px-3 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 transition-colors"
+                                className="py-2 px-3 bg-tower-100 dark:bg-tower-700 hover:bg-tower-200 dark:hover:bg-tower-600 rounded-xl text-xs font-bold text-tower-700 dark:text-tower-300 transition-colors"
                             >
                                 Admin
                             </button>
                             <button
                                 onClick={() => fillCredentials('client')}
-                                className="py-2 px-3 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 transition-colors"
+                                className="py-2 px-3 bg-tower-100 dark:bg-tower-700 hover:bg-tower-200 dark:hover:bg-tower-600 rounded-xl text-xs font-bold text-tower-700 dark:text-tower-300 transition-colors"
                             >
                                 Cliente
                             </button>
                             <button
                                 onClick={() => fillCredentials('link')}
-                                className="py-2 px-3 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 transition-colors"
+                                className="py-2 px-3 bg-tower-100 dark:bg-tower-700 hover:bg-tower-200 dark:hover:bg-tower-600 rounded-xl text-xs font-bold text-tower-700 dark:text-tower-300 transition-colors"
                             >
                                 Link
                             </button>
@@ -161,7 +161,7 @@ const Login: React.FC = () => {
                     </div>
                 </div>
 
-                <p className="text-center text-slate-400 dark:text-slate-500 text-xs uppercase font-bold mt-6 tracking-widest">
+                <p className="text-center text-tower-400 dark:text-tower-500 text-xs uppercase font-bold mt-6 tracking-widest">
                     TSM EX v2.0 • Orquestrador Logístico
                 </p>
             </div>

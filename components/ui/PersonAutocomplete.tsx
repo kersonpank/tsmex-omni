@@ -135,7 +135,7 @@ export const PersonAutocomplete: React.FC<PersonAutocompleteProps> = ({
   return (
     <div ref={containerRef} className="relative">
       {label && (
-        <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">{label}</label>
+        <label className="block text-sm font-medium text-tower-600 dark:text-tower-300 mb-1">{label}</label>
       )}
       <div className="relative">
         <input
@@ -148,25 +148,25 @@ export const PersonAutocomplete: React.FC<PersonAutocompleteProps> = ({
           }}
           placeholder={placeholder}
           required={required && !value}
-          className={`w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 pr-16 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 ${className}`}
+          className={`w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 pr-16 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 ${className}`}
         />
         {value && (
           <button
             type="button"
             onClick={handleClear}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-tower-400 dark:text-tower-400 hover:text-tower-600 dark:hover:text-tower-200 text-sm"
           >
             Limpar
           </button>
         )}
       </div>
       {showDropdown && (
-        <div className="absolute z-50 mt-1 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+        <div className="absolute z-50 mt-1 w-full bg-white dark:bg-tower-800 border border-tower-200 dark:border-tower-700 rounded-lg shadow-lg max-h-60 overflow-y-auto">
           {loading ? (
-            <div className="p-3 text-slate-500 dark:text-slate-400 text-sm">Buscando...</div>
+            <div className="p-3 text-tower-500 dark:text-tower-400 text-sm">Buscando...</div>
           ) : suggestions.length === 0 ? (
             <div className="p-3">
-              <p className="text-slate-600 dark:text-slate-300 text-sm mb-2">Nenhum resultado encontrado.</p>
+              <p className="text-tower-600 dark:text-tower-300 text-sm mb-2">Nenhum resultado encontrado.</p>
               <button
                 type="button"
                 onClick={() => {
@@ -174,7 +174,7 @@ export const PersonAutocomplete: React.FC<PersonAutocompleteProps> = ({
                   setCreateModalInitial(parseInputForCreate(inputValue));
                   setShowCreateModal(true);
                 }}
-                className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-medium text-sm"
+                className="text-brand-600 dark:text-brand-400 hover:text-brand-800 dark:hover:text-brand-300 font-medium text-sm"
               >
                 + Cadastrar nova pessoa
               </button>
@@ -186,18 +186,18 @@ export const PersonAutocomplete: React.FC<PersonAutocompleteProps> = ({
                   key={p.id}
                   type="button"
                   onClick={() => handleSelect(p)}
-                  className="w-full text-left px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-700 border-b border-slate-50 dark:border-slate-700 last:border-0"
+                  className="w-full text-left px-3 py-2 hover:bg-tower-50 dark:hover:bg-tower-700 border-b border-tower-50 dark:border-tower-700 last:border-0"
                 >
-                  <div className="font-medium text-slate-900 dark:text-slate-100">{p.legalName}</div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                  <div className="font-medium text-tower-900 dark:text-tower-100">{p.legalName}</div>
+                  <div className="text-xs text-tower-500 dark:text-tower-400">
                     {formatDoc(p.document, p.documentType)}
                     {(p.clients && p.clients.length > 0) && (
-                      <span className="ml-2 text-emerald-600 dark:text-emerald-400">Cliente</span>
+                      <span className="ml-2 text-brand-600 dark:text-brand-400">Cliente</span>
                     )}
                   </div>
                 </button>
               ))}
-              <div className="border-t border-slate-100 dark:border-slate-700 p-2">
+              <div className="border-t border-tower-100 dark:border-tower-700 p-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -205,7 +205,7 @@ export const PersonAutocomplete: React.FC<PersonAutocompleteProps> = ({
                     setCreateModalInitial(parseInputForCreate(inputValue));
                     setShowCreateModal(true);
                   }}
-                  className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 text-sm font-medium"
+                  className="text-brand-600 dark:text-brand-400 hover:text-brand-800 dark:hover:text-brand-300 text-sm font-medium"
                 >
                   + Cadastrar nova pessoa
                 </button>
@@ -301,16 +301,16 @@ function PersonCreateModal({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50" onClick={onClose} role="dialog">
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 border border-slate-200 dark:border-slate-700" onClick={e => e.stopPropagation()}>
-        <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 mb-4">Cadastrar nova pessoa</h3>
+      <div className="bg-white dark:bg-tower-800 rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 border border-tower-200 dark:border-tower-700" onClick={e => e.stopPropagation()}>
+        <h3 className="text-lg font-bold text-tower-900 dark:text-tower-100 mb-4">Cadastrar nova pessoa</h3>
         {error && <p className="text-red-600 dark:text-red-400 text-sm mb-4">{error}</p>}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Tipo documento</label>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Tipo documento</label>
             <select
               value={form.documentType}
               onChange={e => setForm(f => ({ ...f, documentType: e.target.value as PersonDocumentType }))}
-              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100"
             >
               <option value="CPF">CPF</option>
               <option value="CNPJ">CNPJ</option>
@@ -332,25 +332,25 @@ function PersonCreateModal({
             })) : undefined}
             placeholder={form.documentType === 'CPF' ? '11 dígitos' : '14 dígitos'}
             required
-            className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+            className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
           />
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Nome / Razão social *</label>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Nome / Razão social *</label>
             <input
               type="text"
               value={form.legalName}
               onChange={e => setForm(f => ({ ...f, legalName: e.target.value }))}
-              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100"
               required
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Fantasia</label>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Fantasia</label>
             <input
               type="text"
               value={form.tradeName}
               onChange={e => setForm(f => ({ ...f, tradeName: e.target.value }))}
-              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100"
             />
           </div>
           {showAddClientHint && (
@@ -359,8 +359,8 @@ function PersonCreateModal({
             </p>
           )}
           <div className="flex gap-2 justify-end pt-4">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg">Cancelar</button>
-            <button type="submit" disabled={saving} className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-700 rounded-lg">Cancelar</button>
+            <button type="submit" disabled={saving} className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50">
               {saving ? 'Salvando...' : 'Gravar Pessoa'}
             </button>
           </div>

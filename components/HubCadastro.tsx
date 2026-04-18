@@ -73,22 +73,22 @@ const HubCadastro: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-indigo-50/30">
-        <div className="text-slate-500">Carregando...</div>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-tower-50 to-brand-50/30">
+        <div className="text-tower-500">Carregando...</div>
       </div>
     );
   }
 
   if (!hubId || !hubInfo) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-indigo-50/30 p-4">
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-8 max-w-md w-full text-center">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-tower-50 to-brand-50/30 p-4">
+        <div className="bg-white dark:bg-tower-800 rounded-2xl shadow-lg p-8 max-w-md w-full text-center">
           <div className="w-14 h-14 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <span className="text-2xl">⚠️</span>
           </div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 mb-2">Link inválido</h1>
-          <p className="text-slate-600 mb-6">{error || 'Este link de cadastro não é válido ou o depósito está inativo.'}</p>
-          <Link to="/login" className="inline-block px-6 py-3 bg-indigo-600 text-white font-medium rounded-xl hover:bg-indigo-700">
+          <h1 className="text-xl font-bold text-tower-900 dark:text-tower-100 mb-2">Link inválido</h1>
+          <p className="text-tower-600 mb-6">{error || 'Este link de cadastro não é válido ou o depósito está inativo.'}</p>
+          <Link to="/login" className="inline-block px-6 py-3 bg-brand-600 text-white font-medium rounded-xl hover:bg-brand-700">
             Ir para o login
           </Link>
         </div>
@@ -98,28 +98,28 @@ const HubCadastro: React.FC = () => {
 
   if (success) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-indigo-50/30 p-4">
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-8 max-w-md w-full text-center">
-          <div className="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-tower-50 to-brand-50/30 p-4">
+        <div className="bg-white dark:bg-tower-800 rounded-2xl shadow-lg p-8 max-w-md w-full text-center">
+          <div className="w-14 h-14 bg-brand-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <span className="text-2xl">✓</span>
           </div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 mb-2">Conta criada!</h1>
-          <p className="text-slate-600 mb-6">Redirecionando para o login...</p>
+          <h1 className="text-xl font-bold text-tower-900 dark:text-tower-100 mb-2">Conta criada!</h1>
+          <p className="text-tower-600 mb-6">Redirecionando para o login...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-indigo-50/30 py-8 px-4">
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-8 max-w-md w-full">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-tower-50 to-brand-50/30 py-8 px-4">
+      <div className="bg-white dark:bg-tower-800 rounded-2xl shadow-lg p-8 max-w-md w-full">
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-12 h-12 bg-indigo-600 rounded-xl flex items-center justify-center">
+          <div className="w-12 h-12 bg-brand-600 rounded-xl flex items-center justify-center">
             <span className="text-white font-bold text-lg">TSM</span>
           </div>
           <div>
-            <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Cadastro - {hubInfo.name}</h1>
-            <p className="text-sm text-slate-500">Depósito {hubInfo.code}</p>
+            <h1 className="text-xl font-bold text-tower-900 dark:text-tower-100">Cadastro - {hubInfo.name}</h1>
+            <p className="text-sm text-tower-500">Depósito {hubInfo.code}</p>
           </div>
         </div>
 
@@ -135,47 +135,47 @@ const HubCadastro: React.FC = () => {
             onImport={(data) => setForm((f) => ({ ...f, legalName: data.legalName || f.legalName }))}
             placeholder="Somente números"
             required
-            className="w-full px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl"
+            className="w-full px-4 py-2 border border-tower-200 dark:border-tower-700 rounded-xl"
           />
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Nome ou Razão Social *</label>
+            <label className="block text-sm font-medium text-tower-700 mb-1">Nome ou Razão Social *</label>
             <input
               type="text"
               value={form.legalName}
               onChange={(e) => setForm((f) => ({ ...f, legalName: e.target.value }))}
-              className="w-full px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl"
+              className="w-full px-4 py-2 border border-tower-200 dark:border-tower-700 rounded-xl"
               required
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">E-mail *</label>
+            <label className="block text-sm font-medium text-tower-700 mb-1">E-mail *</label>
             <input
               type="email"
               value={form.email}
               onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-              className="w-full px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl"
+              className="w-full px-4 py-2 border border-tower-200 dark:border-tower-700 rounded-xl"
               required
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Senha *</label>
+            <label className="block text-sm font-medium text-tower-700 mb-1">Senha *</label>
             <input
               type="password"
               value={form.password}
               onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-              className="w-full px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl"
+              className="w-full px-4 py-2 border border-tower-200 dark:border-tower-700 rounded-xl"
               minLength={6}
               placeholder="Mínimo 6 caracteres"
               required
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Confirmar senha *</label>
+            <label className="block text-sm font-medium text-tower-700 mb-1">Confirmar senha *</label>
             <input
               type="password"
               value={form.confirmPassword}
               onChange={(e) => setForm((f) => ({ ...f, confirmPassword: e.target.value }))}
-              className="w-full px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl"
+              className="w-full px-4 py-2 border border-tower-200 dark:border-tower-700 rounded-xl"
               minLength={6}
               required
             />
@@ -183,14 +183,14 @@ const HubCadastro: React.FC = () => {
           <button
             type="submit"
             disabled={formSaving}
-            className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 disabled:opacity-50"
+            className="w-full py-3 bg-brand-600 text-white font-bold rounded-xl hover:bg-brand-700 disabled:opacity-50"
           >
             {formSaving ? 'Criando conta...' : 'Criar conta'}
           </button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-slate-500">
-          Já tem conta? <Link to="/login" className="text-indigo-600 hover:text-indigo-700 font-medium">Fazer login</Link>
+        <p className="mt-6 text-center text-sm text-tower-500">
+          Já tem conta? <Link to="/login" className="text-brand-600 hover:text-brand-700 font-medium">Fazer login</Link>
         </p>
       </div>
     </div>

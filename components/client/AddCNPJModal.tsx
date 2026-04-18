@@ -128,11 +128,11 @@ const AddCNPJModal: React.FC<AddCNPJModalProps> = ({ isOpen, onClose, onSubmit, 
     };
 
     return (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
-            <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl max-w-2xl w-full overflow-hidden">
-                <div className="bg-indigo-600 p-6 text-white">
+        <div className="fixed inset-0 bg-tower-900/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-tower-800 rounded-3xl shadow-2xl max-w-2xl w-full overflow-hidden">
+                <div className="bg-brand-600 p-6 text-white">
                     <h2 className="text-xl font-bold">Adicionar CNPJ</h2>
-                    <p className="text-indigo-100 text-sm">Adicione um novo CNPJ à sua conta</p>
+                    <p className="text-brand-100 text-sm">Adicione um novo CNPJ à sua conta</p>
                 </div>
 
                 <form onSubmit={handleSubmit} className="p-8 space-y-6">
@@ -160,41 +160,41 @@ const AddCNPJModal: React.FC<AddCNPJModalProps> = ({ isOpen, onClose, onSubmit, 
                                     }));
                                 }}
                                 placeholder="00.000.000/0000-00"
-                                className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium"
+                                className="w-full p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
                             />
                         </div>
                         <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                            <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                                 Razão Social *
                             </label>
                             <input
                                 type="text"
                                 placeholder="Razão Social Completa"
-                                className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium"
+                                className="w-full p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
                                 value={formData.legalName}
                                 onChange={e => setFormData({ ...formData, legalName: e.target.value })}
                                 required
                             />
                         </div>
                         <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                            <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                                 Nome Fantasia
                             </label>
                             <input
                                 type="text"
                                 placeholder="Nome Fantasia"
-                                className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium"
+                                className="w-full p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
                                 value={formData.tradeName}
                                 onChange={e => setFormData({ ...formData, tradeName: e.target.value })}
                             />
                         </div>
                         <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                            <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                                 Estado / Cidade
                             </label>
                             <div className="grid grid-cols-2 gap-2">
                                 <select
-                                    className="p-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium"
+                                    className="p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
                                     value={formData.state}
                                     onChange={e => setFormData({ ...formData, state: e.target.value, city: '' })}
                                     disabled={loadingStates}
@@ -207,7 +207,7 @@ const AddCNPJModal: React.FC<AddCNPJModalProps> = ({ isOpen, onClose, onSubmit, 
                                     ))}
                                 </select>
                                 <select
-                                    className="p-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium"
+                                    className="p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
                                     value={formData.city}
                                     onChange={e => setFormData({ ...formData, city: e.target.value })}
                                     disabled={!formData.state || loadingCities}
@@ -222,13 +222,13 @@ const AddCNPJModal: React.FC<AddCNPJModalProps> = ({ isOpen, onClose, onSubmit, 
                             </div>
                         </div>
                         <div className="md:col-span-2">
-                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                            <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                                 Endereço
                             </label>
                             <input
                                 type="text"
                                 placeholder="Endereço completo"
-                                className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium"
+                                className="w-full p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
                                 value={formData.address}
                                 onChange={e => setFormData({ ...formData, address: e.target.value })}
                             />
@@ -242,9 +242,9 @@ const AddCNPJModal: React.FC<AddCNPJModalProps> = ({ isOpen, onClose, onSubmit, 
                                 id="isPrimary"
                                 checked={formData.isPrimary}
                                 onChange={e => setFormData({ ...formData, isPrimary: e.target.checked })}
-                                className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
+                                className="w-4 h-4 text-brand-600 border-tower-300 rounded focus:ring-brand-500"
                             />
-                            <label htmlFor="isPrimary" className="text-sm font-medium text-slate-700">
+                            <label htmlFor="isPrimary" className="text-sm font-medium text-tower-700">
                                 Marcar como CNPJ primário
                             </label>
                         </div>
@@ -254,14 +254,14 @@ const AddCNPJModal: React.FC<AddCNPJModalProps> = ({ isOpen, onClose, onSubmit, 
                         <button
                             type="button"
                             onClick={onClose}
-                            className="flex-1 px-4 py-3 font-bold text-slate-500 hover:text-slate-700 transition-colors"
+                            className="flex-1 px-4 py-3 font-bold text-tower-500 hover:text-tower-700 transition-colors"
                         >
                             Cancelar
                         </button>
                         <button
                             type="submit"
                             disabled={loading}
-                            className="flex-1 px-4 py-3 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50"
+                            className="flex-1 px-4 py-3 bg-brand-600 text-white font-bold rounded-2xl hover:bg-brand-700 transition-all shadow-lg shadow-brand-200 disabled:opacity-50"
                         >
                             {loading ? 'Adicionando...' : 'Adicionar CNPJ'}
                         </button>

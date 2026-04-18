@@ -15,7 +15,7 @@ interface BottomNavProps {
 
 const BottomNav: React.FC<BottomNavProps> = ({ items, active, onChange }) => {
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700 safe-area-pb">
+    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-tower-900 border-t border-tower-200 dark:border-tower-700 safe-area-pb">
       <div className="flex items-stretch">
         {items.map((item) => (
           <button
@@ -24,8 +24,8 @@ const BottomNav: React.FC<BottomNavProps> = ({ items, active, onChange }) => {
             onClick={() => onChange(item.key)}
             className={`flex-1 flex flex-col items-center justify-center gap-1 py-3 px-1 min-h-[60px] relative transition-colors ${
               active === item.key
-                ? 'text-indigo-600 dark:text-indigo-400'
-                : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
+                ? 'text-brand-600 dark:text-brand-400'
+                : 'text-tower-500 dark:text-tower-400 hover:text-tower-700 dark:hover:text-tower-300'
             }`}
           >
             <span className="relative">
@@ -38,7 +38,7 @@ const BottomNav: React.FC<BottomNavProps> = ({ items, active, onChange }) => {
             </span>
             <span className="text-[11px] font-medium leading-none">{item.label}</span>
             {active === item.key && (
-              <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-full" />
+              <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-brand-600 dark:bg-brand-400 rounded-full" />
             )}
           </button>
         ))}

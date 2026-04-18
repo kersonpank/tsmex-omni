@@ -563,7 +563,7 @@ export default function FormColeta() {
   if (loading) {
     return (
       <div className="max-w-3xl mx-auto py-12 px-4">
-        <div className="text-center text-slate-500 dark:text-slate-400">Carregando...</div>
+        <div className="text-center text-tower-500 dark:text-tower-400">Carregando...</div>
       </div>
     );
   }
@@ -574,7 +574,7 @@ export default function FormColeta() {
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 text-amber-800">
           {error}
           <div className="mt-4">
-            <Link to="/client" className="text-indigo-600 font-medium hover:underline">Ir para o Dashboard</Link>
+            <Link to="/client" className="text-brand-600 font-medium hover:underline">Ir para o Dashboard</Link>
           </div>
         </div>
       </div>
@@ -585,10 +585,10 @@ export default function FormColeta() {
     <div className="max-w-3xl mx-auto py-12 px-4">
       <div className="mb-10 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-black text-slate-900 dark:text-slate-100">
+          <h1 className="text-3xl font-black text-tower-900 dark:text-tower-100">
             {isLinked ? 'Completar dados de coleta' : 'Solicitar coleta'}
           </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">
+          <p className="text-tower-500 dark:text-tower-400 mt-1">
             {isLinked
               ? 'Preencha os dados abaixo para agendar a coleta.'
               : 'Preencha os dados para solicitar uma coleta.'}
@@ -596,7 +596,7 @@ export default function FormColeta() {
         </div>
         <Link
           to="/client"
-          className="px-4 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-xl font-medium transition-colors"
+          className="px-4 py-2 bg-tower-100 dark:bg-tower-700 hover:bg-tower-200 dark:hover:bg-tower-600 text-tower-700 dark:text-tower-200 rounded-xl font-medium transition-colors"
         >
           Dashboard
         </Link>
@@ -617,12 +617,12 @@ export default function FormColeta() {
       )}
 
       {success && (
-        <div className="mb-6 bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-xl">
+        <div className="mb-6 bg-brand-50 border border-brand-200 text-brand-800 px-4 py-3 rounded-xl">
           {success}
           <div className="mt-2">
-            <Link to="/form/coleta" className="text-emerald-700 font-medium hover:underline">Nova solicitação</Link>
+            <Link to="/form/coleta" className="text-brand-700 font-medium hover:underline">Nova solicitação</Link>
             {' · '}
-            <Link to="/form/cotacao" className="text-emerald-700 font-medium hover:underline">Cotação</Link>
+            <Link to="/form/cotacao" className="text-brand-700 font-medium hover:underline">Cotação</Link>
           </div>
         </div>
       )}
@@ -634,35 +634,35 @@ export default function FormColeta() {
           </div>
         )}
 
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg border border-slate-100 dark:border-slate-700 p-6 md:p-8">
-          <h2 className="text-lg font-bold text-slate-800 mb-4">Pagador do frete e CNPJs</h2>
+        <div className="bg-white dark:bg-tower-800 rounded-2xl shadow-lg border border-tower-100 dark:border-tower-700 p-6 md:p-8">
+          <h2 className="text-lg font-bold text-tower-800 mb-4">Pagador do frete e CNPJs</h2>
           {isLinked ? (
             <div className="space-y-4">
-              <div className="p-4 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl">
-                <div className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Pagador do frete (carregado da cotação)</div>
-                <div className="font-medium text-slate-900 dark:text-slate-100">{form.freightTerm ?? '—'}</div>
+              <div className="p-4 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl">
+                <div className="text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">Pagador do frete (carregado da cotação)</div>
+                <div className="font-medium text-tower-900 dark:text-tower-100">{form.freightTerm ?? '—'}</div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="p-4 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl">
-                  <div className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">CNPJ/CPF remetente</div>
-                  <div className="font-medium text-slate-900 dark:text-slate-100">{form.cnpjRemetente ? maskCNPJOrCPF(form.cnpjRemetente) : '—'}</div>
+                <div className="p-4 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl">
+                  <div className="text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">CNPJ/CPF remetente</div>
+                  <div className="font-medium text-tower-900 dark:text-tower-100">{form.cnpjRemetente ? maskCNPJOrCPF(form.cnpjRemetente) : '—'}</div>
                 </div>
-                <div className="p-4 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl">
-                  <div className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">CNPJ/CPF destino</div>
-                  <div className="font-medium text-slate-900 dark:text-slate-100">{form.cnpjDestino ? maskCNPJOrCPF(form.cnpjDestino) : '—'}</div>
+                <div className="p-4 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl">
+                  <div className="text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">CNPJ/CPF destino</div>
+                  <div className="font-medium text-tower-900 dark:text-tower-100">{form.cnpjDestino ? maskCNPJOrCPF(form.cnpjDestino) : '—'}</div>
                 </div>
                 {form.freightTerm === 'REDESPACHO' && (
-                  <div className="md:col-span-2 p-4 bg-slate-50 border border-slate-200 rounded-xl">
-                    <div className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">CNPJ transportadora</div>
-                    <div className="font-medium text-slate-900 dark:text-slate-100">{form.cnpjTransportadora ? maskCNPJOrCPF(form.cnpjTransportadora) : '—'}</div>
+                  <div className="md:col-span-2 p-4 bg-tower-50 border border-tower-200 rounded-xl">
+                    <div className="text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">CNPJ transportadora</div>
+                    <div className="font-medium text-tower-900 dark:text-tower-100">{form.cnpjTransportadora ? maskCNPJOrCPF(form.cnpjTransportadora) : '—'}</div>
                   </div>
                 )}
               </div>
             </div>
           ) : (
             <div className="space-y-6">
-              <div className="pb-4 border-b border-slate-200 dark:border-slate-700">
-                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Pagador do frete</label>
+              <div className="pb-4 border-b border-tower-200 dark:border-tower-700">
+                <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-2">Pagador do frete</label>
                 <div className="flex flex-wrap gap-4">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input type="radio" name="freightTerm" checked={form.freightTerm === 'CIF'} onChange={() => update({ freightTerm: 'CIF' })} />
@@ -685,7 +685,7 @@ export default function FormColeta() {
               </div>
 
               <div className="space-y-2 relative" ref={cnpjRemetenteRef}>
-                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">CNPJ/CPF remetente *</label>
+                <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide">CNPJ/CPF remetente *</label>
                 <input
                   type="text"
                   placeholder="Digite CNPJ/CPF ou razão social"
@@ -697,22 +697,22 @@ export default function FormColeta() {
                     if (form.freightTerm === 'CIF' && d.length === 11 && !cnpjInAccount(form.cnpjRemetente) && !addCpfOpen)
                       setTimeout(() => { if (!addCpfOpen) handleCpfNotInAccount(form.cnpjRemetente, 'cnpjRemetente'); }, 200);
                   }}
-                  className="w-full p-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                  className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
                   maxLength={18}
                 />
                 {showCnpjRemetente && cnpjRemetenteSuggestions.length > 0 && (
-                  <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                  <div className="absolute z-10 w-full mt-1 bg-white dark:bg-tower-800 border border-tower-200 dark:border-tower-600 rounded-xl shadow-lg max-h-48 overflow-y-auto">
                     {cnpjRemetenteSuggestions.map(c => (
-                      <button key={c.id} type="button" onClick={() => { update({ cnpjRemetente: digitsOnly(c.cnpj) }); setShowCnpjRemetente(false); setCnpjRemetenteSuggestions([]); }} className="w-full text-left px-4 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/50 border-b border-slate-100 dark:border-slate-700 last:border-b-0 text-slate-900 dark:text-slate-100">
-                        <div className="font-medium text-slate-900 dark:text-slate-100">{c.legalName}</div>
-                        <div className="text-xs text-slate-500 dark:text-slate-400">{maskCNPJOrCPF(c.cnpj)}</div>
+                      <button key={c.id} type="button" onClick={() => { update({ cnpjRemetente: digitsOnly(c.cnpj) }); setShowCnpjRemetente(false); setCnpjRemetenteSuggestions([]); }} className="w-full text-left px-4 py-2 hover:bg-brand-50 dark:hover:bg-brand-900/50 border-b border-tower-100 dark:border-tower-700 last:border-b-0 text-tower-900 dark:text-tower-100">
+                        <div className="font-medium text-tower-900 dark:text-tower-100">{c.legalName}</div>
+                        <div className="text-xs text-tower-500 dark:text-tower-400">{maskCNPJOrCPF(c.cnpj)}</div>
                       </button>
                     ))}
                   </div>
                 )}
                 {form.freightTerm === 'CIF' && !cnpjInAccount(form.cnpjRemetente) && isCNPJ(form.cnpjRemetente) && digitsOnly(form.cnpjRemetente).length === 14 && (
                   <div className="mt-2">
-                    <button type="button" onClick={() => handleImportCnpj(form.cnpjRemetente, 'cnpjRemetente')} disabled={importCnpjLoading} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
+                    <button type="button" onClick={() => handleImportCnpj(form.cnpjRemetente, 'cnpjRemetente')} disabled={importCnpjLoading} className="px-4 py-2 bg-brand-600 text-white rounded-xl text-sm font-medium hover:bg-brand-700 disabled:opacity-50">
                       {importCnpjLoading ? 'Consultando...' : 'Importar dados do Sintegra'}
                     </button>
                   </div>
@@ -720,7 +720,7 @@ export default function FormColeta() {
               </div>
 
               <div className="space-y-2 relative" ref={cnpjDestinoRef}>
-                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">CNPJ/CPF destino *</label>
+                <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide">CNPJ/CPF destino *</label>
                 <input
                   type="text"
                   placeholder="Digite CNPJ/CPF ou razão social"
@@ -732,22 +732,22 @@ export default function FormColeta() {
                     if (form.freightTerm === 'FOB' && d.length === 11 && !cnpjInAccount(form.cnpjDestino) && !addCpfOpen)
                       setTimeout(() => { if (!addCpfOpen) handleCpfNotInAccount(form.cnpjDestino, 'cnpjDestino'); }, 200);
                   }}
-                  className="w-full p-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                  className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
                   maxLength={18}
                 />
                 {showCnpjDestino && cnpjDestinoSuggestions.length > 0 && (
-                  <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                  <div className="absolute z-10 w-full mt-1 bg-white dark:bg-tower-800 border border-tower-200 dark:border-tower-600 rounded-xl shadow-lg max-h-48 overflow-y-auto">
                     {cnpjDestinoSuggestions.map(c => (
-                      <button key={c.id} type="button" onClick={() => { update({ cnpjDestino: digitsOnly(c.cnpj) }); setShowCnpjDestino(false); setCnpjDestinoSuggestions([]); }} className="w-full text-left px-4 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/50 border-b border-slate-100 dark:border-slate-700 last:border-b-0 text-slate-900 dark:text-slate-100">
-                        <div className="font-medium text-slate-900 dark:text-slate-100">{c.legalName}</div>
-                        <div className="text-xs text-slate-500 dark:text-slate-400">{maskCNPJOrCPF(c.cnpj)}</div>
+                      <button key={c.id} type="button" onClick={() => { update({ cnpjDestino: digitsOnly(c.cnpj) }); setShowCnpjDestino(false); setCnpjDestinoSuggestions([]); }} className="w-full text-left px-4 py-2 hover:bg-brand-50 dark:hover:bg-brand-900/50 border-b border-tower-100 dark:border-tower-700 last:border-b-0 text-tower-900 dark:text-tower-100">
+                        <div className="font-medium text-tower-900 dark:text-tower-100">{c.legalName}</div>
+                        <div className="text-xs text-tower-500 dark:text-tower-400">{maskCNPJOrCPF(c.cnpj)}</div>
                       </button>
                     ))}
                   </div>
                 )}
                 {form.freightTerm === 'FOB' && !cnpjInAccount(form.cnpjDestino) && isCNPJ(form.cnpjDestino) && digitsOnly(form.cnpjDestino).length === 14 && (
                   <div className="mt-2">
-                    <button type="button" onClick={() => handleImportCnpj(form.cnpjDestino, 'cnpjDestino')} disabled={importCnpjLoading} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
+                    <button type="button" onClick={() => handleImportCnpj(form.cnpjDestino, 'cnpjDestino')} disabled={importCnpjLoading} className="px-4 py-2 bg-brand-600 text-white rounded-xl text-sm font-medium hover:bg-brand-700 disabled:opacity-50">
                       {importCnpjLoading ? 'Consultando...' : 'Importar dados do Sintegra'}
                     </button>
                   </div>
@@ -756,29 +756,29 @@ export default function FormColeta() {
 
               {form.freightTerm === 'REDESPACHO' && (
                 <div className="space-y-2 relative" ref={cnpjTransportadoraRef}>
-                  <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">CNPJ transportadora (redespacho) *</label>
+                  <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide">CNPJ transportadora (redespacho) *</label>
                   <input
                     type="text"
                     placeholder="Digite CNPJ ou razão social da transportadora"
                     value={maskCNPJOrCPF(form.cnpjTransportadora)}
                     onChange={e => { update({ cnpjTransportadora: digitsOnly(e.target.value) }); searchCnpj(e.target.value, setCnpjTransportadoraSuggestions); setShowCnpjTransportadora(true); }}
                     onFocus={() => { if (form.cnpjTransportadora.length >= 3) { searchCnpj(form.cnpjTransportadora, setCnpjTransportadoraSuggestions); setShowCnpjTransportadora(true); } }}
-                    className="w-full p-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                    className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
                     maxLength={18}
                   />
                   {showCnpjTransportadora && cnpjTransportadoraSuggestions.length > 0 && (
-                    <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                    <div className="absolute z-10 w-full mt-1 bg-white dark:bg-tower-800 border border-tower-200 dark:border-tower-600 rounded-xl shadow-lg max-h-48 overflow-y-auto">
                       {cnpjTransportadoraSuggestions.map(c => (
-                        <button key={c.id} type="button" onClick={() => { update({ cnpjTransportadora: digitsOnly(c.cnpj) }); setShowCnpjTransportadora(false); setCnpjTransportadoraSuggestions([]); }} className="w-full text-left px-4 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/50 border-b border-slate-100 dark:border-slate-700 last:border-b-0 text-slate-900 dark:text-slate-100">
-                          <div className="font-medium text-slate-900 dark:text-slate-100">{c.legalName}</div>
-                          <div className="text-xs text-slate-500 dark:text-slate-400">{maskCNPJOrCPF(c.cnpj)}</div>
+                        <button key={c.id} type="button" onClick={() => { update({ cnpjTransportadora: digitsOnly(c.cnpj) }); setShowCnpjTransportadora(false); setCnpjTransportadoraSuggestions([]); }} className="w-full text-left px-4 py-2 hover:bg-brand-50 dark:hover:bg-brand-900/50 border-b border-tower-100 dark:border-tower-700 last:border-b-0 text-tower-900 dark:text-tower-100">
+                          <div className="font-medium text-tower-900 dark:text-tower-100">{c.legalName}</div>
+                          <div className="text-xs text-tower-500 dark:text-tower-400">{maskCNPJOrCPF(c.cnpj)}</div>
                         </button>
                       ))}
                     </div>
                   )}
                   {form.freightTerm === 'REDESPACHO' && !cnpjInAccount(form.cnpjTransportadora) && isCNPJ(form.cnpjTransportadora) && digitsOnly(form.cnpjTransportadora).length === 14 && (
                     <div className="mt-2">
-                      <button type="button" onClick={() => handleImportCnpj(form.cnpjTransportadora, 'cnpjTransportadora')} disabled={importCnpjLoading} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
+                      <button type="button" onClick={() => handleImportCnpj(form.cnpjTransportadora, 'cnpjTransportadora')} disabled={importCnpjLoading} className="px-4 py-2 bg-brand-600 text-white rounded-xl text-sm font-medium hover:bg-brand-700 disabled:opacity-50">
                         {importCnpjLoading ? 'Consultando...' : 'Importar dados do Sintegra'}
                       </button>
                     </div>
@@ -789,9 +789,9 @@ export default function FormColeta() {
           )}
         </div>
 
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg border border-slate-100 dark:border-slate-700 p-6 md:p-8">
+        <div className="bg-white dark:bg-tower-800 rounded-2xl shadow-lg border border-tower-100 dark:border-tower-700 p-6 md:p-8">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-bold text-slate-800 dark:text-slate-200">Contatos do remetente (no local)</h2>
+            <h2 className="text-lg font-bold text-tower-800 dark:text-tower-200">Contatos do remetente (no local)</h2>
             <button
               type="button"
               onClick={() => {
@@ -799,16 +799,16 @@ export default function FormColeta() {
                   senderContacts: [...form.senderContacts, emptySenderContact()],
                 });
               }}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium transition-colors"
+              className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-medium transition-colors"
             >
               + Adicionar contato
             </button>
           </div>
           <div className="space-y-4">
             {form.senderContacts.map((contact, idx) => (
-              <div key={idx} className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+              <div key={idx} className="bg-tower-50 rounded-xl p-4 border border-tower-200">
                 <div className="flex justify-between items-center mb-3">
-                  <span className="text-sm font-medium text-slate-700">Contato {idx + 1}</span>
+                  <span className="text-sm font-medium text-tower-700">Contato {idx + 1}</span>
                   {form.senderContacts.length > 1 && (
                     <button
                       type="button"
@@ -824,7 +824,7 @@ export default function FormColeta() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Nome *</label>
+                    <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">Nome *</label>
                     <input
                       type="text"
                       value={contact.name}
@@ -833,11 +833,11 @@ export default function FormColeta() {
                         newContacts[idx] = { ...contact, name: e.target.value };
                         update({ senderContacts: newContacts });
                       }}
-                      className="w-full p-3 bg-white border border-slate-200 rounded-xl"
+                      className="w-full p-3 bg-white border border-tower-200 rounded-xl"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Telefone *</label>
+                    <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">Telefone *</label>
                     <input
                       type="text"
                       value={maskPhone(contact.phone)}
@@ -846,11 +846,11 @@ export default function FormColeta() {
                         newContacts[idx] = { ...contact, phone: e.target.value.replace(/\D/g, '') };
                         update({ senderContacts: newContacts });
                       }}
-                      className="w-full p-3 bg-white border border-slate-200 rounded-xl"
+                      className="w-full p-3 bg-white border border-tower-200 rounded-xl"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">E-mail</label>
+                    <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">E-mail</label>
                     <input
                       type="email"
                       value={contact.email}
@@ -859,30 +859,30 @@ export default function FormColeta() {
                         newContacts[idx] = { ...contact, email: e.target.value };
                         update({ senderContacts: newContacts });
                       }}
-                      className="w-full p-3 bg-white border border-slate-200 rounded-xl"
+                      className="w-full p-3 bg-white border border-tower-200 rounded-xl"
                     />
                   </div>
                 </div>
               </div>
             ))}
           </div>
-          <div className="mt-6 pt-6 border-t border-slate-200 space-y-4">
+          <div className="mt-6 pt-6 border-t border-tower-200 space-y-4">
             <div>
-              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Horário disponível</label>
+              <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">Horário disponível</label>
               <input
                 type="text"
                 value={form.pickupAvailableTime}
                 onChange={e => update({ pickupAvailableTime: e.target.value })}
-                    className="w-full p-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                    className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
                 placeholder="Ex: 8h às 18h"
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Observações</label>
+              <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">Observações</label>
               <textarea
                 value={form.pickupNotes}
                 onChange={e => update({ pickupNotes: e.target.value })}
-                    className="w-full p-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                    className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
                 rows={2}
                 placeholder="Observações gerais sobre o local da coleta"
               />
@@ -890,63 +890,63 @@ export default function FormColeta() {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg border border-slate-100 dark:border-slate-700 p-6 md:p-8">
-          <h2 className="text-lg font-bold text-slate-800 mb-4">Endereço de coleta</h2>
+        <div className="bg-white dark:bg-tower-800 rounded-2xl shadow-lg border border-tower-100 dark:border-tower-700 p-6 md:p-8">
+          <h2 className="text-lg font-bold text-tower-800 mb-4">Endereço de coleta</h2>
           <div className="space-y-4">
             <div className="max-w-[180px]">
-              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">CEP *</label>
+              <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">CEP *</label>
               <input
                 type="text"
                 value={form.addressCep}
                 onChange={e => update({ addressCep: maskCep(e.target.value) })}
-                    className="w-full p-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                    className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
                 placeholder="00000-000"
                 maxLength={9}
               />
-              {cepLoading && <span className="text-xs text-slate-500">Buscando...</span>}
-              <p className="text-xs text-slate-500 mt-1">Informe o CEP para preencher endereço, bairro, cidade e UF.</p>
+              {cepLoading && <span className="text-xs text-tower-500">Buscando...</span>}
+              <p className="text-xs text-tower-500 mt-1">Informe o CEP para preencher endereço, bairro, cidade e UF.</p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="md:col-span-2">
-                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Endereço *</label>
+                <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">Endereço *</label>
                 <input
                   type="text"
                   value={form.addressStreet}
                   onChange={e => update({ addressStreet: e.target.value })}
-                  className="w-full p-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                  className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Número *</label>
+                <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">Número *</label>
                 <input
                   type="text"
                   value={form.addressNumber}
                   onChange={e => update({ addressNumber: e.target.value })}
-                  className="w-full p-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                  className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
                 />
               </div>
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Complemento</label>
+              <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">Complemento</label>
               <input
                 type="text"
                 value={form.addressComplement}
                 onChange={e => update({ addressComplement: e.target.value })}
-                    className="w-full p-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                    className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
               />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Bairro *</label>
+                <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">Bairro *</label>
                 <input
                   type="text"
                   value={form.addressNeighborhood}
                   onChange={e => update({ addressNeighborhood: e.target.value })}
-                  className="w-full p-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                  className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
                 />
               </div>
               <div className="md:col-span-2">
-                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Cidade / UF *</label>
+                <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">Cidade / UF *</label>
                 <CityAutocomplete
                   value={form.addressCity && form.addressState ? `${form.addressCity}, ${form.addressState}` : form.addressCity}
                   onChange={v => {
@@ -957,74 +957,74 @@ export default function FormColeta() {
                   onSelect={(city, state) => update({ addressCity: city, addressState: state })}
                   placeholder="Ex: São Paulo, SP"
                   required
-                  className="w-full p-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                  className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
                 />
               </div>
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">
+              <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">
                 Ponto de referência
               </label>
               <textarea
                 value={form.addressReferencePoint}
                 onChange={e => update({ addressReferencePoint: e.target.value })}
-                    className="w-full p-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                    className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
                 rows={3}
                 placeholder="Descreva o máximo de detalhes possível sobre o local da coleta para facilitar a localização (ex: próximo ao mercado X, portão azul, prédio com placa Y, etc.)"
               />
-              <p className="text-xs text-slate-500 mt-1">
+              <p className="text-xs text-tower-500 mt-1">
                 Informações detalhadas ajudam o coletor a encontrar o local com mais facilidade.
               </p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg border border-slate-100 dark:border-slate-700 p-6 md:p-8">
-          <h2 className="text-lg font-bold text-slate-800 mb-4">Mercadoria</h2>
+        <div className="bg-white dark:bg-tower-800 rounded-2xl shadow-lg border border-tower-100 dark:border-tower-700 p-6 md:p-8">
+          <h2 className="text-lg font-bold text-tower-800 mb-4">Mercadoria</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
-              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">O que é a mercadoria *</label>
+              <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">O que é a mercadoria *</label>
               <input
                 type="text"
                 value={form.commodity}
                 onChange={e => update({ commodity: e.target.value })}
-                    className="w-full p-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                    className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Peso (kg) *</label>
+              <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">Peso (kg) *</label>
               <input
                 type="number"
                 min={0.1}
                 step={0.1}
                 value={form.weight}
                 onChange={e => update({ weight: e.target.value })}
-                    className="w-full p-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                    className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Valor da NF (R$) *</label>
+              <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">Valor da NF (R$) *</label>
               <input
                 type="number"
                 min={0}
                 step={0.01}
                 value={form.nfValue}
                 onChange={e => update({ nfValue: e.target.value })}
-                    className="w-full p-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                    className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
               />
             </div>
           </div>
           <div className="mt-4 space-y-4">
             <div className="flex justify-between items-center">
-              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Volumes e dimensões</label>
-              <span className="text-sm text-slate-500">
+              <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide">Volumes e dimensões</label>
+              <span className="text-sm text-tower-500">
                 Total: {form.volumesList.reduce((sum, v) => sum + (v.qty || 0), 0)} volumes
               </span>
             </div>
             {form.volumesList.map((vol, volIdx) => (
-              <div key={volIdx} className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+              <div key={volIdx} className="bg-tower-50 rounded-xl p-4 border border-tower-200">
                 <div className="flex justify-between items-center mb-3">
-                  <span className="text-sm font-medium text-slate-700">Volume {volIdx + 1}</span>
+                  <span className="text-sm font-medium text-tower-700">Volume {volIdx + 1}</span>
                   {form.volumesList.length > 1 && (
                     <button
                       type="button"
@@ -1040,7 +1040,7 @@ export default function FormColeta() {
                 </div>
                 <div className="grid grid-cols-4 gap-3">
                   <div>
-                    <label className="block text-xs text-slate-500 mb-1">Quantidade</label>
+                    <label className="block text-xs text-tower-500 mb-1">Quantidade</label>
                     <input
                       type="number"
                       min="1"
@@ -1050,11 +1050,11 @@ export default function FormColeta() {
                         newList[volIdx] = { ...vol, qty: parseInt(e.target.value, 10) || 0 };
                         update({ volumesList: newList });
                       }}
-                      className="w-full p-2 bg-white border border-slate-200 rounded-lg"
+                      className="w-full p-2 bg-white border border-tower-200 rounded-lg"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-slate-500 mb-1">Altura (cm)</label>
+                    <label className="block text-xs text-tower-500 mb-1">Altura (cm)</label>
                     <input
                       type="number"
                       min="0.1"
@@ -1065,11 +1065,11 @@ export default function FormColeta() {
                         newList[volIdx] = { ...vol, altura: parseFloat(e.target.value) || 0 };
                         update({ volumesList: newList });
                       }}
-                      className="w-full p-2 bg-white border border-slate-200 rounded-lg"
+                      className="w-full p-2 bg-white border border-tower-200 rounded-lg"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-slate-500 mb-1">Largura (cm)</label>
+                    <label className="block text-xs text-tower-500 mb-1">Largura (cm)</label>
                     <input
                       type="number"
                       min="0.1"
@@ -1080,11 +1080,11 @@ export default function FormColeta() {
                         newList[volIdx] = { ...vol, largura: parseFloat(e.target.value) || 0 };
                         update({ volumesList: newList });
                       }}
-                      className="w-full p-2 bg-white border border-slate-200 rounded-lg"
+                      className="w-full p-2 bg-white border border-tower-200 rounded-lg"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-slate-500 mb-1">Compr. (cm)</label>
+                    <label className="block text-xs text-tower-500 mb-1">Compr. (cm)</label>
                     <input
                       type="number"
                       min="0.1"
@@ -1095,7 +1095,7 @@ export default function FormColeta() {
                         newList[volIdx] = { ...vol, comprimento: parseFloat(e.target.value) || 0 };
                         update({ volumesList: newList });
                       }}
-                      className="w-full p-2 bg-white border border-slate-200 rounded-lg"
+                      className="w-full p-2 bg-white border border-tower-200 rounded-lg"
                     />
                   </div>
                 </div>
@@ -1108,7 +1108,7 @@ export default function FormColeta() {
                   volumesList: [...form.volumesList, { qty: 1, altura: 0, largura: 0, comprimento: 0 }],
                 });
               }}
-              className="w-full py-2 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-medium transition-colors"
+              className="w-full py-2 px-4 bg-tower-100 hover:bg-tower-200 text-tower-700 rounded-xl text-sm font-medium transition-colors"
             >
               + Adicionar volume
             </button>
@@ -1143,13 +1143,13 @@ export default function FormColeta() {
           <button
             type="submit"
             disabled={submitLoading}
-            className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl font-bold transition-colors"
+            className="px-6 py-3 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-xl font-bold transition-colors"
           >
             {submitLoading ? 'Enviando...' : 'Enviar'}
           </button>
           <Link
             to="/form/cotacao"
-            className="px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-medium transition-colors"
+            className="px-5 py-3 bg-tower-100 hover:bg-tower-200 text-tower-700 rounded-xl font-medium transition-colors"
           >
             Ir para Cotação
           </Link>

@@ -91,16 +91,16 @@ export const CityAutocomplete: React.FC<CityAutocompleteProps> = ({
         onFocus={handleFocus}
         placeholder={placeholder}
         required={required}
-        className={className || 'w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500'}
+        className={className || 'w-full p-3 bg-tower-50 dark:bg-tower-700 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500'}
       />
       {showSuggestions && suggestions.length > 0 && (
-        <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+        <div className="absolute z-10 w-full mt-1 bg-white dark:bg-tower-800 border border-tower-200 dark:border-tower-700 rounded-xl shadow-lg max-h-48 overflow-y-auto">
           {suggestions.map((c) => (
             <button
               key={c.id}
               type="button"
               onClick={() => selectCity(c)}
-              className="w-full text-left px-4 py-2 hover:bg-indigo-50 dark:hover:bg-slate-700 text-slate-900 dark:text-slate-100 border-b border-slate-100 dark:border-slate-700 last:border-b-0"
+              className="w-full text-left px-4 py-2 hover:bg-brand-50 dark:hover:bg-tower-700 text-tower-900 dark:text-tower-100 border-b border-tower-100 dark:border-tower-700 last:border-b-0"
             >
               {c.name}, {c.state.code}
             </button>

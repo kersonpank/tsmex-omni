@@ -43,7 +43,7 @@ const ClockIcon = () => (
 );
 
 const SpinnerIcon = () => (
-  <svg className="animate-spin h-8 w-8 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+  <svg className="animate-spin h-8 w-8 text-brand-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
   </svg>
@@ -73,45 +73,45 @@ const ManifestCard: React.FC<ManifestCardProps> = ({
   const scheduledDate = m.offeredAt ?? m.createdAt;
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-sm border border-slate-200 dark:border-slate-700">
+    <div className="bg-white dark:bg-tower-800 rounded-2xl p-4 shadow-sm border border-tower-200 dark:border-tower-700">
       {/* Route */}
       <div className="flex items-center gap-2 mb-3">
-        <span className="font-semibold text-slate-900 dark:text-slate-100 text-base leading-tight">
+        <span className="font-semibold text-tower-900 dark:text-tower-100 text-base leading-tight">
           {m.origin}
         </span>
-        <svg className="shrink-0 text-slate-400" width="16" height="16" viewBox="0 0 24 24"
+        <svg className="shrink-0 text-tower-400" width="16" height="16" viewBox="0 0 24 24"
           fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
         </svg>
-        <span className="font-semibold text-slate-900 dark:text-slate-100 text-base leading-tight">
+        <span className="font-semibold text-tower-900 dark:text-tower-100 text-base leading-tight">
           {m.destination}
         </span>
       </div>
 
       {/* Meta chips */}
       <div className="flex flex-wrap gap-2 text-xs mb-3">
-        <span className="bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full px-2.5 py-1">
+        <span className="bg-tower-100 dark:bg-tower-700 text-tower-600 dark:text-tower-300 rounded-full px-2.5 py-1">
           {orderCount} {orderCount === 1 ? 'pedido' : 'pedidos'}
         </span>
         {m.totalWeight > 0 && (
-          <span className="bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full px-2.5 py-1">
+          <span className="bg-tower-100 dark:bg-tower-700 text-tower-600 dark:text-tower-300 rounded-full px-2.5 py-1">
             {m.totalWeight.toLocaleString('pt-BR')} kg
           </span>
         )}
         {m.totalVolume > 0 && (
-          <span className="bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full px-2.5 py-1">
+          <span className="bg-tower-100 dark:bg-tower-700 text-tower-600 dark:text-tower-300 rounded-full px-2.5 py-1">
             {m.totalVolume.toLocaleString('pt-BR')} m³
           </span>
         )}
         {m.vehicleType?.name && (
-          <span className="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full px-2.5 py-1">
+          <span className="bg-brand-50 dark:bg-brand-900/30 text-brand-700 dark:text-brand-300 rounded-full px-2.5 py-1">
             {m.vehicleType.name}
           </span>
         )}
       </div>
 
       {/* Status + date */}
-      <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-3">
+      <div className="flex items-center justify-between text-xs text-tower-500 dark:text-tower-400 mb-3">
         <span>{statusLabel[m.status] ?? m.status}</span>
         {scheduledDate && (
           <span>
@@ -131,7 +131,7 @@ const ManifestCard: React.FC<ManifestCardProps> = ({
             type="button"
             disabled={busy}
             onClick={() => onReject(m.id)}
-            className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-medium rounded-xl disabled:opacity-50 active:scale-95 transition-transform"
+            className="flex-1 py-2.5 bg-tower-100 dark:bg-tower-700 text-tower-700 dark:text-tower-200 text-sm font-medium rounded-xl disabled:opacity-50 active:scale-95 transition-transform"
           >
             Recusar
           </button>
@@ -139,7 +139,7 @@ const ManifestCard: React.FC<ManifestCardProps> = ({
             type="button"
             disabled={busy}
             onClick={() => onAccept(m.id)}
-            className="flex-1 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl disabled:opacity-50 active:scale-95 transition-transform"
+            className="flex-1 py-2.5 bg-brand-600 text-white text-sm font-semibold rounded-xl disabled:opacity-50 active:scale-95 transition-transform"
           >
             {busy ? '...' : 'Aceitar Carga'}
           </button>
@@ -162,7 +162,7 @@ const ManifestCard: React.FC<ManifestCardProps> = ({
           type="button"
           disabled={busy}
           onClick={() => onUpdateStatus(m.id, 'COMPLETED')}
-          className="w-full py-2.5 bg-emerald-600 text-white text-sm font-semibold rounded-xl disabled:opacity-50 active:scale-95 transition-transform"
+          className="w-full py-2.5 bg-brand-600 text-white text-sm font-semibold rounded-xl disabled:opacity-50 active:scale-95 transition-transform"
         >
           {busy ? '...' : 'Concluir Entrega'}
         </button>
@@ -174,7 +174,7 @@ const ManifestCard: React.FC<ManifestCardProps> = ({
 // ─── EmptyState ──────────────────────────────────────────────────────────────
 
 const EmptyState: React.FC<{ message: string }> = ({ message }) => (
-  <div className="py-16 flex flex-col items-center gap-3 text-slate-400 dark:text-slate-500">
+  <div className="py-16 flex flex-col items-center gap-3 text-tower-400 dark:text-tower-500">
     <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
       <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
     </svg>
@@ -290,20 +290,20 @@ const LinkHome: React.FC = () => {
     tab === 'ofertas' ? ofertas : tab === 'viagens' ? viagens : historico;
 
   return (
-    <div className="min-h-screen bg-slate-100 dark:bg-slate-900 pb-24">
+    <div className="min-h-screen bg-tower-100 dark:bg-tower-900 pb-24">
       {/* Header */}
-      <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-10 safe-area-top">
+      <header className="bg-white dark:bg-tower-800 border-b border-tower-200 dark:border-tower-700 sticky top-0 z-10 safe-area-top">
         <div className="px-4 py-3 flex items-center justify-between">
           <div>
-            <h1 className="text-base font-bold text-slate-900 dark:text-slate-100 leading-none">
+            <h1 className="text-base font-bold text-tower-900 dark:text-tower-100 leading-none">
               TSM Link
             </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{user?.email}</p>
+            <p className="text-xs text-tower-500 dark:text-tower-400 mt-0.5">{user?.email}</p>
           </div>
           <button
             type="button"
             onClick={logout}
-            className="text-sm text-slate-500 hover:text-red-600 dark:hover:text-red-400 transition-colors px-2 py-1"
+            className="text-sm text-tower-500 hover:text-red-600 dark:hover:text-red-400 transition-colors px-2 py-1"
           >
             Sair
           </button>
@@ -330,7 +330,7 @@ const LinkHome: React.FC = () => {
         {loading ? (
           <div className="py-20 flex flex-col items-center gap-3">
             <SpinnerIcon />
-            <p className="text-sm text-slate-500 dark:text-slate-400">Carregando...</p>
+            <p className="text-sm text-tower-500 dark:text-tower-400">Carregando...</p>
           </div>
         ) : (
           <div className="space-y-3">

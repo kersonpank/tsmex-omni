@@ -243,8 +243,8 @@ const LinkOnboardingWizard: React.FC<LinkOnboardingWizardProps> = ({ linkId, onC
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <p className="text-slate-600">Carregando...</p>
+      <div className="min-h-screen flex items-center justify-center bg-tower-50">
+        <p className="text-tower-600">Carregando...</p>
       </div>
     );
   }
@@ -255,13 +255,13 @@ const LinkOnboardingWizard: React.FC<LinkOnboardingWizardProps> = ({ linkId, onC
   const totalSteps = stepsWithoutCarreta.length;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-indigo-50/30 py-8 px-4">
+    <div className="min-h-screen bg-gradient-to-b from-tower-50 to-brand-50/30 py-8 px-4">
       <div className="max-w-lg mx-auto">
         <div className="mb-6">
-          <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
-            <div className="h-full bg-indigo-600 rounded-full transition-all" style={{ width: `${(progress / totalSteps) * 100}%` }} />
+          <div className="h-2 bg-tower-200 rounded-full overflow-hidden">
+            <div className="h-full bg-brand-600 rounded-full transition-all" style={{ width: `${(progress / totalSteps) * 100}%` }} />
           </div>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-sm text-tower-500 mt-1">
             Etapa {progress} de {totalSteps}
           </p>
         </div>
@@ -270,162 +270,162 @@ const LinkOnboardingWizard: React.FC<LinkOnboardingWizardProps> = ({ linkId, onC
         )}
 
         {step === 'personal_vehicle' && (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-8">
-            <h1 className="text-xl font-bold text-slate-900 mb-2">Dados pessoais e veículo</h1>
-            <p className="text-slate-600 mb-6">Preencha todos os campos. São obrigatórios.</p>
+          <div className="bg-white dark:bg-tower-800 rounded-2xl shadow-lg p-8">
+            <h1 className="text-xl font-bold text-tower-900 mb-2">Dados pessoais e veículo</h1>
+            <p className="text-tower-600 mb-6">Preencha todos os campos. São obrigatórios.</p>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Nome completo *</label>
-                <input type="text" value={profile.name} onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value }))} className="w-full px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl" required />
+                <label className="block text-sm font-medium text-tower-700 mb-1">Nome completo *</label>
+                <input type="text" value={profile.name} onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value }))} className="w-full px-4 py-2 border border-tower-200 dark:border-tower-700 rounded-xl" required />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">CPF *</label>
-                <input type="text" value={profile.document} onChange={(e) => setProfile((p) => ({ ...p, document: e.target.value.replace(/\D/g, '').slice(0, 11) }))} className="w-full px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl" placeholder="Somente números" maxLength={11} />
+                <label className="block text-sm font-medium text-tower-700 mb-1">CPF *</label>
+                <input type="text" value={profile.document} onChange={(e) => setProfile((p) => ({ ...p, document: e.target.value.replace(/\D/g, '').slice(0, 11) }))} className="w-full px-4 py-2 border border-tower-200 dark:border-tower-700 rounded-xl" placeholder="Somente números" maxLength={11} />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Telefone / WhatsApp *</label>
-                <input type="tel" value={maskPhone(profile.phone)} onChange={(e) => setProfile((p) => ({ ...p, phone: e.target.value.replace(/\D/g, '') }))} className="w-full px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl" placeholder="(11) 99999-9999" required maxLength={15} />
+                <label className="block text-sm font-medium text-tower-700 mb-1">Telefone / WhatsApp *</label>
+                <input type="tel" value={maskPhone(profile.phone)} onChange={(e) => setProfile((p) => ({ ...p, phone: e.target.value.replace(/\D/g, '') }))} className="w-full px-4 py-2 border border-tower-200 dark:border-tower-700 rounded-xl" placeholder="(11) 99999-9999" required maxLength={15} />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Placa do veículo *</label>
-                <input type="text" value={profile.vehiclePlate} onChange={(e) => setProfile((p) => ({ ...p, vehiclePlate: e.target.value.toUpperCase() }))} className="w-full px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl" placeholder="ABC1D23" required />
+                <label className="block text-sm font-medium text-tower-700 mb-1">Placa do veículo *</label>
+                <input type="text" value={profile.vehiclePlate} onChange={(e) => setProfile((p) => ({ ...p, vehiclePlate: e.target.value.toUpperCase() }))} className="w-full px-4 py-2 border border-tower-200 dark:border-tower-700 rounded-xl" placeholder="ABC1D23" required />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Cidade base (home base) *</label>
-                <input type="text" value={profile.homeBase} onChange={(e) => setProfile((p) => ({ ...p, homeBase: e.target.value }))} className="w-full px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl" required />
+                <label className="block text-sm font-medium text-tower-700 mb-1">Cidade base (home base) *</label>
+                <input type="text" value={profile.homeBase} onChange={(e) => setProfile((p) => ({ ...p, homeBase: e.target.value }))} className="w-full px-4 py-2 border border-tower-200 dark:border-tower-700 rounded-xl" required />
               </div>
             </div>
             <div className="flex flex-col gap-3 mt-8">
-              <button type="button" onClick={goNext} disabled={!profile.name || !profile.document || profile.document.length < 11 || !profile.phone || !profile.vehiclePlate || !profile.homeBase} className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 disabled:opacity-50">
+              <button type="button" onClick={goNext} disabled={!profile.name || !profile.document || profile.document.length < 11 || !profile.phone || !profile.vehiclePlate || !profile.homeBase} className="w-full py-3 bg-brand-600 text-white font-bold rounded-xl hover:bg-brand-700 disabled:opacity-50">
                 Continuar
               </button>
-              <button type="button" onClick={() => saveProgress({ hasTrailer }).then(() => goNext())} disabled={saving} className="w-full py-3 border border-slate-300 text-slate-700 font-medium rounded-xl">
+              <button type="button" onClick={() => saveProgress({ hasTrailer }).then(() => goNext())} disabled={saving} className="w-full py-3 border border-tower-300 text-tower-700 font-medium rounded-xl">
                 {saving ? 'Salvando...' : 'Salvar e continuar depois'}
               </button>
-              <button type="button" onClick={goBack} className="w-full py-2 text-slate-500 text-sm">Voltar</button>
+              <button type="button" onClick={goBack} className="w-full py-2 text-tower-500 text-sm">Voltar</button>
             </div>
           </div>
         )}
 
         {step === 'vehicle_type' && (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-8">
-            <h1 className="text-xl font-bold text-slate-900 mb-2">Tipo de veículo</h1>
-            <p className="text-slate-600 mb-6">O veículo tem carreta (reboque) ou só o cavalo?</p>
+          <div className="bg-white dark:bg-tower-800 rounded-2xl shadow-lg p-8">
+            <h1 className="text-xl font-bold text-tower-900 mb-2">Tipo de veículo</h1>
+            <p className="text-tower-600 mb-6">O veículo tem carreta (reboque) ou só o cavalo?</p>
             <div className="space-y-3">
-              <label className="flex items-center gap-3 p-4 rounded-xl border-2 border-slate-200 dark:border-slate-700 cursor-pointer">
+              <label className="flex items-center gap-3 p-4 rounded-xl border-2 border-tower-200 dark:border-tower-700 cursor-pointer">
                 <input type="radio" name="trailer" checked={!hasTrailer} onChange={() => setHasTrailer(false)} />
                 <span>Só cavalo (caminhão)</span>
               </label>
-              <label className="flex items-center gap-3 p-4 rounded-xl border-2 border-slate-200 dark:border-slate-700 cursor-pointer">
+              <label className="flex items-center gap-3 p-4 rounded-xl border-2 border-tower-200 dark:border-tower-700 cursor-pointer">
                 <input type="radio" name="trailer" checked={hasTrailer} onChange={() => setHasTrailer(true)} />
                 <span>Cavalo + carreta</span>
               </label>
             </div>
             <div className="flex gap-3 mt-8">
-              <button type="button" onClick={goBack} className="flex-1 py-3 border border-slate-300 text-slate-700 font-medium rounded-xl">Voltar</button>
-              <button type="button" onClick={goNext} className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700">Continuar</button>
+              <button type="button" onClick={goBack} className="flex-1 py-3 border border-tower-300 text-tower-700 font-medium rounded-xl">Voltar</button>
+              <button type="button" onClick={goNext} className="flex-1 py-3 bg-brand-600 text-white font-bold rounded-xl hover:bg-brand-700">Continuar</button>
             </div>
           </div>
         )}
 
         {step === 'docs_personal' && (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-8">
-            <h1 className="text-xl font-bold text-slate-900 mb-2">Documentos pessoais</h1>
-            <p className="text-slate-600 mb-6">Todos os documentos são obrigatórios: CNH, CNH com rosto, RG e comprovante de residência.</p>
+          <div className="bg-white dark:bg-tower-800 rounded-2xl shadow-lg p-8">
+            <h1 className="text-xl font-bold text-tower-900 mb-2">Documentos pessoais</h1>
+            <p className="text-tower-600 mb-6">Todos os documentos são obrigatórios: CNH, CNH com rosto, RG e comprovante de residência.</p>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Foto CNH *</label>
+                <label className="block text-sm font-medium text-tower-700 mb-1">Foto CNH *</label>
                 <input type="file" accept="image/*,.pdf" onChange={(e) => e.target.files?.[0] && addPendingFile(e.target.files[0], 'docsPersonal_cnh')} className="w-full text-sm" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Foto CNH + rosto *</label>
+                <label className="block text-sm font-medium text-tower-700 mb-1">Foto CNH + rosto *</label>
                 <input type="file" accept="image/*" onChange={(e) => e.target.files?.[0] && addPendingFile(e.target.files[0], 'docsPersonal_cnhFace')} className="w-full text-sm" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">RG *</label>
+                <label className="block text-sm font-medium text-tower-700 mb-1">RG *</label>
                 <input type="file" accept="image/*,.pdf" onChange={(e) => e.target.files?.[0] && addPendingFile(e.target.files[0], 'docsPersonal_rg')} className="w-full text-sm" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Comprovante de residência *</label>
+                <label className="block text-sm font-medium text-tower-700 mb-1">Comprovante de residência *</label>
                 <input type="file" accept="image/*,.pdf" onChange={(e) => e.target.files?.[0] && addPendingFile(e.target.files[0], 'docsPersonal_address')} className="w-full text-sm" />
               </div>
             </div>
             <div className="flex gap-3 mt-8">
-              <button type="button" onClick={goBack} className="flex-1 py-3 border border-slate-300 text-slate-700 font-medium rounded-xl">Voltar</button>
-              <button type="button" onClick={goNext} className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700">Continuar</button>
+              <button type="button" onClick={goBack} className="flex-1 py-3 border border-tower-300 text-tower-700 font-medium rounded-xl">Voltar</button>
+              <button type="button" onClick={goNext} className="flex-1 py-3 bg-brand-600 text-white font-bold rounded-xl hover:bg-brand-700">Continuar</button>
             </div>
           </div>
         )}
 
         {step === 'docs_cavalo' && (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-8">
-            <h1 className="text-xl font-bold text-slate-900 mb-2">Documentos do cavalo</h1>
-            <p className="text-slate-600 mb-6">Documento do veículo, ANTT e documento do proprietário (ou marque se o veículo está no seu nome).</p>
-            <label className="flex items-center gap-3 p-4 rounded-xl border-2 border-slate-200 dark:border-slate-700 cursor-pointer mb-4">
+          <div className="bg-white dark:bg-tower-800 rounded-2xl shadow-lg p-8">
+            <h1 className="text-xl font-bold text-tower-900 mb-2">Documentos do cavalo</h1>
+            <p className="text-tower-600 mb-6">Documento do veículo, ANTT e documento do proprietário (ou marque se o veículo está no seu nome).</p>
+            <label className="flex items-center gap-3 p-4 rounded-xl border-2 border-tower-200 dark:border-tower-700 cursor-pointer mb-4">
               <input type="checkbox" checked={ownerIsDriverCavalo} onChange={(e) => setOwnerIsDriverCavalo(e.target.checked)} className="rounded" />
               <span className="font-medium">O veículo está no meu nome. Usar minha CNH já enviada como documento do proprietário.</span>
             </label>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Documento do cavalo (CRLV ou similar) *</label>
+                <label className="block text-sm font-medium text-tower-700 mb-1">Documento do cavalo (CRLV ou similar) *</label>
                 <input type="file" accept="image/*,.pdf" onChange={(e) => e.target.files?.[0] && addPendingFile(e.target.files[0], 'docsCavalo_vehicle')} className="w-full text-sm" />
               </div>
               {!ownerIsDriverCavalo && (
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Documento do proprietário *</label>
+                  <label className="block text-sm font-medium text-tower-700 mb-1">Documento do proprietário *</label>
                   <input type="file" accept="image/*,.pdf" onChange={(e) => e.target.files?.[0] && addPendingFile(e.target.files[0], 'docsCavalo_owner')} className="w-full text-sm" />
                 </div>
               )}
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">ANTT do cavalo *</label>
+                <label className="block text-sm font-medium text-tower-700 mb-1">ANTT do cavalo *</label>
                 <input type="file" accept="image/*,.pdf" onChange={(e) => e.target.files?.[0] && addPendingFile(e.target.files[0], 'docsCavalo_antt')} className="w-full text-sm" />
               </div>
             </div>
             <div className="flex gap-3 mt-8">
-              <button type="button" onClick={goBack} className="flex-1 py-3 border border-slate-300 text-slate-700 font-medium rounded-xl">Voltar</button>
-              <button type="button" onClick={goNext} className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700">Continuar</button>
+              <button type="button" onClick={goBack} className="flex-1 py-3 border border-tower-300 text-tower-700 font-medium rounded-xl">Voltar</button>
+              <button type="button" onClick={goNext} className="flex-1 py-3 bg-brand-600 text-white font-bold rounded-xl hover:bg-brand-700">Continuar</button>
             </div>
           </div>
         )}
 
         {step === 'docs_carreta' && hasTrailer && (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-8">
-            <h1 className="text-xl font-bold text-slate-900 mb-2">Documentos da carreta</h1>
-            <p className="text-slate-600 mb-6">Documento da carreta, ANTT e documento do proprietário (ou marque se está no seu nome).</p>
-            <label className="flex items-center gap-3 p-4 rounded-xl border-2 border-slate-200 dark:border-slate-700 cursor-pointer mb-4">
+          <div className="bg-white dark:bg-tower-800 rounded-2xl shadow-lg p-8">
+            <h1 className="text-xl font-bold text-tower-900 mb-2">Documentos da carreta</h1>
+            <p className="text-tower-600 mb-6">Documento da carreta, ANTT e documento do proprietário (ou marque se está no seu nome).</p>
+            <label className="flex items-center gap-3 p-4 rounded-xl border-2 border-tower-200 dark:border-tower-700 cursor-pointer mb-4">
               <input type="checkbox" checked={ownerIsDriverCarreta} onChange={(e) => setOwnerIsDriverCarreta(e.target.checked)} className="rounded" />
               <span className="font-medium">A carreta está no meu nome. Usar documentos já enviados como documento do proprietário.</span>
             </label>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Documento da carreta *</label>
+                <label className="block text-sm font-medium text-tower-700 mb-1">Documento da carreta *</label>
                 <input type="file" accept="image/*,.pdf" onChange={(e) => e.target.files?.[0] && addPendingFile(e.target.files[0], 'docsCarreta_vehicle')} className="w-full text-sm" />
               </div>
               {!ownerIsDriverCarreta && (
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Documento do proprietário *</label>
+                  <label className="block text-sm font-medium text-tower-700 mb-1">Documento do proprietário *</label>
                   <input type="file" accept="image/*,.pdf" onChange={(e) => e.target.files?.[0] && addPendingFile(e.target.files[0], 'docsCarreta_owner')} className="w-full text-sm" />
                 </div>
               )}
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">ANTT da carreta *</label>
+                <label className="block text-sm font-medium text-tower-700 mb-1">ANTT da carreta *</label>
                 <input type="file" accept="image/*,.pdf" onChange={(e) => e.target.files?.[0] && addPendingFile(e.target.files[0], 'docsCarreta_antt')} className="w-full text-sm" />
               </div>
             </div>
             <div className="flex gap-3 mt-8">
-              <button type="button" onClick={goBack} className="flex-1 py-3 border border-slate-300 text-slate-700 font-medium rounded-xl">Voltar</button>
-              <button type="button" onClick={goNext} className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700">Continuar</button>
+              <button type="button" onClick={goBack} className="flex-1 py-3 border border-tower-300 text-tower-700 font-medium rounded-xl">Voltar</button>
+              <button type="button" onClick={goNext} className="flex-1 py-3 bg-brand-600 text-white font-bold rounded-xl hover:bg-brand-700">Continuar</button>
             </div>
           </div>
         )}
 
         {step === 'contacts' && (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-8">
-            <h1 className="text-xl font-bold text-slate-900 mb-2">Contatos</h1>
-            <p className="text-slate-600 mb-6">3 contatos pessoais e 3 contatos profissionais. Todos obrigatórios.</p>
+          <div className="bg-white dark:bg-tower-800 rounded-2xl shadow-lg p-8">
+            <h1 className="text-xl font-bold text-tower-900 mb-2">Contatos</h1>
+            <p className="text-tower-600 mb-6">3 contatos pessoais e 3 contatos profissionais. Todos obrigatórios.</p>
             <div className="space-y-6">
               <div>
-                <h3 className="font-medium text-slate-800 mb-2">Contatos pessoais</h3>
+                <h3 className="font-medium text-tower-800 mb-2">Contatos pessoais</h3>
                 {contactsPersonal.map((c, i) => (
                   <div key={i} className="grid grid-cols-3 gap-2 mb-2">
                     <input type="text" placeholder="Nome" value={c.name} onChange={(e) => setContactsPersonal((prev) => prev.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} className="px-3 py-2 border rounded-lg text-sm" />
@@ -435,7 +435,7 @@ const LinkOnboardingWizard: React.FC<LinkOnboardingWizardProps> = ({ linkId, onC
                 ))}
               </div>
               <div>
-                <h3 className="font-medium text-slate-800 mb-2">Contatos profissionais</h3>
+                <h3 className="font-medium text-tower-800 mb-2">Contatos profissionais</h3>
                 {contactsProfessional.map((c, i) => (
                   <div key={i} className="grid grid-cols-3 gap-2 mb-2">
                     <input type="text" placeholder="Nome" value={c.name} onChange={(e) => setContactsProfessional((prev) => prev.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} className="px-3 py-2 border rounded-lg text-sm" />
@@ -446,73 +446,73 @@ const LinkOnboardingWizard: React.FC<LinkOnboardingWizardProps> = ({ linkId, onC
               </div>
             </div>
             <div className="flex gap-3 mt-8">
-              <button type="button" onClick={goBack} className="flex-1 py-3 border border-slate-300 text-slate-700 font-medium rounded-xl">Voltar</button>
-              <button type="button" onClick={goNext} className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700">Continuar</button>
+              <button type="button" onClick={goBack} className="flex-1 py-3 border border-tower-300 text-tower-700 font-medium rounded-xl">Voltar</button>
+              <button type="button" onClick={goNext} className="flex-1 py-3 bg-brand-600 text-white font-bold rounded-xl hover:bg-brand-700">Continuar</button>
             </div>
           </div>
         )}
 
         {step === 'photos' && (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-8">
-            <h1 className="text-xl font-bold text-slate-900 mb-2">Fotos do veículo</h1>
-            <p className="text-slate-600 mb-6">Envie no mínimo 3 fotos do veículo (frontal, traseira, laterais). Obrigatório.</p>
+          <div className="bg-white dark:bg-tower-800 rounded-2xl shadow-lg p-8">
+            <h1 className="text-xl font-bold text-tower-900 mb-2">Fotos do veículo</h1>
+            <p className="text-tower-600 mb-6">Envie no mínimo 3 fotos do veículo (frontal, traseira, laterais). Obrigatório.</p>
             <input type="file" accept="image/*" multiple onChange={(e) => Array.from(e.target.files || []).forEach((f, i) => addPendingFile(f, `vehiclePhotos_${i}`))} className="w-full text-sm mb-4" />
             {pendingFiles.filter((f) => f.field.startsWith('vehiclePhotos')).length > 0 && (
-              <p className="text-sm text-slate-600 mb-2">{pendingFiles.filter((f) => f.field.startsWith('vehiclePhotos')).length} foto(s) selecionada(s)</p>
+              <p className="text-sm text-tower-600 mb-2">{pendingFiles.filter((f) => f.field.startsWith('vehiclePhotos')).length} foto(s) selecionada(s)</p>
             )}
             <div className="flex gap-3 mt-8">
-              <button type="button" onClick={goBack} className="flex-1 py-3 border border-slate-300 text-slate-700 font-medium rounded-xl">Voltar</button>
-              <button type="button" onClick={goNext} className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700">Continuar</button>
+              <button type="button" onClick={goBack} className="flex-1 py-3 border border-tower-300 text-tower-700 font-medium rounded-xl">Voltar</button>
+              <button type="button" onClick={goNext} className="flex-1 py-3 bg-brand-600 text-white font-bold rounded-xl hover:bg-brand-700">Continuar</button>
             </div>
           </div>
         )}
 
         {step === 'bank' && (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-8">
-            <h1 className="text-xl font-bold text-slate-900 mb-2">Dados bancários</h1>
-            <p className="text-slate-600 mb-6">Conta e chave PIX para pagamentos. Chave PIX é obrigatória.</p>
+          <div className="bg-white dark:bg-tower-800 rounded-2xl shadow-lg p-8">
+            <h1 className="text-xl font-bold text-tower-900 mb-2">Dados bancários</h1>
+            <p className="text-tower-600 mb-6">Conta e chave PIX para pagamentos. Chave PIX é obrigatória.</p>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Banco</label>
-                <input type="text" value={bankData.bank} onChange={(e) => setBankData((p) => ({ ...p, bank: e.target.value }))} className="w-full px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl" />
+                <label className="block text-sm font-medium text-tower-700 mb-1">Banco</label>
+                <input type="text" value={bankData.bank} onChange={(e) => setBankData((p) => ({ ...p, bank: e.target.value }))} className="w-full px-4 py-2 border border-tower-200 dark:border-tower-700 rounded-xl" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Agência</label>
-                <input type="text" value={bankData.agency} onChange={(e) => setBankData((p) => ({ ...p, agency: e.target.value }))} className="w-full px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl" />
+                <label className="block text-sm font-medium text-tower-700 mb-1">Agência</label>
+                <input type="text" value={bankData.agency} onChange={(e) => setBankData((p) => ({ ...p, agency: e.target.value }))} className="w-full px-4 py-2 border border-tower-200 dark:border-tower-700 rounded-xl" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Conta</label>
-                <input type="text" value={bankData.account} onChange={(e) => setBankData((p) => ({ ...p, account: e.target.value }))} className="w-full px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl" />
+                <label className="block text-sm font-medium text-tower-700 mb-1">Conta</label>
+                <input type="text" value={bankData.account} onChange={(e) => setBankData((p) => ({ ...p, account: e.target.value }))} className="w-full px-4 py-2 border border-tower-200 dark:border-tower-700 rounded-xl" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Titular (nome ou CNPJ)</label>
-                <input type="text" value={bankData.holderName} onChange={(e) => setBankData((p) => ({ ...p, holderName: e.target.value }))} className="w-full px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl" />
+                <label className="block text-sm font-medium text-tower-700 mb-1">Titular (nome ou CNPJ)</label>
+                <input type="text" value={bankData.holderName} onChange={(e) => setBankData((p) => ({ ...p, holderName: e.target.value }))} className="w-full px-4 py-2 border border-tower-200 dark:border-tower-700 rounded-xl" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Tipo da chave PIX *</label>
-                <select value={bankData.pixKeyType} onChange={(e) => setBankData((p) => ({ ...p, pixKeyType: e.target.value }))} className="w-full px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl">
+                <label className="block text-sm font-medium text-tower-700 mb-1">Tipo da chave PIX *</label>
+                <select value={bankData.pixKeyType} onChange={(e) => setBankData((p) => ({ ...p, pixKeyType: e.target.value }))} className="w-full px-4 py-2 border border-tower-200 dark:border-tower-700 rounded-xl">
                   {PIX_KEY_TYPES.map((t) => (
                     <option key={t} value={t}>{t}</option>
                   ))}
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Chave PIX *</label>
-                <input type="text" value={bankData.pixKey} onChange={(e) => setBankData((p) => ({ ...p, pixKey: e.target.value }))} className="w-full px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl" placeholder="CPF, e-mail, telefone ou chave aleatória" required />
+                <label className="block text-sm font-medium text-tower-700 mb-1">Chave PIX *</label>
+                <input type="text" value={bankData.pixKey} onChange={(e) => setBankData((p) => ({ ...p, pixKey: e.target.value }))} className="w-full px-4 py-2 border border-tower-200 dark:border-tower-700 rounded-xl" placeholder="CPF, e-mail, telefone ou chave aleatória" required />
               </div>
             </div>
             <div className="flex gap-3 mt-8">
-              <button type="button" onClick={goBack} className="flex-1 py-3 border border-slate-300 text-slate-700 font-medium rounded-xl">Voltar</button>
-              <button type="button" onClick={goNext} disabled={!bankData.pixKey?.trim()} className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 disabled:opacity-50">Continuar</button>
+              <button type="button" onClick={goBack} className="flex-1 py-3 border border-tower-300 text-tower-700 font-medium rounded-xl">Voltar</button>
+              <button type="button" onClick={goNext} disabled={!bankData.pixKey?.trim()} className="flex-1 py-3 bg-brand-600 text-white font-bold rounded-xl hover:bg-brand-700 disabled:opacity-50">Continuar</button>
             </div>
           </div>
         )}
 
         {step === 'review' && (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-8">
-            <h1 className="text-xl font-bold text-slate-900 mb-2">Revisão e envio</h1>
-            <p className="text-slate-600 mb-6">Confira os dados e conclua o cadastro. Após o envio, nossa equipe analisará e você receberá um aviso quando for aprovado.</p>
-            <div className="space-y-2 text-sm text-slate-700 mb-6">
+          <div className="bg-white dark:bg-tower-800 rounded-2xl shadow-lg p-8">
+            <h1 className="text-xl font-bold text-tower-900 mb-2">Revisão e envio</h1>
+            <p className="text-tower-600 mb-6">Confira os dados e conclua o cadastro. Após o envio, nossa equipe analisará e você receberá um aviso quando for aprovado.</p>
+            <div className="space-y-2 text-sm text-tower-700 mb-6">
               <p><strong>Nome:</strong> {profile.name}</p>
               <p><strong>CPF:</strong> {profile.document}</p>
               <p><strong>Telefone:</strong> {profile.phone}</p>
@@ -521,10 +521,10 @@ const LinkOnboardingWizard: React.FC<LinkOnboardingWizardProps> = ({ linkId, onC
               <p><strong>Chave PIX:</strong> {bankData.pixKey}</p>
             </div>
             <div className="flex flex-col gap-3">
-              <button type="button" onClick={handleSubmitComplete} disabled={saving} className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 disabled:opacity-50">
+              <button type="button" onClick={handleSubmitComplete} disabled={saving} className="w-full py-3 bg-brand-600 text-white font-bold rounded-xl hover:bg-brand-700 disabled:opacity-50">
                 {saving ? 'Enviando...' : 'Concluir cadastro'}
               </button>
-              <button type="button" onClick={goBack} className="w-full py-3 border border-slate-300 text-slate-700 font-medium rounded-xl">Voltar</button>
+              <button type="button" onClick={goBack} className="w-full py-3 border border-tower-300 text-tower-700 font-medium rounded-xl">Voltar</button>
             </div>
           </div>
         )}

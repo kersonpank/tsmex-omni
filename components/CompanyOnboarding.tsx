@@ -539,40 +539,40 @@ const CompanyOnboarding: React.FC = () => {
     // ==================== RENDER ====================
     
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-indigo-50 py-12 px-4">
+        <div className="min-h-screen bg-gradient-to-br from-tower-50 to-brand-50 py-12 px-4">
             <div className="max-w-4xl mx-auto">
                 {/* Header */}
                 <div className="text-center mb-10">
                     <div className="flex items-center justify-center gap-3 mb-4">
-                        <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center">
+                        <div className="w-14 h-14 bg-brand-600 rounded-2xl flex items-center justify-center">
                             <span className="text-white font-bold text-2xl">TSM</span>
                         </div>
-                        <div className="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-violet-600">
+                        <div className="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-r from-brand-600 to-brand-400">
                             EX OMNI
                         </div>
                     </div>
-                    <h1 className="text-3xl font-black text-slate-900 dark:text-slate-100 mb-2">
+                    <h1 className="text-3xl font-black text-tower-900 dark:text-tower-100 mb-2">
                         Criar Conta Empresarial
                     </h1>
-                    <p className="text-slate-500 dark:text-slate-400">
+                    <p className="text-tower-500 dark:text-tower-400">
                         Configure sua conta com múltiplos CNPJs e usuários
                     </p>
                 </div>
                 
                 {/* Stepper */}
                 <div className="flex justify-between mb-12 relative">
-                    <div className="absolute top-1/2 left-0 w-full h-0.5 bg-slate-200 -z-10 -translate-y-1/2"></div>
+                    <div className="absolute top-1/2 left-0 w-full h-0.5 bg-tower-200 -z-10 -translate-y-1/2"></div>
                     {steps.map(step => (
-                        <div key={step.id} className="flex flex-col items-center bg-slate-50 px-3">
+                        <div key={step.id} className="flex flex-col items-center bg-tower-50 px-3">
                             <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-bold border-2 transition-all ${
                                 currentStep >= step.id
-                                    ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-100'
-                                    : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400'
+                                    ? 'bg-brand-600 border-brand-600 text-white shadow-lg shadow-brand-100'
+                                    : 'bg-white dark:bg-tower-800 border-tower-200 dark:border-tower-700 text-tower-400'
                             }`}>
                                 {step.id}
                             </div>
                             <span className={`text-[10px] mt-3 font-black uppercase tracking-widest ${
-                                currentStep === step.id ? 'text-indigo-600' : 'text-slate-400'
+                                currentStep === step.id ? 'text-brand-600' : 'text-tower-400'
                             }`}>
                                 {step.title}
                             </span>
@@ -587,25 +587,25 @@ const CompanyOnboarding: React.FC = () => {
                 )}
                 
                 {/* Step Content */}
-                <div className="bg-white dark:bg-slate-800 rounded-[2rem] shadow-xl shadow-slate-200/50 border border-slate-100 p-8 md:p-12">
+                <div className="bg-white dark:bg-tower-800 rounded-[2rem] shadow-xl shadow-tower-200/50 border border-tower-100 p-8 md:p-12">
                     {/* Step 1: Dados da Empresa */}
                     {currentStep === 1 && (
                         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                             <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                                <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                                     Nome da Empresa / Conta
                                 </label>
                                 <input
                                     type="text"
                                     placeholder="Ex: Empresa ABC Ltda"
-                                    className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium text-slate-700"
+                                    className="w-full p-4 bg-tower-50 border-2 border-tower-100 rounded-2xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium text-tower-700"
                                     value={accountName}
                                     onChange={e => setAccountName(e.target.value)}
                                 />
                             </div>
                             
                             <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                                <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                                     Tipo
                                 </label>
                                 <div className="flex gap-3">
@@ -614,8 +614,8 @@ const CompanyOnboarding: React.FC = () => {
                                         onClick={() => setAccountType('COMPANY')}
                                         className={`flex-1 p-4 rounded-xl border-2 font-bold transition-all ${
                                             accountType === 'COMPANY'
-                                                ? 'bg-indigo-50 border-indigo-500 text-indigo-600'
-                                                : 'bg-slate-50 border-slate-200 dark:border-slate-700 text-slate-400'
+                                                ? 'bg-brand-50 border-brand-500 text-brand-600'
+                                                : 'bg-tower-50 border-tower-200 dark:border-tower-700 text-tower-400'
                                         }`}
                                     >
                                         Empresa
@@ -625,8 +625,8 @@ const CompanyOnboarding: React.FC = () => {
                                         onClick={() => setAccountType('INDIVIDUAL')}
                                         className={`flex-1 p-4 rounded-xl border-2 font-bold transition-all ${
                                             accountType === 'INDIVIDUAL'
-                                                ? 'bg-indigo-50 border-indigo-500 text-indigo-600'
-                                                : 'bg-slate-50 border-slate-200 dark:border-slate-700 text-slate-400'
+                                                ? 'bg-brand-50 border-brand-500 text-brand-600'
+                                                : 'bg-tower-50 border-tower-200 dark:border-tower-700 text-tower-400'
                                         }`}
                                     >
                                         Pessoa Física
@@ -634,19 +634,19 @@ const CompanyOnboarding: React.FC = () => {
                                 </div>
                             </div>
                             
-                            <div className="border-t border-slate-100 pt-6">
-                                <h3 className="text-sm font-bold text-slate-700 mb-4">CNPJ Principal</h3>
+                            <div className="border-t border-tower-100 pt-6">
+                                <h3 className="text-sm font-bold text-tower-700 mb-4">CNPJ Principal</h3>
                                 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                                     <div>
-                                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
-                                            CNPJ {loadingCNPJ && <span className="text-indigo-500 text-xs">(Buscando...)</span>}
+                                        <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
+                                            CNPJ {loadingCNPJ && <span className="text-brand-500 text-xs">(Buscando...)</span>}
                                         </label>
                                         <input
                                             type="text"
                                             placeholder="00.000.000/0000-00"
                                             maxLength={18}
-                                            className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium"
+                                            className="w-full p-4 bg-tower-50 border-2 border-tower-100 rounded-2xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
                                             value={primaryCompany.cnpj}
                                             onChange={e => handleCNPJChange(e.target.value, setPrimaryCompany, primaryCompany)}
                                         />
@@ -655,16 +655,16 @@ const CompanyOnboarding: React.FC = () => {
                                                 {cnpjExistsWarning}
                                             </p>
                                         )}
-                                        <p className="text-xs text-slate-400 mt-1">Digite o CNPJ para buscar dados automaticamente</p>
+                                        <p className="text-xs text-tower-400 mt-1">Digite o CNPJ para buscar dados automaticamente</p>
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                                        <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                                             Razão Social
                                         </label>
                                         <input
                                             type="text"
                                             placeholder="Razão Social Completa"
-                                            className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium"
+                                            className="w-full p-4 bg-tower-50 border-2 border-tower-100 rounded-2xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
                                             value={primaryCompany.legalName}
                                             onChange={e => setPrimaryCompany({ ...primaryCompany, legalName: e.target.value })}
                                         />
@@ -673,38 +673,38 @@ const CompanyOnboarding: React.FC = () => {
                                 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
-                                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                                        <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                                             Nome Fantasia (Opcional)
                                         </label>
                                         <input
                                             type="text"
                                             placeholder="Nome Fantasia"
-                                            className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium"
+                                            className="w-full p-4 bg-tower-50 border-2 border-tower-100 rounded-2xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
                                             value={primaryCompany.tradeName || ''}
                                             onChange={e => setPrimaryCompany({ ...primaryCompany, tradeName: e.target.value })}
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                                        <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                                             Endereço
                                         </label>
                                         <input
                                             type="text"
                                             placeholder="Rua, número, complemento"
-                                            className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium"
+                                            className="w-full p-4 bg-tower-50 border-2 border-tower-100 rounded-2xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
                                             value={primaryCompany.address || ''}
                                             onChange={e => setPrimaryCompany({ ...primaryCompany, address: e.target.value })}
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
-                                            CEP {loadingCEP && <span className="text-indigo-500 text-xs">(Buscando...)</span>}
+                                        <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
+                                            CEP {loadingCEP && <span className="text-brand-500 text-xs">(Buscando...)</span>}
                                         </label>
                                         <input
                                             type="text"
                                             placeholder="00000-000"
                                             maxLength={9}
-                                            className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium"
+                                            className="w-full p-4 bg-tower-50 border-2 border-tower-100 rounded-2xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
                                             value={cep}
                                             onChange={e => {
                                                 const masked = maskCEP(e.target.value);
@@ -715,14 +715,14 @@ const CompanyOnboarding: React.FC = () => {
                                                 }
                                             }}
                                         />
-                                        <p className="text-xs text-slate-400 mt-1">Digite o CEP para buscar endereço automaticamente</p>
+                                        <p className="text-xs text-tower-400 mt-1">Digite o CEP para buscar endereço automaticamente</p>
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                                        <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                                             Estado
                                         </label>
                                         <select
-                                            className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium"
+                                            className="w-full p-4 bg-tower-50 border-2 border-tower-100 rounded-2xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
                                             value={primaryCompany.state || ''}
                                             onChange={e => setPrimaryCompany({ ...primaryCompany, state: e.target.value, city: '' })}
                                         >
@@ -735,11 +735,11 @@ const CompanyOnboarding: React.FC = () => {
                                         </select>
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                                        <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                                             Cidade
                                         </label>
                                         <select
-                                            className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium"
+                                            className="w-full p-4 bg-tower-50 border-2 border-tower-100 rounded-2xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
                                             value={primaryCompany.city || ''}
                                             onChange={e => setPrimaryCompany({ ...primaryCompany, city: e.target.value })}
                                             disabled={!primaryCompany.state || cities.length === 0}
@@ -761,20 +761,20 @@ const CompanyOnboarding: React.FC = () => {
                     {currentStep === 2 && (
                         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                             <div className="flex justify-between items-center mb-4">
-                                <h3 className="text-sm font-bold text-slate-700">Contatos da Empresa</h3>
+                                <h3 className="text-sm font-bold text-tower-700">Contatos da Empresa</h3>
                                 <button
                                     type="button"
                                     onClick={addContact}
-                                    className="px-4 py-2 bg-indigo-600 text-white text-sm font-bold rounded-xl hover:bg-indigo-700 transition-colors"
+                                    className="px-4 py-2 bg-brand-600 text-white text-sm font-bold rounded-xl hover:bg-brand-700 transition-colors"
                                 >
                                     + Adicionar Contato
                                 </button>
                             </div>
                             
                             {contacts.map((contact, index) => (
-                                <div key={index} className="border-2 border-slate-100 rounded-2xl p-6 space-y-4">
+                                <div key={index} className="border-2 border-tower-100 rounded-2xl p-6 space-y-4">
                                     <div className="flex justify-between items-center mb-2">
-                                        <span className="text-xs font-bold text-slate-400 uppercase">Contato {index + 1}</span>
+                                        <span className="text-xs font-bold text-tower-400 uppercase">Contato {index + 1}</span>
                                         {contacts.length > 1 && (
                                             <button
                                                 type="button"
@@ -788,49 +788,49 @@ const CompanyOnboarding: React.FC = () => {
                                     
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div>
-                                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                                            <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                                                 Nome *
                                             </label>
                                             <input
                                                 type="text"
                                                 placeholder="Nome completo"
-                                                className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium"
+                                                className="w-full p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
                                                 value={contact.name}
                                                 onChange={e => updateContact(index, 'name', e.target.value)}
                                             />
                                         </div>
                                         <div>
-                                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                                            <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                                                 Cargo
                                             </label>
                                             <input
                                                 type="text"
                                                 placeholder="Ex: Gerente de Logística"
-                                                className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium"
+                                                className="w-full p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
                                                 value={contact.role || ''}
                                                 onChange={e => updateContact(index, 'role', e.target.value)}
                                             />
                                         </div>
                                         <div>
-                                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                                            <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                                                 Email
                                             </label>
                                             <input
                                                 type="email"
                                                 placeholder="email@exemplo.com"
-                                                className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium"
+                                                className="w-full p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
                                                 value={contact.email || ''}
                                                 onChange={e => updateContact(index, 'email', e.target.value)}
                                             />
                                         </div>
                                         <div>
-                                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                                            <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                                                 Telefone
                                             </label>
                                             <input
                                                 type="tel"
                                                 placeholder="(11) 99999-9999"
-                                                className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium"
+                                                className="w-full p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
                                                 value={maskPhone(contact.phone || '')}
                                                 onChange={e => updateContact(index, 'phone', e.target.value.replace(/\D/g, ''))}
                                                 maxLength={15}
@@ -844,9 +844,9 @@ const CompanyOnboarding: React.FC = () => {
                                             id={`primary-${index}`}
                                             checked={contact.isPrimary}
                                             onChange={e => updateContact(index, 'isPrimary', e.target.checked)}
-                                            className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
+                                            className="w-4 h-4 text-brand-600 border-tower-300 rounded focus:ring-brand-500"
                                         />
-                                        <label htmlFor={`primary-${index}`} className="text-sm font-medium text-slate-700">
+                                        <label htmlFor={`primary-${index}`} className="text-sm font-medium text-tower-700">
                                             Tomador de Decisão
                                         </label>
                                     </div>
@@ -858,33 +858,33 @@ const CompanyOnboarding: React.FC = () => {
                     {/* Step 3: Usuário Admin */}
                     {currentStep === 3 && (
                         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                            <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 mb-4">
-                                <p className="text-sm text-indigo-800">
+                            <div className="bg-brand-50 border border-brand-200 rounded-xl p-4 mb-4">
+                                <p className="text-sm text-brand-800">
                                     Este será o primeiro usuário da conta e terá acesso administrativo para gerenciar CNPJs e outros usuários.
                                 </p>
                             </div>
                             
                             <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                                <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                                     Nome do Usuário
                                 </label>
                                 <input
                                     type="text"
                                     placeholder="Nome completo"
-                                    className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium text-slate-700"
+                                    className="w-full p-4 bg-tower-50 border-2 border-tower-100 rounded-2xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium text-tower-700"
                                     value={adminUser.name}
                                     onChange={e => setAdminUser({ ...adminUser, name: e.target.value })}
                                 />
                             </div>
                             
                             <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
-                                    Email {loadingEmailCheck && <span className="text-indigo-500 text-xs">(Verificando...)</span>}
+                                <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
+                                    Email {loadingEmailCheck && <span className="text-brand-500 text-xs">(Verificando...)</span>}
                                 </label>
                                 <input
                                     type="email"
                                     placeholder="seu@email.com"
-                                    className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium text-slate-700"
+                                    className="w-full p-4 bg-tower-50 border-2 border-tower-100 rounded-2xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium text-tower-700"
                                     value={adminUser.email}
                                     onChange={e => { setAdminUser({ ...adminUser, email: e.target.value }); setEmailExistsWarning(false); }}
                                     onBlur={handleEmailBlur}
@@ -898,25 +898,25 @@ const CompanyOnboarding: React.FC = () => {
                             
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                                    <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                                         Senha
                                     </label>
                                     <input
                                         type="password"
                                         placeholder="Mínimo 6 caracteres"
-                                        className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium"
+                                        className="w-full p-4 bg-tower-50 border-2 border-tower-100 rounded-2xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
                                         value={adminUser.password}
                                         onChange={e => setAdminUser({ ...adminUser, password: e.target.value })}
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                                    <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                                         Confirmar Senha
                                     </label>
                                     <input
                                         type="password"
                                         placeholder="Repita a senha"
-                                        className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium"
+                                        className="w-full p-4 bg-tower-50 border-2 border-tower-100 rounded-2xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
                                         value={adminUser.confirmPassword}
                                         onChange={e => setAdminUser({ ...adminUser, confirmPassword: e.target.value })}
                                     />
@@ -931,33 +931,33 @@ const CompanyOnboarding: React.FC = () => {
                     {/* Step 4: CNPJs Adicionais */}
                     {currentStep === 4 && (
                         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                            <div className="bg-slate-50 border border-slate-200 dark:border-slate-700 rounded-xl p-4 mb-4">
-                                <p className="text-sm text-slate-600 dark:text-slate-400">
+                            <div className="bg-tower-50 border border-tower-200 dark:border-tower-700 rounded-xl p-4 mb-4">
+                                <p className="text-sm text-tower-600 dark:text-tower-400">
                                     Adicione outros CNPJs da mesma empresa ou filiais. Todos compartilharão as mesmas tabelas de preço especiais.
                                 </p>
                             </div>
                             
                             <div className="flex justify-between items-center mb-4">
-                                <h3 className="text-sm font-bold text-slate-700">CNPJs Adicionais</h3>
+                                <h3 className="text-sm font-bold text-tower-700">CNPJs Adicionais</h3>
                                 <button
                                     type="button"
                                     onClick={addCompany}
-                                    className="px-4 py-2 bg-indigo-600 text-white text-sm font-bold rounded-xl hover:bg-indigo-700 transition-colors"
+                                    className="px-4 py-2 bg-brand-600 text-white text-sm font-bold rounded-xl hover:bg-brand-700 transition-colors"
                                 >
                                     + Adicionar CNPJ
                                 </button>
                             </div>
                             
                             {additionalCompanies.length === 0 ? (
-                                <div className="text-center py-12 text-slate-400 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl">
+                                <div className="text-center py-12 text-tower-400 border-2 border-dashed border-tower-200 dark:border-tower-700 rounded-2xl">
                                     <p>Nenhum CNPJ adicional adicionado.</p>
                                     <p className="text-xs mt-2">Você pode pular esta etapa e adicionar depois.</p>
                                 </div>
                             ) : (
                                 additionalCompanies.map((company, index) => (
-                                    <div key={index} className="border-2 border-slate-100 rounded-2xl p-6 space-y-4">
+                                    <div key={index} className="border-2 border-tower-100 rounded-2xl p-6 space-y-4">
                                         <div className="flex justify-between items-center mb-2">
-                                            <span className="text-xs font-bold text-slate-400 uppercase">CNPJ {index + 1}</span>
+                                            <span className="text-xs font-bold text-tower-400 uppercase">CNPJ {index + 1}</span>
                                             <button
                                                 type="button"
                                                 onClick={() => removeCompany(index)}
@@ -969,52 +969,52 @@ const CompanyOnboarding: React.FC = () => {
                                         
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                             <div>
-                                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                                                <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                                                     CNPJ
                                                 </label>
                                                 <input
                                                     type="text"
                                                     placeholder="00.000.000/0000-00"
                                                     maxLength={18}
-                                                    className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium"
+                                                    className="w-full p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
                                                     value={company.cnpj}
                                                     onChange={e => handleAdditionalCNPJChange(index, e.target.value)}
                                                 />
-                                                <p className="text-xs text-slate-400 mt-1">Digite o CNPJ para buscar dados automaticamente</p>
+                                                <p className="text-xs text-tower-400 mt-1">Digite o CNPJ para buscar dados automaticamente</p>
                                             </div>
                                             <div>
-                                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                                                <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                                                     Razão Social
                                                 </label>
                                                 <input
                                                     type="text"
                                                     placeholder="Razão Social"
-                                                    className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium"
+                                                    className="w-full p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
                                                     value={company.legalName}
                                                     onChange={e => updateCompany(index, 'legalName', e.target.value)}
                                                 />
                                             </div>
                                             <div>
-                                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                                                <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                                                     Nome Fantasia
                                                 </label>
                                                 <input
                                                     type="text"
                                                     placeholder="Nome Fantasia"
-                                                    className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium"
+                                                    className="w-full p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
                                                     value={company.tradeName || ''}
                                                     onChange={e => updateCompany(index, 'tradeName', e.target.value)}
                                                 />
                                             </div>
                                             <div>
-                                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                                                <label className="block text-xs font-bold text-tower-400 uppercase tracking-widest mb-2">
                                                     Cidade / Estado
                                                 </label>
                                                 <div className="grid grid-cols-2 gap-2">
                                                     <input
                                                         type="text"
                                                         placeholder="Cidade"
-                                                        className="p-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium"
+                                                        className="p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
                                                         value={company.city || ''}
                                                         onChange={e => updateCompany(index, 'city', e.target.value)}
                                                     />
@@ -1022,7 +1022,7 @@ const CompanyOnboarding: React.FC = () => {
                                                         type="text"
                                                         placeholder="UF"
                                                         maxLength={2}
-                                                        className="p-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-indigo-500 focus:bg-white dark:bg-slate-800 outline-none transition-all font-medium uppercase"
+                                                        className="p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium uppercase"
                                                         value={company.state || ''}
                                                         onChange={e => updateCompany(index, 'state', e.target.value.toUpperCase())}
                                                     />
@@ -1038,8 +1038,8 @@ const CompanyOnboarding: React.FC = () => {
                     {/* Step 5: Revisão */}
                     {currentStep === 5 && (
                         <div className="space-y-6 animate-in fade-in zoom-in duration-500">
-                            <div className="bg-indigo-900 rounded-3xl p-8 text-white relative overflow-hidden">
-                                <div className="absolute -top-12 -right-12 w-48 h-48 bg-white dark:bg-slate-800/10 rounded-full blur-3xl"></div>
+                            <div className="bg-brand-900 rounded-3xl p-8 text-white relative overflow-hidden">
+                                <div className="absolute -top-12 -right-12 w-48 h-48 bg-white dark:bg-tower-800/10 rounded-full blur-3xl"></div>
                                 <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
                                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
@@ -1049,28 +1049,28 @@ const CompanyOnboarding: React.FC = () => {
                                 
                                 <div className="space-y-4 text-sm">
                                     <div>
-                                        <span className="text-indigo-300 block mb-1">Nome da Conta</span>
+                                        <span className="text-brand-300 block mb-1">Nome da Conta</span>
                                         <span className="font-bold text-lg">{accountName}</span>
                                     </div>
                                     <div>
-                                        <span className="text-indigo-300 block mb-1">Tipo</span>
+                                        <span className="text-brand-300 block mb-1">Tipo</span>
                                         <span className="font-bold text-lg">{accountType === 'COMPANY' ? 'Empresa' : 'Pessoa Física'}</span>
                                     </div>
                                     <div>
-                                        <span className="text-indigo-300 block mb-1">CNPJ Principal</span>
+                                        <span className="text-brand-300 block mb-1">CNPJ Principal</span>
                                         <span className="font-bold text-lg">{primaryCompany.cnpj} - {primaryCompany.legalName}</span>
                                     </div>
                                     <div>
-                                        <span className="text-indigo-300 block mb-1">Contatos</span>
+                                        <span className="text-brand-300 block mb-1">Contatos</span>
                                         <span className="font-bold text-lg">{contacts.filter(c => c.name.trim() !== '').length} contato(s)</span>
                                     </div>
                                     <div>
-                                        <span className="text-indigo-300 block mb-1">Usuário Admin</span>
+                                        <span className="text-brand-300 block mb-1">Usuário Admin</span>
                                         <span className="font-bold text-lg">{adminUser.email}</span>
                                     </div>
                                     {additionalCompanies.length > 0 && (
                                         <div>
-                                            <span className="text-indigo-300 block mb-1">CNPJs Adicionais</span>
+                                            <span className="text-brand-300 block mb-1">CNPJs Adicionais</span>
                                             <span className="font-bold text-lg">{additionalCompanies.length} CNPJ(s)</span>
                                         </div>
                                     )}
@@ -1080,11 +1080,11 @@ const CompanyOnboarding: React.FC = () => {
                     )}
                     
                     {/* Navigation */}
-                    <div className="flex justify-between mt-12 pt-8 border-t border-slate-100">
+                    <div className="flex justify-between mt-12 pt-8 border-t border-tower-100">
                         <button
                             onClick={back}
                             disabled={currentStep === 1 || loading}
-                            className="px-6 py-3 font-bold text-slate-400 hover:text-indigo-600 disabled:opacity-30 transition-colors uppercase tracking-widest text-xs"
+                            className="px-6 py-3 font-bold text-tower-400 hover:text-brand-600 disabled:opacity-30 transition-colors uppercase tracking-widest text-xs"
                         >
                             Voltar
                         </button>
@@ -1093,7 +1093,7 @@ const CompanyOnboarding: React.FC = () => {
                             <button
                                 onClick={() => next()}
                                 disabled={!isStepValid()}
-                                className="px-10 py-4 bg-indigo-600 text-white font-black rounded-2xl hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 disabled:opacity-50 disabled:shadow-none uppercase tracking-tighter"
+                                className="px-10 py-4 bg-brand-600 text-white font-black rounded-2xl hover:bg-brand-700 transition-all shadow-xl shadow-brand-100 disabled:opacity-50 disabled:shadow-none uppercase tracking-tighter"
                             >
                                 Continuar
                             </button>
@@ -1101,7 +1101,7 @@ const CompanyOnboarding: React.FC = () => {
                             <button
                                 onClick={handleSubmit}
                                 disabled={loading || !isStepValid()}
-                                className="px-10 py-4 bg-emerald-500 text-white font-black rounded-2xl hover:bg-emerald-600 transition-all shadow-xl shadow-emerald-100 flex items-center gap-3 uppercase tracking-tighter disabled:opacity-50"
+                                className="px-10 py-4 bg-brand-500 text-white font-black rounded-2xl hover:bg-brand-600 transition-all shadow-xl shadow-brand-100 flex items-center gap-3 uppercase tracking-tighter disabled:opacity-50"
                             >
                                 {loading ? (
                                     <span className="animate-pulse">Criando Conta...</span>

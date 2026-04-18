@@ -8,7 +8,7 @@ const ThemeToggle: React.FC<{ className?: string }> = ({ className = '' }) => {
     <button
       type="button"
       onClick={toggleTheme}
-      className={`p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors ${className}`}
+      className={`rounded-lg p-2 text-tower-700 transition-colors hover:bg-tower-100 dark:text-tower-200 dark:hover:bg-tower-800 ${className}`}
       aria-label={isDark ? 'Modo claro' : 'Modo escuro'}
     >
       {isDark ? (

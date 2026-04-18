@@ -81,11 +81,11 @@ const EspeciesTab: React.FC = () => {
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
-        <h2 className="text-lg font-bold text-slate-700">Espécies de NF</h2>
+        <h2 className="text-lg font-bold text-tower-700">Espécies de NF</h2>
         <button
           type="button"
           onClick={openNew}
-          className="px-4 py-2 text-sm bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700"
+          className="px-4 py-2 text-sm bg-brand-600 text-white font-bold rounded-lg hover:bg-brand-700"
         >
           + Nova espécie
         </button>
@@ -94,27 +94,27 @@ const EspeciesTab: React.FC = () => {
         <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>
       )}
       {success && (
-        <div className="mb-4 bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-xl text-sm">{success}</div>
+        <div className="mb-4 bg-brand-50 border border-brand-200 text-brand-800 px-4 py-3 rounded-xl text-sm">{success}</div>
       )}
       {showForm && (
-        <div className="mb-6 bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
-          <h3 className="text-base font-bold text-slate-800 mb-4">
+        <div className="mb-6 bg-white border border-tower-200 rounded-xl p-6 shadow-sm">
+          <h3 className="text-base font-bold text-tower-800 mb-4">
             {editingId ? 'Editar espécie' : 'Nova espécie'}
           </h3>
           <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-md">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Nome</label>
+              <label className="block text-sm font-medium text-tower-700 mb-1">Nome</label>
               <input
                 type="text"
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                className="w-full px-3 py-2 border border-tower-200 rounded-lg"
                 placeholder="Ex: Palete, Caixa, Engradado"
               />
             </div>
             {editingId && (
               <div className="flex items-center">
-                <label className="flex items-center gap-2 text-sm text-slate-700 mt-6">
+                <label className="flex items-center gap-2 text-sm text-tower-700 mt-6">
                   <input
                     type="checkbox"
                     checked={form.active}
@@ -126,13 +126,13 @@ const EspeciesTab: React.FC = () => {
               </div>
             )}
             <div className="md:col-span-2 flex gap-2">
-              <button type="submit" className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700">
+              <button type="submit" className="px-4 py-2 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700">
                 {editingId ? 'Salvar' : 'Criar'}
               </button>
               <button
                 type="button"
                 onClick={() => { setShowForm(false); setEditingId(null); setError(null); }}
-                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg"
+                className="px-4 py-2 text-tower-600 hover:bg-tower-100 rounded-lg"
               >
                 Cancelar
               </button>
@@ -141,34 +141,34 @@ const EspeciesTab: React.FC = () => {
         </div>
       )}
       {loading ? (
-        <div className="py-12 text-center text-slate-500">Carregando...</div>
+        <div className="py-12 text-center text-tower-500">Carregando...</div>
       ) : list.length === 0 ? (
-        <div className="bg-white border-2 border-dashed border-slate-200 rounded-xl p-12 text-center text-slate-500">
+        <div className="bg-white border-2 border-dashed border-tower-200 rounded-xl p-12 text-center text-tower-500">
           Nenhuma espécie cadastrada. Cadastre espécies como Palete, Caixa, Engradado etc.
         </div>
       ) : (
-        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <div className="bg-white border border-tower-200 rounded-xl overflow-hidden">
           <table className="w-full">
-            <thead className="bg-slate-50 border-b border-slate-200">
+            <thead className="bg-tower-50 border-b border-tower-200">
               <tr>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Nome</th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Ativo</th>
-                <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">Ações</th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700">Nome</th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700">Ativo</th>
+                <th className="text-right py-3 px-4 text-sm font-semibold text-tower-700">Ações</th>
               </tr>
             </thead>
             <tbody>
               {list.map((item) => (
-                <tr key={item.id} className="border-b border-slate-100 hover:bg-slate-50">
-                  <td className="py-3 px-4 font-medium text-slate-900">{item.name}</td>
+                <tr key={item.id} className="border-b border-tower-100 hover:bg-tower-50">
+                  <td className="py-3 px-4 font-medium text-tower-900">{item.name}</td>
                   <td className="py-3 px-4">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${item.active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${item.active ? 'bg-brand-100 text-brand-700' : 'bg-tower-100 text-tower-500'}`}>
                       {item.active ? 'Sim' : 'Não'}
                     </span>
                   </td>
                   <td className="py-3 px-4 text-right">
-                    <button type="button" onClick={() => openEdit(item)} className="text-indigo-600 hover:underline text-sm mr-2">Editar</button>
+                    <button type="button" onClick={() => openEdit(item)} className="text-brand-600 hover:underline text-sm mr-2">Editar</button>
                     {item.active && (
-                      <button type="button" onClick={() => handleDeactivate(item.id)} className="text-slate-500 hover:underline text-sm">Desativar</button>
+                      <button type="button" onClick={() => handleDeactivate(item.id)} className="text-tower-500 hover:underline text-sm">Desativar</button>
                     )}
                   </td>
                 </tr>

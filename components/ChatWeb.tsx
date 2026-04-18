@@ -322,35 +322,35 @@ const ChatWeb: React.FC = () => {
   // ==================== RENDER ====================
 
   return (
-    <div className="h-screen bg-gradient-to-br from-slate-100 via-white to-slate-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 flex flex-col overflow-hidden">
-      <header className="flex-shrink-0 bg-white/80 dark:bg-slate-800/50 backdrop-blur-sm border-b border-slate-200 dark:border-slate-700 px-4 py-3">
+    <div className="h-screen bg-gradient-to-br from-tower-100 via-white to-tower-100 dark:from-tower-900 dark:via-tower-800 dark:to-tower-900 flex flex-col overflow-hidden">
+      <header className="flex-shrink-0 bg-white/80 dark:bg-tower-800/50 backdrop-blur-sm border-b border-tower-200 dark:border-tower-700 px-4 py-3">
         <div className="max-w-3xl mx-auto flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-xl flex items-center justify-center">
+            <div className="w-10 h-10 bg-gradient-to-br from-brand-500 to-brand-500 rounded-xl flex items-center justify-center">
               <span className="text-white font-bold">TSM</span>
             </div>
             <div>
-              <h1 className="text-slate-900 dark:text-white font-semibold">TSM EX • Chat</h1>
-              <p className="text-slate-500 dark:text-slate-400 text-xs">Cotação e coleta inteligente</p>
+              <h1 className="text-tower-900 dark:text-white font-semibold">TSM EX • Chat</h1>
+              <p className="text-tower-500 dark:text-tower-400 text-xs">Cotação e coleta inteligente</p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <ThemeToggle className="!p-2" />
             <Link
               to="/form/cotacao"
-              className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 dark:hover:bg-indigo-500 text-white text-sm font-medium rounded-xl transition-colors"
+              className="px-3 py-2 bg-brand-600 hover:bg-brand-700 dark:hover:bg-brand-500 text-white text-sm font-medium rounded-xl transition-colors"
             >
               Cotação
             </Link>
             <Link
               to="/form/coleta"
-              className="px-3 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-white text-sm font-medium rounded-xl transition-colors"
+              className="px-3 py-2 bg-tower-200 dark:bg-tower-700 hover:bg-tower-300 dark:hover:bg-tower-600 text-tower-800 dark:text-white text-sm font-medium rounded-xl transition-colors"
             >
               Coleta
             </Link>
             <Link
               to="/client"
-              className="px-3 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-white text-sm font-medium rounded-xl transition-colors flex items-center gap-2"
+              className="px-3 py-2 bg-tower-200 dark:bg-tower-700 hover:bg-tower-300 dark:hover:bg-tower-600 text-tower-800 dark:text-white text-sm font-medium rounded-xl transition-colors flex items-center gap-2"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
@@ -371,8 +371,8 @@ const ChatWeb: React.FC = () => {
               <div
                 className={`max-w-[85%] rounded-2xl px-4 py-3 ${
                   msg.role === 'user'
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-slate-200 dark:bg-slate-700/80 text-slate-800 dark:text-slate-100'
+                    ? 'bg-brand-600 text-white'
+                    : 'bg-tower-200 dark:bg-tower-700/80 text-tower-800 dark:text-tower-100'
                 }`}
               >
                 <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
@@ -401,19 +401,19 @@ const ChatWeb: React.FC = () => {
                 ) : null}
 
                 {msg.needsAccount ? (
-                  <div className="mt-4 bg-gradient-to-br from-indigo-600 to-violet-600 rounded-xl p-6 border border-indigo-500">
+                  <div className="mt-4 bg-gradient-to-br from-brand-600 to-brand-500 rounded-xl p-6 border border-brand-500">
                     <div className="flex items-start gap-4">
                       <div className="flex-shrink-0 w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
                         <span className="text-2xl">📋</span>
                       </div>
                       <div className="flex-1">
                         <h3 className="text-white font-bold text-lg mb-2">Crie sua conta para continuar</h3>
-                        <p className="text-indigo-100 text-sm mb-4">
+                        <p className="text-brand-100 text-sm mb-4">
                           Para criar cotações e acompanhar envios, você precisa de uma conta. É rápido e gratuito!
                         </p>
                         <button
                           onClick={() => (window.location.href = '/onboarding')}
-                          className="px-6 py-3 bg-white text-indigo-600 font-bold rounded-xl hover:bg-indigo-50 transition-colors shadow-lg"
+                          className="px-6 py-3 bg-white text-brand-600 font-bold rounded-xl hover:bg-brand-50 transition-colors shadow-lg"
                         >
                           Criar Conta Agora
                         </button>
@@ -450,12 +450,12 @@ const ChatWeb: React.FC = () => {
                     {msg.opportunities.map((opp) => (
                       <div
                         key={opp.id}
-                        className="flex-shrink-0 w-72 bg-slate-100 dark:bg-slate-800/80 rounded-xl p-4 border border-slate-300 dark:border-slate-600"
+                        className="flex-shrink-0 w-72 bg-tower-100 dark:bg-tower-800/80 rounded-xl p-4 border border-tower-300 dark:border-tower-600"
                       >
-                        <div className="text-sm font-medium text-slate-900 dark:text-white mb-2">
+                        <div className="text-sm font-medium text-tower-900 dark:text-white mb-2">
                           {opp.origin} → {opp.destination}
                         </div>
-                        <div className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+                        <div className="text-xs text-tower-500 dark:text-tower-400 mb-3">
                           {opp.weight != null && <span>{opp.weight} kg</span>}
                           {opp.volumes != null && <span> • {opp.volumes} vol</span>}
                           {opp.nfValue != null && (
@@ -463,26 +463,26 @@ const ChatWeb: React.FC = () => {
                           )}
                         </div>
                         {opp.quoteBreakdown ? (
-                          <div className="space-y-1 text-xs border-t border-slate-300 dark:border-slate-600 pt-3 mb-3">
-                            <div className="flex justify-between text-slate-500 dark:text-slate-400">
+                          <div className="space-y-1 text-xs border-t border-tower-300 dark:border-tower-600 pt-3 mb-3">
+                            <div className="flex justify-between text-tower-500 dark:text-tower-400">
                               <span>Frete</span>
                               <span>R$ {opp.quoteBreakdown.freight.toFixed(2)}</span>
                             </div>
-                            <div className="flex justify-between text-slate-500 dark:text-slate-400">
+                            <div className="flex justify-between text-tower-500 dark:text-tower-400">
                               <span>GRIS</span>
                               <span>R$ {opp.quoteBreakdown.gris.toFixed(2)}</span>
                             </div>
-                            <div className="flex justify-between text-slate-500 dark:text-slate-400">
+                            <div className="flex justify-between text-tower-500 dark:text-tower-400">
                               <span>Ad Valorem</span>
                               <span>R$ {opp.quoteBreakdown.advalorem.toFixed(2)}</span>
                             </div>
                             {opp.quoteBreakdown.icms != null ? (
-                              <div className="flex justify-between text-slate-500 dark:text-slate-400">
+                              <div className="flex justify-between text-tower-500 dark:text-tower-400">
                                 <span>ICMS</span>
                                 <span>R$ {opp.quoteBreakdown.icms.toFixed(2)}</span>
                               </div>
                             ) : null}
-                            <div className="flex justify-between text-slate-900 dark:text-white font-semibold pt-2 border-t border-slate-300 dark:border-slate-600">
+                            <div className="flex justify-between text-tower-900 dark:text-white font-semibold pt-2 border-t border-tower-300 dark:border-tower-600">
                               <span>TOTAL</span>
                               <span>R$ {opp.quoteBreakdown.total.toFixed(2)}</span>
                             </div>
@@ -496,13 +496,13 @@ const ChatWeb: React.FC = () => {
                         <div className="flex gap-2">
                           <button
                             onClick={() => handleRequestCollection(opp)}
-                            className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-lg transition-colors"
+                            className="flex-1 py-2 bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium rounded-lg transition-colors"
                           >
                             🚛 Solicitar Coleta
                           </button>
                           <button
                             onClick={() => handleEdit(opp)}
-                            className="px-3 py-2 bg-slate-600 hover:bg-slate-500 text-white text-xs font-medium rounded-lg transition-colors"
+                            className="px-3 py-2 bg-tower-600 hover:bg-tower-500 text-white text-xs font-medium rounded-lg transition-colors"
                           >
                             📝 Editar
                           </button>
@@ -517,11 +517,11 @@ const ChatWeb: React.FC = () => {
 
           {isTyping ? (
               <div className="flex justify-start">
-              <div className="bg-slate-200 dark:bg-slate-700/80 rounded-2xl px-4 py-3">
+              <div className="bg-tower-200 dark:bg-tower-700/80 rounded-2xl px-4 py-3">
                 <div className="flex gap-1">
-                  <span className="w-2 h-2 bg-slate-500 dark:bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                  <span className="w-2 h-2 bg-slate-500 dark:bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                  <span className="w-2 h-2 bg-slate-500 dark:bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                  <span className="w-2 h-2 bg-tower-500 dark:bg-tower-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-2 h-2 bg-tower-500 dark:bg-tower-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-2 h-2 bg-tower-500 dark:bg-tower-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                 </div>
               </div>
             </div>
@@ -530,7 +530,7 @@ const ChatWeb: React.FC = () => {
       </div>
 
       {attachments.length > 0 ? (
-        <div className="flex-shrink-0 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/30 px-4 py-3">
+        <div className="flex-shrink-0 border-t border-tower-200 dark:border-tower-700 bg-tower-50 dark:bg-tower-800/30 px-4 py-3">
           <div className="max-w-3xl mx-auto flex gap-2 overflow-x-auto">
             {attachments.map((att, idx) => (
               <div key={idx} className="flex-shrink-0 relative">
@@ -549,8 +549,8 @@ const ChatWeb: React.FC = () => {
                     </button>
                   </div>
                 ) : (
-                  <div className="relative bg-slate-200 dark:bg-slate-700 rounded-lg p-3 min-w-[120px]">
-                    <div className="text-xs text-slate-700 dark:text-slate-300 truncate">{att.file.name}</div>
+                  <div className="relative bg-tower-200 dark:bg-tower-700 rounded-lg p-3 min-w-[120px]">
+                    <div className="text-xs text-tower-700 dark:text-tower-300 truncate">{att.file.name}</div>
                     <button
                       onClick={() => removeAttachment(idx)}
                       className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full text-xs hover:bg-red-600"
@@ -565,7 +565,7 @@ const ChatWeb: React.FC = () => {
         </div>
       ) : null}
 
-      <div className="flex-shrink-0 border-t border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/50 backdrop-blur-sm px-4 py-4">
+      <div className="flex-shrink-0 border-t border-tower-200 dark:border-tower-700 bg-white/80 dark:bg-tower-800/50 backdrop-blur-sm px-4 py-4">
         <div className="max-w-3xl mx-auto flex gap-3">
           <input
             ref={fileInputRef}
@@ -578,7 +578,7 @@ const ChatWeb: React.FC = () => {
           />
           <label
             htmlFor="file-input"
-            className="px-4 py-3 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-white rounded-xl cursor-pointer transition-colors flex items-center justify-center"
+            className="px-4 py-3 bg-tower-200 dark:bg-tower-700 hover:bg-tower-300 dark:hover:bg-tower-600 text-tower-800 dark:text-white rounded-xl cursor-pointer transition-colors flex items-center justify-center"
             title="Anexar (imagem, áudio, NF)"
           >
             📎
@@ -589,12 +589,12 @@ const ChatWeb: React.FC = () => {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
             placeholder="Digite sua mensagem..."
-            className="flex-1 bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-transparent rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+            className="flex-1 bg-tower-100 dark:bg-tower-700 border border-tower-200 dark:border-transparent rounded-xl px-4 py-3 text-tower-900 dark:text-white placeholder-tower-400 focus:ring-2 focus:ring-brand-500 focus:outline-none"
           />
           <button
             onClick={handleSend}
             disabled={(!input.trim() && !attachments.length) || isTyping}
-            className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
+            className="px-6 py-3 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
           >
             Enviar
           </button>

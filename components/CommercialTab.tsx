@@ -65,21 +65,21 @@ const SortableOpportunityCard: React.FC<{
         QUOTE: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200',
         FOLLOW_UP: 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-200',
         COLLECTION_REQUESTED: 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-200',
-        CONVERTED: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-200',
-        LOST: 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400',
+        CONVERTED: 'bg-brand-100 text-brand-700 dark:bg-brand-900/50 dark:text-brand-200',
+        LOST: 'bg-tower-100 text-tower-500 dark:bg-tower-700 dark:text-tower-400',
     };
 
     return (
         <div
             ref={setNodeRef}
             style={style}
-            className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 hover:shadow-md dark:hover:shadow-slate-900/20 transition-shadow flex gap-2"
+            className="bg-white dark:bg-tower-800 border border-tower-200 dark:border-tower-700 rounded-xl p-4 hover:shadow-md dark:hover:shadow-tower-900/20 transition-shadow flex gap-2"
         >
             <button
                 {...listeners}
                 {...attributes}
                 type="button"
-                className="shrink-0 p-1 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded cursor-grab active:cursor-grabbing touch-none"
+                className="shrink-0 p-1 text-tower-400 dark:text-tower-500 hover:text-tower-600 dark:hover:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-700 rounded cursor-grab active:cursor-grabbing touch-none"
                 aria-label="Arrastar"
             >
                 <span className="text-base leading-none select-none">⋮⋮</span>
@@ -93,16 +93,16 @@ const SortableOpportunityCard: React.FC<{
             >
                 <div className="flex justify-between items-start mb-3">
                     <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`px-2 py-1 rounded text-xs font-bold ${statusColors[opportunity.stage] || 'bg-slate-100'}`}>
+                        <span className={`px-2 py-1 rounded text-xs font-bold ${statusColors[opportunity.stage] || 'bg-tower-100'}`}>
                             {opportunity.stage}
                         </span>
-                        <span className="text-xs text-slate-400">
+                        <span className="text-xs text-tower-400">
                             {new Date(opportunity.createdAt).toLocaleDateString('pt-BR')}
                         </span>
                     </div>
                     {opportunity.quotedPrice && (
                         <div className="text-right">
-                            <div className="text-sm font-bold text-emerald-600">
+                            <div className="text-sm font-bold text-brand-600">
                                 R$ {opportunity.quotedPrice.toLocaleString()}
                             </div>
                         </div>
@@ -110,16 +110,16 @@ const SortableOpportunityCard: React.FC<{
                 </div>
 
                 <div className="mb-3">
-                    <div className="text-xs text-slate-400 uppercase font-bold mb-1">Rota</div>
-                    <div className="text-slate-800 dark:text-slate-200 font-medium text-sm">
+                    <div className="text-xs text-tower-400 uppercase font-bold mb-1">Rota</div>
+                    <div className="text-tower-800 dark:text-tower-200 font-medium text-sm">
                         {opportunity.origin || 'Não informado'} → {opportunity.destination || 'Não informado'}
                     </div>
                 </div>
 
                 <div className="mb-3">
-                    <div className="text-xs text-slate-400 uppercase font-bold mb-1">Carga</div>
-                    <div className="text-slate-600 dark:text-slate-400 text-xs">
-                        {opportunity.commodity && <span className="font-medium text-slate-700 dark:text-slate-300">{opportunity.commodity}</span>}
+                    <div className="text-xs text-tower-400 uppercase font-bold mb-1">Carga</div>
+                    <div className="text-tower-600 dark:text-tower-400 text-xs">
+                        {opportunity.commodity && <span className="font-medium text-tower-700 dark:text-tower-300">{opportunity.commodity}</span>}
                         {opportunity.commodity && (opportunity.weight || opportunity.volumes || opportunity.nfValue) && ' • '}
                         {opportunity.weight ? `${opportunity.weight}kg` : '-'} •
                         {opportunity.volumes ? ` ${opportunity.volumes} vol` : ' -'} •
@@ -128,7 +128,7 @@ const SortableOpportunityCard: React.FC<{
                 </div>
 
                 <div className="flex justify-end gap-2 border-t pt-3 mt-3">
-                    <span className="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 font-medium rounded-lg">
+                    <span className="px-3 py-1.5 text-xs text-tower-600 dark:text-tower-400 font-medium rounded-lg">
                         Ver Detalhes
                     </span>
                     {opportunity.stage === 'QUOTE' && opportunity.completeness === 'COMPLETE' && (
@@ -138,7 +138,7 @@ const SortableOpportunityCard: React.FC<{
                                 onConvert();
                             }}
                             disabled={converting}
-                            className="px-3 py-1.5 text-xs bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="px-3 py-1.5 text-xs bg-brand-600 text-white font-bold rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             {converting ? '...' : 'Gerar'}
                         </button>
@@ -169,8 +169,8 @@ const DroppableColumnInner: React.FC<{
     return (
         <div
             ref={setNodeRef}
-            className={`flex-shrink-0 w-80 bg-slate-50 dark:bg-slate-800 rounded-xl p-4 transition-colors ${
-                isOver ? 'bg-indigo-50 dark:bg-indigo-900/30 border-2 border-indigo-300 dark:border-indigo-600' : ''
+            className={`flex-shrink-0 w-80 bg-tower-50 dark:bg-tower-800 rounded-xl p-4 transition-colors ${
+                isOver ? 'bg-brand-50 dark:bg-brand-900/30 border-2 border-brand-300 dark:border-brand-600' : ''
             }`}
         >
             <div className="flex items-center justify-between mb-4">
@@ -178,7 +178,7 @@ const DroppableColumnInner: React.FC<{
                     <button
                         {...dragHandleProps}
                         type="button"
-                        className="shrink-0 p-1 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 rounded cursor-grab active:cursor-grabbing touch-none"
+                        className="shrink-0 p-1 text-tower-400 dark:text-tower-500 hover:text-tower-600 dark:hover:text-tower-300 hover:bg-tower-200 dark:hover:bg-tower-700 rounded cursor-grab active:cursor-grabbing touch-none"
                         aria-label="Arrastar coluna"
                     >
                         <span className="text-sm leading-none select-none">⋮⋮</span>
@@ -187,12 +187,12 @@ const DroppableColumnInner: React.FC<{
                         className="w-3 h-3 rounded-full shrink-0"
                         style={{ backgroundColor: column.color }}
                     />
-                    <h3 className="font-bold text-slate-800 dark:text-slate-200">{column.name}</h3>
-                    <span className="text-xs text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-700 px-2 py-0.5 rounded-full">
+                    <h3 className="font-bold text-tower-800 dark:text-tower-200">{column.name}</h3>
+                    <span className="text-xs text-tower-500 dark:text-tower-400 bg-white dark:bg-tower-700 px-2 py-0.5 rounded-full">
                         {columnOpportunities.length}
                     </span>
                 </div>
-                <button className="text-slate-400 hover:text-slate-600 text-xs">⚙️</button>
+                <button className="text-tower-400 hover:text-tower-600 text-xs">⚙️</button>
             </div>
 
             <SortableContext
@@ -210,7 +210,7 @@ const DroppableColumnInner: React.FC<{
                         />
                     ))}
                     {columnOpportunities.length === 0 && (
-                        <div className="text-center py-8 text-slate-400 dark:text-slate-500 text-sm border-2 border-dashed border-slate-200 dark:border-slate-600 rounded-lg">
+                        <div className="text-center py-8 text-tower-400 dark:text-tower-500 text-sm border-2 border-dashed border-tower-200 dark:border-tower-600 rounded-lg">
                             Arraste oportunidades aqui
                         </div>
                     )}
@@ -394,14 +394,14 @@ const CommercialTab: React.FC<{ forceSubTab?: CommercialSubTab }> = ({ forceSubT
     return (
         <div>
             {!forceSubTab && (
-            <div className="flex border-b border-slate-200 mb-6">
+            <div className="flex border-b border-tower-200 mb-6">
                 <button
                     type="button"
                     onClick={() => setCommercialSubTab('pipeline')}
                     className={`px-4 py-2 font-medium text-sm border-b-2 transition-colors ${
                         commercialSubTab === 'pipeline'
-                            ? 'border-indigo-600 text-indigo-600'
-                            : 'border-transparent text-slate-500 hover:text-slate-700'
+                            ? 'border-brand-600 text-brand-600'
+                            : 'border-transparent text-tower-500 hover:text-tower-700'
                     }`}
                 >
                     Pipeline
@@ -411,8 +411,8 @@ const CommercialTab: React.FC<{ forceSubTab?: CommercialSubTab }> = ({ forceSubT
                     onClick={() => setCommercialSubTab('tarifas')}
                     className={`px-4 py-2 font-medium text-sm border-b-2 transition-colors ${
                         commercialSubTab === 'tarifas'
-                            ? 'border-indigo-600 text-indigo-600'
-                            : 'border-transparent text-slate-500 hover:text-slate-700'
+                            ? 'border-brand-600 text-brand-600'
+                            : 'border-transparent text-tower-500 hover:text-tower-700'
                     }`}
                 >
                     Tarifas
@@ -426,12 +426,12 @@ const CommercialTab: React.FC<{ forceSubTab?: CommercialSubTab }> = ({ forceSubT
         <>
             {loading ? (
                 <div className="flex items-center justify-center py-12">
-                    <div className="text-center text-slate-500">Carregando pipeline...</div>
+                    <div className="text-center text-tower-500">Carregando pipeline...</div>
                 </div>
             ) : (
         <>
             <div className="flex justify-between items-center mb-6">
-                <h2 className="text-lg font-bold text-slate-700">Pipeline de Oportunidades</h2>
+                <h2 className="text-lg font-bold text-tower-700">Pipeline de Oportunidades</h2>
                 <div className="flex gap-2">
                     <button
                         onClick={async () => {
@@ -445,11 +445,11 @@ const CommercialTab: React.FC<{ forceSubTab?: CommercialSubTab }> = ({ forceSubT
                                 setError('Erro ao criar coluna');
                             }
                         }}
-                        className="px-4 py-2 text-sm bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700"
+                        className="px-4 py-2 text-sm bg-brand-600 text-white font-bold rounded-lg hover:bg-brand-700"
                     >
                         + Nova Coluna
                     </button>
-                    <button onClick={loadData} className="px-4 py-2 text-sm text-slate-600 font-medium hover:bg-slate-100 rounded-lg">
+                    <button onClick={loadData} className="px-4 py-2 text-sm text-tower-600 font-medium hover:bg-tower-100 rounded-lg">
                         ↻ Atualizar
                     </button>
                 </div>
@@ -462,7 +462,7 @@ const CommercialTab: React.FC<{ forceSubTab?: CommercialSubTab }> = ({ forceSubT
             )}
 
             {success && (
-                <div className="mb-4 bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-xl">
+                <div className="mb-4 bg-brand-50 border border-brand-200 text-brand-800 px-4 py-3 rounded-xl">
                     {success}
                 </div>
             )}
@@ -493,7 +493,7 @@ const CommercialTab: React.FC<{ forceSubTab?: CommercialSubTab }> = ({ forceSubT
 
                 <DragOverlay>
                     {activeId ? (
-                        <div className="bg-white border border-slate-200 rounded-xl p-4 opacity-90 shadow-lg">
+                        <div className="bg-white border border-tower-200 rounded-xl p-4 opacity-90 shadow-lg">
                             Arrastando...
                         </div>
                     ) : null}

@@ -59,7 +59,7 @@ export const DocumentInput: React.FC<DocumentInputProps> = ({
   return (
     <div className="space-y-1">
       {label && (
-        <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">{label}</label>
+        <label className="block text-sm font-medium text-tower-600 dark:text-tower-300 mb-1">{label}</label>
       )}
       <div className="flex gap-2 items-start">
         <input
@@ -69,14 +69,14 @@ export const DocumentInput: React.FC<DocumentInputProps> = ({
           onChange={handleChange}
           placeholder={placeholder}
           disabled={disabled}
-          className={className || 'w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl flex-1 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500'}
+          className={className || 'w-full p-3 bg-tower-50 dark:bg-tower-700 border border-tower-200 dark:border-tower-600 rounded-xl flex-1 text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500'}
         />
         {canImport && (
           <button
             type="button"
             onClick={handleImport}
             disabled={importLoading}
-            className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap"
+            className="px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50 whitespace-nowrap"
           >
             {importLoading ? 'Consultando...' : 'Importar'}
           </button>

@@ -100,13 +100,13 @@ export const OrderFreightCalculationSection: React.FC<OrderFreightCalculationSec
       )}
 
       {/* Painel Parâmetros */}
-      <div className="bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-lg p-4">
-        <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">Parâmetros do Pedido</h4>
+      <div className="bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-lg p-4">
+        <h4 className="text-sm font-semibold text-tower-700 dark:text-tower-200 mb-2">Parâmetros do Pedido</h4>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-          <div><span className="text-slate-500 dark:text-slate-400">Volumes:</span> {params.volumes}</div>
-          <div><span className="text-slate-500 dark:text-slate-400">Peso (kg):</span> {params.weight.toFixed(2)}</div>
-          <div><span className="text-slate-500 dark:text-slate-400">Cubagem (m³):</span> {params.cubage?.toFixed(3) ?? '-'}</div>
-          <div><span className="text-slate-500 dark:text-slate-400">Valor NF:</span> R$ {params.nfValue.toFixed(2)}</div>
+          <div><span className="text-tower-500 dark:text-tower-400">Volumes:</span> {params.volumes}</div>
+          <div><span className="text-tower-500 dark:text-tower-400">Peso (kg):</span> {params.weight.toFixed(2)}</div>
+          <div><span className="text-tower-500 dark:text-tower-400">Cubagem (m³):</span> {params.cubage?.toFixed(3) ?? '-'}</div>
+          <div><span className="text-tower-500 dark:text-tower-400">Valor NF:</span> R$ {params.nfValue.toFixed(2)}</div>
         </div>
       </div>
 
@@ -149,7 +149,7 @@ export const OrderFreightCalculationSection: React.FC<OrderFreightCalculationSec
         <button
           type="button"
           onClick={() => setAddingNew(true)}
-          className="w-full py-3 border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg text-slate-600 dark:text-slate-400 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors font-medium"
+          className="w-full py-3 border-2 border-dashed border-tower-300 dark:border-tower-600 rounded-lg text-tower-600 dark:text-tower-400 hover:border-brand-400 hover:text-brand-600 dark:hover:text-brand-400 transition-colors font-medium"
         >
           + Adicionar cálculo
         </button>
@@ -296,11 +296,11 @@ function OrderFreightCard({
   }
 
   return (
-    <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl p-4">
+    <div className="bg-white dark:bg-tower-800 border border-tower-200 dark:border-tower-600 rounded-xl p-4">
       <div className="flex justify-between items-start">
         <div>
-          <span className="font-semibold text-slate-800 dark:text-slate-100">{headerLabel} - {emissorLabel}</span>
-          <span className="ml-2 px-2 py-0.5 rounded text-xs bg-slate-100 dark:bg-slate-600 text-slate-600 dark:text-slate-300">
+          <span className="font-semibold text-tower-800 dark:text-tower-100">{headerLabel} - {emissorLabel}</span>
+          <span className="ml-2 px-2 py-0.5 rounded text-xs bg-tower-100 dark:bg-tower-600 text-tower-600 dark:text-tower-300">
             {calc.status}
           </span>
         </div>
@@ -310,7 +310,7 @@ function OrderFreightCard({
               type="button"
               onClick={handleCalculate}
               disabled={calculating}
-              className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+              className="px-3 py-1.5 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
             >
               {calculating ? 'Calculando...' : 'Calcular'}
             </button>
@@ -320,7 +320,7 @@ function OrderFreightCard({
               type="button"
               onClick={handleEmitMinuta}
               disabled={emittingMinuta}
-              className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+              className="px-3 py-1.5 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
             >
               {emittingMinuta ? 'Emitindo...' : 'Emitir Minuta'}
             </button>
@@ -330,7 +330,7 @@ function OrderFreightCard({
               type="button"
               onClick={handleEmitCte}
               disabled={emittingCte}
-              className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+              className="px-3 py-1.5 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
             >
               {emittingCte ? 'Emitindo...' : 'Emitir CT-e'}
             </button>
@@ -338,7 +338,7 @@ function OrderFreightCard({
           <button
             type="button"
             onClick={onEdit}
-            className="px-3 py-1.5 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"
+            className="px-3 py-1.5 text-sm text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-700 rounded-lg"
           >
             Editar
           </button>
@@ -352,33 +352,33 @@ function OrderFreightCard({
           </button>
         </div>
       </div>
-      <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+      <div className="mt-2 text-sm text-tower-600 dark:text-tower-300">
         Método: {calc.calculationMethod === 'ESPECIAL' ? 'Especial' : calc.calculationMethod === 'TARIFA_GERAL' ? 'Tarifa Geral' : 'Informado'}
         {calc.pricingTable && ` · Tabela: ${calc.pricingTable.description}`}
       </div>
       {calc.freightTotal > 0 && (
         <div className="mt-2 flex items-center gap-4 flex-wrap">
-          <span className="text-lg font-bold text-emerald-600 dark:text-emerald-400">R$ {calc.freightTotal.toFixed(2)}</span>
+          <span className="text-lg font-bold text-brand-600 dark:text-brand-400">R$ {calc.freightTotal.toFixed(2)}</span>
           {calc.breakdown && Object.entries(calc.breakdown).map(([k, v]) => (
-            v > 0 && <span key={k} className="text-xs text-slate-500 dark:text-slate-400">{BREAKDOWN_LABELS[k] ?? k}: R$ {Number(v).toFixed(2)}</span>
+            v > 0 && <span key={k} className="text-xs text-tower-500 dark:text-tower-400">{BREAKDOWN_LABELS[k] ?? k}: R$ {Number(v).toFixed(2)}</span>
           ))}
         </div>
       )}
       {(calc.minutaNumber || calc.cteAccessKey) && (
-        <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-600 text-sm">
+        <div className="mt-2 pt-2 border-t border-tower-200 dark:border-tower-600 text-sm">
           {calc.minutaNumber && (
-            <div className="text-slate-600 dark:text-slate-300">
+            <div className="text-tower-600 dark:text-tower-300">
               <span className="font-medium">Minuta nº</span> {calc.minutaNumber}
             </div>
           )}
           {calc.cteAccessKey && (
-            <div className="text-slate-600 dark:text-slate-300 mt-1">
+            <div className="text-tower-600 dark:text-tower-300 mt-1">
               <span className="font-medium">Chave CT-e:</span>{' '}
               <span className="font-mono text-xs break-all">{calc.cteAccessKey}</span>
             </div>
           )}
           {calc.cteProtocol && (
-            <div className="text-slate-600 dark:text-slate-300 mt-0.5">
+            <div className="text-tower-600 dark:text-tower-300 mt-0.5">
               <span className="font-medium">Protocolo:</span> {calc.cteProtocol}
             </div>
           )}
@@ -601,19 +601,19 @@ function OrderFreightForm({
   };
 
   return (
-    <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl p-6">
-      <h4 className="font-semibold text-slate-800 dark:text-slate-100 mb-4">
+    <div className="bg-white dark:bg-tower-800 border border-tower-200 dark:border-tower-600 rounded-xl p-6">
+      <h4 className="font-semibold text-tower-800 dark:text-tower-100 mb-4">
         {calc ? 'Editar cálculo' : 'Novo cálculo de frete'}
       </h4>
       {err && <p className="text-red-600 dark:text-red-400 text-sm mb-4">{err}</p>}
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Emissor (Hub) *</label>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Emissor (Hub) *</label>
             <select
               value={form.emissorId}
               onChange={(e) => setForm((f) => ({ ...f, emissorId: e.target.value }))}
-              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100"
               required
             >
               <option value="">Selecione</option>
@@ -628,7 +628,7 @@ function OrderFreightForm({
             )}
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Documento</label>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Documento</label>
             <div className="flex gap-4 pt-2">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
@@ -652,34 +652,34 @@ function OrderFreightForm({
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Início prestação</label>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Início prestação</label>
             <input
               type="text"
               value={form.originCity}
               onChange={(e) => setForm((f) => ({ ...f, originCity: e.target.value }))}
               placeholder="Ex: São Paulo, SP"
-              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700"
+              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Fim prestação</label>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Fim prestação</label>
             <input
               type="text"
               value={form.destCity}
               onChange={(e) => setForm((f) => ({ ...f, destCity: e.target.value }))}
               placeholder="Ex: Imperatriz, MA"
-              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700"
+              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700"
             />
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">CFOP</label>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">CFOP</label>
             <select
               value={form.cfop}
               onChange={(e) => setForm((f) => ({ ...f, cfop: e.target.value }))}
-              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700"
+              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700"
             >
               <option value="">Selecione</option>
               {CFOP_OPTIONS.map((c) => (
@@ -688,11 +688,11 @@ function OrderFreightForm({
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Tipo Frete</label>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Tipo Frete</label>
             <select
               value={form.tipoFrete}
               onChange={(e) => setForm((f) => ({ ...f, tipoFrete: e.target.value }))}
-              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700"
+              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700"
             >
               {TIPO_FRETE_OPTIONS.map((t) => (
                 <option key={t} value={t}>{t}</option>
@@ -702,7 +702,7 @@ function OrderFreightForm({
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Método de cálculo</label>
+          <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Método de cálculo</label>
           <div className="flex flex-wrap gap-6">
             {(['ESPECIAL', 'TARIFA_GERAL', 'INFORMADO'] as const).map((m) => (
               <label key={m} className="flex items-center gap-2 cursor-pointer">
@@ -724,11 +724,11 @@ function OrderFreightForm({
 
         {form.calculationMethod === 'ESPECIAL' && (
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Tabela (tarifa do pagador)</label>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Tabela (tarifa do pagador)</label>
             <select
               value={form.pricingTableId}
               onChange={(e) => setForm((f) => ({ ...f, pricingTableId: e.target.value }))}
-              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700"
+              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700"
             >
               <option value="">Selecione uma tarifa</option>
               {specialTables.map((t) => (
@@ -744,11 +744,11 @@ function OrderFreightForm({
         {form.calculationMethod === 'TARIFA_GERAL' && (
           <div className="space-y-3">
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Rota</label>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Rota</label>
               <select
                 value={form.routeId}
                 onChange={(e) => setForm((f) => ({ ...f, routeId: e.target.value, pricingTableId: '' }))}
-                className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700"
+                className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700"
               >
                 <option value="">Selecione a rota</option>
                 {routes.filter((r) => r.active !== false).map((r) => (
@@ -759,11 +759,11 @@ function OrderFreightForm({
 
             {form.routeId && generalTables.length > 0 && (
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Tabela da rota</label>
+                <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Tabela da rota</label>
                 <select
                   value={form.pricingTableId}
                   onChange={(e) => setForm((f) => ({ ...f, pricingTableId: e.target.value }))}
-                  className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700"
+                  className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700"
                 >
                   <option value="">Auto (maior prioridade)</option>
                   {generalTables.map((t) => (
@@ -779,19 +779,19 @@ function OrderFreightForm({
             )}
 
             {preview && (
-              <div className="bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-700 rounded-lg p-3">
-                <h5 className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 mb-2">
+              <div className="bg-brand-50 dark:bg-brand-900/30 border border-brand-200 dark:border-brand-700 rounded-lg p-3">
+                <h5 className="text-xs font-semibold text-brand-700 dark:text-brand-300 mb-2">
                   {`Prévia${preview.tableName ? ` · ${preview.tableName}` : ''}`}
                 </h5>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
                   {Object.entries(preview.breakdown).map(([k, v]) =>
                     Number(v) > 0 ? (
-                      <span key={k} className="text-slate-600 dark:text-slate-300">
+                      <span key={k} className="text-tower-600 dark:text-tower-300">
                         {BREAKDOWN_LABELS[k] ?? k}: <strong>R$ {Number(v).toFixed(2)}</strong>
                       </span>
                     ) : null
                   )}
-                  <span className="text-indigo-700 dark:text-indigo-200 font-bold">
+                  <span className="text-brand-700 dark:text-brand-200 font-bold">
                     Total: R$ {preview.total.toFixed(2)}
                   </span>
                 </div>
@@ -806,7 +806,7 @@ function OrderFreightForm({
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {Object.entries(BREAKDOWN_LABELS).map(([key, label]) => (
                 <div key={key}>
-                  <label className="block text-xs text-slate-600 dark:text-slate-400">{label}</label>
+                  <label className="block text-xs text-tower-600 dark:text-tower-400">{label}</label>
                   <input
                     type="number"
                     step="0.01"
@@ -816,35 +816,35 @@ function OrderFreightForm({
                       ...f,
                       breakdown: { ...f.breakdown, [key]: Number(e.target.value) || 0 },
                     }))}
-                    className="w-full border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-sm"
+                    className="w-full border border-tower-300 dark:border-tower-600 rounded px-2 py-1 text-sm"
                   />
                 </div>
               ))}
             </div>
-            <p className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+            <p className="mt-2 text-sm font-semibold text-tower-700 dark:text-tower-200">
               Total: R$ {form.freightTotal.toFixed(2)}
             </p>
           </div>
         )}
 
         <div>
-          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">CST</label>
+          <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">CST</label>
           <input
             type="text"
             value={form.cst}
             onChange={(e) => setForm((f) => ({ ...f, cst: e.target.value }))}
             placeholder="CST"
-            className="w-full max-w-xs border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700"
+            className="w-full max-w-xs border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Observações</label>
+          <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Observações</label>
           <textarea
             value={form.observacoes}
             onChange={(e) => setForm((f) => ({ ...f, observacoes: e.target.value }))}
             rows={2}
-            className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-700"
+            className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700"
           />
         </div>
 
@@ -852,14 +852,14 @@ function OrderFreightForm({
           <button
             type="submit"
             disabled={saving}
-            className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+            className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
           >
             {saving ? 'Salvando...' : 'Salvar'}
           </button>
           <button
             type="button"
             onClick={onCancel}
-            className="px-4 py-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"
+            className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-700 rounded-lg"
           >
             Cancelar
           </button>

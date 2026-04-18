@@ -262,18 +262,18 @@ export const OrderColetaForm: React.FC<OrderColetaFormProps> = ({ orderId, order
         <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">{error}</div>
       )}
       {success && (
-        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700 text-sm">
+        <div className="p-4 bg-brand-50 border border-brand-200 rounded-xl text-brand-700 text-sm">
           {success}
         </div>
       )}
 
       <div>
-        <h3 className="text-sm font-semibold text-slate-700 mb-3">Contatos do remetente (no local)</h3>
+        <h3 className="text-sm font-semibold text-tower-700 mb-3">Contatos do remetente (no local)</h3>
         <div className="space-y-4">
           {form.senderContacts.map((contact, idx) => (
-            <div key={idx} className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+            <div key={idx} className="bg-tower-50 rounded-xl p-4 border border-tower-200">
               <div className="flex justify-between items-center mb-3">
-                <span className="text-sm font-medium text-slate-700">Contato {idx + 1}</span>
+                <span className="text-sm font-medium text-tower-700">Contato {idx + 1}</span>
                 {form.senderContacts.length > 1 && (
                   <button
                     type="button"
@@ -286,7 +286,7 @@ export const OrderColetaForm: React.FC<OrderColetaFormProps> = ({ orderId, order
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Nome *</label>
+                  <label className="block text-xs font-medium text-tower-500 mb-1">Nome *</label>
                   <input
                     type="text"
                     value={contact.name}
@@ -295,11 +295,11 @@ export const OrderColetaForm: React.FC<OrderColetaFormProps> = ({ orderId, order
                       newContacts[idx] = { ...contact, name: e.target.value };
                       update({ senderContacts: newContacts });
                     }}
-                    className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+                    className="w-full p-2 border border-tower-200 rounded-lg text-sm"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Telefone *</label>
+                  <label className="block text-xs font-medium text-tower-500 mb-1">Telefone *</label>
                   <input
                     type="text"
                     value={maskPhone(contact.phone)}
@@ -308,11 +308,11 @@ export const OrderColetaForm: React.FC<OrderColetaFormProps> = ({ orderId, order
                       newContacts[idx] = { ...contact, phone: e.target.value.replace(/\D/g, '') };
                       update({ senderContacts: newContacts });
                     }}
-                    className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+                    className="w-full p-2 border border-tower-200 rounded-lg text-sm"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">E-mail</label>
+                  <label className="block text-xs font-medium text-tower-500 mb-1">E-mail</label>
                   <input
                     type="email"
                     value={contact.email}
@@ -321,7 +321,7 @@ export const OrderColetaForm: React.FC<OrderColetaFormProps> = ({ orderId, order
                       newContacts[idx] = { ...contact, email: e.target.value };
                       update({ senderContacts: newContacts });
                     }}
-                    className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+                    className="w-full p-2 border border-tower-200 rounded-lg text-sm"
                   />
                 </div>
               </div>
@@ -330,28 +330,28 @@ export const OrderColetaForm: React.FC<OrderColetaFormProps> = ({ orderId, order
           <button
             type="button"
             onClick={() => update({ senderContacts: [...form.senderContacts, emptySenderContact()] })}
-            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-medium"
+            className="px-4 py-2 bg-tower-100 hover:bg-tower-200 text-tower-700 rounded-lg text-sm font-medium"
           >
             + Adicionar contato
           </button>
         </div>
         <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Horário disponível</label>
+            <label className="block text-xs font-medium text-tower-500 mb-1">Horário disponível</label>
             <input
               type="text"
               value={form.pickupAvailableTime}
               onChange={(e) => update({ pickupAvailableTime: e.target.value })}
-              className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+              className="w-full p-2 border border-tower-200 rounded-lg text-sm"
               placeholder="Ex: 8h às 18h"
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Observações</label>
+            <label className="block text-xs font-medium text-tower-500 mb-1">Observações</label>
             <textarea
               value={form.pickupNotes}
               onChange={(e) => update({ pickupNotes: e.target.value })}
-              className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+              className="w-full p-2 border border-tower-200 rounded-lg text-sm"
               rows={2}
               placeholder="Observações sobre o local da coleta"
             />
@@ -360,61 +360,61 @@ export const OrderColetaForm: React.FC<OrderColetaFormProps> = ({ orderId, order
       </div>
 
       <div>
-        <h3 className="text-sm font-semibold text-slate-700 mb-3">Endereço de coleta</h3>
+        <h3 className="text-sm font-semibold text-tower-700 mb-3">Endereço de coleta</h3>
         <div className="space-y-4">
           <div className="max-w-[180px]">
-            <label className="block text-xs font-medium text-slate-500 mb-1">CEP</label>
+            <label className="block text-xs font-medium text-tower-500 mb-1">CEP</label>
             <input
               type="text"
               value={form.addressCep}
               onChange={(e) => update({ addressCep: maskCep(e.target.value) })}
-              className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+              className="w-full p-2 border border-tower-200 rounded-lg text-sm"
               placeholder="00000-000"
               maxLength={9}
             />
-            {cepLoading && <span className="text-xs text-slate-500">Buscando...</span>}
+            {cepLoading && <span className="text-xs text-tower-500">Buscando...</span>}
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="md:col-span-2">
-              <label className="block text-xs font-medium text-slate-500 mb-1">Endereço *</label>
+              <label className="block text-xs font-medium text-tower-500 mb-1">Endereço *</label>
               <input
                 type="text"
                 value={form.addressStreet}
                 onChange={(e) => update({ addressStreet: e.target.value })}
-                className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+                className="w-full p-2 border border-tower-200 rounded-lg text-sm"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Número *</label>
+              <label className="block text-xs font-medium text-tower-500 mb-1">Número *</label>
               <input
                 type="text"
                 value={form.addressNumber}
                 onChange={(e) => update({ addressNumber: e.target.value })}
-                className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+                className="w-full p-2 border border-tower-200 rounded-lg text-sm"
               />
             </div>
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Complemento</label>
+            <label className="block text-xs font-medium text-tower-500 mb-1">Complemento</label>
             <input
               type="text"
               value={form.addressComplement}
               onChange={(e) => update({ addressComplement: e.target.value })}
-              className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+              className="w-full p-2 border border-tower-200 rounded-lg text-sm"
             />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Bairro</label>
+              <label className="block text-xs font-medium text-tower-500 mb-1">Bairro</label>
               <input
                 type="text"
                 value={form.addressNeighborhood}
                 onChange={(e) => update({ addressNeighborhood: e.target.value })}
-                className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+                className="w-full p-2 border border-tower-200 rounded-lg text-sm"
               />
             </div>
             <div className="md:col-span-2">
-              <label className="block text-xs font-medium text-slate-500 mb-1">Cidade / UF</label>
+              <label className="block text-xs font-medium text-tower-500 mb-1">Cidade / UF</label>
               <CityAutocomplete
                 value={
                   form.addressCity && form.addressState
@@ -428,16 +428,16 @@ export const OrderColetaForm: React.FC<OrderColetaFormProps> = ({ orderId, order
                 }}
                 onSelect={(city, state) => update({ addressCity: city, addressState: state })}
                 placeholder="Ex: São Paulo, SP"
-                className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+                className="w-full p-2 border border-tower-200 rounded-lg text-sm"
               />
             </div>
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Ponto de referência</label>
+            <label className="block text-xs font-medium text-tower-500 mb-1">Ponto de referência</label>
             <textarea
               value={form.addressReferencePoint}
               onChange={(e) => update({ addressReferencePoint: e.target.value })}
-              className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+              className="w-full p-2 border border-tower-200 rounded-lg text-sm"
               rows={2}
               placeholder="Detalhes para localização"
             />
@@ -446,37 +446,37 @@ export const OrderColetaForm: React.FC<OrderColetaFormProps> = ({ orderId, order
       </div>
 
       <div>
-        <h3 className="text-sm font-semibold text-slate-700 mb-3">Mercadoria</h3>
+        <h3 className="text-sm font-semibold text-tower-700 mb-3">Mercadoria</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="md:col-span-2">
-            <label className="block text-xs font-medium text-slate-500 mb-1">O que é a mercadoria</label>
+            <label className="block text-xs font-medium text-tower-500 mb-1">O que é a mercadoria</label>
             <input
               type="text"
               value={form.commodity}
               onChange={(e) => update({ commodity: e.target.value })}
-              className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+              className="w-full p-2 border border-tower-200 rounded-lg text-sm"
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Peso (kg)</label>
+            <label className="block text-xs font-medium text-tower-500 mb-1">Peso (kg)</label>
             <input
               type="number"
               min={0.1}
               step={0.1}
               value={form.weight}
               onChange={(e) => update({ weight: e.target.value })}
-              className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+              className="w-full p-2 border border-tower-200 rounded-lg text-sm"
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Valor da NF (R$)</label>
+            <label className="block text-xs font-medium text-tower-500 mb-1">Valor da NF (R$)</label>
             <input
               type="number"
               min={0}
               step={0.01}
               value={form.nfValue}
               onChange={(e) => update({ nfValue: e.target.value })}
-              className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+              className="w-full p-2 border border-tower-200 rounded-lg text-sm"
             />
           </div>
         </div>
@@ -503,10 +503,10 @@ export const OrderColetaForm: React.FC<OrderColetaFormProps> = ({ orderId, order
       </div>
 
       <div>
-        <h3 className="text-sm font-semibold text-slate-700 mb-3">Volumes</h3>
+        <h3 className="text-sm font-semibold text-tower-700 mb-3">Volumes</h3>
         <div className="space-y-3">
           {form.volumesList.map((vol, volIdx) => (
-            <div key={volIdx} className="flex flex-wrap gap-3 items-center bg-slate-50 p-3 rounded-lg">
+            <div key={volIdx} className="flex flex-wrap gap-3 items-center bg-tower-50 p-3 rounded-lg">
               <input
                 type="number"
                 min={1}
@@ -517,7 +517,7 @@ export const OrderColetaForm: React.FC<OrderColetaFormProps> = ({ orderId, order
                   newList[volIdx] = { ...vol, qty: parseInt(e.target.value, 10) || 0 };
                   update({ volumesList: newList });
                 }}
-                className="w-16 p-2 border border-slate-200 rounded-lg text-sm"
+                className="w-16 p-2 border border-tower-200 rounded-lg text-sm"
               />
               <input
                 type="number"
@@ -530,7 +530,7 @@ export const OrderColetaForm: React.FC<OrderColetaFormProps> = ({ orderId, order
                   newList[volIdx] = { ...vol, altura: parseFloat(e.target.value) || 0 };
                   update({ volumesList: newList });
                 }}
-                className="w-20 p-2 border border-slate-200 rounded-lg text-sm"
+                className="w-20 p-2 border border-tower-200 rounded-lg text-sm"
               />
               <input
                 type="number"
@@ -543,7 +543,7 @@ export const OrderColetaForm: React.FC<OrderColetaFormProps> = ({ orderId, order
                   newList[volIdx] = { ...vol, largura: parseFloat(e.target.value) || 0 };
                   update({ volumesList: newList });
                 }}
-                className="w-20 p-2 border border-slate-200 rounded-lg text-sm"
+                className="w-20 p-2 border border-tower-200 rounded-lg text-sm"
               />
               <input
                 type="number"
@@ -556,7 +556,7 @@ export const OrderColetaForm: React.FC<OrderColetaFormProps> = ({ orderId, order
                   newList[volIdx] = { ...vol, comprimento: parseFloat(e.target.value) || 0 };
                   update({ volumesList: newList });
                 }}
-                className="w-20 p-2 border border-slate-200 rounded-lg text-sm"
+                className="w-20 p-2 border border-tower-200 rounded-lg text-sm"
               />
               {form.volumesList.length > 1 && (
                 <button
@@ -583,7 +583,7 @@ export const OrderColetaForm: React.FC<OrderColetaFormProps> = ({ orderId, order
                 ],
               })
             }
-            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm"
+            className="px-4 py-2 bg-tower-100 hover:bg-tower-200 text-tower-700 rounded-lg text-sm"
           >
             + Adicionar volume
           </button>
@@ -593,7 +593,7 @@ export const OrderColetaForm: React.FC<OrderColetaFormProps> = ({ orderId, order
       <button
         type="submit"
         disabled={saving}
-        className="px-6 py-3 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+        className="px-6 py-3 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50"
       >
         {saving ? 'Salvando...' : 'Salvar dados de coleta'}
       </button>

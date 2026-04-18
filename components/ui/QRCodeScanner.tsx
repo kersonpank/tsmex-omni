@@ -116,14 +116,14 @@ const QRCodeScanner: React.FC<QRCodeScannerProps> = ({ onScan, onClose }) => {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center p-4">
-      <div className="bg-white dark:bg-slate-800 rounded-2xl overflow-hidden w-full max-w-sm">
+      <div className="bg-white dark:bg-tower-800 rounded-2xl overflow-hidden w-full max-w-sm">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
-          <h3 className="font-semibold text-slate-900 dark:text-white">Escanear DANFE</h3>
+        <div className="flex items-center justify-between p-4 border-b border-tower-200 dark:border-tower-700">
+          <h3 className="font-semibold text-tower-900 dark:text-white">Escanear DANFE</h3>
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+            className="text-tower-400 hover:text-tower-600 p-1 rounded-lg"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -132,7 +132,7 @@ const QRCodeScanner: React.FC<QRCodeScannerProps> = ({ onScan, onClose }) => {
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-slate-200 dark:border-slate-700">
+        <div className="flex border-b border-tower-200 dark:border-tower-700">
           {(['barcode', 'qr'] as const).map(m => (
             <button
               key={m}
@@ -140,8 +140,8 @@ const QRCodeScanner: React.FC<QRCodeScannerProps> = ({ onScan, onClose }) => {
               onClick={() => switchMode(m)}
               className={`flex-1 py-2.5 text-sm font-medium transition-colors ${
                 mode === m
-                  ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 border-b-2 border-indigo-600'
-                  : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'
+                  ? 'bg-brand-50 dark:bg-brand-900/30 text-brand-700 dark:text-brand-300 border-b-2 border-brand-600'
+                  : 'text-tower-500 dark:text-tower-400 hover:bg-tower-50 dark:hover:bg-tower-700'
               }`}
             >
               {m === 'barcode' ? '▬ Código de Barras' : '⬛ QR Code'}
@@ -157,7 +157,7 @@ const QRCodeScanner: React.FC<QRCodeScannerProps> = ({ onScan, onClose }) => {
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 bg-slate-100 dark:bg-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300"
+                className="px-4 py-2 bg-tower-100 dark:bg-tower-700 rounded-lg text-sm font-medium text-tower-700 dark:text-tower-300"
               >
                 Fechar
               </button>
@@ -195,12 +195,12 @@ const QRCodeScanner: React.FC<QRCodeScannerProps> = ({ onScan, onClose }) => {
             <button
               type="button"
               onClick={decodeFrame}
-              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold transition-colors"
+              className="w-full py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold transition-colors"
             >
               📷 Capturar agora
             </button>
 
-            <p className="text-center text-xs text-slate-500 dark:text-slate-400">
+            <p className="text-center text-xs text-tower-500 dark:text-tower-400">
               {mode === 'barcode'
                 ? <>Centralize o <strong>código de barras</strong> na faixa. O scanner tenta automaticamente a cada 200ms. Use <strong>Capturar agora</strong> para forçar a leitura.</>
                 : <>Aponte para o <strong>QR Code</strong> e aguarde ou use <strong>Capturar agora</strong>.</>

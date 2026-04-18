@@ -490,7 +490,7 @@ export default function FormCotacao() {
   if (loading) {
     return (
       <div className="max-w-3xl mx-auto py-12 px-4">
-        <div className="text-center text-slate-500 dark:text-slate-400">Carregando...</div>
+        <div className="text-center text-tower-500 dark:text-tower-400">Carregando...</div>
       </div>
     );
   }
@@ -501,7 +501,7 @@ export default function FormCotacao() {
         <div className="bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-2xl p-6 text-amber-800 dark:text-amber-200">
           {error}
           <div className="mt-4">
-            <Link to="/client" className="text-indigo-600 dark:text-indigo-400 font-medium hover:underline">Ir para o Dashboard</Link>
+            <Link to="/client" className="text-brand-600 dark:text-brand-400 font-medium hover:underline">Ir para o Dashboard</Link>
           </div>
         </div>
       </div>
@@ -512,12 +512,12 @@ export default function FormCotacao() {
     <div className="max-w-3xl mx-auto py-12 px-4">
       <div className="mb-10 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-black text-slate-900 dark:text-slate-100">Cotação de frete</h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">Preencha os dados abaixo. Você pode adicionar várias cotações de uma vez.</p>
+          <h1 className="text-3xl font-black text-tower-900 dark:text-tower-100">Cotação de frete</h1>
+          <p className="text-tower-500 dark:text-tower-400 mt-1">Preencha os dados abaixo. Você pode adicionar várias cotações de uma vez.</p>
         </div>
         <Link
           to="/client"
-          className="px-4 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-xl font-medium transition-colors"
+          className="px-4 py-2 bg-tower-100 dark:bg-tower-700 hover:bg-tower-200 dark:hover:bg-tower-600 text-tower-700 dark:text-tower-200 rounded-xl font-medium transition-colors"
         >
           Dashboard
         </Link>
@@ -529,32 +529,32 @@ export default function FormCotacao() {
         </div>
       )}
       {success && (
-        <div className="mb-6 bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 px-4 py-3 rounded-xl">
+        <div className="mb-6 bg-brand-50 dark:bg-brand-900/30 border border-brand-200 dark:border-brand-800 text-brand-800 dark:text-brand-200 px-4 py-3 rounded-xl">
           <p className="mb-2">{success}</p>
           <div className="flex flex-wrap gap-2">
-            <Link to="/form/cotacao" className="text-emerald-700 font-medium hover:underline">Nova cotação</Link>
+            <Link to="/form/cotacao" className="text-brand-700 font-medium hover:underline">Nova cotação</Link>
             {createdWithColeta.length > 0 ? (
               createdWithColeta.map((id, i) => (
-                <Link key={id} to={`/form/coleta/${id}`} className="text-emerald-700 font-medium hover:underline">
+                <Link key={id} to={`/form/coleta/${id}`} className="text-brand-700 font-medium hover:underline">
                   {createdWithColeta.length > 1 ? `Preencher coleta ${i + 1}` : 'Preencher dados de coleta'}
                 </Link>
               ))
             ) : (
-              <Link to="/form/coleta" className="text-emerald-700 font-medium hover:underline">Solicitar coleta</Link>
+              <Link to="/form/coleta" className="text-brand-700 font-medium hover:underline">Solicitar coleta</Link>
             )}
           </div>
         </div>
       )}
 
       {success && createdWithColeta.length > 0 && (
-        <div className="mb-6 bg-indigo-50 dark:bg-indigo-900/30 border-2 border-indigo-300 dark:border-indigo-700 rounded-2xl p-6">
+        <div className="mb-6 bg-brand-50 dark:bg-brand-900/30 border-2 border-brand-300 dark:border-brand-700 rounded-2xl p-6">
           <div className="flex items-start gap-4">
             <div className="text-4xl">🚛</div>
             <div className="flex-grow">
-              <h3 className="text-lg font-bold text-indigo-900 dark:text-indigo-200 mb-2">
+              <h3 className="text-lg font-bold text-brand-900 dark:text-brand-200 mb-2">
                 Cotação criada! Próximo passo: Solicitar Coleta
               </h3>
-              <p className="text-indigo-700 dark:text-indigo-300 mb-4">
+              <p className="text-brand-700 dark:text-brand-300 mb-4">
                 {createdWithColeta.length > 1 
                   ? `Você marcou ${createdWithColeta.length} cotações com coleta. Complete os dados de coleta para cada uma.`
                   : 'Complete os dados de coleta para agendar a retirada da mercadoria.'}
@@ -564,14 +564,14 @@ export default function FormCotacao() {
                   <Link
                     key={id}
                     to={`/form/coleta/${id}`}
-                    className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition-colors shadow-lg"
+                    className="px-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl transition-colors shadow-lg"
                   >
                     {createdWithColeta.length > 1 ? `🚛 Solicitar Coleta ${i + 1} Agora` : '🚛 Solicitar Coleta Agora'}
                   </Link>
                 ))}
                 <button
                   onClick={() => setSuccess(null)}
-                  className="px-4 py-3 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-medium rounded-xl border border-slate-200 dark:border-slate-600 transition-colors"
+                  className="px-4 py-3 bg-white dark:bg-tower-800 hover:bg-tower-50 dark:hover:bg-tower-700 text-tower-600 dark:text-tower-300 font-medium rounded-xl border border-tower-200 dark:border-tower-600 transition-colors"
                 >
                   Fazer depois
                 </button>
@@ -583,10 +583,10 @@ export default function FormCotacao() {
 
       <form onSubmit={handleSubmit} className="space-y-10">
         {blocks.map((block, idx) => (
-          <div key={idx} className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg border border-slate-100 dark:border-slate-700 p-6 md:p-8">
+          <div key={idx} className="bg-white dark:bg-tower-800 rounded-2xl shadow-lg border border-tower-100 dark:border-tower-700 p-6 md:p-8">
             {blocks.length > 1 && (
-              <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-100 dark:border-slate-700">
-                <span className="font-bold text-slate-700 dark:text-slate-300">Cotação {idx + 1}</span>
+              <div className="flex justify-between items-center mb-6 pb-4 border-b border-tower-100 dark:border-tower-700">
+                <span className="font-bold text-tower-700 dark:text-tower-300">Cotação {idx + 1}</span>
                 <button
                   type="button"
                   onClick={() => removeBlock(idx)}
@@ -598,8 +598,8 @@ export default function FormCotacao() {
             )}
 
             {/* CIF/FOB/Redespacho */}
-            <div className="mb-6 pb-4 border-b border-slate-200 dark:border-slate-700">
-              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Pagador do frete</label>
+            <div className="mb-6 pb-4 border-b border-tower-200 dark:border-tower-700">
+              <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-2">Pagador do frete</label>
               <div className="flex flex-wrap gap-4">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -638,7 +638,7 @@ export default function FormCotacao() {
 
             {/* CNPJ Remetente */}
             <div className="space-y-2 mb-4 relative" ref={idx === activeCnpjRemetenteBlock ? cnpjRemetenteRef : undefined}>
-              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">CNPJ/CPF remetente</label>
+              <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide">CNPJ/CPF remetente</label>
               <input
                 type="text"
                 placeholder="Digite CNPJ/CPF ou razão social"
@@ -666,11 +666,11 @@ export default function FormCotacao() {
                     }, 200);
                   }
                 }}
-                className="w-full p-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
                 maxLength={18}
               />
               {idx === activeCnpjRemetenteBlock && showCnpjRemetente && cnpjRemetenteSuggestions.length > 0 && (
-                <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                <div className="absolute z-10 w-full mt-1 bg-white dark:bg-tower-800 border border-tower-200 dark:border-tower-600 rounded-xl shadow-lg max-h-48 overflow-y-auto">
                   {cnpjRemetenteSuggestions.map(c => (
                     <button
                       key={c.id}
@@ -680,10 +680,10 @@ export default function FormCotacao() {
                         setShowCnpjRemetente(false);
                         setCnpjRemetenteSuggestions([]);
                       }}
-                      className="w-full text-left px-4 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/50 border-b border-slate-100 dark:border-slate-700 last:border-b-0 text-slate-900 dark:text-slate-100"
+                      className="w-full text-left px-4 py-2 hover:bg-brand-50 dark:hover:bg-brand-900/50 border-b border-tower-100 dark:border-tower-700 last:border-b-0 text-tower-900 dark:text-tower-100"
                     >
-                      <div className="font-medium text-slate-900 dark:text-slate-100">{c.legalName}</div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400">{maskCNPJOrCPF(c.cnpj)}</div>
+                      <div className="font-medium text-tower-900 dark:text-tower-100">{c.legalName}</div>
+                      <div className="text-xs text-tower-500 dark:text-tower-400">{maskCNPJOrCPF(c.cnpj)}</div>
                     </button>
                   ))}
                 </div>
@@ -695,7 +695,7 @@ export default function FormCotacao() {
                       type="button"
                       onClick={() => handleImportCnpj(block.cnpjRemetente)}
                       disabled={importCnpjLoading}
-                      className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+                      className="px-4 py-2 bg-brand-600 text-white rounded-xl text-sm font-medium hover:bg-brand-700 disabled:opacity-50"
                     >
                       {importCnpjLoading ? 'Consultando...' : 'Importar dados do Sintegra'}
                     </button>
@@ -706,7 +706,7 @@ export default function FormCotacao() {
 
             {/* CNPJ Destino */}
             <div className="space-y-2 mb-4 relative" ref={idx === activeCnpjDestinoBlock ? cnpjDestinoRef : undefined}>
-              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">CNPJ/CPF destino</label>
+              <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide">CNPJ/CPF destino</label>
               <input
                 type="text"
                 placeholder="Digite CNPJ/CPF ou razão social"
@@ -734,11 +734,11 @@ export default function FormCotacao() {
                     }, 200);
                   }
                 }}
-                className="w-full p-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
                 maxLength={18}
               />
               {idx === activeCnpjDestinoBlock && showCnpjDestino && cnpjDestinoSuggestions.length > 0 && (
-                <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                <div className="absolute z-10 w-full mt-1 bg-white dark:bg-tower-800 border border-tower-200 dark:border-tower-600 rounded-xl shadow-lg max-h-48 overflow-y-auto">
                   {cnpjDestinoSuggestions.map(c => (
                     <button
                       key={c.id}
@@ -748,10 +748,10 @@ export default function FormCotacao() {
                         setShowCnpjDestino(false);
                         setCnpjDestinoSuggestions([]);
                       }}
-                      className="w-full text-left px-4 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/50 border-b border-slate-100 dark:border-slate-700 last:border-b-0 text-slate-900 dark:text-slate-100"
+                      className="w-full text-left px-4 py-2 hover:bg-brand-50 dark:hover:bg-brand-900/50 border-b border-tower-100 dark:border-tower-700 last:border-b-0 text-tower-900 dark:text-tower-100"
                     >
-                      <div className="font-medium text-slate-900 dark:text-slate-100">{c.legalName}</div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400">{maskCNPJOrCPF(c.cnpj)}</div>
+                      <div className="font-medium text-tower-900 dark:text-tower-100">{c.legalName}</div>
+                      <div className="text-xs text-tower-500 dark:text-tower-400">{maskCNPJOrCPF(c.cnpj)}</div>
                     </button>
                   ))}
                 </div>
@@ -763,7 +763,7 @@ export default function FormCotacao() {
                       type="button"
                       onClick={() => handleImportCnpj(block.cnpjDestino)}
                       disabled={importCnpjLoading}
-                      className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+                      className="px-4 py-2 bg-brand-600 text-white rounded-xl text-sm font-medium hover:bg-brand-700 disabled:opacity-50"
                     >
                       {importCnpjLoading ? 'Consultando...' : 'Importar dados do Sintegra'}
                     </button>
@@ -775,7 +775,7 @@ export default function FormCotacao() {
             {/* CNPJ Transportadora (Redespacho) */}
             {block.freightTerm === 'REDESPACHO' && (
               <div className="space-y-2 mb-4 relative" ref={idx === activeCnpjTransportadoraBlock ? cnpjTransportadoraRef : undefined}>
-                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">CNPJ Transportadora (Redespacho) *</label>
+                <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide">CNPJ Transportadora (Redespacho) *</label>
                 <input
                   type="text"
                   placeholder="Digite CNPJ ou razão social da transportadora"
@@ -795,11 +795,11 @@ export default function FormCotacao() {
                       setShowCnpjTransportadora(true);
                     }
                   }}
-                  className="w-full p-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                  className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
                   maxLength={18}
                 />
                 {idx === activeCnpjTransportadoraBlock && showCnpjTransportadora && cnpjTransportadoraSuggestions.length > 0 && (
-                  <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                  <div className="absolute z-10 w-full mt-1 bg-white dark:bg-tower-800 border border-tower-200 dark:border-tower-600 rounded-xl shadow-lg max-h-48 overflow-y-auto">
                     {cnpjTransportadoraSuggestions.map(c => (
                       <button
                         key={c.id}
@@ -809,10 +809,10 @@ export default function FormCotacao() {
                           setShowCnpjTransportadora(false);
                           setCnpjTransportadoraSuggestions([]);
                         }}
-                        className="w-full text-left px-4 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/50 border-b border-slate-100 dark:border-slate-700 last:border-b-0 text-slate-900 dark:text-slate-100"
+                        className="w-full text-left px-4 py-2 hover:bg-brand-50 dark:hover:bg-brand-900/50 border-b border-tower-100 dark:border-tower-700 last:border-b-0 text-tower-900 dark:text-tower-100"
                       >
-                        <div className="font-medium text-slate-900">{c.legalName}</div>
-                        <div className="text-xs text-slate-500">{maskCNPJOrCPF(c.cnpj)}</div>
+                        <div className="font-medium text-tower-900">{c.legalName}</div>
+                        <div className="text-xs text-tower-500">{maskCNPJOrCPF(c.cnpj)}</div>
                       </button>
                     ))}
                   </div>
@@ -823,7 +823,7 @@ export default function FormCotacao() {
                       type="button"
                       onClick={() => handleImportCnpj(block.cnpjTransportadora)}
                       disabled={importCnpjLoading}
-                      className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+                      className="px-4 py-2 bg-brand-600 text-white rounded-xl text-sm font-medium hover:bg-brand-700 disabled:opacity-50"
                     >
                       {importCnpjLoading ? 'Consultando...' : 'Importar dados do Sintegra'}
                     </button>
@@ -835,7 +835,7 @@ export default function FormCotacao() {
             {/* Origin / Destination */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
               <div className="relative" ref={idx === activeOriginBlock ? originRef : undefined}>
-                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Cidade origem</label>
+                <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">Cidade origem</label>
                 <input
                   type="text"
                   placeholder="Ex: São Paulo, SP"
@@ -847,16 +847,16 @@ export default function FormCotacao() {
                     setShowOrigin(true);
                   }}
                   onFocus={() => focusOrigin(idx)}
-                  className="w-full p-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                  className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
                 />
                 {idx === activeOriginBlock && showOrigin && originSuggestions.length > 0 && (
-                  <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                  <div className="absolute z-10 w-full mt-1 bg-white dark:bg-tower-800 border border-tower-200 dark:border-tower-600 rounded-xl shadow-lg max-h-48 overflow-y-auto">
                     {originSuggestions.map(c => (
                       <button
                         key={c.id}
                         type="button"
                         onClick={() => selectCity(idx, 'origin', c)}
-                        className="w-full text-left px-4 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/50 border-b border-slate-100 dark:border-slate-700 last:border-b-0 text-slate-900 dark:text-slate-100"
+                        className="w-full text-left px-4 py-2 hover:bg-brand-50 dark:hover:bg-brand-900/50 border-b border-tower-100 dark:border-tower-700 last:border-b-0 text-tower-900 dark:text-tower-100"
                       >
                         {c.name}, {c.state.code}
                       </button>
@@ -865,7 +865,7 @@ export default function FormCotacao() {
                 )}
               </div>
               <div className="relative" ref={idx === activeDestBlock ? destRef : undefined}>
-                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Cidade destino</label>
+                <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">Cidade destino</label>
                 <input
                   type="text"
                   placeholder="Ex: Imperatriz, MA"
@@ -877,16 +877,16 @@ export default function FormCotacao() {
                     setShowDest(true);
                   }}
                   onFocus={() => focusDest(idx)}
-                  className="w-full p-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                  className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
                 />
                 {idx === activeDestBlock && showDest && destSuggestions.length > 0 && (
-                  <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                  <div className="absolute z-10 w-full mt-1 bg-white dark:bg-tower-800 border border-tower-200 dark:border-tower-600 rounded-xl shadow-lg max-h-48 overflow-y-auto">
                     {destSuggestions.map(c => (
                       <button
                         key={c.id}
                         type="button"
                         onClick={() => selectCity(idx, 'destination', c)}
-                        className="w-full text-left px-4 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/50 border-b border-slate-100 dark:border-slate-700 last:border-b-0 text-slate-900 dark:text-slate-100"
+                        className="w-full text-left px-4 py-2 hover:bg-brand-50 dark:hover:bg-brand-900/50 border-b border-tower-100 dark:border-tower-700 last:border-b-0 text-tower-900 dark:text-tower-100"
                       >
                         {c.name}, {c.state.code}
                       </button>
@@ -899,18 +899,18 @@ export default function FormCotacao() {
             {/* Mercadoria, NF, Peso */}
             <div className="space-y-4 mb-4">
               <div>
-                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Mercadoria</label>
+                <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">Mercadoria</label>
                 <input
                   type="text"
                   placeholder="O que está enviando"
                   value={block.commodity}
                   onChange={e => updateBlock(idx, { commodity: e.target.value })}
-                  className="w-full p-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                  className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
                 />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Valor da NF (R$)</label>
+                  <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">Valor da NF (R$)</label>
                   <input
                     type="number"
                     min="0"
@@ -918,11 +918,11 @@ export default function FormCotacao() {
                     placeholder="0,00"
                     value={block.nfValue}
                     onChange={e => updateBlock(idx, { nfValue: e.target.value })}
-                    className="w-full p-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                    className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Peso total (kg)</label>
+                  <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">Peso total (kg)</label>
                   <input
                     type="number"
                     min="0.1"
@@ -930,7 +930,7 @@ export default function FormCotacao() {
                     placeholder="0"
                     value={block.weight}
                     onChange={e => updateBlock(idx, { weight: e.target.value })}
-                    className="w-full p-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                    className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
                   />
                 </div>
               </div>
@@ -939,15 +939,15 @@ export default function FormCotacao() {
             {/* Volumes múltiplos */}
             <div className="space-y-4 mb-4">
               <div className="flex justify-between items-center">
-                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Volumes e dimensões</label>
-                <span className="text-sm text-slate-500">
+                <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide">Volumes e dimensões</label>
+                <span className="text-sm text-tower-500">
                   Total: {block.volumesList.reduce((sum, v) => sum + (v.qty || 0), 0)} volumes
                 </span>
               </div>
               {block.volumesList.map((vol, volIdx) => (
-                <div key={volIdx} className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+                <div key={volIdx} className="bg-tower-50 rounded-xl p-4 border border-tower-200">
                   <div className="flex justify-between items-center mb-3">
-                    <span className="text-sm font-medium text-slate-700">Volume {volIdx + 1}</span>
+                    <span className="text-sm font-medium text-tower-700">Volume {volIdx + 1}</span>
                     {block.volumesList.length > 1 && (
                       <button
                         type="button"
@@ -963,7 +963,7 @@ export default function FormCotacao() {
                   </div>
                   <div className="grid grid-cols-4 gap-3">
                     <div>
-                      <label className="block text-xs text-slate-500 mb-1">Quantidade</label>
+                      <label className="block text-xs text-tower-500 mb-1">Quantidade</label>
                       <input
                         type="number"
                         min="1"
@@ -973,11 +973,11 @@ export default function FormCotacao() {
                           newList[volIdx] = { ...vol, qty: parseInt(e.target.value, 10) || 0 };
                           updateBlock(idx, { volumesList: newList });
                         }}
-                        className="w-full p-2 bg-white border border-slate-200 rounded-lg"
+                        className="w-full p-2 bg-white border border-tower-200 rounded-lg"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-slate-500 mb-1">Altura (cm)</label>
+                      <label className="block text-xs text-tower-500 mb-1">Altura (cm)</label>
                       <input
                         type="number"
                         min="0.1"
@@ -988,11 +988,11 @@ export default function FormCotacao() {
                           newList[volIdx] = { ...vol, altura: parseFloat(e.target.value) || 0 };
                           updateBlock(idx, { volumesList: newList });
                         }}
-                        className="w-full p-2 bg-white border border-slate-200 rounded-lg"
+                        className="w-full p-2 bg-white border border-tower-200 rounded-lg"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-slate-500 mb-1">Largura (cm)</label>
+                      <label className="block text-xs text-tower-500 mb-1">Largura (cm)</label>
                       <input
                         type="number"
                         min="0.1"
@@ -1003,11 +1003,11 @@ export default function FormCotacao() {
                           newList[volIdx] = { ...vol, largura: parseFloat(e.target.value) || 0 };
                           updateBlock(idx, { volumesList: newList });
                         }}
-                        className="w-full p-2 bg-white border border-slate-200 rounded-lg"
+                        className="w-full p-2 bg-white border border-tower-200 rounded-lg"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-slate-500 mb-1">Compr. (cm)</label>
+                      <label className="block text-xs text-tower-500 mb-1">Compr. (cm)</label>
                       <input
                         type="number"
                         min="0.1"
@@ -1018,7 +1018,7 @@ export default function FormCotacao() {
                           newList[volIdx] = { ...vol, comprimento: parseFloat(e.target.value) || 0 };
                           updateBlock(idx, { volumesList: newList });
                         }}
-                        className="w-full p-2 bg-white border border-slate-200 rounded-lg"
+                        className="w-full p-2 bg-white border border-tower-200 rounded-lg"
                       />
                     </div>
                   </div>
@@ -1031,7 +1031,7 @@ export default function FormCotacao() {
                     volumesList: [...block.volumesList, { qty: 1, altura: 0, largura: 0, comprimento: 0 }],
                   });
                 }}
-                className="w-full py-2 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-medium transition-colors"
+                className="w-full py-2 px-4 bg-tower-100 hover:bg-tower-200 text-tower-700 rounded-xl text-sm font-medium transition-colors"
               >
                 + Adicionar volume
               </button>
@@ -1039,7 +1039,7 @@ export default function FormCotacao() {
 
             {/* Com coleta / Sem coleta */}
             <div>
-              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Coleta</label>
+              <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-2">Coleta</label>
               <div className="flex gap-4">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -1068,14 +1068,14 @@ export default function FormCotacao() {
           <button
             type="button"
             onClick={addBlock}
-            className="px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-medium transition-colors"
+            className="px-5 py-3 bg-tower-100 hover:bg-tower-200 text-tower-700 rounded-xl font-medium transition-colors"
           >
             + Adicionar outra cotação
           </button>
           <button
             type="submit"
             disabled={submitLoading}
-            className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl font-bold transition-colors"
+            className="px-6 py-3 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-xl font-bold transition-colors"
           >
             {submitLoading ? 'Enviando...' : 'Enviar'}
           </button>

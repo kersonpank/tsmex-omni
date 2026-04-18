@@ -315,7 +315,7 @@ const SettingsLLM: React.FC = () => {
     if (loading) {
         return (
             <div className="flex items-center justify-center p-12">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600"></div>
             </div>
         );
     }
@@ -388,21 +388,21 @@ const SettingsLLM: React.FC = () => {
             {/* Header */}
             <div className="flex justify-between items-center">
                 <div>
-                    <h2 className="text-2xl font-bold text-slate-900">Modelos de IA</h2>
-                    <p className="text-slate-500 mt-1">
+                    <h2 className="text-2xl font-bold text-tower-900">Modelos de IA</h2>
+                    <p className="text-tower-500 mt-1">
                         Configure os modelos LLM usados no sistema
                     </p>
                 </div>
                 <div className="flex gap-2">
                     <button
                         onClick={() => setShowAddProvider(true)}
-                        className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl font-medium hover:bg-slate-200 transition-colors"
+                        className="px-4 py-2 bg-tower-100 text-tower-700 rounded-xl font-medium hover:bg-tower-200 transition-colors"
                     >
                         + Provider
                     </button>
                     <button
                         onClick={() => setShowAddModel(true)}
-                        className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-colors"
+                        className="px-4 py-2 bg-brand-600 text-white rounded-xl font-medium hover:bg-brand-700 transition-colors"
                     >
                         + Modelo
                     </button>
@@ -417,15 +417,15 @@ const SettingsLLM: React.FC = () => {
             )}
 
             {/* Chat Configuration */}
-            <div className="bg-white rounded-2xl border-2 border-indigo-100 p-6">
-                <h3 className="text-lg font-bold text-slate-900 mb-4">Configuração do Chat</h3>
-                <p className="text-sm text-slate-500 mb-6">
+            <div className="bg-white rounded-2xl border-2 border-brand-100 p-6">
+                <h3 className="text-lg font-bold text-tower-900 mb-4">Configuração do Chat</h3>
+                <p className="text-sm text-tower-500 mb-6">
                     Escolha qual modelo LLM será usado no chat. Você pode usar um modelo fixo ou configurar rotação entre múltiplos modelos.
                 </p>
 
                 <div className="space-y-4">
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-3">Modo de Seleção</label>
+                        <label className="block text-sm font-medium text-tower-700 mb-3">Modo de Seleção</label>
                         <div className="flex gap-4">
                             <label className="flex items-center gap-2 cursor-pointer">
                                 <input
@@ -433,7 +433,7 @@ const SettingsLLM: React.FC = () => {
                                     name="chatMode"
                                     checked={chatConfig?.selectionMode === 'FIXED'}
                                     onChange={() => handleChatConfigChange('FIXED', chatConfig?.fixedModelId)}
-                                    className="w-4 h-4 text-indigo-600"
+                                    className="w-4 h-4 text-brand-600"
                                 />
                                 <span className="text-sm font-medium">Modelo Fixo</span>
                             </label>
@@ -443,7 +443,7 @@ const SettingsLLM: React.FC = () => {
                                     name="chatMode"
                                     checked={chatConfig?.selectionMode === 'ROTATION'}
                                     onChange={() => handleChatConfigChange('ROTATION')}
-                                    className="w-4 h-4 text-indigo-600"
+                                    className="w-4 h-4 text-brand-600"
                                 />
                                 <span className="text-sm font-medium">Rotação</span>
                             </label>
@@ -452,7 +452,7 @@ const SettingsLLM: React.FC = () => {
 
                     {chatConfig?.selectionMode === 'FIXED' && (
                         <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-2">Modelo para Chat</label>
+                            <label className="block text-sm font-medium text-tower-700 mb-2">Modelo para Chat</label>
                             <select
                                 value={chatConfig.fixedModelId || ''}
                                 onChange={(e) => handleChatConfigChange('FIXED', e.target.value)}
@@ -466,7 +466,7 @@ const SettingsLLM: React.FC = () => {
                                 ))}
                             </select>
                             {chatConfig.fixedModel && (
-                                <p className="text-xs text-slate-500 mt-2">
+                                <p className="text-xs text-tower-500 mt-2">
                                     Modelo atual: <strong>{chatConfig.fixedModel.name}</strong> ({chatConfig.fixedModel.provider?.name})
                                 </p>
                             )}
@@ -475,14 +475,14 @@ const SettingsLLM: React.FC = () => {
 
                     {chatConfig?.selectionMode === 'ROTATION' && (
                         <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-2">Modelos na Rotação</label>
+                            <label className="block text-sm font-medium text-tower-700 mb-2">Modelos na Rotação</label>
                             {chatConfig.rotationModels && chatConfig.rotationModels.length > 0 ? (
                                 <div className="space-y-2">
                                     {chatConfig.rotationModels.map(rm => (
-                                        <div key={rm.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+                                        <div key={rm.id} className="flex items-center justify-between p-3 bg-tower-50 rounded-xl">
                                             <div>
                                                 <span className="font-medium">{rm.model.name}</span>
-                                                <span className="text-sm text-slate-500 ml-2">
+                                                <span className="text-sm text-tower-500 ml-2">
                                                     ({rm.model.provider?.name}) • Peso: {rm.weight} • Ordem: {rm.order}
                                                 </span>
                                             </div>
@@ -496,11 +496,11 @@ const SettingsLLM: React.FC = () => {
                                     ))}
                                 </div>
                             ) : (
-                                <p className="text-sm text-slate-500 mb-3">Nenhum modelo na rotação. Adicione modelos abaixo.</p>
+                                <p className="text-sm text-tower-500 mb-3">Nenhum modelo na rotação. Adicione modelos abaixo.</p>
                             )}
                             
-                            <div className="mt-4 p-4 bg-slate-50 rounded-xl">
-                                <label className="block text-sm font-medium text-slate-700 mb-2">Adicionar Modelo à Rotação</label>
+                            <div className="mt-4 p-4 bg-tower-50 rounded-xl">
+                                <label className="block text-sm font-medium text-tower-700 mb-2">Adicionar Modelo à Rotação</label>
                                 <div className="flex gap-2">
                                     <select
                                         id="rotationModelSelect"
@@ -535,7 +535,7 @@ const SettingsLLM: React.FC = () => {
                                                 weight.value = '1';
                                             }
                                         }}
-                                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                                        className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700"
                                     >
                                         Adicionar
                                     </button>
@@ -549,11 +549,11 @@ const SettingsLLM: React.FC = () => {
             {/* Providers & API Keys */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {providers.map(provider => (
-                    <div key={provider.id} className={`bg-white rounded-2xl border-2 p-4 ${provider.isBuiltIn ? 'border-slate-100' : 'border-indigo-100'}`}>
+                    <div key={provider.id} className={`bg-white rounded-2xl border-2 p-4 ${provider.isBuiltIn ? 'border-tower-100' : 'border-brand-100'}`}>
                         <div className="flex items-center justify-between mb-3">
                             <div>
-                                <h3 className="font-bold text-slate-900">{provider.name}</h3>
-                                <code className="text-xs text-slate-400">{provider.apiFormat}</code>
+                                <h3 className="font-bold text-tower-900">{provider.name}</h3>
+                                <code className="text-xs text-tower-400">{provider.apiFormat}</code>
                             </div>
                             <span className={`text-xs px-2 py-1 rounded-full ${provider.apiKey ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
                                 {provider.apiKey ? 'Configurado' : 'Sem chave'}
@@ -561,8 +561,8 @@ const SettingsLLM: React.FC = () => {
                         </div>
 
                         {provider.apiKey ? (
-                            <div className="text-sm text-slate-500 mb-3">
-                                Chave: <code className="bg-slate-100 px-2 py-0.5 rounded">{provider.apiKey.keyPreview}</code>
+                            <div className="text-sm text-tower-500 mb-3">
+                                Chave: <code className="bg-tower-100 px-2 py-0.5 rounded">{provider.apiKey.keyPreview}</code>
                             </div>
                         ) : null}
 
@@ -578,13 +578,13 @@ const SettingsLLM: React.FC = () => {
                                 <div className="flex gap-2">
                                     <button
                                         onClick={() => handleSaveApiKey(provider.id)}
-                                        className="flex-1 py-1 bg-indigo-600 text-white rounded-lg text-sm"
+                                        className="flex-1 py-1 bg-brand-600 text-white rounded-lg text-sm"
                                     >
                                         Salvar
                                     </button>
                                     <button
                                         onClick={() => { setShowAddKey(null); setApiKeyInput(''); }}
-                                        className="px-3 py-1 bg-slate-100 rounded-lg text-sm"
+                                        className="px-3 py-1 bg-tower-100 rounded-lg text-sm"
                                     >
                                         Cancelar
                                     </button>
@@ -593,7 +593,7 @@ const SettingsLLM: React.FC = () => {
                         ) : (
                             <button
                                 onClick={() => setShowAddKey(provider.id)}
-                                className="w-full py-2 border-2 border-dashed border-slate-200 rounded-xl text-slate-500 hover:border-indigo-300 hover:text-indigo-600 text-sm transition-colors"
+                                className="w-full py-2 border-2 border-dashed border-tower-200 rounded-xl text-tower-500 hover:border-brand-300 hover:text-brand-600 text-sm transition-colors"
                             >
                                 {provider.apiKey ? 'Atualizar Chave' : 'Adicionar Chave'}
                             </button>
@@ -603,41 +603,41 @@ const SettingsLLM: React.FC = () => {
             </div>
 
             {/* Models List */}
-            <div className="bg-white rounded-2xl border-2 border-slate-100 overflow-hidden">
-                <div className="px-6 py-4 border-b border-slate-100">
-                    <h3 className="font-bold text-slate-900">Modelos Configurados</h3>
+            <div className="bg-white rounded-2xl border-2 border-tower-100 overflow-hidden">
+                <div className="px-6 py-4 border-b border-tower-100">
+                    <h3 className="font-bold text-tower-900">Modelos Configurados</h3>
                 </div>
 
-                <div className="divide-y divide-slate-100">
+                <div className="divide-y divide-tower-100">
                     {models.length === 0 ? (
-                        <div className="p-8 text-center text-slate-400">
+                        <div className="p-8 text-center text-tower-400">
                             Nenhum modelo configurado. Clique em "+ Modelo" para começar.
                         </div>
                     ) : (
                         models.map(model => (
                             <div key={model.id} className="px-6 py-4 flex items-center gap-4">
                                 {/* Status indicator */}
-                                <div className={`w-3 h-3 rounded-full ${model.isDefault ? 'bg-emerald-500' : model.active ? 'bg-sky-400' : 'bg-slate-300'}`} />
+                                <div className={`w-3 h-3 rounded-full ${model.isDefault ? 'bg-brand-500' : model.active ? 'bg-sky-400' : 'bg-tower-300'}`} />
 
                                 {/* Model info */}
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2">
-                                        <span className="font-medium text-slate-900">{model.name}</span>
-                                        <code className="text-xs bg-slate-100 px-2 py-0.5 rounded text-slate-600 truncate">
+                                        <span className="font-medium text-tower-900">{model.name}</span>
+                                        <code className="text-xs bg-tower-100 px-2 py-0.5 rounded text-tower-600 truncate">
                                             {model.modelId}
                                         </code>
                                         {model.isDefault && (
-                                            <span className="text-xs px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-medium">
+                                            <span className="text-xs px-2 py-0.5 bg-brand-100 text-brand-700 rounded-full font-medium">
                                                 PADRÃO
                                             </span>
                                         )}
                                     </div>
-                                    <div className="text-sm text-slate-500 mt-0.5 truncate">
+                                    <div className="text-sm text-tower-500 mt-0.5 truncate">
                                         {model.provider?.name} • {model.capabilities.join(', ')} • {(model.contextWindow / 1000).toFixed(0)}K ctx
                                         {model.inputPrice ? ` • $${model.inputPrice}/$${model.outputPrice} per 1M` : ''}
                                     </div>
                                     {testResult?.id === model.id && (
-                                        <div className={`text-sm mt-1 ${testResult.success ? 'text-emerald-600' : 'text-red-600'}`}>
+                                        <div className={`text-sm mt-1 ${testResult.success ? 'text-brand-600' : 'text-red-600'}`}>
                                             {testResult.message}
                                         </div>
                                     )}
@@ -648,7 +648,7 @@ const SettingsLLM: React.FC = () => {
                                     <button
                                         onClick={() => handleTestModel(model.id)}
                                         disabled={testingModel === model.id}
-                                        className="px-3 py-1.5 text-xs font-medium bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-50"
+                                        className="px-3 py-1.5 text-xs font-medium bg-tower-100 hover:bg-tower-200 rounded-lg transition-colors disabled:opacity-50"
                                     >
                                         {testingModel === model.id ? '...' : 'Testar'}
                                     </button>
@@ -656,7 +656,7 @@ const SettingsLLM: React.FC = () => {
                                     {!model.isDefault && (
                                         <button
                                             onClick={() => handleSetDefault(model.id)}
-                                            className="px-3 py-1.5 text-xs font-medium bg-indigo-100 text-indigo-700 hover:bg-indigo-200 rounded-lg transition-colors"
+                                            className="px-3 py-1.5 text-xs font-medium bg-brand-100 text-brand-700 hover:bg-brand-200 rounded-lg transition-colors"
                                         >
                                             Padrão
                                         </button>
@@ -666,7 +666,7 @@ const SettingsLLM: React.FC = () => {
                                         onClick={() => handleToggleActive(model.id, model.active)}
                                         className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${model.active
                                             ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                                            : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                                            : 'bg-brand-100 text-brand-700 hover:bg-brand-200'
                                             }`}
                                     >
                                         {model.active ? 'Off' : 'On'}
@@ -689,11 +689,11 @@ const SettingsLLM: React.FC = () => {
             {showAddModel && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-auto">
-                        <h3 className="text-xl font-bold text-slate-900 mb-4">Adicionar Modelo</h3>
+                        <h3 className="text-xl font-bold text-tower-900 mb-4">Adicionar Modelo</h3>
 
                         <div className="space-y-4">
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Provider *</label>
+                                <label className="block text-sm font-medium text-tower-700 mb-1">Provider *</label>
                                 <select
                                     value={newModel.providerId}
                                     onChange={e => setNewModel(m => ({ ...m, providerId: e.target.value }))}
@@ -708,7 +708,7 @@ const SettingsLLM: React.FC = () => {
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">Nome *</label>
+                                    <label className="block text-sm font-medium text-tower-700 mb-1">Nome *</label>
                                     <input
                                         type="text"
                                         placeholder="GPT-4o"
@@ -718,7 +718,7 @@ const SettingsLLM: React.FC = () => {
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">Model ID *</label>
+                                    <label className="block text-sm font-medium text-tower-700 mb-1">Model ID *</label>
                                     <input
                                         type="text"
                                         placeholder="gpt-4o"
@@ -730,7 +730,7 @@ const SettingsLLM: React.FC = () => {
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Descrição</label>
+                                <label className="block text-sm font-medium text-tower-700 mb-1">Descrição</label>
                                 <input
                                     type="text"
                                     placeholder="Modelo otimizado para..."
@@ -741,7 +741,7 @@ const SettingsLLM: React.FC = () => {
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-2">Capabilities</label>
+                                <label className="block text-sm font-medium text-tower-700 mb-2">Capabilities</label>
                                 <div className="flex flex-wrap gap-2">
                                     {CAPABILITIES.map(cap => (
                                         <button
@@ -749,8 +749,8 @@ const SettingsLLM: React.FC = () => {
                                             type="button"
                                             onClick={() => toggleCapability(cap.value)}
                                             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${newModel.capabilities.includes(cap.value)
-                                                ? 'bg-indigo-600 text-white'
-                                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                                ? 'bg-brand-600 text-white'
+                                                : 'bg-tower-100 text-tower-600 hover:bg-tower-200'
                                                 }`}
                                         >
                                             {cap.label}
@@ -761,7 +761,7 @@ const SettingsLLM: React.FC = () => {
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">Context Window</label>
+                                    <label className="block text-sm font-medium text-tower-700 mb-1">Context Window</label>
                                     <input
                                         type="number"
                                         value={newModel.contextWindow}
@@ -770,7 +770,7 @@ const SettingsLLM: React.FC = () => {
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">Max Output</label>
+                                    <label className="block text-sm font-medium text-tower-700 mb-1">Max Output</label>
                                     <input
                                         type="number"
                                         value={newModel.maxOutput}
@@ -782,7 +782,7 @@ const SettingsLLM: React.FC = () => {
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">Preço Input (USD/1M)</label>
+                                    <label className="block text-sm font-medium text-tower-700 mb-1">Preço Input (USD/1M)</label>
                                     <input
                                         type="number"
                                         step="0.01"
@@ -792,7 +792,7 @@ const SettingsLLM: React.FC = () => {
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">Preço Output (USD/1M)</label>
+                                    <label className="block text-sm font-medium text-tower-700 mb-1">Preço Output (USD/1M)</label>
                                     <input
                                         type="number"
                                         step="0.01"
@@ -808,13 +808,13 @@ const SettingsLLM: React.FC = () => {
                             <button
                                 onClick={handleAddModel}
                                 disabled={!newModel.providerId || !newModel.name || !newModel.modelId}
-                                className="flex-1 py-3 bg-indigo-600 text-white font-medium rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                                className="flex-1 py-3 bg-brand-600 text-white font-medium rounded-xl hover:bg-brand-700 disabled:opacity-50 transition-colors"
                             >
                                 Adicionar
                             </button>
                             <button
                                 onClick={() => setShowAddModel(false)}
-                                className="px-6 py-3 bg-slate-100 font-medium rounded-xl hover:bg-slate-200 transition-colors"
+                                className="px-6 py-3 bg-tower-100 font-medium rounded-xl hover:bg-tower-200 transition-colors"
                             >
                                 Cancelar
                             </button>
@@ -827,12 +827,12 @@ const SettingsLLM: React.FC = () => {
             {showAddProvider && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-2xl p-6 w-full max-w-lg">
-                        <h3 className="text-xl font-bold text-slate-900 mb-4">Adicionar Provider Customizado</h3>
+                        <h3 className="text-xl font-bold text-tower-900 mb-4">Adicionar Provider Customizado</h3>
 
                         <div className="space-y-4">
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">Nome *</label>
+                                    <label className="block text-sm font-medium text-tower-700 mb-1">Nome *</label>
                                     <input
                                         type="text"
                                         placeholder="Meu Provider"
@@ -842,7 +842,7 @@ const SettingsLLM: React.FC = () => {
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">Código *</label>
+                                    <label className="block text-sm font-medium text-tower-700 mb-1">Código *</label>
                                     <input
                                         type="text"
                                         placeholder="meu-provider"
@@ -854,7 +854,7 @@ const SettingsLLM: React.FC = () => {
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Base URL *</label>
+                                <label className="block text-sm font-medium text-tower-700 mb-1">Base URL *</label>
                                 <input
                                     type="url"
                                     placeholder="https://api.example.com/v1"
@@ -862,11 +862,11 @@ const SettingsLLM: React.FC = () => {
                                     onChange={e => setNewProvider(p => ({ ...p, baseUrl: e.target.value }))}
                                     className="w-full p-3 border rounded-xl"
                                 />
-                                <p className="text-xs text-slate-400 mt-1">Maioria das APIs usa formato OpenAI: /v1/chat/completions</p>
+                                <p className="text-xs text-tower-400 mt-1">Maioria das APIs usa formato OpenAI: /v1/chat/completions</p>
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Formato da API</label>
+                                <label className="block text-sm font-medium text-tower-700 mb-1">Formato da API</label>
                                 <select
                                     value={newProvider.apiFormat}
                                     onChange={e => setNewProvider(p => ({ ...p, apiFormat: e.target.value }))}
@@ -886,7 +886,7 @@ const SettingsLLM: React.FC = () => {
                                     onChange={e => setNewProvider(p => ({ ...p, supportsTools: e.target.checked }))}
                                     className="w-4 h-4"
                                 />
-                                <label htmlFor="supportsTools" className="text-sm text-slate-700">
+                                <label htmlFor="supportsTools" className="text-sm text-tower-700">
                                     Suporta Function Calling (tools)
                                 </label>
                             </div>
@@ -896,13 +896,13 @@ const SettingsLLM: React.FC = () => {
                             <button
                                 onClick={handleAddProvider}
                                 disabled={!newProvider.name || !newProvider.code || !newProvider.baseUrl}
-                                className="flex-1 py-3 bg-indigo-600 text-white font-medium rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                                className="flex-1 py-3 bg-brand-600 text-white font-medium rounded-xl hover:bg-brand-700 disabled:opacity-50 transition-colors"
                             >
                                 Adicionar
                             </button>
                             <button
                                 onClick={() => setShowAddProvider(false)}
-                                className="px-6 py-3 bg-slate-100 font-medium rounded-xl hover:bg-slate-200 transition-colors"
+                                className="px-6 py-3 bg-tower-100 font-medium rounded-xl hover:bg-tower-200 transition-colors"
                             >
                                 Cancelar
                             </button>
