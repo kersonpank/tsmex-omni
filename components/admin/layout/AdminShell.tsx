@@ -39,7 +39,7 @@ const AdminShell: React.FC<AdminShellProps> = ({
       <div className="mx-auto flex max-w-[1600px] gap-0 lg:gap-8">
         {/* Sidebar desktop */}
         <aside
-          className="sticky top-16 hidden h-[calc(100vh-4rem)] w-56 shrink-0 flex-col border-r border-tower-200/80 bg-white/70 py-6 backdrop-blur-md dark:border-tower-800/80 dark:bg-tower-900/50 lg:flex"
+          className="sticky top-16 hidden h-[calc(100vh-4rem)] w-56 shrink-0 flex-col border-r border-brand-200/70 bg-white/80 py-6 backdrop-blur-md dark:border-brand-800/50 dark:bg-brand-950/55 lg:flex"
           aria-label="Navegação do painel"
         >
           <nav className="flex flex-1 flex-col gap-6 overflow-y-auto px-3" id={navId}>
@@ -61,8 +61,8 @@ const AdminShell: React.FC<AdminShellProps> = ({
                         }}
                         className={`admin-focus flex w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
                           item.active
-                            ? 'bg-accent-500/15 text-tower-900 dark:bg-accent-500/20 dark:text-tower-50'
-                            : 'text-tower-600 hover:bg-tower-100/80 dark:text-tower-400 dark:hover:bg-tower-800/80'
+                            ? 'border border-brand-200 bg-brand-100 text-brand-900 dark:border-brand-600/50 dark:bg-brand-800/90 dark:text-tower-50'
+                            : 'text-tower-600 hover:bg-brand-50/90 dark:text-tower-400 dark:hover:bg-brand-900/50'
                         }`}
                       >
                         {item.label}
@@ -78,7 +78,7 @@ const AdminShell: React.FC<AdminShellProps> = ({
         {/* Conteúdo */}
         <div className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:py-8">
           {hubContextLine && (
-            <div className="mb-4 rounded-lg border border-accent-500/30 bg-accent-500/10 px-3 py-2 text-xs font-medium text-tower-800 dark:text-tower-100">
+            <div className="mb-4 rounded-lg border border-brand-500/25 bg-brand-100/95 px-3 py-2 text-xs font-medium text-brand-900 dark:border-brand-400/30 dark:bg-brand-900/70 dark:text-tower-50">
               {hubContextLine}
             </div>
           )}
@@ -133,7 +133,9 @@ const AdminShell: React.FC<AdminShellProps> = ({
                             setDrawerOpen(false);
                           }}
                           className={`admin-focus w-full rounded-lg px-3 py-2.5 text-left text-sm font-medium ${
-                            item.active ? 'bg-accent-500/15 text-tower-900 dark:text-tower-50' : 'text-tower-700 dark:text-tower-300'
+                            item.active
+                              ? 'border border-brand-200 bg-brand-100 text-brand-900 dark:border-brand-600/50 dark:bg-brand-800/90 dark:text-tower-50'
+                              : 'text-tower-700 dark:text-tower-300'
                           }`}
                         >
                           {item.label}

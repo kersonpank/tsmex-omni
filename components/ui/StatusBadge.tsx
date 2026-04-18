@@ -1,13 +1,15 @@
 import React from 'react';
 import type { StatusTone } from '../../lib/demandStatusUi';
 
+/** Sucesso = chip azul marca (sem verde). Aviso = amarelo faixa com texto escuro. */
 const toneClasses: Record<StatusTone, string> = {
   neutral:
-    'bg-tower-200/80 text-tower-800 dark:bg-tower-700/80 dark:text-tower-100',
-  info: 'bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-200',
-  warning: 'bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200',
-  success: 'bg-emerald-100 text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-200',
-  danger: 'bg-red-100 text-red-800 dark:bg-red-950/50 dark:text-red-200',
+    'bg-tower-200/90 text-tower-900 dark:bg-tower-700/90 dark:text-tower-100',
+  info: 'bg-brand-100 text-brand-900 dark:bg-brand-800/90 dark:text-brand-50',
+  warning:
+    'bg-brand-yellow-400 text-tower-950 dark:bg-brand-yellow-500/90 dark:text-tower-950',
+  success: 'bg-brand-200 text-brand-900 dark:bg-brand-700 dark:text-tower-50',
+  danger: 'bg-red-50 text-brand-red-800 dark:bg-brand-red-900/45 dark:text-red-50',
 };
 
 interface StatusBadgeProps {

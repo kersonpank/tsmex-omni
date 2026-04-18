@@ -178,7 +178,7 @@ const ManifestsTab: React.FC = () => {
         <button
           type="button"
           onClick={() => setShowCreate(true)}
-          className="admin-focus rounded-xl bg-accent-600 px-4 py-2 text-sm font-bold text-white hover:bg-accent-500"
+          className="admin-focus rounded-xl bg-brand-600 px-4 py-2 text-sm font-bold text-white hover:bg-brand-500"
         >
           + Nova viagem
         </button>
@@ -246,7 +246,7 @@ const ManifestsTab: React.FC = () => {
               />
             </div>
             <div className="md:col-span-2 flex gap-2">
-              <button type="submit" className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700">Criar</button>
+              <button type="submit" className="px-4 py-2 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700">Criar</button>
               <button type="button" onClick={() => { setShowCreate(false); setError(null); }} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
             </div>
           </form>
@@ -270,7 +270,7 @@ const ManifestsTab: React.FC = () => {
                 ))}
               </select>
             </div>
-            <button type="button" onClick={handleAddDemand} disabled={!selectedDemandId} className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50">Adicionar</button>
+            <button type="button" onClick={handleAddDemand} disabled={!selectedDemandId} className="px-4 py-2 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50">Adicionar</button>
             <button type="button" onClick={() => { setShowAddDemand(null); setSelectedDemandId(''); }} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">Fechar</button>
           </div>
         </div>
@@ -293,7 +293,7 @@ const ManifestsTab: React.FC = () => {
                 ))}
               </select>
             </div>
-            <button type="button" onClick={handleAssign} disabled={!assignLinkId} className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50">Atribuir</button>
+            <button type="button" onClick={handleAssign} disabled={!assignLinkId} className="px-4 py-2 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50">Atribuir</button>
             <button type="button" onClick={() => { setShowAssign(null); setAssignLinkId(''); }} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">Fechar</button>
           </div>
         </div>
@@ -323,7 +323,7 @@ const ManifestsTab: React.FC = () => {
                       <button type="button" onClick={() => openAddDemand(m.id)} className="px-3 py-1.5 text-sm bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200">+ Demanda</button>
                       <button type="button" onClick={() => { setShowAssign(m.id); setAssignLinkId(m.linkId || ''); }} className="px-3 py-1.5 text-sm bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200">Atribuir motorista</button>
                       {m.demands && m.demands.length > 0 && (
-                        <button type="button" onClick={() => handleOffer(m.id)} className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Enviar oferta</button>
+                        <button type="button" onClick={() => handleOffer(m.id)} className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm text-white hover:bg-brand-700">Enviar oferta</button>
                       )}
                     </>
                   )}
@@ -360,7 +360,7 @@ const ManifestsTab: React.FC = () => {
                           setError(e.response?.data?.error || e.message || 'Erro ao concluir viagem');
                         }
                       }}
-                      className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
+                      className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm text-white hover:bg-brand-700"
                     >
                       Concluir viagem
                     </button>

@@ -188,14 +188,14 @@ const PedidosTab: React.FC = () => {
                           type="button"
                           disabled={!!actionLoading}
                           onClick={() => handleStatusUpdate(o.id, 'DELIVERED')}
-                          className="admin-focus rounded-lg bg-emerald-600 px-2 py-1 text-xs text-white hover:bg-emerald-700 disabled:opacity-50"
+                          className="admin-focus rounded-lg bg-brand-600 px-2 py-1 text-xs text-white hover:bg-brand-700 disabled:opacity-50"
                         >
                           Entregue
                         </button>
                       )}
                       <RouterLink
                         to={`/tracking/${trackingId}`}
-                        className="admin-focus px-2 py-1 text-xs text-accent-600 hover:text-accent-500 dark:text-accent-400"
+                        className="admin-focus px-2 py-1 text-xs text-brand-600 hover:text-brand-500 dark:text-brand-300"
                       >
                         Ver tracking
                       </RouterLink>

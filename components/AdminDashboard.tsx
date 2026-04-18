@@ -373,7 +373,7 @@ const AdminDashboard: React.FC = () => {
                 </div>
                 <div className="min-w-[132px] rounded-xl border border-tower-200 bg-white/90 p-3 text-center shadow-sm dark:border-tower-700 dark:bg-tower-900/80">
                   <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-tower-400">Em trânsito</span>
-                  <span className="text-xl font-bold text-accent-600 dark:text-accent-400">{stats.inTransit}</span>
+                  <span className="text-xl font-bold text-brand-600 dark:text-brand-300">{stats.inTransit}</span>
                 </div>
                 <div className="min-w-[132px] rounded-xl border border-tower-200 bg-white/90 p-3 text-center shadow-sm dark:border-tower-700 dark:bg-tower-900/80">
                   <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-tower-400">Risco A</span>
@@ -381,7 +381,7 @@ const AdminDashboard: React.FC = () => {
                 </div>
                 <div className="min-w-[132px] rounded-xl border border-tower-200 bg-white/90 p-3 text-center shadow-sm dark:border-tower-700 dark:bg-tower-900/80">
                   <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-tower-400">Faturado (página)</span>
-                  <span className="text-xl font-bold text-emerald-600 dark:text-emerald-400">R$ {stats.totalValue.toLocaleString('pt-BR')}</span>
+                  <span className="text-xl font-bold text-brand-700 dark:text-brand-200">R$ {stats.totalValue.toLocaleString('pt-BR')}</span>
                 </div>
               </div>
 
@@ -398,7 +398,7 @@ const AdminDashboard: React.FC = () => {
                       action={
                         <RouterLink
                           to="/chat/demo"
-                          className="admin-focus inline-flex rounded-xl bg-accent-600 px-4 py-2 text-sm font-bold text-white hover:bg-accent-500"
+                          className="admin-focus inline-flex rounded-xl bg-brand-600 px-4 py-2 text-sm font-bold text-white hover:bg-brand-500"
                         >
                           Abrir chat
                         </RouterLink>
@@ -418,7 +418,7 @@ const AdminDashboard: React.FC = () => {
                               <span className="font-mono-ids text-[10px] font-semibold text-tower-400">#{demand.id.slice(0, 8)}</span>
                               <StatusBadge label={demandStatusLabels[demand.status]} tone={demandStatusTones[demand.status]} />
                               {demand.quotedPrice != null && (
-                                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+                                <span className="rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-bold text-brand-800 dark:bg-brand-900/60 dark:text-brand-100">
                                   R$ {demand.quotedPrice.toLocaleString('pt-BR')}
                                 </span>
                               )}
@@ -442,7 +442,7 @@ const AdminDashboard: React.FC = () => {
                               </div>
                               <div className="text-xs">
                                 <span className="block text-tower-500">Risco</span>
-                                <span className={`font-bold ${demand.riskClass === 'A' ? 'text-red-500' : 'text-accent-600'}`}>Classe {demand.riskClass}</span>
+                                <span className={`font-bold ${demand.riskClass === 'A' ? 'text-red-500' : 'text-brand-600 dark:text-brand-300'}`}>Classe {demand.riskClass}</span>
                               </div>
                             </div>
                           </div>
@@ -451,7 +451,7 @@ const AdminDashboard: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={() => setSelectedDemand(demand)}
-                                className="admin-focus rounded-xl bg-accent-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-accent-500"
+                                className="admin-focus rounded-xl bg-brand-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-brand-500"
                               >
                                 Cotar
                               </button>
@@ -467,7 +467,7 @@ const AdminDashboard: React.FC = () => {
                             )}
                             <RouterLink
                               to={`/tracking/${demand.id}`}
-                              className="admin-focus px-4 py-2 text-center text-sm font-medium text-tower-500 hover:text-accent-600 dark:text-tower-400"
+                              className="admin-focus px-4 py-2 text-center text-sm font-medium text-tower-500 hover:text-brand-600 dark:text-tower-400"
                             >
                               Ver tracking
                             </RouterLink>
@@ -477,7 +477,7 @@ const AdminDashboard: React.FC = () => {
                           <div className="no-scrollbar mt-4 flex items-center gap-4 overflow-x-auto border-t border-tower-100 pt-4 dark:border-tower-800">
                             {demand.events.slice(-3).map((event) => (
                               <div key={event.id} className="flex flex-shrink-0 items-center gap-2">
-                                <div className="h-2 w-2 rounded-full bg-accent-500" />
+                                <div className="h-2 w-2 rounded-full bg-brand-500" />
                                 <div className="text-[10px]">
                                   <span className="block font-bold uppercase text-tower-700 dark:text-tower-200">{demandStatusLabels[event.status]}</span>
                                   <span className="text-tower-400">
@@ -525,14 +525,14 @@ const AdminDashboard: React.FC = () => {
                       <h2 className="mb-4 text-xs font-bold uppercase tracking-wider text-tower-500">Ações rápidas</h2>
                       <RouterLink
                         to="/chat/demo"
-                        className="admin-focus block w-full rounded-xl bg-accent-600 py-3 text-center text-sm font-bold text-white hover:bg-accent-500"
+                        className="admin-focus block w-full rounded-xl bg-brand-600 py-3 text-center text-sm font-bold text-white hover:bg-brand-500"
                       >
                         Novo via chat
                       </RouterLink>
                     </div>
                   )}
                   <div className="rounded-2xl border border-tower-800 bg-tower-900 p-6 text-tower-100 dark:border-tower-700">
-                    <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-accent-400">Resumo da lista</h3>
+                    <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-brand-400">Resumo da lista</h3>
                     <div className="space-y-3 text-xs">
                       <div className="flex justify-between">
                         <span>Itens na página (filtro local)</span>
@@ -544,7 +544,7 @@ const AdminDashboard: React.FC = () => {
                       </div>
                       <div className="flex justify-between border-t border-tower-700 pt-3">
                         <span className="text-tower-400">Atualizado</span>
-                        <span className="font-medium text-accent-400">{new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                        <span className="font-medium text-brand-400">{new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
                       </div>
                     </div>
                   </div>
@@ -554,7 +554,7 @@ const AdminDashboard: React.FC = () => {
               {selectedDemand && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-tower-950/80 p-4 backdrop-blur-md">
                   <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-tower-200 bg-white shadow-2xl dark:border-tower-700 dark:bg-tower-900">
-                    <div className="bg-accent-600 p-6 text-white">
+                    <div className="bg-brand-600 p-6 text-white">
                       <h2 className="text-xl font-bold">Cotar demanda</h2>
                       <p className="text-sm text-white/90">
                         {selectedDemand.origin} → {selectedDemand.destination}
@@ -586,14 +586,14 @@ const AdminDashboard: React.FC = () => {
                         <input
                           id="quote-input"
                           type="number"
-                          className="admin-focus w-full rounded-xl border border-tower-200 bg-tower-50 p-3 text-2xl font-bold text-accent-600 outline-none dark:border-tower-600 dark:bg-tower-800 dark:text-accent-400"
+                          className="admin-focus w-full rounded-xl border border-tower-200 bg-tower-50 p-3 text-2xl font-bold text-brand-600 outline-none dark:border-tower-600 dark:bg-tower-800 dark:text-brand-300"
                           value={quotePrice}
                           onChange={(e) => setQuotePrice(e.target.value)}
                           placeholder="0,00"
                           autoFocus
                         />
                       </div>
-                      <div className="flex gap-3 rounded-xl border border-accent-200 bg-accent-50/80 p-4 dark:border-accent-900/40 dark:bg-accent-950/30">
+                      <div className="flex gap-3 rounded-xl border border-brand-200 bg-brand-50/90 p-4 dark:border-brand-700/50 dark:bg-brand-950/50">
                         <p className="text-xs leading-relaxed text-tower-800 dark:text-tower-200">
                           Risco <strong>{selectedDemand.riskClass}</strong> · Intenção <strong>{selectedDemand.intentType}</strong>
                         </p>
@@ -614,7 +614,7 @@ const AdminDashboard: React.FC = () => {
                         type="button"
                         disabled={!quotePrice}
                         onClick={() => void handleQuote()}
-                        className="admin-focus flex-1 rounded-2xl bg-accent-600 py-3 text-sm font-bold text-white shadow-lg disabled:opacity-50 hover:bg-accent-500"
+                        className="admin-focus flex-1 rounded-2xl bg-brand-600 py-3 text-sm font-bold text-white shadow-lg disabled:opacity-50 hover:bg-brand-500"
                       >
                         Enviar cotação
                       </button>

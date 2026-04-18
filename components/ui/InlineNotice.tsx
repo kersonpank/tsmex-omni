@@ -3,10 +3,11 @@ import React from 'react';
 export type NoticeVariant = 'error' | 'success' | 'info';
 
 const variants: Record<NoticeVariant, string> = {
-  error: 'border-red-200 bg-red-50 text-red-900 dark:border-red-900/40 dark:bg-red-950/50 dark:text-red-100',
+  error:
+    'border-brand-red-500/35 bg-red-50 text-brand-red-700 dark:border-brand-red-500/30 dark:bg-brand-red-700/25 dark:text-red-50',
   success:
-    'border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-100',
-  info: 'border-sky-200 bg-sky-50 text-sky-900 dark:border-sky-900/40 dark:bg-sky-950/40 dark:text-sky-100',
+    'border-brand-200 bg-brand-50 text-brand-900 dark:border-brand-600 dark:bg-brand-900/75 dark:text-brand-100',
+  info: 'border-brand-300 bg-brand-50 text-brand-900 dark:border-brand-600/60 dark:bg-brand-950/80 dark:text-brand-100',
 };
 
 interface InlineNoticeProps {

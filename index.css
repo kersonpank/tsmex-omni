@@ -1,44 +1,77 @@
 @import "tailwindcss";
 
-/* Torre de controle — tokens (Tailwind v4 @theme) */
+/*
+ * Transmesquita / TSM EX — tokens de marca (claro + escuro legíveis)
+ * Azul corporativo #2E3192 · vermelho TRAN · amarelo faixa #FFD400
+ * accent-* = azul marca (retrocompat com componentes existentes)
+ */
+
 @theme {
   --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Syne", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 
-  --color-tower-50: #f4f6f8;
-  --color-tower-100: #e8ecf1;
-  --color-tower-200: #cfd8e3;
-  --color-tower-300: #a8b6c9;
-  --color-tower-400: #7a8aa3;
-  --color-tower-500: #5c6b82;
-  --color-tower-600: #4a5568;
-  --color-tower-700: #3d4654;
-  --color-tower-800: #252d38;
-  --color-tower-900: #161c24;
-  --color-tower-950: #0c0f14;
+  /* Neutros levemente azulados (coerência com marca) */
+  --color-tower-50: #f5f6fb;
+  --color-tower-100: #e8eaf4;
+  --color-tower-200: #d0d5e8;
+  --color-tower-300: #a8b0d0;
+  --color-tower-400: #7a84a8;
+  --color-tower-500: #5c6488;
+  --color-tower-600: #454c6e;
+  --color-tower-700: #363c58;
+  --color-tower-800: #252a42;
+  --color-tower-900: #1a1d32;
+  --color-tower-950: #0e1024;
 
-  --color-accent-400: #34d399;
-  --color-accent-500: #10b981;
-  --color-accent-600: #059669;
+  /* Azul marca (primário UI) */
+  --color-brand-50: #eef0fb;
+  --color-brand-100: #e0e3f5;
+  --color-brand-200: #c5c9ec;
+  --color-brand-300: #9ea6dc;
+  --color-brand-400: #6f78c4;
+  --color-brand-500: #2e3192;
+  --color-brand-600: #252876;
+  --color-brand-700: #1e215f;
+  --color-brand-800: #1a1c4d;
+  --color-brand-900: #16183f;
+  --color-brand-950: #0c0e26;
+
+  /* Vermelho TRAN (perigo / ênfase) */
+  --color-brand-red-400: #f04a52;
+  --color-brand-red-500: #d81e25;
+  --color-brand-red-600: #b0181e;
+  --color-brand-red-700: #8f1318;
+
+  /* Amarelo faixa (aviso / em progresso — sempre texto escuro no chip) */
+  --color-brand-yellow-400: #ffd400;
+  --color-brand-yellow-500: #e6bf00;
+
+  /* accent = azul marca (substitui verde esmeralda) */
+  --color-accent-400: #6f78c4;
+  --color-accent-500: #2e3192;
+  --color-accent-600: #252876;
 
   --color-amber-ctrl: #f59e0b;
-  --color-danger-ctrl: #ef4444;
+  --color-danger-ctrl: #d81e25;
 }
 
-/* Design tokens semânticos (uso em CSS puro + arbitrary values) */
 :root {
   --app-nav-bg: #ffffff;
   --app-nav-border: var(--color-tower-200);
-  --app-accent: var(--color-accent-500);
-  --app-accent-hover: var(--color-accent-600);
+  --app-accent: var(--color-brand-500);
+  --app-accent-hover: var(--color-brand-600);
+  --app-surface-elevated: #ffffff;
+  --app-text-muted: var(--color-tower-500);
 }
 
 .dark:root {
-  --app-nav-bg: var(--color-tower-900);
-  --app-nav-border: var(--color-tower-700);
-  --app-accent: var(--color-accent-400);
-  --app-accent-hover: var(--color-accent-500);
+  --app-nav-bg: var(--color-brand-950);
+  --app-nav-border: color-mix(in srgb, var(--color-brand-500) 28%, transparent);
+  --app-accent: #8b92d9;
+  --app-accent-hover: #a8aedf;
+  --app-surface-elevated: #16183f;
+  --app-text-muted: #a8b0d0;
 }
 
 @layer base {
@@ -46,7 +79,7 @@
     @apply font-sans text-tower-900 bg-tower-50 antialiased;
   }
   html.dark {
-    @apply text-tower-100 bg-tower-950;
+    @apply bg-brand-950 text-tower-100;
   }
 }
 
@@ -59,19 +92,19 @@
   font-feature-settings: "tnum" 1, "lnum" 1;
 }
 
-/* Casca admin — textura sutil */
+/* Casca admin — brilho azul suave (sem verde) */
 .admin-shell-bg {
   background-color: var(--color-tower-50);
   background-image:
-    radial-gradient(ellipse 120% 80% at 50% -20%, rgb(16 185 129 / 0.08), transparent 55%),
-    radial-gradient(ellipse 80% 50% at 100% 50%, rgb(15 23 42 / 0.04), transparent 45%);
+    radial-gradient(ellipse 120% 85% at 50% -25%, rgb(46 49 146 / 0.09), transparent 55%),
+    radial-gradient(ellipse 90% 55% at 100% 40%, rgb(46 49 146 / 0.05), transparent 48%);
 }
 
 .dark .admin-shell-bg {
-  background-color: var(--color-tower-950);
+  background-color: var(--color-brand-950);
   background-image:
-    radial-gradient(ellipse 100% 60% at 50% 0%, rgb(16 185 129 / 0.12), transparent 50%),
-    radial-gradient(ellipse 60% 40% at 0% 100%, rgb(52 211 153 / 0.06), transparent 40%);
+    radial-gradient(ellipse 100% 65% at 50% 0%, rgb(46 49 146 / 0.22), transparent 52%),
+    radial-gradient(ellipse 55% 45% at 0% 100%, rgb(111 120 196 / 0.12), transparent 42%);
 }
 
 .admin-grain {
@@ -89,11 +122,10 @@
 }
 
 .dark .admin-grain::after {
-  opacity: 0.12;
+  opacity: 0.1;
   mix-blend-mode: soft-light;
 }
 
-/* Transição leve ao trocar painel */
 @keyframes admin-fade-in {
   from {
     opacity: 0;
@@ -109,14 +141,13 @@
   animation: admin-fade-in 0.35s ease-out both;
 }
 
-/* Foco visível acessível */
 .admin-focus:focus-visible {
-  outline: 2px solid var(--color-accent-500);
+  outline: 2px solid var(--color-brand-500);
   outline-offset: 2px;
 }
 
 .dark .admin-focus:focus-visible {
-  outline-color: var(--color-accent-400);
+  outline-color: var(--color-brand-300);
 }
 
 .no-scrollbar {
@@ -126,3 +157,5 @@
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/* Fase 2 (PR separado): substituir classes emerald/green em formulários, CRM e settings por tokens brand-* ou utilitários semânticos. */

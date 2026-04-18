@@ -50,29 +50,29 @@ const Navigation: React.FC = () => {
   const navLinks = (
     <>
       {(role === 'ADMIN' || role === 'HUB') && (
-        <Link to="/gestao" className="admin-focus font-medium text-tower-600 transition hover:text-accent-600 dark:text-tower-300 dark:hover:text-accent-400" onClick={() => setMobileOpen(false)}>
+        <Link to="/gestao" className="admin-focus font-medium text-tower-600 transition hover:text-brand-600 dark:text-tower-300 dark:hover:text-brand-300" onClick={() => setMobileOpen(false)}>
           {role === 'HUB' ? 'Operação' : 'Torre de Controle'}
         </Link>
       )}
       {role === 'CLIENT' && (
-        <Link to="/client" className="admin-focus font-medium text-tower-600 transition hover:text-accent-600 dark:text-tower-300 dark:hover:text-accent-400" onClick={() => setMobileOpen(false)}>
+        <Link to="/client" className="admin-focus font-medium text-tower-600 transition hover:text-brand-600 dark:text-tower-300 dark:hover:text-brand-300" onClick={() => setMobileOpen(false)}>
           Dashboard
         </Link>
       )}
       {role === 'LINK' && (
-        <Link to="/link" className="admin-focus font-medium text-tower-600 transition hover:text-accent-600 dark:text-tower-300 dark:hover:text-accent-400" onClick={() => setMobileOpen(false)}>
+        <Link to="/link" className="admin-focus font-medium text-tower-600 transition hover:text-brand-600 dark:text-tower-300 dark:hover:text-brand-300" onClick={() => setMobileOpen(false)}>
           Minha Carga
         </Link>
       )}
-      <Link to="/chat/demo" className="admin-focus font-medium text-tower-600 transition hover:text-accent-600 dark:text-tower-300 dark:hover:text-accent-400" onClick={() => setMobileOpen(false)}>
+      <Link to="/chat/demo" className="admin-focus font-medium text-tower-600 transition hover:text-brand-600 dark:text-tower-300 dark:hover:text-brand-300" onClick={() => setMobileOpen(false)}>
         Minhas Demandas
       </Link>
       {role === 'CLIENT' && (
         <>
-          <Link to="/form/cotacao" className="admin-focus font-medium text-tower-600 transition hover:text-accent-600 dark:text-tower-300 dark:hover:text-accent-400" onClick={() => setMobileOpen(false)}>
+          <Link to="/form/cotacao" className="admin-focus font-medium text-tower-600 transition hover:text-brand-600 dark:text-tower-300 dark:hover:text-brand-300" onClick={() => setMobileOpen(false)}>
             Cotação
           </Link>
-          <Link to="/form/coleta" className="admin-focus font-medium text-tower-600 transition hover:text-accent-600 dark:text-tower-300 dark:hover:text-accent-400" onClick={() => setMobileOpen(false)}>
+          <Link to="/form/coleta" className="admin-focus font-medium text-tower-600 transition hover:text-brand-600 dark:text-tower-300 dark:hover:text-brand-300" onClick={() => setMobileOpen(false)}>
             Coleta
           </Link>
         </>
@@ -81,12 +81,12 @@ const Navigation: React.FC = () => {
   );
 
   return (
-    <nav className="sticky top-0 z-50 border-b border-tower-200/90 bg-white/95 backdrop-blur-md dark:border-tower-800 dark:bg-tower-950/90">
+    <nav className="sticky top-0 z-50 border-b border-brand-200/80 bg-white/95 backdrop-blur-md dark:border-brand-800/40 dark:bg-brand-950/92">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-tower-900 dark:bg-tower-100">
-              <span className="font-display text-lg font-extrabold text-white dark:text-tower-900">TSM</span>
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-600 dark:bg-brand-100">
+              <span className="font-display text-lg font-extrabold text-white dark:text-brand-900">TSM</span>
             </div>
             <span className="font-display text-xl font-bold tracking-tight text-tower-900 dark:text-tower-50">EX OMNI</span>
           </div>
@@ -101,7 +101,7 @@ const Navigation: React.FC = () => {
                     <div className="group relative">
                       <button
                         type="button"
-                        className="rounded-lg bg-accent-500/15 px-3 py-1.5 text-sm font-medium text-accent-700 hover:bg-accent-500/25 dark:text-accent-300 dark:hover:bg-accent-500/20"
+                        className="rounded-lg bg-brand-500/12 px-3 py-1.5 text-sm font-medium text-brand-800 hover:bg-brand-500/20 dark:text-brand-200 dark:hover:bg-brand-500/25"
                       >
                         Ver como {roleLabels[role ?? ''] ?? role}
                       </button>
@@ -111,7 +111,7 @@ const Navigation: React.FC = () => {
                             key={r}
                             type="button"
                             onClick={() => handleRoleSwitch(r)}
-                            className={`block w-full px-4 py-2 text-left text-sm hover:bg-tower-50 dark:hover:bg-tower-800 ${r === role ? 'font-medium text-accent-600 dark:text-accent-400' : 'text-tower-700 dark:text-tower-300'}`}
+                            className={`block w-full px-4 py-2 text-left text-sm hover:bg-tower-50 dark:hover:bg-tower-800 ${r === role ? 'font-medium text-brand-700 dark:text-brand-300' : 'text-tower-700 dark:text-tower-300'}`}
                           >
                             {roleLabels[r] ?? r}
                           </button>
@@ -221,7 +221,7 @@ const Navigation: React.FC = () => {
                       key={r}
                       type="button"
                       onClick={() => handleRoleSwitch(r)}
-                      className={`rounded-lg px-3 py-1.5 text-sm ${r === role ? 'bg-accent-500/20 font-medium text-accent-800 dark:text-accent-200' : 'bg-tower-100 text-tower-600 dark:bg-tower-800 dark:text-tower-400'}`}
+                      className={`rounded-lg px-3 py-1.5 text-sm ${r === role ? 'bg-brand-500/18 font-medium text-brand-900 dark:bg-brand-500/25 dark:text-brand-100' : 'bg-tower-100 text-tower-600 dark:bg-tower-800 dark:text-tower-400'}`}
                     >
                       {roleLabels[r] ?? r}
                     </button>
@@ -255,7 +255,7 @@ const App: React.FC = () => {
 
   return (
     <HashRouter>
-      <div className="flex min-h-screen flex-col bg-tower-50 text-tower-900 dark:bg-tower-950 dark:text-tower-100">
+      <div className="flex min-h-screen flex-col bg-tower-50 text-tower-900 dark:bg-brand-950 dark:text-tower-100">
         <Navigation />
         <main className="flex-grow">
           <Routes>
@@ -313,17 +313,17 @@ const App: React.FC = () => {
           </Routes>
         </main>
 
-        <footer className="mt-auto border-t border-tower-800 bg-tower-900 px-4 py-8 text-tower-500 dark:bg-tower-950 dark:text-tower-500">
+        <footer className="mt-auto border-t border-brand-800 bg-brand-900 px-4 py-8 text-tower-400 dark:border-brand-800 dark:bg-brand-950 dark:text-tower-500">
           <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 text-xs font-medium uppercase tracking-widest md:flex-row">
             <div>TSM EX · Sistema conectado ao backend</div>
             <div className="flex gap-6">
-              <a href="#" className="transition-colors hover:text-accent-400">
+              <a href="#" className="transition-colors hover:text-brand-300">
                 Documentação
               </a>
-              <a href="#" className="transition-colors hover:text-accent-400">
+              <a href="#" className="transition-colors hover:text-brand-300">
                 SLA de IA
               </a>
-              <a href="#" className="transition-colors hover:text-accent-400">
+              <a href="#" className="transition-colors hover:text-brand-300">
                 Suporte
               </a>
             </div>
