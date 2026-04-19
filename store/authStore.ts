@@ -50,12 +50,31 @@ export const useAuthStore = create<AuthState>()(
                     body: JSON.stringify({ email, password }),
                 });
 
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.error || 'Login failed');
+                const raw = await response.text();
+                const trimmed = raw.trim();
+                let body: unknown;
+                if (!trimmed) {
+                    body = {};
+                } else if (trimmed.startsWith('<')) {
+                    throw new Error(
+                        response.status >= 500
+                            ? 'Servidor temporariamente indisponível (erro de gateway). Tente novamente em instantes.'
+                            : 'Resposta inválida do servidor.'
+                    );
+                } else {
+                    try {
+                        body = JSON.parse(trimmed) as unknown;
+                    } catch {
+                        throw new Error('Resposta inválida do servidor.');
+                    }
                 }
 
-                const { data } = await response.json();
+                if (!response.ok) {
+                    const err = body as { error?: string; message?: string };
+                    throw new Error(err.error || err.message || 'Falha no login');
+                }
+
+                const { data } = body as { data: { token: string; user: User } };
                 localStorage.setItem('token', data.token);
                 const firstRole = data.user?.roles?.[0] ?? null;
                 set({

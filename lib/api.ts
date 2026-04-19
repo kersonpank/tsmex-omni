@@ -26,12 +26,31 @@ import type {
 // Em desenvolvimento local, conecta direto ao backend na porta 3002
 const API_URL = import.meta.env.DEV ? 'http://localhost:3002/api' : '/api';
 
+/** Evita JSON.parse em corpo HTML (ex.: 502 do nginx) que dispara "Unexpected token '<'". */
+function parseApiResponseBody(data: unknown): unknown {
+    if (data == null) return data;
+    if (typeof data !== 'string') return data;
+    const t = data.trim();
+    if (!t) return {};
+    if (t.startsWith('<')) {
+        return {
+            error: 'O servidor retornou HTML em vez de JSON (possível falha de proxy ou manutenção).',
+        };
+    }
+    try {
+        return JSON.parse(t) as unknown;
+    } catch {
+        return { error: 'Resposta do servidor não pôde ser interpretada como JSON.' };
+    }
+}
+
 export const api = axios.create({
     baseURL: API_URL,
     headers: {
         'Content-Type': 'application/json',
     },
     timeout: 30000, // 30 segundos de timeout
+    transformResponse: [parseApiResponseBody],
 });
 
 // Interceptor para log de erros (inclui corpo da resposta para diagnóstico)

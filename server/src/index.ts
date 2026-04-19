@@ -30,6 +30,7 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const HOST = process.env.HOST ?? '0.0.0.0';
 
 // Middleware
 app.use(cors({
@@ -73,9 +74,9 @@ app.use('/api/uploads', express.static(uploadDir));
 // Error handler
 app.use(errorHandler);
 
-app.listen(PORT, () => {
-    console.log(`🚀 TSM EX API running on http://localhost:${PORT}`);
-    console.log(`📊 Health check: http://localhost:${PORT}/health`);
+app.listen(Number(PORT), HOST, () => {
+    console.log(`🚀 TSM EX API listening on http://${HOST}:${PORT}`);
+    console.log(`📊 Health check: http://${HOST}:${PORT}/health`);
 });
 
 export default app;
