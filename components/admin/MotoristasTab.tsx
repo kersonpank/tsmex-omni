@@ -103,7 +103,7 @@ const MotoristasTab: React.FC = () => {
                       <select
                         value={approveVehicleTypeId[link.id] ?? link.vehicleTypeId ?? ''}
                         onChange={(e) => setApproveVehicleTypeId((prev) => ({ ...prev, [link.id]: e.target.value }))}
-                        className="border border-tower-300 rounded-lg px-2 py-1 text-sm"
+                        className="border border-tower-300 dark:border-tower-600 rounded-lg px-2 py-1 text-sm bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
                       >
                         <option value="">Selecione o tipo</option>
                         {vehicleTypes.filter((vt) => vt.active).map((vt) => (

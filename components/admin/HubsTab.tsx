@@ -2,6 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { hubsApi, locationsApi, usersApi, personsApi } from '../../lib/api';
 import type { Hub, Person } from '../../types/index';
 import { CityAutocomplete } from '../ui/CityAutocomplete';
+import { Input } from '../ui/Input';
+import { Select } from '../ui/Select';
+import { Checkbox } from '../ui/Checkbox';
+import { FormField } from '../ui/FormField';
 import { maskPhone } from '../../lib/formatters';
 
 const HUB_PERM_OPTIONS = [
@@ -251,36 +255,32 @@ const HubsTab: React.FC = () => {
         <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>
       )}
       {showForm && (
-        <div className="mb-6 bg-white border border-tower-200 rounded-xl p-6 shadow-sm">
-          <h3 className="font-bold text-tower-800 mb-4">{editingId ? 'Editar Hub' : 'Novo Hub'}</h3>
+        <div className="mb-6 bg-white dark:bg-tower-900 border border-tower-200 dark:border-tower-700 rounded-xl p-6 shadow-sm">
+          <h3 className="font-bold text-tower-800 dark:text-tower-100 mb-4">{editingId ? 'Editar Hub' : 'Novo Hub'}</h3>
           <form onSubmit={handleSubmit} className="space-y-4 max-w-xl">
             <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-tower-600 mb-1">Nome *</label>
-                <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="w-full border border-tower-300 rounded-lg px-3 py-2" required />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-tower-600 mb-1">Código *</label>
-                <input type="text" value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} className="w-full border border-tower-300 rounded-lg px-3 py-2" required placeholder="ex: SP-GRU" />
-              </div>
+              <FormField label="Nome" htmlFor="hub-name" required>
+                <Input id="hub-name" type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required />
+              </FormField>
+              <FormField label="Código" htmlFor="hub-code" required>
+                <Input id="hub-code" type="text" value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} required placeholder="ex: SP-GRU" />
+              </FormField>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-tower-600 mb-1">Estado *</label>
-                <select
+              <FormField label="Estado" htmlFor="hub-state" required>
+                <Select
+                  id="hub-state"
                   value={form.state}
                   onChange={e => setForm(f => ({ ...f, state: e.target.value, city: '' }))}
-                  className="w-full border border-tower-300 rounded-lg px-3 py-2"
                   required
                 >
                   <option value="">Selecione</option>
                   {states.map(s => (
                     <option key={s.id} value={s.code}>{s.code} - {s.name}</option>
                   ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-tower-600 mb-1">Cidade *</label>
+                </Select>
+              </FormField>
+              <FormField label="Cidade" htmlFor="hub-city" required>
                 <CityAutocomplete
                   value={form.city && form.state ? `${form.city}, ${form.state}` : (form.city || '')}
                   onChange={v => {
@@ -292,49 +292,39 @@ const HubsTab: React.FC = () => {
                   placeholder="Ex: São Paulo"
                   state={form.state || undefined}
                   required
-                  className="w-full border border-tower-300 rounded-lg px-3 py-2"
                 />
-              </div>
+              </FormField>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-tower-600 mb-1">Endereço</label>
-              <input type="text" value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} className="w-full border border-tower-300 rounded-lg px-3 py-2" />
-            </div>
+            <FormField label="Endereço" htmlFor="hub-address">
+              <Input id="hub-address" type="text" value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} />
+            </FormField>
             <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-tower-600 mb-1">Gerente</label>
-                <input type="text" value={form.managerName} onChange={e => setForm(f => ({ ...f, managerName: e.target.value }))} className="w-full border border-tower-300 rounded-lg px-3 py-2" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-tower-600 mb-1">Telefone</label>
-                <input type="tel" value={maskPhone(form.phone)} onChange={e => setForm(f => ({ ...f, phone: e.target.value.replace(/\D/g, '') }))} className="w-full border border-tower-300 rounded-lg px-3 py-2" placeholder="(11) 99999-9999" maxLength={15} />
-              </div>
+              <FormField label="Gerente" htmlFor="hub-manager">
+                <Input id="hub-manager" type="text" value={form.managerName} onChange={e => setForm(f => ({ ...f, managerName: e.target.value }))} />
+              </FormField>
+              <FormField label="Telefone" htmlFor="hub-phone">
+                <Input id="hub-phone" type="tel" value={maskPhone(form.phone)} onChange={e => setForm(f => ({ ...f, phone: e.target.value.replace(/\D/g, '') }))} placeholder="(11) 99999-9999" maxLength={15} />
+              </FormField>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-tower-600 mb-1">E-mail</label>
-              <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} className="w-full border border-tower-300 rounded-lg px-3 py-2" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-tower-600 mb-1">Pessoa jurídica (CNPJ)</label>
-              <select
+            <FormField label="E-mail" htmlFor="hub-email">
+              <Input id="hub-email" type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+            </FormField>
+            <FormField label="Pessoa jurídica (CNPJ)" htmlFor="hub-person" hint="Vinculada para emissão de CT-e/Minuta">
+              <Select
+                id="hub-person"
                 value={form.personId}
                 onChange={e => setForm(f => ({ ...f, personId: e.target.value }))}
-                className="w-full border border-tower-300 rounded-lg px-3 py-2"
               >
                 <option value="">Nenhuma</option>
                 {personsCnpj.map(p => (
                   <option key={p.id} value={p.id}>{p.legalName} – {p.document}</option>
                 ))}
-              </select>
-              <p className="text-xs text-tower-500 mt-1">Vinculada para emissão de CT-e/Minuta</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <input type="checkbox" id="hub-active" checked={form.active} onChange={e => setForm(f => ({ ...f, active: e.target.checked }))} />
-              <label htmlFor="hub-active" className="text-sm text-tower-600">Ativo</label>
-            </div>
+              </Select>
+            </FormField>
+            <Checkbox id="hub-active" label="Ativo" checked={form.active} onChange={e => setForm(f => ({ ...f, active: e.target.checked }))} />
             <div className="flex gap-2">
               <button type="submit" className="px-4 py-2 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700">Salvar</button>
-              <button type="button" onClick={() => { setShowForm(false); setEditingId(null); }} className="px-4 py-2 bg-tower-200 text-tower-700 rounded-lg hover:bg-tower-300">Cancelar</button>
+              <button type="button" onClick={() => { setShowForm(false); setEditingId(null); }} className="px-4 py-2 bg-tower-200 dark:bg-tower-700 text-tower-700 dark:text-tower-100 rounded-lg hover:bg-tower-300 dark:hover:bg-tower-600">Cancelar</button>
             </div>
           </form>
         </div>

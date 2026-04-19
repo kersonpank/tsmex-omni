@@ -42,7 +42,7 @@ const FaturasTab: React.FC = () => {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="border border-tower-300 rounded-lg px-3 py-2 text-sm"
+            className="border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
           >
             <option value="">Todos os status</option>
             {Object.entries(statusLabels).map(([k, v]) => (

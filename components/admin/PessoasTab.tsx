@@ -123,7 +123,7 @@ const PessoasTab: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h2 className="text-lg font-bold text-tower-800">Cadastro de Pessoas</h2>
+        <h2 className="text-lg font-bold text-tower-800 dark:text-tower-100">Cadastro de Pessoas</h2>
         <div className="flex gap-2">
           <button
             type="button"
@@ -144,13 +144,13 @@ const PessoasTab: React.FC = () => {
       </div>
 
       {/* Filtros */}
-      <div className="bg-white border border-tower-200 rounded-xl p-4 flex flex-wrap gap-3 items-end">
+      <div className="bg-white dark:bg-tower-900 border border-tower-200 dark:border-tower-700 rounded-xl p-4 flex flex-wrap gap-3 items-end">
         <div>
-          <label className="block text-xs font-medium text-tower-500 mb-1">Tipo</label>
+          <label className="block text-xs font-medium text-tower-500 dark:text-tower-300 mb-1">Tipo</label>
           <select
             value={filterDocumentType}
             onChange={e => setFilterDocumentType(e.target.value as 'CPF' | 'CNPJ' | '')}
-            className="border border-tower-300 rounded-lg px-3 py-2 text-sm"
+            className="border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
           >
             <option value="">Todos</option>
             <option value="CPF">CPF</option>
@@ -158,22 +158,22 @@ const PessoasTab: React.FC = () => {
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-tower-500 mb-1">Nome / Documento</label>
+          <label className="block text-xs font-medium text-tower-500 dark:text-tower-300 mb-1">Nome / Documento</label>
           <input
             type="text"
             value={filterName}
             onChange={e => setFilterName(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleSearch()}
             placeholder="Buscar..."
-            className="border border-tower-300 rounded-lg px-3 py-2 text-sm w-48"
+            className="border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 text-sm w-48 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-tower-500 mb-1">Cliente</label>
+          <label className="block text-xs font-medium text-tower-500 dark:text-tower-300 mb-1">Cliente</label>
           <select
             value={filterHasClient}
             onChange={e => setFilterHasClient(e.target.value as 'true' | 'false' | '')}
-            className="border border-tower-300 rounded-lg px-3 py-2 text-sm"
+            className="border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
           >
             <option value="">Todos</option>
             <option value="true">Sim</option>
@@ -181,11 +181,11 @@ const PessoasTab: React.FC = () => {
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-tower-500 mb-1">Motorista</label>
+          <label className="block text-xs font-medium text-tower-500 dark:text-tower-300 mb-1">Motorista</label>
           <select
             value={filterHasLink}
             onChange={e => setFilterHasLink(e.target.value as 'true' | 'false' | '')}
-            className="border border-tower-300 rounded-lg px-3 py-2 text-sm"
+            className="border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
           >
             <option value="">Todos</option>
             <option value="true">Sim</option>
@@ -212,7 +212,7 @@ const PessoasTab: React.FC = () => {
           <div className="w-10 h-10 border-4 border-brand-600 border-t-transparent rounded-full animate-spin" />
         </div>
       ) : (
-        <div className="bg-white border border-tower-200 rounded-xl overflow-hidden">
+        <div className="bg-white dark:bg-tower-900 border border-tower-200 dark:border-tower-700 rounded-xl overflow-hidden">
           {persons.length === 0 ? (
             <div className="p-12 text-center text-tower-500">
               <p className="mb-4">Nenhuma pessoa encontrada.</p>
@@ -244,7 +244,7 @@ const PessoasTab: React.FC = () => {
                       <td className="px-4 py-3 text-sm font-mono text-tower-700">
                         {formatDocument(p.document, p.documentType)}
                       </td>
-                      <td className="px-4 py-3 text-sm text-tower-900">
+                      <td className="px-4 py-3 text-sm text-tower-900 dark:text-tower-100">
                         {p.legalName}
                         {p.tradeName && (
                           <span className="block text-xs text-tower-500">{p.tradeName}</span>
@@ -296,7 +296,7 @@ const PessoasTab: React.FC = () => {
           aria-modal="true"
         >
           <div
-            className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+            className="bg-white dark:bg-tower-900 rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
             onClick={e => e.stopPropagation()}
           >
             {detailLoading ? (
@@ -308,7 +308,7 @@ const PessoasTab: React.FC = () => {
                 <div className="p-6 border-b border-tower-200">
                   <div className="flex justify-between items-start">
                     <div>
-                      <h3 className="text-xl font-bold text-tower-900">{selectedPerson.legalName}</h3>
+                      <h3 className="text-xl font-bold text-tower-900 dark:text-tower-100">{selectedPerson.legalName}</h3>
                       {selectedPerson.tradeName && (
                         <p className="text-sm text-tower-500">{selectedPerson.tradeName}</p>
                       )}
@@ -640,16 +640,16 @@ function PersonFormModal({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50" onClick={onClose} role="dialog">
-      <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
-        <h3 className="text-lg font-bold text-tower-900 mb-4">{mode === 'create' ? 'Nova Pessoa' : 'Editar Pessoa'}</h3>
+      <div className="bg-white dark:bg-tower-900 rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+        <h3 className="text-lg font-bold text-tower-900 dark:text-tower-100 mb-4">{mode === 'create' ? 'Nova Pessoa' : 'Editar Pessoa'}</h3>
         {formError && <p className="text-red-600 text-sm mb-4">{formError}</p>}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-tower-700 mb-1">Tipo documento</label>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Tipo documento</label>
             <select
               value={form.documentType}
               onChange={e => setForm(f => ({ ...f, documentType: e.target.value as PersonDocumentType }))}
-              className="w-full border border-tower-300 rounded-lg px-3 py-2"
+              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
               required
             >
               <option value="CPF">CPF</option>
@@ -672,40 +672,40 @@ function PersonFormModal({
             })) : undefined}
             placeholder={form.documentType === 'CPF' ? '11 dígitos' : '14 dígitos'}
             required
-            className="w-full border border-tower-300 rounded-lg px-3 py-2"
+            className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
           />
           <div>
-            <label className="block text-sm font-medium text-tower-700 mb-1">Nome / Razão social</label>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Nome / Razão social</label>
             <input
               type="text"
               value={form.legalName}
               onChange={e => setForm(f => ({ ...f, legalName: e.target.value }))}
-              className="w-full border border-tower-300 rounded-lg px-3 py-2"
+              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
               required
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-tower-700 mb-1">Fantasia</label>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Fantasia</label>
             <input
               type="text"
               value={form.tradeName}
               onChange={e => setForm(f => ({ ...f, tradeName: e.target.value }))}
-              className="w-full border border-tower-300 rounded-lg px-3 py-2"
+              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
             />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-tower-700 mb-1">CEP</label>
-              <input type="text" value={form.cep} onChange={e => setForm(f => ({ ...f, cep: e.target.value }))} className="w-full border border-tower-300 rounded-lg px-3 py-2" />
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">CEP</label>
+              <input type="text" value={form.cep} onChange={e => setForm(f => ({ ...f, cep: e.target.value }))} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-tower-700 mb-1">Cidade</label>
-              <input type="text" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} className="w-full border border-tower-300 rounded-lg px-3 py-2" />
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Cidade</label>
+              <input type="text" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" />
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-tower-700 mb-1">Endereço</label>
-            <input type="text" value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} className="w-full border border-tower-300 rounded-lg px-3 py-2" />
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Endereço</label>
+            <input type="text" value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" />
           </div>
           <div className="flex gap-2 justify-end pt-4">
             <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 hover:bg-tower-100 rounded-lg">Cancelar</button>
@@ -743,25 +743,25 @@ function AddClientModal({ personId, onClose, onSuccess }: { personId: string; on
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50" onClick={onClose} role="dialog">
-      <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
-        <h3 className="text-lg font-bold text-tower-900 mb-4">Adicionar como Cliente</h3>
+      <div className="bg-white dark:bg-tower-900 rounded-2xl shadow-xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
+        <h3 className="text-lg font-bold text-tower-900 dark:text-tower-100 mb-4">Adicionar como Cliente</h3>
         {err && <p className="text-red-600 text-sm mb-4">{err}</p>}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-tower-700 mb-1">Email</label>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full border border-tower-300 rounded-lg px-3 py-2" required />
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Email</label>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" required />
           </div>
           <div>
-            <label className="block text-sm font-medium text-tower-700 mb-1">Senha</label>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full border border-tower-300 rounded-lg px-3 py-2" required minLength={6} />
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Senha</label>
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" required minLength={6} />
           </div>
           <div>
-            <label className="block text-sm font-medium text-tower-700 mb-1">Nome do contato</label>
-            <input type="text" value={contactName} onChange={e => setContactName(e.target.value)} className="w-full border border-tower-300 rounded-lg px-3 py-2" required />
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Nome do contato</label>
+            <input type="text" value={contactName} onChange={e => setContactName(e.target.value)} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" required />
           </div>
           <div>
-            <label className="block text-sm font-medium text-tower-700 mb-1">Telefone</label>
-            <input type="tel" value={maskPhone(phone)} onChange={e => setPhone(e.target.value.replace(/\D/g, ''))} className="w-full border border-tower-300 rounded-lg px-3 py-2" placeholder="(11) 99999-9999" required maxLength={15} />
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Telefone</label>
+            <input type="tel" value={maskPhone(phone)} onChange={e => setPhone(e.target.value.replace(/\D/g, ''))} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" placeholder="(11) 99999-9999" required maxLength={15} />
           </div>
           <div className="flex gap-2 justify-end pt-4">
             <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 hover:bg-tower-100 rounded-lg">Cancelar</button>
@@ -810,29 +810,29 @@ function AddLinkModal({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50" onClick={onClose} role="dialog">
-      <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <h3 className="text-lg font-bold text-tower-900 mb-4">Adicionar como Motorista</h3>
+      <div className="bg-white dark:bg-tower-900 rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <h3 className="text-lg font-bold text-tower-900 dark:text-tower-100 mb-4">Adicionar como Motorista</h3>
         {err && <p className="text-red-600 text-sm mb-4">{err}</p>}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-tower-700 mb-1">Email</label>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full border border-tower-300 rounded-lg px-3 py-2" required />
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Email</label>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" required />
           </div>
           <div>
-            <label className="block text-sm font-medium text-tower-700 mb-1">Senha</label>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full border border-tower-300 rounded-lg px-3 py-2" required minLength={6} />
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Senha</label>
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" required minLength={6} />
           </div>
           <div>
-            <label className="block text-sm font-medium text-tower-700 mb-1">Nome</label>
-            <input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full border border-tower-300 rounded-lg px-3 py-2" required />
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Nome</label>
+            <input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" required />
           </div>
           <div>
-            <label className="block text-sm font-medium text-tower-700 mb-1">Telefone</label>
-            <input type="tel" value={maskPhone(phone)} onChange={e => setPhone(e.target.value.replace(/\D/g, ''))} className="w-full border border-tower-300 rounded-lg px-3 py-2" placeholder="(11) 99999-9999" required maxLength={15} />
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Telefone</label>
+            <input type="tel" value={maskPhone(phone)} onChange={e => setPhone(e.target.value.replace(/\D/g, ''))} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" placeholder="(11) 99999-9999" required maxLength={15} />
           </div>
           <div>
-            <label className="block text-sm font-medium text-tower-700 mb-1">Tipo de veículo</label>
-            <select value={vehicleTypeId} onChange={e => setVehicleTypeId(e.target.value)} className="w-full border border-tower-300 rounded-lg px-3 py-2" required>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Tipo de veículo</label>
+            <select value={vehicleTypeId} onChange={e => setVehicleTypeId(e.target.value)} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" required>
               <option value="">Selecione</option>
               {vehicleTypes.map(vt => (
                 <option key={vt.id} value={vt.id}>{vt.name}</option>
@@ -840,12 +840,12 @@ function AddLinkModal({
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-tower-700 mb-1">Placa</label>
-            <input type="text" value={vehiclePlate} onChange={e => setVehiclePlate(e.target.value)} className="w-full border border-tower-300 rounded-lg px-3 py-2" required />
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Placa</label>
+            <input type="text" value={vehiclePlate} onChange={e => setVehiclePlate(e.target.value)} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" required />
           </div>
           <div>
-            <label className="block text-sm font-medium text-tower-700 mb-1">Base</label>
-            <input type="text" value={homeBase} onChange={e => setHomeBase(e.target.value)} placeholder="Cidade base" className="w-full border border-tower-300 rounded-lg px-3 py-2" required />
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Base</label>
+            <input type="text" value={homeBase} onChange={e => setHomeBase(e.target.value)} placeholder="Cidade base" className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" required />
           </div>
           <div className="flex gap-2 justify-end pt-4">
             <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 hover:bg-tower-100 rounded-lg">Cancelar</button>
@@ -905,13 +905,13 @@ function AddHubModal({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50" onClick={onClose} role="dialog">
-      <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <h3 className="text-lg font-bold text-tower-900 mb-4">Adicionar como operador de Hub</h3>
+      <div className="bg-white dark:bg-tower-900 rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <h3 className="text-lg font-bold text-tower-900 dark:text-tower-100 mb-4">Adicionar como operador de Hub</h3>
         {err && <p className="text-red-600 text-sm mb-4">{err}</p>}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-tower-700 mb-1">Hub</label>
-            <select value={hubId} onChange={e => setHubId(e.target.value)} className="w-full border border-tower-300 rounded-lg px-3 py-2" required>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Hub</label>
+            <select value={hubId} onChange={e => setHubId(e.target.value)} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" required>
               <option value="">Selecione o hub</option>
               {hubs.map(h => (
                 <option key={h.id} value={h.id}>{h.name} ({h.code})</option>
@@ -919,7 +919,7 @@ function AddHubModal({
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-tower-700 mb-1">Permissões</label>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Permissões</label>
             <div className="space-y-2 mt-1">
               {HUB_PERMISSIONS.map(p => (
                 <label key={p.id} className="flex items-center gap-2 cursor-pointer">
@@ -935,12 +935,12 @@ function AddHubModal({
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-tower-700 mb-1">Email</label>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full border border-tower-300 rounded-lg px-3 py-2" required />
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Email</label>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" required />
           </div>
           <div>
-            <label className="block text-sm font-medium text-tower-700 mb-1">Senha</label>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full border border-tower-300 rounded-lg px-3 py-2" required minLength={6} />
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Senha</label>
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" required minLength={6} />
           </div>
           <div className="flex gap-2 justify-end pt-4">
             <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 hover:bg-tower-100 rounded-lg">Cancelar</button>
@@ -1035,8 +1035,8 @@ function LinkPersonAsEmitterModal({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50" onClick={onClose} role="dialog">
-      <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <h3 className="text-lg font-bold text-tower-900 mb-2">Vincular como emissor de Hub</h3>
+      <div className="bg-white dark:bg-tower-900 rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <h3 className="text-lg font-bold text-tower-900 dark:text-tower-100 mb-2">Vincular como emissor de Hub</h3>
         <p className="text-sm text-tower-600 mb-4">Esta pessoa (CNPJ) será usada como emissor para CT-e/Minuta.</p>
         {err && <p className="text-red-600 text-sm mb-4">{err}</p>}
         <div className="flex gap-2 mb-4">
@@ -1058,8 +1058,8 @@ function LinkPersonAsEmitterModal({
         {mode === 'link' ? (
           <form onSubmit={handleLink} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-tower-700 mb-1">Hub</label>
-              <select value={hubId} onChange={e => setHubId(e.target.value)} className="w-full border border-tower-300 rounded-lg px-3 py-2" required>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Hub</label>
+              <select value={hubId} onChange={e => setHubId(e.target.value)} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" required>
                 <option value="">Selecione o hub</option>
                 {hubs.map(h => (
                   <option key={h.id} value={h.id}>{h.name} ({h.code}){h.personId === personId ? ' – já vinculado' : ''}</option>
@@ -1074,16 +1074,16 @@ function LinkPersonAsEmitterModal({
         ) : (
           <form onSubmit={handleCreate} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-tower-700 mb-1">Nome *</label>
-              <input type="text" value={createForm.name} onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))} className="w-full border border-tower-300 rounded-lg px-3 py-2" required />
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Nome *</label>
+              <input type="text" value={createForm.name} onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" required />
             </div>
             <div>
-              <label className="block text-sm font-medium text-tower-700 mb-1">Código *</label>
-              <input type="text" value={createForm.code} onChange={e => setCreateForm(f => ({ ...f, code: e.target.value }))} className="w-full border border-tower-300 rounded-lg px-3 py-2" required placeholder="ex: SP-GRU" />
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Código *</label>
+              <input type="text" value={createForm.code} onChange={e => setCreateForm(f => ({ ...f, code: e.target.value }))} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" required placeholder="ex: SP-GRU" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-tower-700 mb-1">Estado *</label>
-              <select value={createForm.state} onChange={e => setCreateForm(f => ({ ...f, state: e.target.value, city: '' }))} className="w-full border border-tower-300 rounded-lg px-3 py-2" required>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Estado *</label>
+              <select value={createForm.state} onChange={e => setCreateForm(f => ({ ...f, state: e.target.value, city: '' }))} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" required>
                 <option value="">Selecione</option>
                 {states.map(s => (
                   <option key={s.id} value={s.code}>{s.code} – {s.name}</option>
@@ -1091,7 +1091,7 @@ function LinkPersonAsEmitterModal({
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-tower-700 mb-1">Cidade *</label>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Cidade *</label>
               <CityAutocomplete
                 value={createForm.city && createForm.state ? `${createForm.city}, ${createForm.state}` : createForm.city}
                 onChange={v => {
@@ -1103,21 +1103,21 @@ function LinkPersonAsEmitterModal({
                 state={createForm.state || undefined}
                 placeholder="Ex: São Paulo"
                 required
-                className="w-full border border-tower-300 rounded-lg px-3 py-2"
+                className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-tower-700 mb-1">Endereço</label>
-              <input type="text" value={createForm.address} onChange={e => setCreateForm(f => ({ ...f, address: e.target.value }))} className="w-full border border-tower-300 rounded-lg px-3 py-2" />
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Endereço</label>
+              <input type="text" value={createForm.address} onChange={e => setCreateForm(f => ({ ...f, address: e.target.value }))} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" />
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-sm font-medium text-tower-700 mb-1">Telefone</label>
-                <input type="tel" value={maskPhone(createForm.phone)} onChange={e => setCreateForm(f => ({ ...f, phone: e.target.value.replace(/\D/g, '') }))} className="w-full border border-tower-300 rounded-lg px-3 py-2" placeholder="(11) 99999-9999" />
+                <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Telefone</label>
+                <input type="tel" value={maskPhone(createForm.phone)} onChange={e => setCreateForm(f => ({ ...f, phone: e.target.value.replace(/\D/g, '') }))} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" placeholder="(11) 99999-9999" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-tower-700 mb-1">E-mail</label>
-                <input type="email" value={createForm.email} onChange={e => setCreateForm(f => ({ ...f, email: e.target.value }))} className="w-full border border-tower-300 rounded-lg px-3 py-2" />
+                <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">E-mail</label>
+                <input type="email" value={createForm.email} onChange={e => setCreateForm(f => ({ ...f, email: e.target.value }))} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" />
               </div>
             </div>
             <div className="flex gap-2 justify-end pt-2">
