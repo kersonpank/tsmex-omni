@@ -86,6 +86,7 @@ const Login: React.FC = () => {
                                 type="email"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
+                                autoComplete="email"
                                 className="w-full p-4 bg-tower-50 dark:bg-tower-700/50 border-2 border-tower-100 dark:border-tower-600 rounded-2xl focus:border-brand-500 focus:bg-white dark:focus:bg-tower-700 outline-none transition-all text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
                                 placeholder="seu@email.com"
                                 required
@@ -100,6 +101,7 @@ const Login: React.FC = () => {
                                 type="password"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
+                                autoComplete="current-password"
                                 className="w-full p-4 bg-tower-50 dark:bg-tower-700/50 border-2 border-tower-100 dark:border-tower-600 rounded-2xl focus:border-brand-500 focus:bg-white dark:focus:bg-tower-700 outline-none transition-all text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
                                 placeholder="••••••••"
                                 required
