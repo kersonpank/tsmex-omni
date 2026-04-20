@@ -11,6 +11,7 @@ on:
 
 env:
   IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   validate:

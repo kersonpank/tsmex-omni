@@ -6,12 +6,14 @@
 2. Serviços existentes no Swarm:
    - `staging-tsmex-dev_api`, `staging-tsmex-dev_web`, `staging-tsmex-dev_migrate`
    - `prod-tsmex_api`, `prod-tsmex_web`, `prod-tsmex_migrate`
-3. Variáveis conferidas no Portainer conforme [docs/STACK_ENV_MATRIX.md](docs/STACK_ENV_MATRIX.md).
-4. MinIO bucket do ambiente criado e política da app aplicada.
+3. Se staging não existir, garantir arquivo `/opt/tsmex/docker-stack.staging.yml` para bootstrap automático.
+4. Variáveis conferidas no Portainer conforme [docs/STACK_ENV_MATRIX.md](docs/STACK_ENV_MATRIX.md).
+5. MinIO bucket do ambiente criado e política da app aplicada.
 
 ## Onda 1 — Staging
 
 1. Executar workflow `Deploy Staging`.
+   - Se os serviços não existirem, o workflow tentará bootstrap via `/opt/tsmex/docker-stack.staging.yml`.
 2. Confirmar no Swarm:
    - `staging-tsmex-dev_migrate` executou sem falha.
    - `staging-tsmex-dev_api` e `staging-tsmex-dev_web` em `Running`.

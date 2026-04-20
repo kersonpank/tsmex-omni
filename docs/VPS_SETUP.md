@@ -82,6 +82,17 @@ Confirme que os serviços esperados existem:
 
 O workflow de deploy atual atualiza serviços existentes via `docker service update` (não depende de stack file em `/opt/tsmex`).
 
+Se o staging ainda não existir, o workflow tentará bootstrap automático usando:
+
+- `/opt/tsmex/docker-stack.staging.yml`
+
+Para habilitar esse bootstrap, mantenha esse arquivo na VPS:
+
+```bash
+mkdir -p /opt/tsmex
+scp docker-stack.staging.yml usuario@IP_VPS:/opt/tsmex/
+```
+
 ---
 
 ## 5. Configurar as variáveis de ambiente no Portainer
