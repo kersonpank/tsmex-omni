@@ -1,5 +1,4 @@
 import express from 'express';
-import path from 'path';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import morgan from 'morgan';
@@ -67,9 +66,6 @@ app.use('/api/users', usersRouter);
 app.use('/api/upload', uploadRouter);
 app.use('/api/nf-species', nfSpeciesRouter);
 app.use('/api/nfe', nfeRouter);
-
-const uploadDir = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');
-app.use('/api/uploads', express.static(uploadDir));
 
 // Error handler
 app.use(errorHandler);

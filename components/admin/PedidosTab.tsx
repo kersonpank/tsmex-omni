@@ -27,6 +27,14 @@ const orderStatusTones: Record<string, StatusTone> = {
   CANCELLED: 'danger',
 };
 
+const fileToBase64 = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
 const PedidosTab: React.FC = () => {
   const { user } = useAuthStore();
   const isHub = user?.roles?.includes('HUB') ?? false;
@@ -38,6 +46,7 @@ const PedidosTab: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [attachmentLoading, setAttachmentLoading] = useState<string | null>(null);
   const [chegouHubId, setChegouHubId] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -73,6 +82,25 @@ const PedidosTab: React.FC = () => {
       setError(e.response?.data?.error || e.message || 'Erro ao atualizar status');
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const handleAttachmentUpload = async (orderId: string, file: File) => {
+    setAttachmentLoading(orderId);
+    setError(null);
+    try {
+      const base64 = await fileToBase64(file);
+      await ordersApi.addAttachment(orderId, {
+        file: base64,
+        filename: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        category: 'PEDIDOS_TAB',
+      });
+      await load();
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Erro ao anexar arquivo');
+    } finally {
+      setAttachmentLoading(null);
     }
   };
 
@@ -119,6 +147,7 @@ const PedidosTab: React.FC = () => {
               <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">Origem → Destino</th>
               <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">Status</th>
               <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">HUB atual</th>
+              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">Anexos</th>
               <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">Ações</th>
             </tr>
           </thead>
@@ -137,6 +166,23 @@ const PedidosTab: React.FC = () => {
                     <StatusBadge label={statusLabels[o.status] ?? o.status} tone={orderStatusTones[o.status] ?? 'neutral'} />
                   </td>
                   <td className="px-4 py-3 text-sm text-tower-600 dark:text-tower-300">{o.currentHub?.name ?? o.currentHub?.code ?? '-'}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs text-tower-500 dark:text-tower-400">
+                        {(o.attachments?.length ?? 0)} arquivo(s)
+                      </span>
+                      {o.attachments?.[0]?.attachment?.downloadUrl ? (
+                        <a
+                          href={o.attachments[0].attachment.downloadUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs text-brand-600 dark:text-brand-300 hover:underline"
+                        >
+                          Ver último
+                        </a>
+                      ) : null}
+                    </div>
+                  </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap items-center gap-1">
                       {o.status === 'IN_TRANSIT' &&
@@ -199,6 +245,20 @@ const PedidosTab: React.FC = () => {
                       >
                         Ver tracking
                       </RouterLink>
+                      <label className="admin-focus rounded-lg border border-tower-300 dark:border-tower-600 px-2 py-1 text-xs text-tower-700 dark:text-tower-200 cursor-pointer hover:bg-tower-100 dark:hover:bg-tower-800">
+                        {attachmentLoading === o.id ? 'Enviando...' : 'Anexar'}
+                        <input
+                          type="file"
+                          className="hidden"
+                          accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) void handleAttachmentUpload(o.id, file);
+                            e.currentTarget.value = '';
+                          }}
+                          disabled={attachmentLoading === o.id}
+                        />
+                      </label>
                     </div>
                   </td>
                 </tr>

@@ -37,12 +37,68 @@ model User {
   link          Link?
   admin         Admin?
   hubOnboarding HubOnboarding?
+  uploadedAttachments Attachment[]
 
   // Permissões por pessoa (Admin define para cada usuário HUB)
   permissions String[] @default([])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+enum AttachmentType {
+  IMAGE
+  DOCUMENT
+  OTHER
+}
+
+model Attachment {
+  id        String  @id @default(uuid())
+  type      AttachmentType @default(OTHER)
+  fileName  String
+  mimeType  String
+  size      Int
+  storageKey String @unique
+  bucket    String
+  url       String?
+  checksum  String?
+  metadata  Json?
+  uploadedByUserId String?
+  uploadedByUser   User? @relation(fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+
+  orderLinks  OrderAttachment[]
+  demandLinks DemandAttachment[]
+
+  createdAt DateTime @default(now())
+
+  @@index([uploadedByUserId])
+  @@index([createdAt])
+}
+
+model OrderAttachment {
+  id           String @id @default(uuid())
+  orderId       String
+  order         Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  attachmentId  String
+  attachment    Attachment @relation(fields: [attachmentId], references: [id], onDelete: Cascade)
+  category      String?
+  createdAt     DateTime @default(now())
+
+  @@unique([orderId, attachmentId])
+  @@index([orderId, createdAt])
+}
+
+model DemandAttachment {
+  id           String @id @default(uuid())
+  demandId      String
+  demand        Demand @relation(fields: [demandId], references: [id], onDelete: Cascade)
+  attachmentId  String
+  attachment    Attachment @relation(fields: [attachmentId], references: [id], onDelete: Cascade)
+  category      String?
+  createdAt     DateTime @default(now())
+
+  @@unique([demandId, attachmentId])
+  @@index([demandId, createdAt])
 }
 
 enum UserRole {
@@ -506,6 +562,7 @@ model Demand {
 
   // Events
   events DemandEvent[]
+  attachments DemandAttachment[]
 
   // Metadata
   sourceType DemandSource // CHAT, FORM, BATCH, API
@@ -1161,6 +1218,7 @@ model Order {
 
   // Histórico completo (todos os eventos desde Opportunity até entrega)
   history OrderHistory[]
+  attachments OrderAttachment[]
 
   // Faturamento
   invoices Invoice[]

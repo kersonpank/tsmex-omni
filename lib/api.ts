@@ -839,7 +839,22 @@ export const ordersApi = {
     addHistory: async (id: string, data: { eventType: string; description: string; location?: string; photoUrl?: string }) => {
         const response = await api.post<ApiResponse<any>>(`/orders/${id}/history`, data);
         return response.data;
-    }
+    },
+
+    listAttachments: async (id: string) => {
+        const response = await api.get<ApiResponse<any[]>>(`/orders/${id}/attachments`);
+        return response.data;
+    },
+
+    addAttachment: async (id: string, data: { file: string; filename: string; mimeType: string; category?: string }) => {
+        const response = await api.post<ApiResponse<any>>(`/orders/${id}/attachments`, data);
+        return response.data;
+    },
+
+    removeAttachment: async (id: string, attachmentId: string) => {
+        const response = await api.delete<ApiResponse<{ id: string }>>(`/orders/${id}/attachments/${attachmentId}`);
+        return response.data;
+    },
 };
 
 // ========== INVOICES API ==========
@@ -950,7 +965,16 @@ export const chatMessagesApi = {
 
 export const uploadApi = {
     upload: async (fileBase64: string, filename: string, mimeType?: string) => {
-        const response = await api.post<ApiResponse<{ url: string; filename: string }>>('/upload', {
+        const response = await api.post<ApiResponse<{
+            url: string;
+            downloadUrl?: string;
+            filename: string;
+            storageKey?: string;
+            bucket?: string;
+            size?: number;
+            checksum?: string;
+            type?: 'IMAGE' | 'DOCUMENT' | 'OTHER';
+        }>>('/upload', {
             file: fileBase64,
             filename,
             mimeType,

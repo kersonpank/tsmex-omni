@@ -64,6 +64,13 @@ const MANIFEST_STATUS_COLOR: Record<string, string> = {
 };
 
 const ACTIVE_MANIFEST_STATUSES = ['PENDING_ACCEPT', 'ACCEPTED', 'IN_PROGRESS'];
+const fileToBase64 = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 
 // ── Icons ─────────────────────────────────────────────────────────────────
 
@@ -142,6 +149,7 @@ const ManifestModal: React.FC<ManifestModalProps> = ({
   const [scheduledDate, setScheduledDate] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [attachmentUploadingOrderId, setAttachmentUploadingOrderId] = useState<string | null>(null);
 
   // Derive origin/destination from selected orders
   const origin =
@@ -392,6 +400,25 @@ const HubHome: React.FC = () => {
     await load();
   };
 
+  const handleOrderAttachmentUpload = async (orderId: string, file: File) => {
+    setAttachmentUploadingOrderId(orderId);
+    setError(null);
+    try {
+      const base64 = await fileToBase64(file);
+      await ordersApi.addAttachment(orderId, {
+        file: base64,
+        filename: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        category: 'HUB_HOME',
+      });
+      await load();
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Erro ao anexar arquivo');
+    } finally {
+      setAttachmentUploadingOrderId(null);
+    }
+  };
+
   // ── Nav items ──────────────────────────────────────────────────────────
   const navItems: BottomNavItem[] = [
     {
@@ -620,6 +647,25 @@ const HubHome: React.FC = () => {
                           {order.demand.volume ? `${order.demand.volume} m³` : ''}
                         </p>
                       )}
+                      <div className="mt-3 flex items-center gap-3">
+                        <span className="text-xs text-tower-500 dark:text-tower-400">
+                          {(order.attachments?.length ?? 0)} anexo(s)
+                        </span>
+                        <label className="text-xs font-medium text-brand-600 dark:text-brand-400 cursor-pointer hover:underline">
+                          {attachmentUploadingOrderId === order.id ? 'Enviando...' : 'Anexar evidência'}
+                          <input
+                            type="file"
+                            className="hidden"
+                            accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+                            disabled={attachmentUploadingOrderId === order.id}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) void handleOrderAttachmentUpload(order.id, file);
+                              e.currentTarget.value = '';
+                            }}
+                          />
+                        </label>
+                      </div>
                     </div>
                   ))
                 )}

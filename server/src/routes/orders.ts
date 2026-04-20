@@ -5,10 +5,23 @@ import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { freightCalculationsRouter } from './freightCalculations.js';
+import {
+    deleteObjectByKey,
+    getObjectDownloadUrl,
+    inferAttachmentType,
+    uploadBase64Object,
+} from '../lib/objectStorage.js';
 
 const router = Router();
 
 router.use('/:orderId/freight-calculations', freightCalculationsRouter);
+
+const orderAttachmentCreateSchema = z.object({
+    file: z.string().min(1),
+    filename: z.string().min(1),
+    mimeType: z.string().min(1),
+    category: z.string().max(80).optional(),
+});
 
 // ==================== GET ORDERS ====================
 
@@ -102,7 +115,13 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
                 },
                 _count: {
                     select: { history: true, invoices: true }
-                }
+                },
+                attachments: {
+                    include: {
+                        attachment: true,
+                    },
+                    orderBy: { createdAt: 'desc' },
+                },
             },
             orderBy: { createdAt: 'desc' },
             take: parseInt(limit as string),
@@ -160,7 +179,13 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
                     orderBy: { createdAt: 'desc' }
                 },
                 invoicesRel: { orderBy: { createdAt: 'asc' } },
-                freightCalculations: true
+                freightCalculations: true,
+                attachments: {
+                    include: {
+                        attachment: true,
+                    },
+                    orderBy: { createdAt: 'desc' },
+                },
             }
         });
 
@@ -213,6 +238,52 @@ const optionalUuid = () =>
     z.preprocess((v) => (v === '' || (typeof v === 'string' && !v.trim()) ? undefined : v), z.string().uuid().optional());
 const optionalUuidNullable = () =>
     z.preprocess((v) => (v === '' || (typeof v === 'string' && !v.trim()) ? null : v), z.string().uuid().nullable().optional());
+
+async function assertOrderAccess(req: AuthRequest, orderId: string) {
+    const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        include: {
+            demand: {
+                include: {
+                    client: { select: { accountId: true } },
+                },
+            },
+            manifest: { select: { linkId: true } },
+        },
+    });
+
+    if (!order) {
+        throw new AppError('Order not found', 404);
+    }
+
+    if (req.user!.roles.includes('HUB')) {
+        if (!req.user!.hubId || order.currentHubId !== req.user!.hubId) {
+            throw new AppError('Not authorized', 403);
+        }
+    }
+
+    if (req.user!.roles.includes('LINK')) {
+        const link = await prisma.link.findFirst({
+            where: { userId: req.user!.id },
+            select: { id: true },
+        });
+        if (!link || order.manifest?.linkId !== link.id) {
+            throw new AppError('Not authorized', 403);
+        }
+    }
+
+    if (req.user!.roles.includes('CLIENT')) {
+        const user = await prisma.user.findUnique({
+            where: { id: req.user!.id },
+            select: { accountId: true },
+        });
+        if (!user?.accountId || order.demand.client.accountId !== user.accountId) {
+            throw new AppError('Not authorized', 403);
+        }
+    }
+
+    return order;
+}
 
 const UUID_OPTIONAL_KEYS = ['routeId', 'hubId', 'consignatarioPersonId', 'expedidorPersonId', 'redespachantePersonId'];
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -907,6 +978,132 @@ router.patch('/:id/invoices/:invoiceId', authenticate, authorize('ADMIN', 'HUB')
         if (error instanceof z.ZodError) {
             return next(new AppError(error.errors[0].message, 400));
         }
+        next(error);
+    }
+});
+
+// ==================== ORDER ATTACHMENTS ====================
+
+router.get('/:id/attachments', authenticate, authorize('ADMIN', 'HUB', 'LINK', 'CLIENT'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const orderId = req.params.id as string;
+        await assertOrderAccess(req, orderId);
+
+        const links = await prisma.orderAttachment.findMany({
+            where: { orderId },
+            include: { attachment: true },
+            orderBy: { createdAt: 'desc' },
+        });
+
+        const data = await Promise.all(
+            links.map(async (link) => ({
+                id: link.id,
+                orderId: link.orderId,
+                category: link.category,
+                createdAt: link.createdAt,
+                attachment: {
+                    ...link.attachment,
+                    downloadUrl: await getObjectDownloadUrl(link.attachment.storageKey),
+                },
+            }))
+        );
+
+        res.json({ success: true, data });
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.post('/:id/attachments', authenticate, authorize('ADMIN', 'HUB', 'LINK', 'CLIENT'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const orderId = req.params.id as string;
+        const payload = orderAttachmentCreateSchema.parse(req.body);
+        const order = await assertOrderAccess(req, orderId);
+
+        const upload = await uploadBase64Object({
+            base64: payload.file,
+            fileName: payload.filename,
+            mimeType: payload.mimeType,
+            keyPrefix: `orders/${orderId}`,
+        });
+
+        const attachment = await prisma.attachment.create({
+            data: {
+                type: inferAttachmentType(payload.mimeType),
+                fileName: payload.filename,
+                mimeType: payload.mimeType,
+                size: upload.size,
+                storageKey: upload.storageKey,
+                bucket: upload.bucket,
+                url: upload.publicUrl,
+                checksum: upload.checksum,
+                metadata: {
+                    orderId,
+                    demandId: order.demandId,
+                    category: payload.category ?? null,
+                },
+                uploadedByUserId: req.user!.id,
+            },
+        });
+
+        const link = await prisma.orderAttachment.create({
+            data: {
+                orderId,
+                attachmentId: attachment.id,
+                category: payload.category,
+            },
+        });
+
+        // Maintain demand link to allow future demand-centric audit/search.
+        await prisma.demandAttachment.create({
+            data: {
+                demandId: order.demandId,
+                attachmentId: attachment.id,
+                category: payload.category,
+            },
+        });
+
+        res.status(201).json({
+            success: true,
+            data: {
+                ...link,
+                attachment: {
+                    ...attachment,
+                    downloadUrl: upload.signedUrl,
+                },
+            },
+        });
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return next(new AppError(error.errors[0].message, 400));
+        }
+        next(error);
+    }
+});
+
+router.delete('/:id/attachments/:attachmentId', authenticate, authorize('ADMIN', 'HUB', 'LINK', 'CLIENT'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const orderId = req.params.id as string;
+        const attachmentId = req.params.attachmentId as string;
+        const order = await assertOrderAccess(req, orderId);
+
+        const link = await prisma.orderAttachment.findFirst({
+            where: { orderId, attachmentId },
+            include: { attachment: true },
+        });
+        if (!link) {
+            throw new AppError('Attachment not found for this order', 404);
+        }
+
+        await prisma.$transaction(async (tx) => {
+            await tx.orderAttachment.deleteMany({ where: { orderId, attachmentId } });
+            await tx.demandAttachment.deleteMany({ where: { demandId: order.demandId, attachmentId } });
+            await tx.attachment.delete({ where: { id: attachmentId } });
+        });
+
+        await deleteObjectByKey(link.attachment.storageKey);
+        res.json({ success: true, data: { id: attachmentId } });
+    } catch (error) {
         next(error);
     }
 });

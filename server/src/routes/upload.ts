@@ -1,18 +1,17 @@
 import { Router, Response, NextFunction } from 'express';
-import path from 'path';
-import fs from 'fs';
 import { authenticate, AuthRequest } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { inferAttachmentType, uploadBase64Object } from '../lib/objectStorage.js';
 
 const router = Router();
-
-const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');
-
-function ensureUploadDir() {
-    if (!fs.existsSync(UPLOAD_DIR)) {
-        fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-    }
-}
+const MAX_UPLOAD_SIZE_BYTES = Number(process.env.UPLOAD_MAX_SIZE_BYTES ?? 10 * 1024 * 1024);
+const ALLOWED_MIME_PREFIXES = ['image/', 'application/pdf', 'text/'];
+const ALLOWED_MIME_EXACT = [
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+];
 
 // POST /api/upload - upload a single file (base64 in JSON body for simplicity without multer)
 // Body: { file: string (base64), filename: string, mimeType?: string }
@@ -22,14 +21,42 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response, next: Nex
         if (!base64 || !filename) {
             throw new AppError('file (base64) and filename are required', 400);
         }
-        ensureUploadDir();
-        const ext = path.extname(filename) || (mimeType && mimeType.startsWith('image/') ? '.jpg' : '.bin');
-        const safeName = `${Date.now()}-${(filename || 'file').replace(/[^a-zA-Z0-9.-]/g, '_')}${ext}`;
-        const filePath = path.join(UPLOAD_DIR, safeName);
-        const buffer = Buffer.from(base64, 'base64');
-        fs.writeFileSync(filePath, buffer);
-        const url = `/api/uploads/${safeName}`;
-        res.json({ success: true, data: { url, filename: safeName } });
+
+        if (!mimeType) {
+            throw new AppError('mimeType is required', 400);
+        }
+
+        const isAllowedPrefix = ALLOWED_MIME_PREFIXES.some((prefix) => mimeType.startsWith(prefix));
+        const isAllowedExact = ALLOWED_MIME_EXACT.includes(mimeType);
+        if (!isAllowedPrefix && !isAllowedExact) {
+            throw new AppError('Tipo de arquivo não permitido para upload', 400);
+        }
+
+        const estimatedSize = Math.floor((base64.length * 3) / 4);
+        if (estimatedSize > MAX_UPLOAD_SIZE_BYTES) {
+            throw new AppError(`Arquivo excede limite de ${Math.floor(MAX_UPLOAD_SIZE_BYTES / (1024 * 1024))}MB`, 400);
+        }
+
+        const uploadResult = await uploadBase64Object({
+            base64,
+            fileName: filename,
+            mimeType,
+            keyPrefix: 'uploads/general',
+        });
+
+        res.json({
+            success: true,
+            data: {
+                url: uploadResult.publicUrl ?? uploadResult.signedUrl,
+                downloadUrl: uploadResult.signedUrl,
+                filename,
+                storageKey: uploadResult.storageKey,
+                bucket: uploadResult.bucket,
+                size: uploadResult.size,
+                checksum: uploadResult.checksum,
+                type: inferAttachmentType(mimeType),
+            },
+        });
     } catch (error) {
         next(error);
     }

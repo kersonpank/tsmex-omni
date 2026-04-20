@@ -22,6 +22,13 @@ const isFreightTerm = (v: FreightTerm | null): v is FreightTerm => v !== null;
 
 const SECTION_IDS = ['pessoas', 'coleta', 'nf', 'calculo', 'evolucao', 'imagens'] as const;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const fileToBase64 = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 
 const EntradaTab: React.FC = () => {
   const { user } = useAuthStore();
@@ -92,6 +99,9 @@ const EntradaTab: React.FC = () => {
   const [addClientModalRetryOnSuccess, setAddClientModalRetryOnSuccess] = useState(false);
   const [prescanAutoCreatedPerson, setPrescanAutoCreatedPerson] = useState<Person | null>(null);
   const [needsCollectionActive, setNeedsCollectionActive] = useState(false);
+  const [attachments, setAttachments] = useState<any[]>([]);
+  const [attachmentsLoading, setAttachmentsLoading] = useState(false);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
 
   const loadOrders = async () => {
     setLoading(true);
@@ -137,6 +147,20 @@ const EntradaTab: React.FC = () => {
     }
   };
 
+  const loadAttachments = async (id: string) => {
+    setAttachmentsLoading(true);
+    setAttachmentError(null);
+    try {
+      const res = await ordersApi.listAttachments(id);
+      setAttachments((res as any)?.data ?? []);
+    } catch (e: any) {
+      setAttachmentError(e.response?.data?.error ?? e.message ?? 'Erro ao carregar anexos');
+      setAttachments([]);
+    } finally {
+      setAttachmentsLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadOrders();
   }, []);
@@ -151,8 +175,10 @@ const EntradaTab: React.FC = () => {
       setIsCreatingNew(false);
       setPrescanChaveInput('');
       loadOrder(selectedOrderId);
+      loadAttachments(selectedOrderId);
     } else if (!isCreatingNew) {
       setOrder(null);
+      setAttachments([]);
     }
   }, [selectedOrderId]);
 
@@ -382,6 +408,35 @@ const EntradaTab: React.FC = () => {
   };
 
   const invoicesRel: OrderInvoiceItem[] = order?.invoicesRel ?? [];
+
+  const handleAddAttachment = async (file: File) => {
+    if (!selectedOrderId) return;
+    try {
+      setAttachmentError(null);
+      const base64 = await fileToBase64(file);
+      await ordersApi.addAttachment(selectedOrderId, {
+        file: base64,
+        filename: file.name,
+        mimeType: file.type || 'application/octet-stream',
+      });
+      await loadAttachments(selectedOrderId);
+      setSuccess('Imagem/documento anexado com sucesso.');
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (e: any) {
+      setAttachmentError(e.response?.data?.error ?? e.message ?? 'Erro ao anexar arquivo');
+    }
+  };
+
+  const handleDeleteAttachment = async (attachmentId: string) => {
+    if (!selectedOrderId) return;
+    try {
+      setAttachmentError(null);
+      await ordersApi.removeAttachment(selectedOrderId, attachmentId);
+      await loadAttachments(selectedOrderId);
+    } catch (e: any) {
+      setAttachmentError(e.response?.data?.error ?? e.message ?? 'Erro ao remover anexo');
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -829,7 +884,73 @@ const EntradaTab: React.FC = () => {
               </Section>
 
               <Section title="IMAGENS" expanded={sectionsExpanded.imagens} onToggle={() => toggleSection('imagens')}>
-                <p className="text-tower-500 dark:text-tower-400 text-sm">Em breve.</p>
+                {!selectedOrderId ? (
+                  <p className="text-tower-500 dark:text-tower-400 text-sm">Grave as pessoas primeiro para anexar imagens/documentos.</p>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <label className="px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 cursor-pointer">
+                        + Adicionar arquivo
+                        <input
+                          type="file"
+                          className="hidden"
+                          accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) void handleAddAttachment(file);
+                            e.currentTarget.value = '';
+                          }}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => loadAttachments(selectedOrderId)}
+                        className="px-3 py-2 text-sm rounded-lg border border-tower-300 dark:border-tower-600 text-tower-700 dark:text-tower-200"
+                      >
+                        Recarregar
+                      </button>
+                    </div>
+                    {attachmentError && <p className="text-sm text-red-600 dark:text-red-400">{attachmentError}</p>}
+                    {attachmentsLoading ? (
+                      <p className="text-sm text-tower-500 dark:text-tower-400">Carregando anexos...</p>
+                    ) : attachments.length === 0 ? (
+                      <p className="text-sm text-tower-500 dark:text-tower-400">Nenhum anexo neste pedido.</p>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {attachments.map((item) => {
+                          const att = item.attachment;
+                          const previewUrl = att?.downloadUrl ?? att?.url;
+                          const isImage = String(att?.mimeType ?? '').startsWith('image/');
+                          return (
+                            <div key={item.id} className="border border-tower-200 dark:border-tower-700 rounded-lg p-3 space-y-2">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium text-tower-900 dark:text-tower-100 truncate">{att?.fileName ?? 'Arquivo'}</p>
+                                  <p className="text-xs text-tower-500 dark:text-tower-400">{att?.mimeType} · {(att?.size ?? 0) > 0 ? `${Math.round(att.size / 1024)} KB` : ''}</p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteAttachment(att?.id)}
+                                  className="text-xs text-red-600 hover:underline"
+                                >
+                                  Remover
+                                </button>
+                              </div>
+                              {isImage && previewUrl ? (
+                                <img src={previewUrl} alt={att?.fileName ?? 'Anexo'} className="w-full h-28 object-cover rounded border border-tower-200 dark:border-tower-700" />
+                              ) : null}
+                              {previewUrl ? (
+                                <a href={previewUrl} target="_blank" rel="noreferrer" className="text-xs text-brand-600 dark:text-brand-400 hover:underline">
+                                  Abrir anexo
+                                </a>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
               </Section>
 
               <div className="flex justify-between items-center pt-4 border-t border-tower-200 dark:border-tower-700 text-sm text-tower-500 dark:text-tower-400">
