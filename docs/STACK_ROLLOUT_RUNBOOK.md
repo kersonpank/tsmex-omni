@@ -3,9 +3,9 @@
 ## Pré-check obrigatório
 
 1. `docker network ls` contém `ProxyGM`.
-2. Stack files atualizados em `/opt/tsmex`:
-   - `/opt/tsmex/docker-stack.staging.yml`
-   - `/opt/tsmex/docker-stack.prod.yml`
+2. Serviços existentes no Swarm:
+   - `staging-tsmex-dev_api`, `staging-tsmex-dev_web`, `staging-tsmex-dev_migrate`
+   - `prod-tsmex_api`, `prod-tsmex_web`, `prod-tsmex_migrate`
 3. Variáveis conferidas no Portainer conforme [docs/STACK_ENV_MATRIX.md](docs/STACK_ENV_MATRIX.md).
 4. MinIO bucket do ambiente criado e política da app aplicada.
 

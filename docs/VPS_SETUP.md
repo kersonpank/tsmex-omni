@@ -69,17 +69,18 @@ docker stack deploy -c /opt/traefik/traefik-stack.yml traefik
 
 ---
 
-## 4. Copiar os arquivos de stack para a VPS
+## 4. Validar serviços existentes no Swarm
 
 ```bash
-mkdir -p /opt/tsmex
-
-# Na sua máquina local, copie via scp:
-scp docker-stack.staging.yml usuario@IP_VPS:/opt/tsmex/
-scp docker-stack.prod.yml    usuario@IP_VPS:/opt/tsmex/
+docker service ls
 ```
 
-Esses arquivos ficam na VPS e o GitHub Actions os referencia ao fazer deploy.
+Confirme que os serviços esperados existem:
+
+- `staging-tsmex-dev_api`, `staging-tsmex-dev_web`, `staging-tsmex-dev_migrate`
+- `prod-tsmex_api`, `prod-tsmex_web`, `prod-tsmex_migrate`
+
+O workflow de deploy atual atualiza serviços existentes via `docker service update` (não depende de stack file em `/opt/tsmex`).
 
 ---
 
@@ -106,6 +107,7 @@ ssh-keygen -t ed25519 -C "github-actions-tsmex" -f ~/.ssh/github_actions_tsmex -
 ```
 
 Adicionar a chave pública na VPS:
+
 ```bash
 cat ~/.ssh/github_actions_tsmex.pub >> ~/.ssh/authorized_keys
 chmod 600 ~/.ssh/authorized_keys
@@ -118,12 +120,14 @@ O conteúdo de `~/.ssh/github_actions_tsmex` (chave **privada**) vai no GitHub S
 ## 7. Configurar o GitHub
 
 ### 7.1 Criar o repositório
+
 - Acesse github.com → New repository
 - Nome: `tsmex-omni`
 - Visibilidade: **Private**
 - Não inicializar com README
 
 ### 7.2 Conectar o projeto local
+
 ```bash
 # No terminal, dentro da pasta do projeto:
 git remote add origin https://github.com/SEU_USUARIO/tsmex-omni.git
@@ -137,6 +141,7 @@ git checkout develop
 ```
 
 ### 7.3 Proteger a branch `main`
+
 ```
 GitHub → Settings → Branches → Add branch protection rule
 Branch name pattern: main
@@ -146,6 +151,7 @@ Branch name pattern: main
 ```
 
 ### 7.4 Criar o Environment de produção
+
 ```
 GitHub → Settings → Environments → New environment
 Nome: production
@@ -153,16 +159,19 @@ Nome: production
 ```
 
 ### 7.5 Adicionar os Secrets
+
 ```
 GitHub → Settings → Secrets and variables → Actions → New repository secret
 ```
 
-| Secret | Valor |
-|---|---|
-| `VPS_HOST` | IP público da VPS |
-| `VPS_USER` | Usuário SSH (ex: root) |
-| `VPS_SSH_KEY` | Conteúdo de `~/.ssh/github_actions_tsmex` (chave privada) |
-| `GHCR_TOKEN` | Token gerado em github.com → Settings → Developer settings → Personal access tokens → Fine-grained → com permissão `write:packages` |
+
+| Secret        | Valor                                                                                                                               |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `VPS_HOST`    | IP público da VPS                                                                                                                   |
+| `VPS_USER`    | Usuário SSH (ex: root)                                                                                                              |
+| `VPS_SSH_KEY` | Conteúdo de `~/.ssh/github_actions_tsmex` (chave privada)                                                                           |
+| `GHCR_TOKEN`  | Token gerado em github.com → Settings → Developer settings → Personal access tokens → Fine-grained → com permissão `write:packages` |
+
 
 ---
 
@@ -200,3 +209,4 @@ docker service update \
 # Para ver as versões disponíveis, acesse:
 # https://github.com/SEU_USUARIO/tsmex-omni/pkgs/container/tsmex-api
 ```
+

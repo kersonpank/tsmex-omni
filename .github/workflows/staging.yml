@@ -85,13 +85,21 @@ jobs:
             docker pull ${{ env.IMAGE_PREFIX }}/tsmex-web:staging
             docker pull ${{ env.IMAGE_PREFIX }}/tsmex-migrate:staging
 
-            STACK_NAME=staging-tsmex-dev
-            STACK_FILE=/opt/tsmex/docker-stack.staging.yml
+            STACK_PREFIX=staging-tsmex-dev
+            API_SVC=${STACK_PREFIX}_api
+            WEB_SVC=${STACK_PREFIX}_web
+            MIGRATE_SVC=${STACK_PREFIX}_migrate
 
-            docker stack deploy -c "$STACK_FILE" "$STACK_NAME" --with-registry-auth --prune
+            for svc in "$API_SVC" "$WEB_SVC" "$MIGRATE_SVC"; do
+              if ! docker service inspect "$svc" >/dev/null 2>&1; then
+                echo "❌ Serviço não encontrado: $svc"
+                echo "Serviços disponíveis no Swarm:"
+                docker service ls
+                exit 1
+              fi
+            done
 
-            MIGRATE_SVC=${STACK_NAME}_migrate
-            docker service update --force --with-registry-auth "$MIGRATE_SVC"
+            docker service update --image ${{ env.IMAGE_PREFIX }}/tsmex-migrate:staging --with-registry-auth --force "$MIGRATE_SVC"
 
             echo "Aguardando migração concluir..."
             for i in $(seq 1 60); do
@@ -108,6 +116,6 @@ jobs:
               sleep 5
             done
 
-            docker service update --force --with-registry-auth ${STACK_NAME}_api
-            docker service update --force --with-registry-auth ${STACK_NAME}_web
+            docker service update --image ${{ env.IMAGE_PREFIX }}/tsmex-api:staging --with-registry-auth --force "$API_SVC"
+            docker service update --image ${{ env.IMAGE_PREFIX }}/tsmex-web:staging --with-registry-auth --force "$WEB_SVC"
             echo "Staging deploy OK: ${{ steps.vars.outputs.SHA_TAG }}"

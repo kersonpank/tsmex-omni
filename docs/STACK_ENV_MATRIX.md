@@ -83,3 +83,4 @@ RUN_MIGRATE_PERSONS=false
 - Nunca reutilizar `JWT_SECRET`, `S3_ACCESS_KEY` ou `S3_SECRET_KEY` entre ambientes.
 - Nunca usar credenciais de admin MinIO (`MINIO_ROOT_*`) na aplicação.
 - `S3_ENDPOINT` deve ser o domínio HTTPS público (não usar porta interna quando há proxy).
+

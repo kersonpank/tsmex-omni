@@ -108,13 +108,21 @@ jobs:
             docker pull ${{ env.IMAGE_PREFIX }}/tsmex-web:latest
             docker pull ${{ env.IMAGE_PREFIX }}/tsmex-migrate:latest
 
-            STACK_NAME=prod-tsmex
-            STACK_FILE=/opt/tsmex/docker-stack.prod.yml
+            STACK_PREFIX=prod-tsmex
+            API_SVC=${STACK_PREFIX}_api
+            WEB_SVC=${STACK_PREFIX}_web
+            MIGRATE_SVC=${STACK_PREFIX}_migrate
 
-            docker stack deploy -c "$STACK_FILE" "$STACK_NAME" --with-registry-auth --prune
+            for svc in "$API_SVC" "$WEB_SVC" "$MIGRATE_SVC"; do
+              if ! docker service inspect "$svc" >/dev/null 2>&1; then
+                echo "❌ Serviço não encontrado: $svc"
+                echo "Serviços disponíveis no Swarm:"
+                docker service ls
+                exit 1
+              fi
+            done
 
-            MIGRATE_SVC=${STACK_NAME}_migrate
-            docker service update --force --with-registry-auth "$MIGRATE_SVC"
+            docker service update --image ${{ env.IMAGE_PREFIX }}/tsmex-migrate:latest --with-registry-auth --force "$MIGRATE_SVC"
 
             echo "Aguardando migração de produção concluir..."
             for i in $(seq 1 60); do
@@ -131,6 +139,6 @@ jobs:
               sleep 5
             done
 
-            docker service update --force --with-registry-auth ${STACK_NAME}_api
-            docker service update --force --with-registry-auth ${STACK_NAME}_web
+            docker service update --image ${{ env.IMAGE_PREFIX }}/tsmex-api:latest --with-registry-auth --force "$API_SVC"
+            docker service update --image ${{ env.IMAGE_PREFIX }}/tsmex-web:latest --with-registry-auth --force "$WEB_SVC"
             echo "Produção deploy OK: ${{ needs.build-and-push.outputs.sha_tag }}"
