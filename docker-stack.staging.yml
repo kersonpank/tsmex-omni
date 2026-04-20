@@ -61,15 +61,26 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
       PORT: 3002
+      HOST: "0.0.0.0"
       NODE_ENV: production
       CORS_ORIGIN: https://tsm.mesquitagrupo.com.br
+    # ProxyGM: Traefik encaminha /api direto à API (evita 502 do Nginx web->api na overlay).
     networks:
       - tsmex-staging-internal
+      - ProxyGM
     deploy:
       replicas: 1
       restart_policy:
         condition: on-failure
         delay: 10s
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=ProxyGM"
+        - "traefik.http.routers.tsmex-staging-api.rule=Host(`tsm.mesquitagrupo.com.br`) && PathPrefix(`/api`)"
+        - "traefik.http.routers.tsmex-staging-api.entrypoints=websecure"
+        - "traefik.http.routers.tsmex-staging-api.priority=25"
+        - "traefik.http.routers.tsmex-staging-api.tls.certresolver=letsencryptresolver"
+        - "traefik.http.services.tsmex-staging-api.loadbalancer.server.port=3002"
 
   web:
     image: ghcr.io/${GITHUB_REPOSITORY}/tsmex-web:staging

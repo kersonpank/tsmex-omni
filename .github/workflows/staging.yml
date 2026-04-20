@@ -79,14 +79,46 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
+            set -euo pipefail
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             docker pull ${{ env.IMAGE_PREFIX }}/tsmex-api:staging
             docker pull ${{ env.IMAGE_PREFIX }}/tsmex-web:staging
-            docker service update \
-              --image ${{ env.IMAGE_PREFIX }}/tsmex-api:staging \
-              --with-registry-auth \
-              --force \
-              staging-tsmex-dev_api
+
+            # Traefik: /api vai direto à API (mesma rede ProxyGM). Evita Nginx no web resolver "api"
+            # na overlay (connection refused / DNS multi-rede).
+            API_SVC=staging-tsmex-dev_api
+            PROXY_GM_ID=$(docker network inspect ProxyGM -f '{{.Id}}' 2>/dev/null || true)
+            if [ -n "$PROXY_GM_ID" ]; then
+              API_NETS=$(docker service inspect "$API_SVC" --format '{{range .Spec.TaskTemplate.Networks}}{{.Target}} {{end}}' 2>/dev/null || true)
+              if ! echo "$API_NETS" | grep -q "$PROXY_GM_ID"; then
+                echo "Anexando ProxyGM ao serviço API..."
+                docker service update --network-add ProxyGM "$API_SVC"
+                sleep 10
+              fi
+            fi
+
+            API_LABELS=$(docker service inspect "$API_SVC" --format '{{json .Spec.Labels}}' 2>/dev/null || echo '{}')
+            if echo "$API_LABELS" | grep -q 'traefik.http.routers.tsmex-staging-api.rule'; then
+              docker service update \
+                --image ${{ env.IMAGE_PREFIX }}/tsmex-api:staging \
+                --with-registry-auth \
+                --force \
+                "$API_SVC"
+            else
+              docker service update \
+                --image ${{ env.IMAGE_PREFIX }}/tsmex-api:staging \
+                --with-registry-auth \
+                --force \
+                --label-add "traefik.enable=true" \
+                --label-add "traefik.docker.network=ProxyGM" \
+                --label-add 'traefik.http.routers.tsmex-staging-api.rule=Host(`tsm.mesquitagrupo.com.br`) && PathPrefix(`/api`)' \
+                --label-add "traefik.http.routers.tsmex-staging-api.entrypoints=websecure" \
+                --label-add "traefik.http.routers.tsmex-staging-api.priority=25" \
+                --label-add "traefik.http.routers.tsmex-staging-api.tls.certresolver=letsencryptresolver" \
+                --label-add "traefik.http.services.tsmex-staging-api.loadbalancer.server.port=3002" \
+                "$API_SVC"
+            fi
+
             docker service update \
               --image ${{ env.IMAGE_PREFIX }}/tsmex-web:staging \
               --with-registry-auth \

@@ -38,6 +38,13 @@ echo
 
 echo "=== 4) Rede overlay: web e api presentes ==="
 docker network inspect "$NET" --format '{{json .Containers}}' 2>/dev/null | head -c 4000 || echo "Rede $NET não encontrada; ajuste NET (docker network ls | grep staging)."
+echo
+
+echo "=== 5) API na rede ProxyGM (Traefik -> /api direto) ==="
+docker service inspect "$API_SVC" --format '{{json .Spec.TaskTemplate.Networks}}' 2>/dev/null | head -c 2000 || true
+echo
+docker service inspect "$API_SVC" --format '{{json .Spec.Labels}}' 2>/dev/null | head -c 2000 || true
 
 echo
-echo "Critério OK: log da API contém 'listening on http://0.0.0.0:3002' e wget do web retorna JSON 200."
+echo "Critério OK: Traefik com labels tsmex-staging-api; API anexada a ProxyGM; log da API com 0.0.0.0:3002."
+echo "Login no browser usa https://.../api (Traefik), nao depende mais do Nginx web->api."
