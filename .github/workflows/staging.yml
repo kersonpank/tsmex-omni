@@ -106,17 +106,19 @@ jobs:
             docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-migrate:staging --with-registry-auth --force "$MIGRATE_SVC"
 
             echo "Aguardando migração concluir..."
+            sleep 5
             for i in $(seq 1 60); do
-              RUNNING=$(docker service ps "$MIGRATE_SVC" --filter desired-state=running --format '{{.CurrentState}}' | wc -l | tr -d ' ')
-              FAILED=$(docker service ps "$MIGRATE_SVC" --format '{{.CurrentState}}' | grep -cE 'Failed|Rejected|Error' || true)
-              if [ "${FAILED}" -gt 0 ]; then
-                echo "❌ Migração falhou."
+              # head -1: apenas a task mais recente (evita falso positivo em tasks antigas)
+              LAST_STATE=$(docker service ps "$MIGRATE_SVC" --no-trunc --format '{{.CurrentState}}' 2>/dev/null | head -1)
+              if echo "$LAST_STATE" | grep -qE 'Failed|Rejected|Error'; then
+                echo "❌ Migração falhou. Estado: $LAST_STATE"
                 docker service ps "$MIGRATE_SVC" --no-trunc
                 echo "--- Logs do migrate (últimas 200 linhas) ---"
                 docker service logs "$MIGRATE_SVC" --tail 200 --raw 2>&1 || true
                 exit 1
               fi
-              if [ "${RUNNING}" -eq 0 ]; then
+              if ! echo "$LAST_STATE" | grep -qE 'Running|Preparing|Starting'; then
+                echo "Migração concluída. Estado: $LAST_STATE"
                 break
               fi
               sleep 5

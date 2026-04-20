@@ -10,6 +10,37 @@
 4. Variáveis conferidas no Portainer conforme [docs/STACK_ENV_MATRIX.md](docs/STACK_ENV_MATRIX.md).
 5. MinIO bucket do ambiente criado e política da app aplicada.
 
+## Diagnóstico — Prisma P1001 (`Can't reach database server at postgres:5432`)
+
+Use quando o CI ou `staging-tsmex-dev_migrate` falhar com erro de conectividade ao Postgres.
+
+1. **Réplicas do Postgres** (no manager do Swarm):
+
+   ```bash
+   docker service ps staging-tsmex-dev_postgres --no-trunc
+   ```
+
+   Esperado: task em `Running` e serviço `1/1`.
+
+2. **`DATABASE_URL` no Portainer** deve apontar para o **nome do serviço** do stack (`postgres`), não `localhost` nem host de outro stack. Formato alinhado à matriz: [docs/STACK_ENV_MATRIX.md](docs/STACK_ENV_MATRIX.md).
+
+   Conferir env efetiva do migrate (mascarar senha ao copiar):
+
+   ```bash
+   docker service inspect staging-tsmex-dev_migrate --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .Name .Value}}{{end}}' | grep DATABASE_URL
+   ```
+
+3. **Teste de rede na mesma overlay** do stack (nome típico: `staging-tsmex-dev_tsmex-staging-internal`; confira com `docker network ls | grep staging-tsmex-dev`):
+
+   ```bash
+   NET=$(docker network ls --format '{{.Name}}' | grep '^staging-tsmex-dev_' | head -1)
+   docker run --rm --network "$NET" alpine:3.20 sh -c "apk add -q netcat-openbsd && nc -zv postgres 5432"
+   ```
+
+   Se `nc` falhar, o problema é rede/DNS do Swarm ou o Postgres não está escutando — corrigir antes de reexecutar o workflow.
+
+4. **Race no primeiro deploy**: o Swarm não garante ordem entre serviços. Com a imagem `tsmex-migrate` atualizada (espera TCP ao Postgres antes do Prisma), novos deploys tendem a estabilizar; após Postgres `1/1`, pode **Re-run** do job no GitHub Actions.
+
 ## Onda 1 — Staging
 
 1. Executar workflow `Deploy Staging`.
@@ -18,10 +49,9 @@
    - `staging-tsmex-dev_migrate` executou sem falha.
    - `staging-tsmex-dev_api` e `staging-tsmex-dev_web` em `Running`.
 3. Smoke test funcional:
-   - Login.
-   - Abertura de Entrada.
-   - Upload de anexo.
-   - Listagem/download/remoção de anexo.
+   - **API**: `curl -fsS https://tsm.mesquitagrupo.com.br/api/health` (ajuste o host se usar outro domínio de staging).
+   - **MinIO**: console em `https://${MINIO_HOST}` (login com `MINIO_ROOT_*`); confirmar bucket do ambiente (`tsmex-staging-uploads`) e objeto após upload.
+   - **App**: login → Entrada → upload de anexo (`POST /api/upload` com JWT; corpo JSON base64 conforme [server/src/routes/upload.ts](../server/src/routes/upload.ts)) → listagem/download/remoção de anexo.
 4. Monitorar logs 15 min:
    - `docker service logs staging-tsmex-dev_api --since 15m`
    - `docker service logs staging-tsmex-dev_web --since 15m`

@@ -18,6 +18,11 @@ Use esta matriz no Portainer (Stack variables) para evitar drift e falha no star
 - `S3_BUCKET`
 - `S3_PUBLIC_BASE_URL`
 
+## Variáveis opcionais (somente imagem `tsmex-migrate`)
+
+- `POSTGRES_HOST` (default `postgres`) — host TCP usado pela espera antes do `prisma migrate deploy` (deve bater com o hostname em `DATABASE_URL`).
+- `POSTGRES_PORT` (default `5432`)
+
 ## Variáveis recomendadas com default
 
 - `S3_REGION` (default `us-east-1`)
