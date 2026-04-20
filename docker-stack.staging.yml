@@ -78,12 +78,15 @@ services:
         - "traefik.docker.network=ProxyGM"
         - "traefik.http.routers.tsmex-staging-api.rule=Host(`tsm.mesquitagrupo.com.br`) && PathPrefix(`/api`)"
         - "traefik.http.routers.tsmex-staging-api.entrypoints=websecure"
-        - "traefik.http.routers.tsmex-staging-api.priority=25"
+        - "traefik.http.routers.tsmex-staging-api.priority=100"
         - "traefik.http.routers.tsmex-staging-api.tls.certresolver=letsencryptresolver"
         - "traefik.http.services.tsmex-staging-api.loadbalancer.server.port=3002"
 
   web:
     image: ghcr.io/${GITHUB_REPOSITORY}/tsmex-web:staging
+    environment:
+      # Swarm: DNS tasks.* aponta para o IP da task (evita VIP "api" com connection refused no Nginx).
+      NGINX_API_HOST: tasks.api
     networks:
       - tsmex-staging-internal
       - ProxyGM
@@ -95,6 +98,7 @@ services:
         - "traefik.enable=true"
         - "traefik.http.routers.tsmex-staging.rule=Host(`tsm.mesquitagrupo.com.br`)"
         - "traefik.http.routers.tsmex-staging.entrypoints=websecure"
+        - "traefik.http.routers.tsmex-staging.priority=1"
         - "traefik.http.routers.tsmex-staging.tls.certresolver=letsencryptresolver"
         - "traefik.http.services.tsmex-staging.loadbalancer.server.port=80"
 

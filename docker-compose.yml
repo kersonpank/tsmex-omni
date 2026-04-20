@@ -87,6 +87,8 @@ services:
     restart: unless-stopped
     ports:
       - "3000:80"
+    environment:
+      NGINX_API_HOST: api
     depends_on:
       - api
     networks:

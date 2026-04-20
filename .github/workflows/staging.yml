@@ -113,15 +113,28 @@ jobs:
                 --label-add "traefik.docker.network=ProxyGM" \
                 --label-add 'traefik.http.routers.tsmex-staging-api.rule=Host(`tsm.mesquitagrupo.com.br`) && PathPrefix(`/api`)' \
                 --label-add "traefik.http.routers.tsmex-staging-api.entrypoints=websecure" \
-                --label-add "traefik.http.routers.tsmex-staging-api.priority=25" \
+                --label-add "traefik.http.routers.tsmex-staging-api.priority=100" \
                 --label-add "traefik.http.routers.tsmex-staging-api.tls.certresolver=letsencryptresolver" \
                 --label-add "traefik.http.services.tsmex-staging-api.loadbalancer.server.port=3002" \
                 "$API_SVC"
             fi
 
-            docker service update \
-              --image ${{ env.IMAGE_PREFIX }}/tsmex-web:staging \
-              --with-registry-auth \
-              --force \
-              staging-tsmex-dev_web
+            WEB_SVC=staging-tsmex-dev_web
+            WEB_ENVS=$(docker service inspect "$WEB_SVC" --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{.Name}}={{.Value}};{{end}}' 2>/dev/null || true)
+            if echo "$WEB_ENVS" | grep -q 'NGINX_API_HOST=tasks.api'; then
+              docker service update \
+                --image ${{ env.IMAGE_PREFIX }}/tsmex-web:staging \
+                --with-registry-auth \
+                --force \
+                "$WEB_SVC"
+            else
+              docker service update --env-rm NGINX_API_HOST "$WEB_SVC" 2>/dev/null || true
+              sleep 6
+              docker service update \
+                --image ${{ env.IMAGE_PREFIX }}/tsmex-web:staging \
+                --with-registry-auth \
+                --force \
+                --env-add NGINX_API_HOST=tasks.api \
+                "$WEB_SVC"
+            fi
             echo "Staging deploy OK: ${{ steps.vars.outputs.SHA_TAG }}"

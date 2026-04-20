@@ -28,10 +28,11 @@ server {
     }
 
     # Proxy API requests to backend.
-    # Usa variável em proxy_pass para forçar nginx a re-resolver o DNS (ver resolver acima)
-    # — evita 502 "Host is unreachable" quando o service api é redeployado e muda de IP.
+    # NGINX_API_HOST: em Swarm use "tasks.api" (IP da task, evita VIP "api" com connection refused).
+    # Em Compose local: "api" (nome do serviço).
+    # Variável + resolver força re-resolve a cada request (ver resolver acima).
     location /api {
-        set $api_upstream http://api:3002;
+        set $api_upstream http://${NGINX_API_HOST}:3002;
         proxy_pass $api_upstream;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;

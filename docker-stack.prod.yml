@@ -65,6 +65,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
       PORT: 3002
+      HOST: "0.0.0.0"
       NODE_ENV: production
       CORS_ORIGIN: https://tsmex.com.br
     networks:
@@ -81,6 +82,8 @@ services:
 
   web:
     image: ghcr.io/${GITHUB_REPOSITORY}/tsmex-web:latest
+    environment:
+      NGINX_API_HOST: tasks.api
     networks:
       - tsmex-prod-internal
       - ProxyGM
@@ -96,6 +99,7 @@ services:
         - "traefik.enable=true"
         - "traefik.http.routers.tsmex-prod.rule=Host(`tsmex.com.br`)"
         - "traefik.http.routers.tsmex-prod.entrypoints=websecure"
+        - "traefik.http.routers.tsmex-prod.priority=1"
         - "traefik.http.routers.tsmex-prod.tls.certresolver=letsencryptresolver"
         - "traefik.http.services.tsmex-prod.loadbalancer.server.port=80"
 

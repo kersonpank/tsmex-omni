@@ -46,5 +46,5 @@ echo
 docker service inspect "$API_SVC" --format '{{json .Spec.Labels}}' 2>/dev/null | head -c 2000 || true
 
 echo
-echo "Critério OK: Traefik com labels tsmex-staging-api; API anexada a ProxyGM; log da API com 0.0.0.0:3002."
-echo "Login no browser usa https://.../api (Traefik), nao depende mais do Nginx web->api."
+echo "Critério OK: serviço web com env NGINX_API_HOST=tasks.api; log da API com 0.0.0.0:3002."
+echo "Nginx usa DNS tasks.api (IP da task) em vez do VIP api (evita connection refused)."
