@@ -15,5 +15,27 @@ COPY server/prisma ./prisma
 # Generate Prisma client
 RUN npx prisma generate
 
-# Default command: push schema to database and seed
-CMD ["sh", "-c", "npx prisma db push --accept-data-loss && npx tsx prisma/seed.ts && npx tsx prisma/migrate-persons.ts"]
+# MIGRATE_MODE options:
+# - deploy (recommended for staging/prod): prisma migrate deploy
+# - push (legacy/dev fallback): prisma db push --accept-data-loss
+# Optional:
+# - RUN_SEED=true runs prisma/seed.ts
+# - RUN_MIGRATE_PERSONS=true runs prisma/migrate-persons.ts
+CMD ["sh", "-c", "\
+  set -e; \
+  MODE=${MIGRATE_MODE:-deploy}; \
+  if [ \"$MODE\" = \"deploy\" ]; then \
+    npx prisma migrate deploy; \
+  elif [ \"$MODE\" = \"push\" ]; then \
+    npx prisma db push --accept-data-loss; \
+  else \
+    echo \"Invalid MIGRATE_MODE: $MODE\"; \
+    exit 1; \
+  fi; \
+  if [ \"${RUN_SEED:-false}\" = \"true\" ]; then \
+    npx tsx prisma/seed.ts; \
+  fi; \
+  if [ \"${RUN_MIGRATE_PERSONS:-false}\" = \"true\" ]; then \
+    npx tsx prisma/migrate-persons.ts; \
+  fi \
+"]

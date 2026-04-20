@@ -43,10 +43,36 @@ services:
       restart_policy:
         condition: on-failure
 
+  minio:
+    image: minio/minio:RELEASE.2026-02-15T17-29-55Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_staging_data:/data
+    networks:
+      - tsmex-staging-internal
+      - ProxyGM
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=ProxyGM"
+        - "traefik.http.routers.tsmex-staging-minio.rule=Host(`${MINIO_HOST}`)"
+        - "traefik.http.routers.tsmex-staging-minio.entrypoints=websecure"
+        - "traefik.http.routers.tsmex-staging-minio.tls.certresolver=letsencryptresolver"
+        - "traefik.http.services.tsmex-staging-minio.loadbalancer.server.port=9000"
+
   migrate:
     image: ghcr.io/${GITHUB_REPOSITORY}/tsmex-migrate:staging
     environment:
       DATABASE_URL: ${DATABASE_URL}
+      MIGRATE_MODE: deploy
+      RUN_SEED: ${RUN_SEED:-false}
+      RUN_MIGRATE_PERSONS: ${RUN_MIGRATE_PERSONS:-false}
     networks:
       - tsmex-staging-internal
     deploy:
@@ -64,6 +90,14 @@ services:
       HOST: "0.0.0.0"
       NODE_ENV: production
       CORS_ORIGIN: https://tsm.mesquitagrupo.com.br
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL}
+      UPLOAD_MAX_SIZE_BYTES: ${UPLOAD_MAX_SIZE_BYTES:-10485760}
     # ProxyGM: Traefik encaminha /api direto à API (evita 502 do Nginx web->api na overlay).
     networks:
       - tsmex-staging-internal
@@ -105,6 +139,7 @@ services:
 volumes:
   postgres_staging_data:
   redis_staging_data:
+  minio_staging_data:
 
 networks:
   tsmex-staging-internal:

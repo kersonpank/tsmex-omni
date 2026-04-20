@@ -17,7 +17,7 @@ Se já estiver inicializado, pule.
 ## 2. Criar rede overlay compartilhada
 
 ```bash
-docker network create --driver overlay --attachable tsmex-public
+docker network create --driver overlay --attachable ProxyGM
 ```
 
 Essa rede é compartilhada entre o Traefik e os stacks da aplicação.
@@ -48,13 +48,13 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - letsencrypt:/letsencrypt
     networks:
-      - tsmex-public
+      - ProxyGM
     deploy:
       placement:
         constraints: [node.role == manager]
 
 networks:
-  tsmex-public:
+  ProxyGM:
     external: true
 
 volumes:
@@ -87,25 +87,11 @@ Esses arquivos ficam na VPS e o GitHub Actions os referencia ao fazer deploy.
 
 No Portainer, acesse **Stacks → Add stack** e configure as env vars antes do primeiro deploy.
 
-### Stack Staging (`tsmex-staging`)
-```
-GITHUB_REPOSITORY=SEU_USUARIO/tsmex-omni
-POSTGRES_PASSWORD=senha_forte_staging_aqui
-DATABASE_URL=postgresql://postgres:senha_forte_staging_aqui@postgres:5432/tsmex?schema=public
-JWT_SECRET=chave_jwt_staging_longa_e_aleatoria_aqui
-JWT_EXPIRES_IN=7d
-GEMINI_API_KEY=sua_chave_gemini_aqui
-```
+Use a matriz oficial:
 
-### Stack Produção (`tsmex-prod`)
-```
-GITHUB_REPOSITORY=SEU_USUARIO/tsmex-omni
-POSTGRES_PASSWORD=senha_forte_PRODUCAO_diferente
-DATABASE_URL=postgresql://postgres:senha_forte_PRODUCAO_diferente@postgres:5432/tsmex?schema=public
-JWT_SECRET=chave_jwt_PRODUCAO_diferente_e_mais_longa
-JWT_EXPIRES_IN=7d
-GEMINI_API_KEY=sua_chave_gemini_aqui
-```
+- [docs/STACK_ENV_MATRIX.md](docs/STACK_ENV_MATRIX.md)
+
+Ela inclui variáveis de banco/JWT e também o contrato obrigatório de MinIO/S3 por ambiente.
 
 > **IMPORTANTE**: JWT_SECRET de produção deve ser diferente e mais longo que o de staging.
 
@@ -190,6 +176,16 @@ git push origin develop
 # Abra GitHub Actions e acompanhe o workflow "Deploy Staging"
 # Em ~5 minutos, tsm.mesquitagrupo.com.br deve estar online
 ```
+
+## 9. Rollout e rollback padronizados
+
+Use o runbook:
+
+- [docs/STACK_ROLLOUT_RUNBOOK.md](docs/STACK_ROLLOUT_RUNBOOK.md)
+
+E para buckets/políticas:
+
+- [docs/MINIO_BUCKET_POLICY.md](docs/MINIO_BUCKET_POLICY.md)
 
 ---
 

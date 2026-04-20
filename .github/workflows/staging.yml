@@ -83,58 +83,31 @@ jobs:
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             docker pull ${{ env.IMAGE_PREFIX }}/tsmex-api:staging
             docker pull ${{ env.IMAGE_PREFIX }}/tsmex-web:staging
+            docker pull ${{ env.IMAGE_PREFIX }}/tsmex-migrate:staging
 
-            # Traefik: /api vai direto à API (mesma rede ProxyGM). Evita Nginx no web resolver "api"
-            # na overlay (connection refused / DNS multi-rede).
-            API_SVC=staging-tsmex-dev_api
-            PROXY_GM_ID=$(docker network inspect ProxyGM -f '{{.Id}}' 2>/dev/null || true)
-            if [ -n "$PROXY_GM_ID" ]; then
-              API_NETS=$(docker service inspect "$API_SVC" --format '{{range .Spec.TaskTemplate.Networks}}{{.Target}} {{end}}' 2>/dev/null || true)
-              if ! echo "$API_NETS" | grep -q "$PROXY_GM_ID"; then
-                echo "Anexando ProxyGM ao serviço API..."
-                docker service update --network-add ProxyGM "$API_SVC"
-                sleep 10
+            STACK_NAME=staging-tsmex-dev
+            STACK_FILE=/opt/tsmex/docker-stack.staging.yml
+
+            docker stack deploy -c "$STACK_FILE" "$STACK_NAME" --with-registry-auth --prune
+
+            MIGRATE_SVC=${STACK_NAME}_migrate
+            docker service update --force --with-registry-auth "$MIGRATE_SVC"
+
+            echo "Aguardando migração concluir..."
+            for i in $(seq 1 60); do
+              RUNNING=$(docker service ps "$MIGRATE_SVC" --filter desired-state=running --format '{{.CurrentState}}' | wc -l | tr -d ' ')
+              FAILED=$(docker service ps "$MIGRATE_SVC" --format '{{.CurrentState}}' | grep -cE 'Failed|Rejected|Error' || true)
+              if [ "${FAILED}" -gt 0 ]; then
+                echo "❌ Migração falhou."
+                docker service ps "$MIGRATE_SVC" --no-trunc
+                exit 1
               fi
-            fi
+              if [ "${RUNNING}" -eq 0 ]; then
+                break
+              fi
+              sleep 5
+            done
 
-            API_LABELS=$(docker service inspect "$API_SVC" --format '{{json .Spec.Labels}}' 2>/dev/null || echo '{}')
-            if echo "$API_LABELS" | grep -q 'traefik.http.routers.tsmex-staging-api.rule'; then
-              docker service update \
-                --image ${{ env.IMAGE_PREFIX }}/tsmex-api:staging \
-                --with-registry-auth \
-                --force \
-                "$API_SVC"
-            else
-              docker service update \
-                --image ${{ env.IMAGE_PREFIX }}/tsmex-api:staging \
-                --with-registry-auth \
-                --force \
-                --label-add "traefik.enable=true" \
-                --label-add "traefik.docker.network=ProxyGM" \
-                --label-add 'traefik.http.routers.tsmex-staging-api.rule=Host(`tsm.mesquitagrupo.com.br`) && PathPrefix(`/api`)' \
-                --label-add "traefik.http.routers.tsmex-staging-api.entrypoints=websecure" \
-                --label-add "traefik.http.routers.tsmex-staging-api.priority=100" \
-                --label-add "traefik.http.routers.tsmex-staging-api.tls.certresolver=letsencryptresolver" \
-                --label-add "traefik.http.services.tsmex-staging-api.loadbalancer.server.port=3002" \
-                "$API_SVC"
-            fi
-
-            WEB_SVC=staging-tsmex-dev_web
-            WEB_ENVS=$(docker service inspect "$WEB_SVC" --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{.Name}}={{.Value}};{{end}}' 2>/dev/null || true)
-            if echo "$WEB_ENVS" | grep -q 'NGINX_API_HOST=tasks.api'; then
-              docker service update \
-                --image ${{ env.IMAGE_PREFIX }}/tsmex-web:staging \
-                --with-registry-auth \
-                --force \
-                "$WEB_SVC"
-            else
-              docker service update --env-rm NGINX_API_HOST "$WEB_SVC" 2>/dev/null || true
-              sleep 6
-              docker service update \
-                --image ${{ env.IMAGE_PREFIX }}/tsmex-web:staging \
-                --with-registry-auth \
-                --force \
-                --env-add NGINX_API_HOST=tasks.api \
-                "$WEB_SVC"
-            fi
+            docker service update --force --with-registry-auth ${STACK_NAME}_api
+            docker service update --force --with-registry-auth ${STACK_NAME}_web
             echo "Staging deploy OK: ${{ steps.vars.outputs.SHA_TAG }}"
