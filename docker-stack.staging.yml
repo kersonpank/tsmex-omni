@@ -70,7 +70,7 @@ services:
     image: ghcr.io/${GITHUB_REPOSITORY}/tsmex-migrate:staging
     environment:
       DATABASE_URL: ${DATABASE_URL}
-      MIGRATE_MODE: deploy
+      MIGRATE_MODE: push
       RUN_SEED: ${RUN_SEED:-false}
       RUN_MIGRATE_PERSONS: ${RUN_MIGRATE_PERSONS:-false}
     networks:

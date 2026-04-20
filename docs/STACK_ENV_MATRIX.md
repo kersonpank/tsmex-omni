@@ -20,8 +20,12 @@ Use esta matriz no Portainer (Stack variables) para evitar drift e falha no star
 
 ## Variáveis opcionais (somente imagem `tsmex-migrate`)
 
-- `POSTGRES_HOST` (default `postgres`) — host TCP usado pela espera antes do `prisma migrate deploy` (deve bater com o hostname em `DATABASE_URL`).
+- `POSTGRES_HOST` (default `postgres`) — host TCP usado pela espera antes do Prisma (deve bater com o hostname em `DATABASE_URL`).
 - `POSTGRES_PORT` (default `5432`)
+- `MIGRATE_MODE` — **`push`** para staging, **`deploy`** para produção.
+  - `push` (`prisma db push`): sincroniza schema sem exigir histórico de migrations — ideal para staging onde o banco foi criado antes das migrations.
+  - `deploy` (`prisma migrate deploy`): aplica migrations rastreadas — obrigatório em produção para zero downtime e rollback seguro.
+  - Valor já fixo nos stack files: staging=`push`, prod=`deploy`. Não precisa definir no Portainer.
 
 ## Variáveis recomendadas com default
 
