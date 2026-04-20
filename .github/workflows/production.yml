@@ -109,7 +109,7 @@ jobs:
             docker pull ${{ env.IMAGE_PREFIX }}/tsmex-web:latest
             docker pull ${{ env.IMAGE_PREFIX }}/tsmex-migrate:latest
 
-            STACK_PREFIX=prod-tsmex
+            STACK_PREFIX=tsmexomni-prod
             API_SVC=${STACK_PREFIX}_api
             WEB_SVC=${STACK_PREFIX}_web
             MIGRATE_SVC=${STACK_PREFIX}_migrate
@@ -119,6 +119,7 @@ jobs:
                 echo "❌ Serviço não encontrado: $svc"
                 echo "Serviços disponíveis no Swarm:"
                 docker service ls
+                echo "Ação necessária: criar o stack '$STACK_PREFIX' no Portainer com docker-stack.prod.yml e as envs de docs/STACK_ENV_MATRIX.md (ver docs/STACK_ROLLOUT_RUNBOOK.md)."
                 exit 1
               fi
             done

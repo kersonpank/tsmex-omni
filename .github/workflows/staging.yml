@@ -90,35 +90,13 @@ jobs:
             API_SVC=${STACK_PREFIX}_api
             WEB_SVC=${STACK_PREFIX}_web
             MIGRATE_SVC=${STACK_PREFIX}_migrate
-            STACK_FILE=/opt/tsmex/docker-stack.staging.yml
-
-            MISSING=0
-            for svc in "$API_SVC" "$WEB_SVC" "$MIGRATE_SVC"; do
-              if ! docker service inspect "$svc" >/dev/null 2>&1; then
-                MISSING=1
-                break
-              fi
-            done
-
-            if [ "$MISSING" -eq 1 ]; then
-              echo "⚠️ Serviços do staging não encontrados. Tentando bootstrap do stack..."
-              if [ -f "$STACK_FILE" ]; then
-                docker stack deploy -c "$STACK_FILE" "$STACK_PREFIX" --with-registry-auth
-                sleep 10
-              else
-                echo "❌ Arquivo de stack não encontrado em: $STACK_FILE"
-                echo "Serviços disponíveis no Swarm:"
-                docker service ls
-                echo "Ação necessária: criar stack 'staging-tsmex-dev' no Portainer ou disponibilizar $STACK_FILE."
-                exit 1
-              fi
-            fi
 
             for svc in "$API_SVC" "$WEB_SVC" "$MIGRATE_SVC"; do
               if ! docker service inspect "$svc" >/dev/null 2>&1; then
-                echo "❌ Serviço não encontrado após bootstrap: $svc"
+                echo "❌ Serviço não encontrado: $svc"
                 echo "Serviços disponíveis no Swarm:"
                 docker service ls
+                echo "Ação necessária: criar o stack '$STACK_PREFIX' no Portainer com docker-stack.staging.yml e as envs de docs/STACK_ENV_MATRIX.md (ver docs/STACK_ROLLOUT_RUNBOOK.md)."
                 exit 1
               fi
             done

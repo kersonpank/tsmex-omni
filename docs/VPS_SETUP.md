@@ -77,21 +77,12 @@ docker service ls
 
 Confirme que os serviços esperados existem:
 
-- `staging-tsmex-dev_api`, `staging-tsmex-dev_web`, `staging-tsmex-dev_migrate`
-- `prod-tsmex_api`, `prod-tsmex_web`, `prod-tsmex_migrate`
+- `staging-tsmex-dev_api`, `staging-tsmex-dev_web`, `staging-tsmex-dev_migrate`, `staging-tsmex-dev_postgres`, `staging-tsmex-dev_redis`, `staging-tsmex-dev_minio`
+- `tsmexomni-prod_api`, `tsmexomni-prod_web`, `tsmexomni-prod_migrate`, `tsmexomni-prod_postgres`, `tsmexomni-prod_redis`, `tsmexomni-prod_minio`
 
-O workflow de deploy atual atualiza serviços existentes via `docker service update` (não depende de stack file em `/opt/tsmex`).
+Modelo operacional: **Portainer é dono do stack**. O workflow apenas faz `docker service update --image ... --force` nos 3 serviços construídos pelo CI (`api`, `web`, `migrate`). Não depende de nenhum arquivo em `/opt/tsmex`.
 
-Se o staging ainda não existir, o workflow tentará bootstrap automático usando:
-
-- `/opt/tsmex/docker-stack.staging.yml`
-
-Para habilitar esse bootstrap, mantenha esse arquivo na VPS:
-
-```bash
-mkdir -p /opt/tsmex
-scp docker-stack.staging.yml usuario@IP_VPS:/opt/tsmex/
-```
+Se os serviços ainda não existirem, criar o stack **uma vez** no Portainer (ver passo 5) usando `docker-stack.staging.yml` ou `docker-stack.prod.yml` do repositório. MinIO sobe como parte do stack; ajustar a imagem ou envs é feito via Portainer.
 
 ---
 

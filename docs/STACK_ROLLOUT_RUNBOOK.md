@@ -4,16 +4,16 @@
 
 1. `docker network ls` contém `ProxyGM`.
 2. Serviços existentes no Swarm:
-   - `staging-tsmex-dev_api`, `staging-tsmex-dev_web`, `staging-tsmex-dev_migrate`
-   - `prod-tsmex_api`, `prod-tsmex_web`, `prod-tsmex_migrate`
-3. Se staging não existir, garantir arquivo `/opt/tsmex/docker-stack.staging.yml` para bootstrap automático.
+   - Staging: `staging-tsmex-dev_{postgres,redis,minio,migrate,api,web}`
+   - Produção: `tsmexomni-prod_{postgres,redis,minio,migrate,api,web}`
+3. Se o stack ainda não existir no Portainer, criá-lo **uma vez** seguindo [docs/VPS_SETUP.md](docs/VPS_SETUP.md) com o YAML (`docker-stack.staging.yml` ou `docker-stack.prod.yml`) do repositório. O CI **não** faz bootstrap — apenas atualiza imagens via `docker service update`.
 4. Variáveis conferidas no Portainer conforme [docs/STACK_ENV_MATRIX.md](docs/STACK_ENV_MATRIX.md).
 5. MinIO bucket do ambiente criado e política da app aplicada.
 
 ## Onda 1 — Staging
 
 1. Executar workflow `Deploy Staging`.
-   - Se os serviços não existirem, o workflow tentará bootstrap via `/opt/tsmex/docker-stack.staging.yml`.
+   - Se os serviços não existirem, o workflow falha com mensagem apontando este runbook — criar o stack no Portainer antes de repetir.
 2. Confirmar no Swarm:
    - `staging-tsmex-dev_migrate` executou sem falha.
    - `staging-tsmex-dev_api` e `staging-tsmex-dev_web` em `Running`.
@@ -30,8 +30,8 @@
 
 1. Executar workflow `Deploy Production` com confirmação `DEPLOY`.
 2. Confirmar no Swarm:
-   - `prod-tsmex_migrate` sem falha.
-   - `prod-tsmex_api` e `prod-tsmex_web` saudáveis.
+   - `tsmexomni-prod_migrate` sem falha.
+   - `tsmexomni-prod_api` e `tsmexomni-prod_web` saudáveis.
 3. Smoke essencial:
    - Login.
    - Consulta de pedidos.
