@@ -124,7 +124,7 @@ jobs:
               fi
             done
 
-            docker service update --image ${{ env.IMAGE_PREFIX }}/tsmex-migrate:latest --with-registry-auth --force "$MIGRATE_SVC"
+            docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-migrate:latest --with-registry-auth --force "$MIGRATE_SVC"
 
             echo "Aguardando migração de produção concluir..."
             for i in $(seq 1 60); do
@@ -133,6 +133,8 @@ jobs:
               if [ "${FAILED}" -gt 0 ]; then
                 echo "❌ Migração de produção falhou."
                 docker service ps "$MIGRATE_SVC" --no-trunc
+                echo "--- Logs do migrate (últimas 200 linhas) ---"
+                docker service logs "$MIGRATE_SVC" --tail 200 --raw 2>&1 || true
                 exit 1
               fi
               if [ "${RUNNING}" -eq 0 ]; then
@@ -141,6 +143,6 @@ jobs:
               sleep 5
             done
 
-            docker service update --image ${{ env.IMAGE_PREFIX }}/tsmex-api:latest --with-registry-auth --force "$API_SVC"
-            docker service update --image ${{ env.IMAGE_PREFIX }}/tsmex-web:latest --with-registry-auth --force "$WEB_SVC"
+            docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-api:latest --with-registry-auth --force "$API_SVC"
+            docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-web:latest --with-registry-auth --force "$WEB_SVC"
             echo "Produção deploy OK: ${{ needs.build-and-push.outputs.sha_tag }}"

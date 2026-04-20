@@ -101,7 +101,9 @@ jobs:
               fi
             done
 
-            docker service update --image ${{ env.IMAGE_PREFIX }}/tsmex-migrate:staging --with-registry-auth --force "$MIGRATE_SVC"
+            # -d: não aguarda convergência; o loop abaixo monitora. Sem isso, o update retorna 1
+            # se a task falha, matando o script antes de coletarmos logs.
+            docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-migrate:staging --with-registry-auth --force "$MIGRATE_SVC"
 
             echo "Aguardando migração concluir..."
             for i in $(seq 1 60); do
@@ -110,6 +112,8 @@ jobs:
               if [ "${FAILED}" -gt 0 ]; then
                 echo "❌ Migração falhou."
                 docker service ps "$MIGRATE_SVC" --no-trunc
+                echo "--- Logs do migrate (últimas 200 linhas) ---"
+                docker service logs "$MIGRATE_SVC" --tail 200 --raw 2>&1 || true
                 exit 1
               fi
               if [ "${RUNNING}" -eq 0 ]; then
@@ -118,6 +122,6 @@ jobs:
               sleep 5
             done
 
-            docker service update --image ${{ env.IMAGE_PREFIX }}/tsmex-api:staging --with-registry-auth --force "$API_SVC"
-            docker service update --image ${{ env.IMAGE_PREFIX }}/tsmex-web:staging --with-registry-auth --force "$WEB_SVC"
+            docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-api:staging --with-registry-auth --force "$API_SVC"
+            docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-web:staging --with-registry-auth --force "$WEB_SVC"
             echo "Staging deploy OK: ${{ steps.vars.outputs.SHA_TAG }}"
