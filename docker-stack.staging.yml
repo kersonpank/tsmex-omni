@@ -44,33 +44,19 @@ services:
         condition: on-failure
 
   minio:
-    image: quay.io/minio/minio:RELEASE.2026-02-15T17-29-55Z
+    image: quay.io/minio/minio:RELEASE.2024-10-02T17-50-41Z
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
       - minio_staging_data:/data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
     networks:
-      - tsmex-staging-internal
       - ProxyGM
     deploy:
       replicas: 1
       restart_policy:
-        condition: on-failure
-        delay: 10s
-        max_attempts: 5
-      resources:
-        limits:
-          memory: 768M
-        reservations:
-          memory: 256M
+        condition: any
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=ProxyGM"
