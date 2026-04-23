@@ -70,9 +70,21 @@ app.use('/api/nfe', nfeRouter);
 // Error handler
 app.use(errorHandler);
 
-app.listen(Number(PORT), HOST, () => {
-    console.log(`🚀 TSM EX API listening on http://${HOST}:${PORT}`);
-    console.log(`📊 Health check: http://${HOST}:${PORT}/health`);
-});
+(async () => {
+    if (process.env.S3_ENDPOINT || process.env.MINIO_ENDPOINT) {
+        try {
+            const { ensureBucketExists } = await import('./lib/objectStorage.js');
+            await ensureBucketExists();
+            console.log('✅ S3/MinIO bucket pronto');
+        } catch (err) {
+            console.warn('⚠️  S3/MinIO bucket check falhou (uploads indisponíveis):', err instanceof Error ? err.message : err);
+        }
+    }
+
+    app.listen(Number(PORT), HOST, () => {
+        console.log(`🚀 TSM EX API listening on http://${HOST}:${PORT}`);
+        console.log(`📊 Health check: http://${HOST}:${PORT}/health`);
+    });
+})();
 
 export default app;

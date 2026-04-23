@@ -48,11 +48,18 @@ services:
   minio:
     image: minio/minio:RELEASE.2026-02-15T17-29-55Z
     command: server /data --console-address ":9001"
+    user: root
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
       - minio_prod_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     networks:
       - tsmex-prod-internal
       - ProxyGM
@@ -60,6 +67,15 @@ services:
       replicas: 1
       restart_policy:
         condition: on-failure
+        delay: 15s
+        max_attempts: 5
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+      placement:
+        constraints: [node.role == manager]
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=ProxyGM"

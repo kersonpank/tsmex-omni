@@ -1,7 +1,9 @@
 import crypto from 'crypto';
 import {
+    CreateBucketCommand,
     DeleteObjectCommand,
     GetObjectCommand,
+    HeadBucketCommand,
     PutObjectCommand,
     S3Client,
 } from '@aws-sdk/client-s3';
@@ -110,4 +112,17 @@ export async function getObjectDownloadUrl(storageKey: string, expiresInSeconds 
         new GetObjectCommand({ Bucket: bucket, Key: storageKey }),
         { expiresIn: expiresInSeconds }
     );
+}
+
+export async function ensureBucketExists(): Promise<void> {
+    try {
+        await s3Client.send(new HeadBucketCommand({ Bucket: bucket }));
+    } catch (err: any) {
+        if (err.name === 'NotFound' || err.$metadata?.httpStatusCode === 404 || err.name === 'NoSuchBucket') {
+            await s3Client.send(new CreateBucketCommand({ Bucket: bucket }));
+            console.log(`S3 bucket "${bucket}" criado.`);
+        } else {
+            throw err;
+        }
+    }
 }
