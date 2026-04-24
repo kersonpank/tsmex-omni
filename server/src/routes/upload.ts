@@ -17,10 +17,16 @@ const ALLOWED_MIME_EXACT = [
 // Body: { file: string (base64), filename: string, mimeType?: string }
 router.post('/', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const { file: base64, filename, mimeType } = req.body || {};
+        const { file: base64, filename, mimeType, keyPrefix: keyPrefixRaw } = req.body || {};
         if (!base64 || !filename) {
             throw new AppError('file (base64) and filename are required', 400);
         }
+
+        const allowedPrefixes = ['uploads/general', 'branding/logos'] as const;
+        const keyPrefix =
+            typeof keyPrefixRaw === 'string' && (allowedPrefixes as readonly string[]).includes(keyPrefixRaw)
+                ? keyPrefixRaw
+                : 'uploads/general';
 
         if (!mimeType) {
             throw new AppError('mimeType is required', 400);
@@ -41,7 +47,7 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response, next: Nex
             base64,
             fileName: filename,
             mimeType,
-            keyPrefix: 'uploads/general',
+            keyPrefix,
         });
 
         res.json({

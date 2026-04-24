@@ -1,12 +1,12 @@
 export type Category = 'pessoas' | 'transport' | 'commercial' | 'fleet' | 'finance' | 'general';
 export type TransportSubTab = 'demands' | 'viagens' | 'pedidos' | 'motoristas' | 'rotas' | 'hubs' | 'entrada';
 export type CommercialSubTab = 'cotacoes' | 'clientes' | 'tarifas';
-export type GeneralSubTab = 'settings' | 'especies';
+export type GeneralSubTab = 'settings' | 'especies' | 'identidade';
 
 const CATEGORIES: Category[] = ['pessoas', 'transport', 'commercial', 'fleet', 'finance', 'general'];
 const TRANSPORT_SUBS: TransportSubTab[] = ['entrada', 'demands', 'viagens', 'pedidos', 'motoristas', 'rotas', 'hubs'];
 const COMMERCIAL_SUBS: CommercialSubTab[] = ['cotacoes', 'clientes', 'tarifas'];
-const GENERAL_SUBS: GeneralSubTab[] = ['settings', 'especies'];
+const GENERAL_SUBS: GeneralSubTab[] = ['settings', 'especies', 'identidade'];
 
 export interface AdminNavState {
   category: Category;
@@ -121,7 +121,7 @@ export function getAdminBreadcrumbs(state: AdminNavState, isHub: boolean): { lab
     commercial: 'Comercial',
     fleet: 'Frota',
     finance: 'Finanças',
-    general: 'Gerais',
+    general: 'Sistema',
   };
   const crumbs: { label: string }[] = [{ label: 'Torre de controle' }, { label: catLabels[state.category] }];
 
@@ -145,10 +145,11 @@ export function getAdminBreadcrumbs(state: AdminNavState, isHub: boolean): { lab
     crumbs.push({ label: subLabels[state.commercialSubTab] });
   } else if (state.category === 'general') {
     const subLabels: Record<GeneralSubTab, string> = {
-      settings: 'Configurações LLM',
+      settings: 'LLM',
       especies: 'Espécies NF',
+      identidade: 'Identidade visual',
     };
-    crumbs.push({ label: subLabels[state.generalSubTab] });
+    crumbs.push({ label: 'Configurações' }, { label: subLabels[state.generalSubTab] });
   }
 
   return crumbs;
@@ -180,8 +181,9 @@ export function getAdminPageTitle(state: AdminNavState, isHub: boolean): { title
 
   if (state.category === 'general') {
     const m: Record<GeneralSubTab, { title: string; subtitle: string }> = {
-      settings: { title: 'Configurações LLM', subtitle: 'Provedores, modelos e chaves para agentes.' },
+      settings: { title: 'LLM', subtitle: 'Provedores, modelos e chaves para agentes.' },
       especies: { title: 'Espécies NF', subtitle: 'Cadastro auxiliar de espécies de nota fiscal.' },
+      identidade: { title: 'Identidade visual', subtitle: 'Logo, razão social e dados para impressão de documentos.' },
     };
     return m[state.generalSubTab];
   }

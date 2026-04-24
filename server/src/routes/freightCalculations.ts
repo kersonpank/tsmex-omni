@@ -4,6 +4,7 @@ import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { getNextMinutaNumber, getNextCteNumber, buildMinutaPayload, buildCtePayload } from '../services/freightEmission.js';
+import { getBrandingForDocuments } from '../services/visualIdentityService.js';
 
 const router = Router({ mergeParams: true });
 
@@ -508,10 +509,13 @@ router.post('/:calcId/emit-minuta', authenticate, authorize('ADMIN', 'HUB'), asy
             },
         });
 
+        const branding = await getBrandingForDocuments();
+
         res.json({
             success: true,
             data: updated,
             payload, // JSON para o frontend gerar impressão/PDF
+            branding, // identidade visual (logo, razão social, etc.) para o mesmo fim
         });
     } catch (error) {
         next(error);
@@ -619,10 +623,13 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
             },
         });
 
+        const branding = await getBrandingForDocuments();
+
         res.json({
             success: true,
             data: updated,
             payload, // payload montado para envio à API fiscal
+            branding, // identidade visual para DANFE / impressão
             message: 'Integração com API SEFAZ pendente. Payload montado para testes.',
         });
     } catch (error) {

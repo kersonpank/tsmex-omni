@@ -24,6 +24,7 @@ import { uploadRouter } from './routes/upload.js';
 import { nfSpeciesRouter } from './routes/nfSpecies.js';
 import { nfeRouter } from './routes/nfe.js';
 import { dashboardRouter } from './routes/dashboard.js';
+import { brandingRouter } from './routes/branding.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 dotenv.config();
@@ -55,6 +56,7 @@ app.use('/api/demands', demandsRouter);
 app.use('/api/manifests', manifestsRouter);
 app.use('/api/pricing', pricingRouter);
 app.use('/api/settings/llm', settingsRouter);
+app.use('/api/settings/branding', brandingRouter);
 app.use('/api/opportunities', opportunitiesRouter);
 app.use('/api/chat', chatRouter);
 app.use('/api/accounts', accountsRouter);

@@ -823,6 +823,25 @@ model ChatLLMRotation {
   @@index([configId])
 }
 
+// Identidade visual global (impressos: minuta, CT-e, MDF-e, etc.)
+model VisualIdentity {
+  id String @id // aplicação usa sempre "default"
+
+  legalName   String? // razão social
+  tradeName   String? // nome fantasia
+  cnpjDisplay String?
+  phone       String?
+  email       String?
+  addressLine String?
+  footerNote  String?
+
+  logoUrl        String?
+  logoStorageKey String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model LLMApiKey {
   id         String      @id @default(uuid())
   providerId String      @unique

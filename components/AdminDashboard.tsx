@@ -33,6 +33,8 @@ import LoadingPanel from './ui/LoadingPanel';
 import StatusBadge from './ui/StatusBadge';
 import OperationsCockpit from './admin/dashboard/OperationsCockpit';
 import { useOperationsSummary } from './admin/dashboard/useOperationsSummary';
+import SistemaConfiguracoesLayout from './admin/SistemaConfiguracoesLayout';
+import IdentidadeVisualTab from './admin/IdentidadeVisualTab';
 
 const PAGE_SIZE = 15;
 
@@ -151,8 +153,12 @@ const AdminDashboard: React.FC = () => {
       {
         title: 'Sistema',
         items: [
-          { id: 'llm', label: 'Configurações LLM', active: category === 'general' && generalSubTab === 'settings', onSelect: go({ category: 'general', generalSubTab: 'settings' }) },
-          { id: 'esp', label: 'Espécies NF', active: category === 'general' && generalSubTab === 'especies', onSelect: go({ category: 'general', generalSubTab: 'especies' }) },
+          {
+            id: 'cfg',
+            label: 'Configurações',
+            active: category === 'general',
+            onSelect: go({ category: 'general', generalSubTab: 'settings' }),
+          },
         ],
       },
     ];
@@ -310,8 +316,16 @@ const AdminDashboard: React.FC = () => {
   const mainPanel = (
     <>
       {navState.category === 'pessoas' && <PessoasTab />}
-      {navState.category === 'general' && navState.generalSubTab === 'settings' && <SettingsLLM />}
-      {navState.category === 'general' && navState.generalSubTab === 'especies' && <EspeciesTab />}
+      {navState.category === 'general' && (
+        <SistemaConfiguracoesLayout
+          activeTab={navState.generalSubTab}
+          onSelectTab={(t) => setNavState({ category: 'general', generalSubTab: t })}
+        >
+          {navState.generalSubTab === 'settings' && <SettingsLLM />}
+          {navState.generalSubTab === 'especies' && <EspeciesTab />}
+          {navState.generalSubTab === 'identidade' && <IdentidadeVisualTab />}
+        </SistemaConfiguracoesLayout>
+      )}
       {navState.category === 'fleet' && <FrotaTab />}
       {navState.category === 'finance' && <FaturasTab />}
       {navState.category === 'transport' && navState.transportSubTab === 'entrada' && <EntradaTab />}

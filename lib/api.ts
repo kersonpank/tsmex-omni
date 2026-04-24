@@ -21,6 +21,8 @@ import type {
     ApiResponse,
     PaginatedResponse,
     OperationsSummaryData,
+    VisualBranding,
+    BrandingForDocuments,
 } from '../types/index';
 
 // Em produção, o nginx faz proxy de /api → backend (URL relativa)
@@ -93,6 +95,19 @@ api.interceptors.response.use(
         return Promise.reject(error);
     }
 );
+
+// ========== BRANDING / IDENTIDADE VISUAL ==========
+
+export const brandingApi = {
+    get: async () => {
+        const response = await api.get<ApiResponse<VisualBranding>>('/settings/branding');
+        return response.data;
+    },
+    patch: async (data: Partial<VisualBranding>) => {
+        const response = await api.patch<ApiResponse<VisualBranding>>('/settings/branding', data);
+        return response.data;
+    },
+};
 
 // ========== DASHBOARD API ==========
 
@@ -810,18 +825,23 @@ export const ordersFreightApi = {
     },
 
     emitMinuta: async (orderId: string, calcId: string) => {
-        const response = await api.post<ApiResponse<{ data: import('../types').OrderFreightCalculation; payload?: unknown }>>(
-            `/orders/${orderId}/freight-calculations/${calcId}/emit-minuta`,
-            {}
-        );
+        const response = await api.post<{
+            success: boolean;
+            data: import('../types').OrderFreightCalculation;
+            payload?: unknown;
+            branding?: BrandingForDocuments | null;
+        }>(`/orders/${orderId}/freight-calculations/${calcId}/emit-minuta`, {});
         return response.data;
     },
 
     emitCte: async (orderId: string, calcId: string) => {
-        const response = await api.post<ApiResponse<{ data: import('../types').OrderFreightCalculation; payload?: unknown; message?: string }>>(
-            `/orders/${orderId}/freight-calculations/${calcId}/emit-cte`,
-            {}
-        );
+        const response = await api.post<{
+            success: boolean;
+            data: import('../types').OrderFreightCalculation;
+            payload?: unknown;
+            branding?: BrandingForDocuments | null;
+            message?: string;
+        }>(`/orders/${orderId}/freight-calculations/${calcId}/emit-cte`, {});
         return response.data;
     },
 };
@@ -975,7 +995,12 @@ export const chatMessagesApi = {
 // ========== UPLOAD API ==========
 
 export const uploadApi = {
-    upload: async (fileBase64: string, filename: string, mimeType?: string) => {
+    upload: async (
+        fileBase64: string,
+        filename: string,
+        mimeType?: string,
+        options?: { keyPrefix?: 'uploads/general' | 'branding/logos' }
+    ) => {
         const response = await api.post<ApiResponse<{
             url: string;
             downloadUrl?: string;
@@ -989,6 +1014,7 @@ export const uploadApi = {
             file: fileBase64,
             filename,
             mimeType,
+            ...(options?.keyPrefix ? { keyPrefix: options.keyPrefix } : {}),
         });
         return response.data;
     },

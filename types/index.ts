@@ -474,6 +474,22 @@ export interface OperationsSummaryData {
     };
 }
 
+/** Identidade visual global (Sistema → Configurações → Identidade visual) */
+export interface VisualBranding {
+    legalName: string | null;
+    tradeName: string | null;
+    cnpjDisplay: string | null;
+    phone: string | null;
+    email: string | null;
+    addressLine: string | null;
+    footerNote: string | null;
+    logoUrl: string | null;
+    logoStorageKey: string | null;
+}
+
+/** Retorno de identidade em documentos (minuta, CT-e) — sem chave de armazenamento */
+export type BrandingForDocuments = Omit<VisualBranding, 'logoStorageKey'>;
+
 export interface ApiResponse<T> {
     success: boolean;
     data: T;
