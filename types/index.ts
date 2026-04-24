@@ -444,6 +444,36 @@ export interface CreatePersonRequest {
 
 export type UpdatePersonRequest = Partial<CreatePersonRequest>;
 
+/** Resposta de GET /api/dashboard/operations-summary */
+export interface OperationsSummaryData {
+    generatedAt: string;
+    scope: 'ADMIN' | 'HUB';
+    cenario: {
+        aguardandoCotacao: number;
+        emTransito: number;
+        noHub: number;
+        riscoA: number;
+        aConsolidar: number;
+    };
+    coletas: {
+        fila: number;
+        emRota: number;
+        oportunidadesColetaCrm: number;
+    };
+    estoque: {
+        pedidosNoCd: number;
+        pedidosEmTransito: number;
+        agingMais7d: number;
+        porHub: { hubId: string; name: string; code: string; count: number }[];
+    };
+    clientes: {
+        total: number;
+        novos7d: number;
+        novos30d: number;
+        nota?: string;
+    };
+}
+
 export interface ApiResponse<T> {
     success: boolean;
     data: T;

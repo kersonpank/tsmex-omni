@@ -23,6 +23,7 @@ import { usersRouter } from './routes/users.js';
 import { uploadRouter } from './routes/upload.js';
 import { nfSpeciesRouter } from './routes/nfSpecies.js';
 import { nfeRouter } from './routes/nfe.js';
+import { dashboardRouter } from './routes/dashboard.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 dotenv.config();
@@ -66,6 +67,7 @@ app.use('/api/users', usersRouter);
 app.use('/api/upload', uploadRouter);
 app.use('/api/nf-species', nfSpeciesRouter);
 app.use('/api/nfe', nfeRouter);
+app.use('/api/dashboard', dashboardRouter);
 
 // Error handler
 app.use(errorHandler);

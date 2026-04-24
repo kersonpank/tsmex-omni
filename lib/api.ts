@@ -20,6 +20,7 @@ import type {
     PricingCalculateResponse,
     ApiResponse,
     PaginatedResponse,
+    OperationsSummaryData,
 } from '../types/index';
 
 // Em produção, o nginx faz proxy de /api → backend (URL relativa)
@@ -93,6 +94,15 @@ api.interceptors.response.use(
     }
 );
 
+// ========== DASHBOARD API ==========
+
+export const dashboardApi = {
+    getOperationsSummary: async () => {
+        const response = await api.get<ApiResponse<OperationsSummaryData>>('/dashboard/operations-summary');
+        return response.data;
+    },
+};
+
 // ========== DEMANDS API ==========
 
 export const demandsApi = {
@@ -100,6 +110,7 @@ export const demandsApi = {
         status?: string;
         clientId?: string;
         destination?: string;
+        intentType?: 'QUOTE_ONLY' | 'COLLECT' | 'DROP_AT_HUB';
         limit?: number;
         offset?: number;
     }) => {

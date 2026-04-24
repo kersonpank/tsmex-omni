@@ -28,7 +28,12 @@ const batchDemandSchema = z.object({
 // GET /api/demands - List demands
 router.get('/', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const { status, clientId, destination, limit = '50', offset = '0' } = req.query;
+        const { status, clientId, destination, intentType, limit = '50', offset = '0' } = req.query;
+
+        const intentFilter =
+            intentType && ['QUOTE_ONLY', 'COLLECT', 'DROP_AT_HUB'].includes(String(intentType))
+                ? { intentType: intentType as 'QUOTE_ONLY' | 'COLLECT' | 'DROP_AT_HUB' }
+                : {};
 
         // Clients can see all demands from their Account (all CNPJs)
         let clientFilter: any = clientId ? { clientId: clientId as string } : {};
@@ -69,6 +74,7 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
             where: {
                 ...clientFilter,
                 ...hubFilter,
+                ...intentFilter,
                 ...(status ? { status: status as any } : {}),
                 ...(destination ? { destination: { contains: destination as string, mode: 'insensitive' } } : {}),
             },
@@ -89,7 +95,9 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
             where: {
                 ...clientFilter,
                 ...hubFilter,
+                ...intentFilter,
                 ...(status ? { status: status as any } : {}),
+                ...(destination ? { destination: { contains: destination as string, mode: 'insensitive' } } : {}),
             },
         });
 

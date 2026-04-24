@@ -31,12 +31,16 @@ import ErrorPanel from './ui/ErrorPanel';
 import InlineNotice from './ui/InlineNotice';
 import LoadingPanel from './ui/LoadingPanel';
 import StatusBadge from './ui/StatusBadge';
+import OperationsCockpit from './admin/dashboard/OperationsCockpit';
+import { useOperationsSummary } from './admin/dashboard/useOperationsSummary';
 
 const PAGE_SIZE = 15;
 
 const AdminDashboard: React.FC = () => {
   const { user } = useAuthStore();
   const isHub = user?.roles?.includes('HUB') ?? false;
+  const isAdmin = user?.roles?.includes('ADMIN') ?? false;
+  const canAccessCommercial = isAdmin && !isHub;
   const hubPermissions = (user?.profile as { hub?: { permissions?: string[] } })?.hub?.permissions ?? (user as { permissions?: string[] })?.permissions ?? [];
   const hasPermission = useCallback(
     (p: string) => !isHub || hubPermissions.length === 0 || hubPermissions.includes(p),
@@ -163,14 +167,22 @@ const AdminDashboard: React.FC = () => {
   const [selectedDemand, setSelectedDemand] = useState<Demand | null>(null);
   const [quotePrice, setQuotePrice] = useState('');
   const [apiStatus, setApiStatus] = useState<string>('');
+  const [intentType, setIntentType] = useState<'' | 'QUOTE_ONLY' | 'COLLECT' | 'DROP_AT_HUB'>('');
   const [destFilter, setDestFilter] = useState('');
   const [textQ, setTextQ] = useState('');
   const [page, setPage] = useState(0);
   const [notice, setNotice] = useState<{ variant: 'error' | 'success' | 'info'; message: string } | null>(null);
 
+  const {
+    data: operationsSummary,
+    loading: summaryLoading,
+    error: summaryError,
+    refresh: refreshOperationsSummary,
+  } = useOperationsSummary(isDemandsView);
+
   useEffect(() => {
     setPage(0);
-  }, [apiStatus, destFilter]);
+  }, [apiStatus, destFilter, intentType]);
 
   const loadDemands = useCallback(async () => {
     try {
@@ -180,6 +192,7 @@ const AdminDashboard: React.FC = () => {
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
         ...(apiStatus ? { status: apiStatus } : {}),
+        ...(intentType ? { intentType } : {}),
         ...(destFilter.trim() ? { destination: destFilter.trim() } : {}),
       })) as PaginatedResponse<Demand>;
       const list = Array.isArray(res?.data) ? res.data : [];
@@ -193,7 +206,7 @@ const AdminDashboard: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, apiStatus, destFilter]);
+  }, [page, apiStatus, destFilter, intentType]);
 
   useEffect(() => {
     if (isDemandsView) void loadDemands();
@@ -235,6 +248,7 @@ const AdminDashboard: React.FC = () => {
       setQuotePrice('');
       setNotice({ variant: 'success', message: 'Cotação enviada com sucesso.' });
       await loadDemands();
+      void refreshOperationsSummary();
     } catch (err: unknown) {
       console.error(err);
       const msg =
@@ -263,6 +277,7 @@ const AdminDashboard: React.FC = () => {
         });
         setNotice({ variant: 'success', message: `Status: ${demandStatusLabels[nextStatus]}.` });
         await loadDemands();
+        void refreshOperationsSummary();
       } catch (err: unknown) {
         console.error(err);
         const msg =
@@ -275,8 +290,8 @@ const AdminDashboard: React.FC = () => {
   const { title: pageTitle, subtitle: pageSubtitle } = getAdminPageTitle(navState, isHub);
   const breadcrumbs = getAdminBreadcrumbs(navState, isHub);
 
-  const showGlobalLoading = isDemandsView && loading;
-  const showGlobalError = isDemandsView && !!error;
+  const listLoading = isDemandsView && loading;
+  const listError = isDemandsView && error;
 
   const statusOptions: { value: string; label: string }[] = [
     { value: '', label: 'Todos (API)' },
@@ -317,9 +332,25 @@ const AdminDashboard: React.FC = () => {
             </div>
           )}
 
-          {showGlobalLoading && <LoadingPanel label="Carregando demandas…" />}
-          {!showGlobalLoading && showGlobalError && <ErrorPanel message={error!} onRetry={() => void loadDemands()} />}
-          {!showGlobalLoading && !showGlobalError && (
+          <OperationsCockpit
+            isHub={isHub}
+            canAccessCommercial={canAccessCommercial}
+            showEntradaLink={!isHub || hasPermission('entrada')}
+            data={operationsSummary}
+            loading={summaryLoading}
+            error={summaryError}
+            onRetry={() => void refreshOperationsSummary()}
+            onRefreshSummary={() => void refreshOperationsSummary()}
+            onQuickDemandFilter={(patch) => {
+              if (patch.apiStatus !== undefined) setApiStatus(patch.apiStatus);
+              if (patch.intentType !== undefined) setIntentType(patch.intentType);
+              setPage(0);
+            }}
+          />
+
+          {listLoading && <LoadingPanel label="Carregando demandas…" />}
+          {listError ? <ErrorPanel message={error!} onRetry={() => void loadDemands()} /> : null}
+          {!listLoading && !listError && (
             <>
               <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
                 <div className="flex flex-1 flex-wrap gap-2">
@@ -337,6 +368,20 @@ const AdminDashboard: React.FC = () => {
                         {o.label}
                       </option>
                     ))}
+                  </select>
+                  <label className="sr-only" htmlFor="adm-intent">
+                    Intenção na API
+                  </label>
+                  <select
+                    id="adm-intent"
+                    value={intentType}
+                    onChange={(e) => setIntentType(e.target.value as '' | 'QUOTE_ONLY' | 'COLLECT' | 'DROP_AT_HUB')}
+                    className="admin-focus min-w-[140px] rounded-xl border border-tower-200 bg-white px-3 py-2 text-sm text-tower-900 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100"
+                  >
+                    <option value="">Todas intenções</option>
+                    <option value="QUOTE_ONLY">Cotação</option>
+                    <option value="COLLECT">Coleta</option>
+                    <option value="DROP_AT_HUB">Entrega no hub</option>
                   </select>
                   <input
                     type="search"
@@ -363,27 +408,9 @@ const AdminDashboard: React.FC = () => {
               </div>
 
               <p className="mb-3 text-xs text-tower-700 dark:text-tower-300">
-                Resumo abaixo considera apenas os registros visíveis após o filtro &quot;nesta página&quot;. Paginação: {PAGE_SIZE} por página · Total na API: {totalDemands}.
+                <strong>Topo</strong> = visão geral (totais da API). <strong>Lista abaixo</strong> = filtros: status, intenção, destino, paginação {PAGE_SIZE}/página, total na API:{' '}
+                {totalDemands}. Refino de texto aplica-se só à página.
               </p>
-
-              <div className="mb-6 flex gap-3 overflow-x-auto pb-2">
-                <div className="min-w-[132px] rounded-xl border border-tower-200 bg-white/90 p-3 text-center shadow-sm dark:border-tower-700 dark:bg-tower-900/80">
-                  <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-tower-600 dark:text-tower-400">Pendentes</span>
-                  <span className="text-xl font-bold text-amber-600 dark:text-amber-400">{stats.pending}</span>
-                </div>
-                <div className="min-w-[132px] rounded-xl border border-tower-200 bg-white/90 p-3 text-center shadow-sm dark:border-tower-700 dark:bg-tower-900/80">
-                  <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-tower-600 dark:text-tower-400">Em trânsito</span>
-                  <span className="text-xl font-bold text-brand-600 dark:text-brand-300">{stats.inTransit}</span>
-                </div>
-                <div className="min-w-[132px] rounded-xl border border-tower-200 bg-white/90 p-3 text-center shadow-sm dark:border-tower-700 dark:bg-tower-900/80">
-                  <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-tower-600 dark:text-tower-400">Risco A</span>
-                  <span className="text-xl font-bold text-red-500 dark:text-red-400">{stats.highRisk}</span>
-                </div>
-                <div className="min-w-[132px] rounded-xl border border-tower-200 bg-white/90 p-3 text-center shadow-sm dark:border-tower-700 dark:bg-tower-900/80">
-                  <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-tower-600 dark:text-tower-400">Faturado (página)</span>
-                  <span className="text-xl font-bold text-brand-700 dark:text-brand-200">R$ {stats.totalValue.toLocaleString('pt-BR')}</span>
-                </div>
-              </div>
 
               <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
                 <div className="space-y-4 lg:col-span-2">
@@ -550,79 +577,79 @@ const AdminDashboard: React.FC = () => {
                   </div>
                 </div>
               </div>
+            </>
+          )}
 
-              {selectedDemand && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-tower-950/80 p-4 backdrop-blur-md">
-                  <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-tower-200 bg-white shadow-2xl dark:border-tower-700 dark:bg-tower-900">
-                    <div className="bg-brand-600 p-6 text-white">
-                      <h2 className="text-xl font-bold">Cotar demanda</h2>
-                      <p className="text-sm text-white/90">
-                        {selectedDemand.origin} → {selectedDemand.destination}
-                      </p>
+          {selectedDemand && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-tower-950/80 p-4 backdrop-blur-md">
+              <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-tower-200 bg-white shadow-2xl dark:border-tower-700 dark:bg-tower-900">
+                <div className="bg-brand-600 p-6 text-white">
+                  <h2 className="text-xl font-bold">Cotar demanda</h2>
+                  <p className="text-sm text-white/90">
+                    {selectedDemand.origin} → {selectedDemand.destination}
+                  </p>
+                </div>
+                <div className="space-y-6 p-8">
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="block text-tower-700 dark:text-tower-300">Mercadoria</span>
+                      <span className="font-medium text-tower-900 dark:text-tower-100">{selectedDemand.commodity}</span>
                     </div>
-                    <div className="space-y-6 p-8">
-                      <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div>
-                          <span className="block text-tower-700 dark:text-tower-300">Mercadoria</span>
-                          <span className="font-medium text-tower-900 dark:text-tower-100">{selectedDemand.commodity}</span>
-                        </div>
-                        <div>
-                          <span className="block text-tower-700 dark:text-tower-300">Peso</span>
-                          <span className="font-medium text-tower-900 dark:text-tower-100">{selectedDemand.weight} kg</span>
-                        </div>
-                        <div>
-                          <span className="block text-tower-700 dark:text-tower-300">Valor NF</span>
-                          <span className="font-medium text-tower-900 dark:text-tower-100">R$ {selectedDemand.nfValue.toLocaleString('pt-BR')}</span>
-                        </div>
-                        <div>
-                          <span className="block text-tower-700 dark:text-tower-300">Volume</span>
-                          <span className="font-medium text-tower-900 dark:text-tower-100">{selectedDemand.volume} m³</span>
-                        </div>
-                      </div>
-                      <div>
-                        <label className="mb-1 block text-[10px] font-bold uppercase text-tower-700 dark:text-tower-300" htmlFor="quote-input">
-                          Valor da cotação (R$)
-                        </label>
-                        <input
-                          id="quote-input"
-                          type="number"
-                          className="admin-focus w-full rounded-xl border border-tower-200 bg-tower-50 p-3 text-2xl font-bold text-brand-600 outline-none dark:border-tower-600 dark:bg-tower-800 dark:text-brand-300"
-                          value={quotePrice}
-                          onChange={(e) => setQuotePrice(e.target.value)}
-                          placeholder="0,00"
-                          autoFocus
-                        />
-                      </div>
-                      <div className="flex gap-3 rounded-xl border border-brand-200 bg-brand-50/90 p-4 dark:border-brand-700/50 dark:bg-brand-950/50">
-                        <p className="text-xs leading-relaxed text-tower-800 dark:text-tower-200">
-                          Risco <strong>{selectedDemand.riskClass}</strong> · Intenção <strong>{selectedDemand.intentType}</strong>
-                        </p>
-                      </div>
+                    <div>
+                      <span className="block text-tower-700 dark:text-tower-300">Peso</span>
+                      <span className="font-medium text-tower-900 dark:text-tower-100">{selectedDemand.weight} kg</span>
                     </div>
-                    <div className="flex gap-3 border-t border-tower-100 bg-tower-50/80 p-6 dark:border-tower-800 dark:bg-tower-950/50">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedDemand(null);
-                          setQuotePrice('');
-                        }}
-                        className="admin-focus flex-1 rounded-2xl py-3 text-sm font-bold text-tower-600 dark:text-tower-300"
-                      >
-                        Cancelar
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!quotePrice}
-                        onClick={() => void handleQuote()}
-                        className="admin-focus flex-1 rounded-2xl bg-brand-600 py-3 text-sm font-bold text-white shadow-lg disabled:opacity-50 hover:bg-brand-500"
-                      >
-                        Enviar cotação
-                      </button>
+                    <div>
+                      <span className="block text-tower-700 dark:text-tower-300">Valor NF</span>
+                      <span className="font-medium text-tower-900 dark:text-tower-100">R$ {selectedDemand.nfValue.toLocaleString('pt-BR')}</span>
+                    </div>
+                    <div>
+                      <span className="block text-tower-700 dark:text-tower-300">Volume</span>
+                      <span className="font-medium text-tower-900 dark:text-tower-100">{selectedDemand.volume} m³</span>
                     </div>
                   </div>
+                  <div>
+                    <label className="mb-1 block text-[10px] font-bold uppercase text-tower-700 dark:text-tower-300" htmlFor="quote-input">
+                      Valor da cotação (R$)
+                    </label>
+                    <input
+                      id="quote-input"
+                      type="number"
+                      className="admin-focus w-full rounded-xl border border-tower-200 bg-tower-50 p-3 text-2xl font-bold text-brand-600 outline-none dark:border-tower-600 dark:bg-tower-800 dark:text-brand-300"
+                      value={quotePrice}
+                      onChange={(e) => setQuotePrice(e.target.value)}
+                      placeholder="0,00"
+                      autoFocus
+                    />
+                  </div>
+                  <div className="flex gap-3 rounded-xl border border-brand-200 bg-brand-50/90 p-4 dark:border-brand-700/50 dark:bg-brand-950/50">
+                    <p className="text-xs leading-relaxed text-tower-800 dark:text-tower-200">
+                      Risco <strong>{selectedDemand.riskClass}</strong> · Intenção <strong>{selectedDemand.intentType}</strong>
+                    </p>
+                  </div>
                 </div>
-              )}
-            </>
+                <div className="flex gap-3 border-t border-tower-100 bg-tower-50/80 p-6 dark:border-tower-800 dark:bg-tower-950/50">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedDemand(null);
+                      setQuotePrice('');
+                    }}
+                    className="admin-focus flex-1 rounded-2xl py-3 text-sm font-bold text-tower-600 dark:text-tower-300"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!quotePrice}
+                    onClick={() => void handleQuote()}
+                    className="admin-focus flex-1 rounded-2xl bg-brand-600 py-3 text-sm font-bold text-white shadow-lg disabled:opacity-50 hover:bg-brand-500"
+                  >
+                    Enviar cotação
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
         </>
       )}
