@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { ordersFreightApi, hubsApi, pricingApi, clientsApi } from '../../lib/api';
+import { ordersFreightApi, hubsApi, pricingApi, clientsApi, fiscalEmittersApi } from '../../lib/api';
+import DactePrintPreview from './DactePrintPreview';
 import type {
   OrderFreightCalculation,
   Hub,
   PricingTable,
   PricingRoute,
   Client,
+  FiscalEmitter,
 } from '../../types/index';
 
 const CFOP_OPTIONS = ['6351', '6352', '6353', '6354', '6355', '6356', '6357', '6360', '6932', '6949', '7358'];
@@ -20,6 +22,19 @@ const BREAKDOWN_LABELS: Record<string, string> = {
   others: 'Outros',
   icms: 'ICMS',
 };
+
+const STATUS_LABELS: Record<string, string> = {
+  DRAFT: 'Rascunho',
+  CALCULATED: 'Calculado',
+  CTE_READY: 'CT-e pronto',
+  CTE_SENT: 'CT-e enviado',
+  CTE_REJECTED: 'CT-e rejeitado',
+  MINUTA_EMITTED: 'Minuta emitida',
+  CTE_AUTHORIZED: 'CT-e autorizado',
+  CTE_CANCELLED: 'CT-e cancelado',
+};
+
+const FISCAL_LOCKED_STATUSES = new Set(['CTE_READY', 'CTE_SENT', 'CTE_AUTHORIZED', 'CTE_CANCELLED']);
 
 interface OrderFreightCalculationSectionProps {
   orderId: string;
@@ -188,6 +203,7 @@ function useEmissorHubs(isHub: boolean, userHubId?: string): Hub[] {
 }
 
 interface OrderFreightCardProps {
+  key?: React.Key;
   orderId: string;
   calc: OrderFreightCalculation;
   order: OrderFreightCalculationSectionProps['order'];
@@ -222,14 +238,16 @@ function OrderFreightCard({
   const [deleting, setDeleting] = useState(false);
   const [emittingMinuta, setEmittingMinuta] = useState(false);
   const [emittingCte, setEmittingCte] = useState(false);
+  const [printDoc, setPrintDoc] = useState<{ payload: unknown; branding?: unknown } | null>(null);
 
   const headerLabel = calc.documentType === 'CTE' ? 'CT-e' : 'Minuta';
   const emissorLabel = calc.emissor
     ? `${calc.emissor.code ?? calc.emissor.name} ${(calc.emissor as any)?.person?.document ?? ''}`
     : 'Emissor';
 
+  const fiscalLocked = FISCAL_LOCKED_STATUSES.has(calc.status);
   const canEmitMinuta = calc.documentType === 'MINUTA' && calc.status !== 'MINUTA_EMITTED' && (calc.freightTotal ?? 0) > 0;
-  const canEmitCte = calc.documentType === 'CTE' && calc.status !== 'CTE_AUTHORIZED' && (calc.freightTotal ?? 0) > 0;
+  const canEmitCte = calc.documentType === 'CTE' && !fiscalLocked && (calc.freightTotal ?? 0) > 0;
 
   const handleCalculate = async () => {
     if (calc.calculationMethod === 'INFORMADO') return;
@@ -237,8 +255,8 @@ function OrderFreightCard({
     try {
       await ordersFreightApi.calculate(orderId, calc.id);
       onCalculate();
-    } catch {
-      // erro mostrado em toast/global
+    } catch (e: any) {
+      window.alert(e.response?.data?.error ?? e.response?.data?.message ?? e.message ?? 'Erro ao calcular frete');
     } finally {
       setCalculating(false);
     }
@@ -247,10 +265,11 @@ function OrderFreightCard({
   const handleEmitMinuta = async () => {
     setEmittingMinuta(true);
     try {
-      await ordersFreightApi.emitMinuta(orderId, calc.id);
+      const result = await ordersFreightApi.emitMinuta(orderId, calc.id);
+      if (result.payload) setPrintDoc({ payload: result.payload, branding: result.branding });
       onCalculate();
-    } catch {
-      // erro mostrado em toast/global
+    } catch (e: any) {
+      window.alert(e.response?.data?.error ?? e.response?.data?.message ?? e.message ?? 'Erro ao emitir minuta');
     } finally {
       setEmittingMinuta(false);
     }
@@ -259,10 +278,12 @@ function OrderFreightCard({
   const handleEmitCte = async () => {
     setEmittingCte(true);
     try {
-      await ordersFreightApi.emitCte(orderId, calc.id);
+      const result = await ordersFreightApi.emitCte(orderId, calc.id);
+      if (result.payload) setPrintDoc({ payload: result.payload, branding: result.branding });
       onCalculate();
-    } catch {
-      // erro mostrado em toast/global
+    } catch (e: any) {
+      window.alert(e.response?.data?.error ?? e.response?.data?.message ?? e.message ?? 'Erro ao emitir CT-e');
+      onCalculate();
     } finally {
       setEmittingCte(false);
     }
@@ -297,11 +318,24 @@ function OrderFreightCard({
 
   return (
     <div className="bg-white dark:bg-tower-800 border border-tower-200 dark:border-tower-600 rounded-xl p-4">
+      {printDoc && (
+        <DactePrintPreview
+          payload={printDoc.payload}
+          branding={printDoc.branding as any}
+          onClose={() => setPrintDoc(null)}
+        />
+      )}
       <div className="flex justify-between items-start">
         <div>
           <span className="font-semibold text-tower-800 dark:text-tower-100">{headerLabel} - {emissorLabel}</span>
-          <span className="ml-2 px-2 py-0.5 rounded text-xs bg-tower-100 dark:bg-tower-600 text-tower-600 dark:text-tower-300">
-            {calc.status}
+          <span className={`ml-2 px-2 py-0.5 rounded text-xs ${
+            calc.status === 'CTE_REJECTED'
+              ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+              : calc.status === 'CTE_AUTHORIZED'
+                ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                : 'bg-tower-100 dark:bg-tower-600 text-tower-600 dark:text-tower-300'
+          }`}>
+            {STATUS_LABELS[calc.status] ?? calc.status}
           </span>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -332,21 +366,24 @@ function OrderFreightCard({
               disabled={emittingCte}
               className="px-3 py-1.5 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
             >
-              {emittingCte ? 'Emitindo...' : 'Emitir CT-e'}
+              {emittingCte ? 'Enviando...' : calc.status === 'CTE_REJECTED' ? 'Reenviar CT-e' : 'Emitir CT-e'}
             </button>
           )}
           <button
             type="button"
             onClick={onEdit}
-            className="px-3 py-1.5 text-sm text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-700 rounded-lg"
+            disabled={fiscalLocked}
+            className="px-3 py-1.5 text-sm text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-700 rounded-lg disabled:opacity-50"
+            title={fiscalLocked ? 'CT-e enviado/autorizado não pode ser editado' : undefined}
           >
             Editar
           </button>
           <button
             type="button"
             onClick={handleDelete}
-            disabled={deleting}
+            disabled={deleting || calc.status === 'MINUTA_EMITTED' || fiscalLocked}
             className="px-3 py-1.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg disabled:opacity-50"
+            title={calc.status === 'MINUTA_EMITTED' || fiscalLocked ? 'Documento emitido/enviado mantém rastro fiscal' : undefined}
           >
             {deleting ? '...' : 'Remover'}
           </button>
@@ -364,11 +401,23 @@ function OrderFreightCard({
           ))}
         </div>
       )}
-      {(calc.minutaNumber || calc.cteAccessKey) && (
+      {calc.status === 'CTE_REJECTED' && calc.cteStatusReason && (
+        <div className="mt-3 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-300">
+          <span className="font-medium">Pendência fiscal:</span> {calc.cteStatusReason}
+        </div>
+      )}
+      {(calc.minutaNumber || calc.cteNumber || calc.cteAccessKey || calc.cteProtocol || calc.ctePdfUrl || calc.cteXmlUrl) && (
         <div className="mt-2 pt-2 border-t border-tower-200 dark:border-tower-600 text-sm">
           {calc.minutaNumber && (
             <div className="text-tower-600 dark:text-tower-300">
               <span className="font-medium">Minuta nº</span> {calc.minutaNumber}
+            </div>
+          )}
+          {calc.cteNumber && (
+            <div className="text-tower-600 dark:text-tower-300">
+              <span className="font-medium">CT-e nº</span> {calc.cteNumber}
+              {calc.cteSeries != null && <span> · Série {calc.cteSeries}</span>}
+              {calc.cteEnvironment && <span> · {calc.cteEnvironment}</span>}
             </div>
           )}
           {calc.cteAccessKey && (
@@ -380,6 +429,12 @@ function OrderFreightCard({
           {calc.cteProtocol && (
             <div className="text-tower-600 dark:text-tower-300 mt-0.5">
               <span className="font-medium">Protocolo:</span> {calc.cteProtocol}
+            </div>
+          )}
+          {(calc.ctePdfUrl || calc.cteXmlUrl) && (
+            <div className="flex gap-3 mt-1">
+              {calc.ctePdfUrl && <a href={calc.ctePdfUrl} className="text-brand-600 dark:text-brand-400 hover:underline" target="_blank" rel="noreferrer">PDF</a>}
+              {calc.cteXmlUrl && <a href={calc.cteXmlUrl} className="text-brand-600 dark:text-brand-400 hover:underline" target="_blank" rel="noreferrer">XML</a>}
             </div>
           )}
         </div>
@@ -417,11 +472,13 @@ function OrderFreightForm({
   const [specialTables, setSpecialTables] = useState<PricingTable[]>([]);
   const [payerClientId, setPayerClientId] = useState<string | null>(null);
   const [generalTables, setGeneralTables] = useState<PricingTable[]>([]);
+  const [fiscalEmitters, setFiscalEmitters] = useState<FiscalEmitter[]>([]);
   const [preview, setPreview] = useState<{ total: number; breakdown: Record<string, number>; tableName?: string } | null>(null);
 
   const [form, setForm] = useState({
     documentType: (calc?.documentType ?? 'MINUTA') as 'CTE' | 'MINUTA',
     emissorId: calc?.emissorId ?? (isHub ? userHubId ?? '' : availableHubs[0]?.id ?? ''),
+    fiscalEmitterId: calc?.fiscalEmitterId ?? '',
     calculationMethod: (calc?.calculationMethod ?? 'ESPECIAL') as 'ESPECIAL' | 'TARIFA_GERAL' | 'INFORMADO',
     pricingTableId: calc?.pricingTableId ?? '',
     routeId: calc?.routeId ?? order.routeId ?? '',
@@ -440,6 +497,11 @@ function OrderFreightForm({
       const data = (r?.data ?? r) ?? [];
       setRoutes(Array.isArray(data) ? data : []);
     }).catch(() => {});
+
+    fiscalEmittersApi.list().then((r) => {
+      const list = r.data ?? [];
+      setFiscalEmitters(isHub && userHubId ? list.filter((e) => e.hubId === userHubId || !e.hubId) : list);
+    }).catch(() => setFiscalEmitters([]));
 
     const payerPersonId = getPayerPersonId(order);
     if (payerPersonId) {
@@ -556,6 +618,7 @@ function OrderFreightForm({
           calculationMethod: form.calculationMethod,
           pricingTableId: form.pricingTableId || null,
           routeId: form.routeId || null,
+          fiscalEmitterId: form.fiscalEmitterId || null,
           originCity: form.originCity || null,
           destCity: form.destCity || null,
           cfop: form.cfop || null,
@@ -576,6 +639,7 @@ function OrderFreightForm({
           calculationMethod: form.calculationMethod,
           pricingTableId: form.pricingTableId || null,
           routeId: form.routeId || null,
+          fiscalEmitterId: form.fiscalEmitterId || null,
           originCity: form.originCity || null,
           destCity: form.destCity || null,
           cfop: form.cfop || null,
@@ -624,6 +688,33 @@ function OrderFreightForm({
             {availableHubs.length === 0 && (
               <p className="text-amber-600 dark:text-amber-400 text-xs mt-1">
                 Nenhum Hub com CNPJ cadastrado. Vincule um CNPJ ao Hub em Configurações → Hubs para emitir documentos.
+              </p>
+            )}
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Emitente credenciado</label>
+            <select
+              value={form.fiscalEmitterId}
+              onChange={(e) => {
+                const emitter = fiscalEmitters.find((item) => item.id === e.target.value);
+                setForm((f) => ({
+                  ...f,
+                  fiscalEmitterId: e.target.value,
+                  emissorId: emitter?.hubId ?? f.emissorId,
+                }));
+              }}
+              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100"
+            >
+              <option value="">Usar apenas Hub legado</option>
+              {fiscalEmitters.map((emitter) => (
+                <option key={emitter.id} value={emitter.id}>
+                  {emitter.displayName || emitter.person?.legalName} ({emitter.environment})
+                </option>
+              ))}
+            </select>
+            {fiscalEmitters.length === 0 && (
+              <p className="text-amber-600 dark:text-amber-400 text-xs mt-1">
+                Cadastre emitentes em Sistema → Configurações → Emitentes credenciados.
               </p>
             )}
           </div>

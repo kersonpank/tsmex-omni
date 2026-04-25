@@ -26,6 +26,24 @@ export async function getNextCteNumber(hubId: string): Promise<number> {
     return hub.lastCteNumber;
 }
 
+export async function getNextFiscalEmitterMinutaNumber(fiscalEmitterId: string): Promise<number> {
+    const emitter = await prisma.fiscalEmitter.update({
+        where: { id: fiscalEmitterId },
+        data: { lastMinutaNumber: { increment: 1 } },
+        select: { lastMinutaNumber: true },
+    });
+    return emitter.lastMinutaNumber;
+}
+
+export async function getNextFiscalEmitterCteNumber(fiscalEmitterId: string): Promise<number> {
+    const emitter = await prisma.fiscalEmitter.update({
+        where: { id: fiscalEmitterId },
+        data: { lastCteNumber: { increment: 1 } },
+        select: { lastCteNumber: true },
+    });
+    return emitter.lastCteNumber;
+}
+
 // --- DTOs para Minuta e CT-e ---
 
 export interface DocumentoParteDto {
@@ -65,8 +83,17 @@ export interface DocumentoFreteComponentesDto {
 export interface MinutaPayloadDto {
     numero: number;
     serie?: number;
+    documentLabel: 'MINUTA' | 'DACTE';
+    watermark?: string;
+    modelo?: string;
+    chaveAcesso?: string | null;
+    codigoBarras?: string | null;
+    qrCodeUrl?: string | null;
+    protocolo?: string | null;
+    autorizacaoEm?: string | null;
     tipoServico: string;
     cfop: string | null;
+    cst?: string | null;
     origemPrestacao: string;
     destinoPrestacao: string;
     emitente: DocumentoEmitenteDto;
@@ -78,19 +105,45 @@ export interface MinutaPayloadDto {
     mercadoria: DocumentoMercadoriaDto;
     componentesFrete: DocumentoFreteComponentesDto;
     freightTotal: number;
+    valorReceber?: number;
     icmsBase?: number;
     icmsAliquota?: number;
     icmsValor?: number;
+    impostos?: {
+        icms?: { cst?: string | null; base: number; aliquota: number; valor: number };
+        ibsCbs?: { cst?: string | null; classTrib?: string | null; base?: number; valorIbs?: number; valorCbs?: number };
+    };
+    ide?: {
+        naturezaOperacao: string;
+        modal: string;
+        tipoCte: string;
+        tipoServico: string;
+        dataHoraEmissao: string;
+        ambiente: string;
+    };
     observacoes?: string | null;
     documentosOriginarios?: Array<{ tipo: string; cnpjEmitente?: string; serieNumero: string }>;
+    recibo?: {
+        declaracao: string;
+        documentoNumero: string;
+    };
 }
 
 /** Formato genérico para envio à API de CT-e (SEFAZ/agregador). */
 export interface CtePayloadDto {
     numero: number;
     serie?: number;
+    documentLabel?: 'MINUTA' | 'DACTE';
+    watermark?: string;
+    modelo?: string;
+    chaveAcesso?: string | null;
+    codigoBarras?: string | null;
+    qrCodeUrl?: string | null;
+    protocolo?: string | null;
+    autorizacaoEm?: string | null;
     tipoServico: string;
     cfop: string | null;
+    cst?: string | null;
     origemPrestacao: string;
     destinoPrestacao: string;
     emitente: DocumentoEmitenteDto;
@@ -102,7 +155,10 @@ export interface CtePayloadDto {
     mercadoria: DocumentoMercadoriaDto;
     componentesFrete: DocumentoFreteComponentesDto;
     valorTotal: number;
+    valorReceber?: number;
     icms?: { base: number; aliquota: number; valor: number };
+    impostos?: MinutaPayloadDto['impostos'];
+    ide?: MinutaPayloadDto['ide'];
     observacoes?: string | null;
     documentosOriginarios?: Array<{ tipo: string; cnpjEmitente?: string; serieNumero: string }>;
 }
@@ -135,6 +191,7 @@ export function buildMinutaPayload(params: {
         originCity: string | null;
         destCity: string | null;
         cfop: string | null;
+        cst?: string | null;
         tipoFrete: string | null;
         observacoes: string | null;
         volumes: number;
@@ -158,6 +215,13 @@ export function buildMinutaPayload(params: {
     hub: { name: string; code: string; phone?: string | null; rntrc?: string | null };
     person: { legalName: string; document: string; stateRegistration?: string | null; address?: string | null; neighborhood?: string | null; number?: string | null; city?: string | null; state?: string | null; cep?: string | null };
     numero: number;
+    serie?: number;
+    ambiente?: string;
+    documentLabel?: 'MINUTA' | 'DACTE';
+    chaveAcesso?: string | null;
+    protocolo?: string | null;
+    autorizacaoEm?: string | null;
+    qrCodeUrl?: string | null;
 }): MinutaPayloadDto {
     const { calc, order, hub, person, numero } = params;
     const tomador = order.freightTerm === 'CIF'
@@ -185,9 +249,20 @@ export function buildMinutaPayload(params: {
 
     return {
         numero,
-        serie: 1,
+        serie: params.serie ?? 1,
+        documentLabel: params.documentLabel ?? 'MINUTA',
+        watermark: params.documentLabel === 'DACTE'
+            ? (params.ambiente === 'HOMOLOGACAO' ? 'CT-E EMITIDO EM AMBIENTE DE HOMOLOGAÇÃO - SEM VALOR FISCAL' : undefined)
+            : 'MINUTA - SEM VALOR FISCAL',
+        modelo: '57',
+        chaveAcesso: params.chaveAcesso ?? null,
+        codigoBarras: params.chaveAcesso ?? null,
+        qrCodeUrl: params.qrCodeUrl ?? null,
+        protocolo: params.protocolo ?? null,
+        autorizacaoEm: params.autorizacaoEm ?? null,
         tipoServico: calc.tipoFrete || 'Normal',
         cfop: calc.cfop,
+        cst: calc.cst ?? null,
         origemPrestacao: calc.originCity || '',
         destinoPrestacao: calc.destCity || '',
         emitente: hubPersonToEmitenteDto(hub, person),
@@ -206,20 +281,52 @@ export function buildMinutaPayload(params: {
         },
         componentesFrete: componentes,
         freightTotal: calc.freightTotal,
+        valorReceber: calc.freightTotal,
+        icmsBase: calc.freightTotal - (calc.icmsValue ?? 0),
+        icmsAliquota: calc.icmsValue ? 12 : 0,
         icmsValor: calc.icmsValue ?? undefined,
+        impostos: {
+            icms: {
+                cst: calc.cst ?? null,
+                base: calc.freightTotal - (calc.icmsValue ?? 0),
+                aliquota: calc.icmsValue ? 12 : 0,
+                valor: calc.icmsValue ?? 0,
+            },
+        },
+        ide: {
+            naturezaOperacao: 'TRANSPORTE RODOVIARIO DE CARGAS',
+            modal: 'Rodoviário',
+            tipoCte: 'Normal',
+            tipoServico: calc.tipoFrete || 'Normal',
+            dataHoraEmissao: new Date().toISOString(),
+            ambiente: params.ambiente ?? 'OPERACIONAL',
+        },
         observacoes: calc.observacoes,
         documentosOriginarios: docs.length ? docs : undefined,
+        recibo: {
+            declaracao: 'Declaro que recebi os volumes deste documento em perfeito estado.',
+            documentoNumero: String(numero),
+        },
     };
 }
 
 /** Monta o payload para CT-e (envio à API fiscal). */
 export function buildCtePayload(params: Parameters<typeof buildMinutaPayload>[0]): CtePayloadDto {
-    const m = buildMinutaPayload(params);
+    const m = buildMinutaPayload({ ...params, documentLabel: 'DACTE' });
     return {
         numero: m.numero,
         serie: m.serie,
+        documentLabel: 'DACTE',
+        watermark: undefined,
+        modelo: m.modelo,
+        chaveAcesso: m.chaveAcesso,
+        codigoBarras: m.codigoBarras,
+        qrCodeUrl: m.qrCodeUrl,
+        protocolo: m.protocolo,
+        autorizacaoEm: m.autorizacaoEm,
         tipoServico: m.tipoServico,
         cfop: m.cfop,
+        cst: m.cst,
         origemPrestacao: m.origemPrestacao,
         destinoPrestacao: m.destinoPrestacao,
         emitente: m.emitente,
@@ -232,6 +339,9 @@ export function buildCtePayload(params: Parameters<typeof buildMinutaPayload>[0]
         componentesFrete: m.componentesFrete,
         valorTotal: m.freightTotal,
         icms: m.icmsValor != null ? { base: m.freightTotal - m.icmsValor, aliquota: 12, valor: m.icmsValor } : undefined,
+        ide: m.ide,
+        impostos: m.impostos,
+        valorReceber: m.valorReceber,
         observacoes: m.observacoes,
         documentosOriginarios: m.documentosOriginarios,
     };

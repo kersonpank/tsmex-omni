@@ -43,7 +43,22 @@ export type PricingTableType = 'SPECIAL' | 'GENERAL';
 
 export type FreightDocType = 'CTE' | 'MINUTA';
 export type FreightCalcMethod = 'ESPECIAL' | 'TARIFA_GERAL' | 'INFORMADO';
-export type FreightCalcStatus = 'DRAFT' | 'CALCULATED' | 'MINUTA_EMITTED' | 'CTE_AUTHORIZED';
+export type FreightCalcStatus =
+    | 'DRAFT'
+    | 'CALCULATED'
+    | 'CTE_READY'
+    | 'CTE_SENT'
+    | 'CTE_REJECTED'
+    | 'MINUTA_EMITTED'
+    | 'CTE_AUTHORIZED'
+    | 'CTE_CANCELLED';
+export type ManifestFiscalDocType = 'MDFE' | 'CIOT';
+export type ManifestFiscalDocStatus = 'DRAFT' | 'READY' | 'SENT' | 'REJECTED' | 'AUTHORIZED' | 'CLOSED' | 'CANCELLED';
+export type FiscalEnvironment = 'HOMOLOGACAO' | 'PRODUCAO';
+export type FiscalProvider = 'SIMULATED' | 'NUVEM_FISCAL' | 'FOCUS_NFE' | 'TECNOSPEED' | 'PLUGNOTAS' | 'OTHER';
+export type FiscalProviderStatus = 'NOT_CONFIGURED' | 'PENDING' | 'READY' | 'ERROR';
+export type FiscalCertificateStatus = 'MISSING' | 'READY' | 'EXPIRED' | 'INVALID';
+export type FiscalTaxRegime = 'SIMPLES_NACIONAL' | 'LUCRO_PRESUMIDO' | 'LUCRO_REAL' | 'MEI' | 'OUTRO';
 
 export interface OrderFreightCalculation {
     id: string;
@@ -51,6 +66,8 @@ export interface OrderFreightCalculation {
     documentType: FreightDocType;
     emissorId: string;
     emissor?: { id: string; name: string; code: string; person?: { document: string; legalName: string } };
+    fiscalEmitterId?: string | null;
+    fiscalEmitter?: FiscalEmitter | null;
     calculationMethod: FreightCalcMethod;
     pricingTableId?: string | null;
     pricingTable?: { id: string; description: string } | null;
@@ -72,9 +89,59 @@ export interface OrderFreightCalculation {
     icmsValue?: number | null;
     effectiveWeight?: number | null;
     minutaNumber?: string | null;
+    cteNumber?: string | null;
+    cteSeries?: number | null;
+    cteEnvironment?: string | null;
     cteAccessKey?: string | null;
     cteProtocol?: string | null;
+    cteStatusReason?: string | null;
+    cteXml?: string | null;
+    cteXmlUrl?: string | null;
+    ctePdfUrl?: string | null;
+    cteAuthorizedAt?: string | null;
+    cteRejectedAt?: string | null;
+    cteCancelledAt?: string | null;
     status: FreightCalcStatus;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface FiscalEmitterReadiness {
+    readyForMinuta: boolean;
+    readyForHomologation: boolean;
+    readyForProduction: boolean;
+    issues: string[];
+}
+
+export interface FiscalEmitter {
+    id: string;
+    personId: string;
+    person: Person;
+    hubId?: string | null;
+    hub?: Hub | null;
+    displayName?: string | null;
+    tradeName?: string | null;
+    logoUrl?: string | null;
+    logoStorageKey?: string | null;
+    footerNote?: string | null;
+    rntrc?: string | null;
+    taxRegime?: FiscalTaxRegime | null;
+    crt?: string | null;
+    cteSeries: number;
+    lastCteNumber: number;
+    lastMinutaNumber: number;
+    environment: FiscalEnvironment;
+    provider: FiscalProvider;
+    providerEmitterId?: string | null;
+    providerStatus: FiscalProviderStatus;
+    certificateStorageKey?: string | null;
+    certificateFileName?: string | null;
+    certificateExpiresAt?: string | null;
+    certificateFingerprint?: string | null;
+    certificateStatus: FiscalCertificateStatus;
+    active: boolean;
+    defaultForHub: boolean;
+    readiness?: FiscalEmitterReadiness;
     createdAt: string;
     updatedAt: string;
 }
@@ -280,12 +347,36 @@ export interface Manifest {
     totalValue: number;
     status: ManifestStatus;
     demands?: Demand[];
+    fiscalDocuments?: ManifestFiscalDocument[];
     offeredAt?: string;
     acceptedAt?: string;
     rejectedAt?: string;
     rejectionReason?: string;
     startedAt?: string;
     completedAt?: string;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface ManifestFiscalDocument {
+    id: string;
+    manifestId: string;
+    fiscalEmitterId?: string | null;
+    fiscalEmitter?: FiscalEmitter | null;
+    documentType: ManifestFiscalDocType;
+    status: ManifestFiscalDocStatus;
+    number?: string | null;
+    series?: number | null;
+    environment?: string | null;
+    accessKey?: string | null;
+    protocol?: string | null;
+    statusReason?: string | null;
+    xmlUrl?: string | null;
+    pdfUrl?: string | null;
+    authorizedAt?: string | null;
+    rejectedAt?: string | null;
+    closedAt?: string | null;
+    cancelledAt?: string | null;
     createdAt: string;
     updatedAt: string;
 }

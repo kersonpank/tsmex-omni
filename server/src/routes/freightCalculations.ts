@@ -3,10 +3,13 @@ import { z } from 'zod';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
-import { getNextMinutaNumber, getNextCteNumber, buildMinutaPayload, buildCtePayload } from '../services/freightEmission.js';
-import { getBrandingForDocuments } from '../services/visualIdentityService.js';
+import { getNextMinutaNumber, getNextCteNumber, getNextFiscalEmitterMinutaNumber, getNextFiscalEmitterCteNumber, buildMinutaPayload, buildCtePayload } from '../services/freightEmission.js';
+import { authorizeCteWithProvider, validateCteReadiness, type CteEmissionInput, type CteEnvironment, type CteProviderMode } from '../services/cteService.js';
+import { getBrandingForFiscalEmitter } from '../services/visualIdentityService.js';
 
 const router = Router({ mergeParams: true });
+
+const FISCAL_LOCKED_STATUSES = ['CTE_READY', 'CTE_SENT', 'CTE_AUTHORIZED', 'CTE_CANCELLED'] as const;
 
 // Helper: coleta parâmetros do pedido (volumes, peso, cubagem, valor NF)
 function getOrderParams(order: { invoicesRel: { volumes: number; weight: number; cubedVolume: number | null; value: number }[]; collectionData: unknown }) {
@@ -31,6 +34,7 @@ const createFreightCalcSchema = z.object({
     calculationMethod: z.enum(['ESPECIAL', 'TARIFA_GERAL', 'INFORMADO']),
     pricingTableId: z.string().uuid().optional().nullable(),
     routeId: z.string().uuid().optional().nullable(),
+    fiscalEmitterId: z.string().uuid().optional().nullable(),
     originCity: z.string().optional().nullable(),
     destCity: z.string().optional().nullable(),
     cfop: z.string().optional().nullable(),
@@ -45,6 +49,38 @@ const updateFreightCalcSchema = createFreightCalcSchema.partial().extend({
     breakdown: z.record(z.string(), z.number()).optional().nullable(),
     icmsValue: z.number().optional().nullable(),
 });
+
+async function validateFiscalEmitterSelection(params: {
+    emissorId: string;
+    fiscalEmitterId?: string | null;
+    user: AuthRequest['user'];
+}) {
+    const hub = await prisma.hub.findUnique({ where: { id: params.emissorId } });
+    if (!hub) throw new AppError('Hub emissor não encontrado', 404);
+
+    if (params.user?.roles.includes('HUB') && params.user.hubId !== params.emissorId) {
+        throw new AppError('Você só pode usar seu próprio Hub como emissor', 403);
+    }
+
+    if (!params.fiscalEmitterId) return;
+
+    const fiscalEmitter = await prisma.fiscalEmitter.findUnique({
+        where: { id: params.fiscalEmitterId },
+        include: { person: true },
+    });
+    if (!fiscalEmitter || !fiscalEmitter.active) {
+        throw new AppError('Emitente credenciado não encontrado ou inativo', 404);
+    }
+    if (fiscalEmitter.person.documentType !== 'CNPJ') {
+        throw new AppError('Emitente credenciado precisa ser Pessoa Jurídica (CNPJ)', 400);
+    }
+    if (fiscalEmitter.hubId && fiscalEmitter.hubId !== params.emissorId) {
+        throw new AppError('Emitente credenciado não pertence ao Hub emissor selecionado', 400);
+    }
+    if (params.user?.roles.includes('HUB') && fiscalEmitter.hubId && fiscalEmitter.hubId !== params.user.hubId) {
+        throw new AppError('Você não pode usar emitente credenciado de outro Hub', 403);
+    }
+}
 
 // ==================== ROUTES ====================
 
@@ -68,6 +104,7 @@ router.get('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest
             where: { orderId },
             include: {
                 emissor: { select: { id: true, name: true, code: true, person: { select: { document: true, legalName: true } } } },
+                fiscalEmitter: { include: { person: true, hub: true } },
                 pricingTable: { select: { id: true, description: true } },
             },
             orderBy: { createdAt: 'asc' },
@@ -106,10 +143,11 @@ router.post('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthReques
         if (!hub) throw new AppError('Emissor (Hub) não encontrado', 404);
         if (!hub.personId) throw new AppError('O Hub emissor deve ter Pessoa (CNPJ) vinculada para emitir documento', 400);
 
-        // HUB user: só pode usar seu hub como emissor
-        if (req.user!.roles.includes('HUB') && req.user!.hubId !== data.emissorId) {
-            throw new AppError('Você só pode usar seu próprio Hub como emissor', 403);
-        }
+        await validateFiscalEmitterSelection({
+            emissorId: data.emissorId,
+            fiscalEmitterId: data.fiscalEmitterId,
+            user: req.user,
+        });
 
         const { volumes, weight, cubage, nfValue } = getOrderParams(order);
         const cd = (order.collectionData || {}) as Record<string, unknown>;
@@ -123,6 +161,7 @@ router.post('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthReques
                 calculationMethod: data.calculationMethod as 'ESPECIAL' | 'TARIFA_GERAL' | 'INFORMADO',
                 pricingTableId: data.pricingTableId || null,
                 routeId: data.routeId || null,
+                fiscalEmitterId: data.fiscalEmitterId || null,
                 originCity: data.originCity ?? order.origemPrestacao ?? null,
                 destCity: data.destCity ?? order.fimPrestacao ?? null,
                 cfop: data.cfop ?? null,
@@ -139,6 +178,7 @@ router.post('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthReques
             },
             include: {
                 emissor: { select: { id: true, name: true, code: true, person: { select: { document: true, legalName: true } } } },
+                fiscalEmitter: { include: { person: true, hub: true } },
                 pricingTable: { select: { id: true, description: true } },
             },
         });
@@ -175,7 +215,18 @@ router.patch('/:calcId', authenticate, authorize('ADMIN', 'HUB'), async (req: Au
 
         if (!existing) throw new AppError('Cálculo de frete não encontrado', 404);
 
+        if (existing.status === 'MINUTA_EMITTED' || FISCAL_LOCKED_STATUSES.includes(existing.status as typeof FISCAL_LOCKED_STATUSES[number])) {
+            throw new AppError('Cálculo com documento emitido/enviado não pode ser editado. Use evento fiscal de cancelamento/correção.', 400);
+        }
+
         const data = updateFreightCalcSchema.partial().parse(req.body);
+        const nextEmissorId = data.emissorId ?? existing.emissorId;
+        const nextFiscalEmitterId = data.fiscalEmitterId !== undefined ? data.fiscalEmitterId : existing.fiscalEmitterId;
+        await validateFiscalEmitterSelection({
+            emissorId: nextEmissorId,
+            fiscalEmitterId: nextFiscalEmitterId,
+            user: req.user,
+        });
 
         const updatePayload: Record<string, unknown> = {};
         if (data.documentType != null) updatePayload.documentType = data.documentType;
@@ -183,6 +234,7 @@ router.patch('/:calcId', authenticate, authorize('ADMIN', 'HUB'), async (req: Au
         if (data.calculationMethod != null) updatePayload.calculationMethod = data.calculationMethod;
         if (data.pricingTableId !== undefined) updatePayload.pricingTableId = data.pricingTableId ?? null;
         if (data.routeId !== undefined) updatePayload.routeId = data.routeId ?? null;
+        if (data.fiscalEmitterId !== undefined) updatePayload.fiscalEmitterId = data.fiscalEmitterId ?? null;
         if (data.originCity !== undefined) updatePayload.originCity = data.originCity ?? null;
         if (data.destCity !== undefined) updatePayload.destCity = data.destCity ?? null;
         if (data.cfop !== undefined) updatePayload.cfop = data.cfop ?? null;
@@ -198,6 +250,7 @@ router.patch('/:calcId', authenticate, authorize('ADMIN', 'HUB'), async (req: Au
             data: updatePayload as object,
             include: {
                 emissor: { select: { id: true, name: true, code: true, person: { select: { document: true, legalName: true } } } },
+                fiscalEmitter: { include: { person: true, hub: true } },
                 pricingTable: { select: { id: true, description: true } },
             },
         });
@@ -233,6 +286,10 @@ router.delete('/:calcId', authenticate, authorize('ADMIN', 'HUB'), async (req: A
         });
 
         if (!existing) throw new AppError('Cálculo de frete não encontrado', 404);
+
+        if (existing.status === 'MINUTA_EMITTED' || FISCAL_LOCKED_STATUSES.includes(existing.status as typeof FISCAL_LOCKED_STATUSES[number])) {
+            throw new AppError('Documento já emitido/enviado não pode ser removido. Mantenha o rastro fiscal/operacional.', 400);
+        }
 
         await prisma.orderFreightCalculation.delete({
             where: { id: calcId },
@@ -272,6 +329,10 @@ router.post('/:calcId/calculate', authenticate, authorize('ADMIN', 'HUB'), async
         });
 
         if (!calc) throw new AppError('Cálculo de frete não encontrado', 404);
+
+        if (calc.status === 'MINUTA_EMITTED' || FISCAL_LOCKED_STATUSES.includes(calc.status as typeof FISCAL_LOCKED_STATUSES[number])) {
+            throw new AppError('Cálculo com documento emitido/enviado não pode ser recalculado.', 400);
+        }
 
         if (calc.calculationMethod === 'INFORMADO') {
             throw new AppError('Método Informado não usa cálculo automático. Preencha os valores manualmente e salve.', 400);
@@ -440,7 +501,7 @@ router.post('/:calcId/emit-minuta', authenticate, authorize('ADMIN', 'HUB'), asy
 
         const calc = await prisma.orderFreightCalculation.findFirst({
             where: { id: calcId, orderId },
-            include: { emissor: true },
+            include: { emissor: true, fiscalEmitter: { include: { person: true, hub: true } } },
         });
 
         if (!calc) throw new AppError('Cálculo de frete não encontrado', 404);
@@ -463,15 +524,26 @@ router.post('/:calcId/emit-minuta', authenticate, authorize('ADMIN', 'HUB'), asy
         });
 
         if (!hub) throw new AppError('Emissor (Hub) não encontrado', 404);
-        if (!hub.person) throw new AppError('O Hub emissor deve ter Pessoa (CNPJ) vinculada para emitir', 400);
+        if (!hub.person && !calc.fiscalEmitter?.person) throw new AppError('O emissor deve ter Pessoa (CNPJ) vinculada para emitir', 400);
 
-        const numero = await getNextMinutaNumber(hub.id);
+        const numero = calc.fiscalEmitterId
+            ? await getNextFiscalEmitterMinutaNumber(calc.fiscalEmitterId)
+            : await getNextMinutaNumber(hub.id);
+        const emitterPerson = calc.fiscalEmitter?.person ?? hub.person;
+        if (!emitterPerson) throw new AppError('O emissor deve ter Pessoa (CNPJ) vinculada para emitir', 400);
+        const emitterPrint = {
+            name: calc.fiscalEmitter?.displayName ?? calc.fiscalEmitter?.person.legalName ?? hub.name,
+            code: hub.code,
+            phone: calc.fiscalEmitter?.hub?.phone ?? hub.phone,
+            rntrc: calc.fiscalEmitter?.rntrc ?? hub.rntrc,
+        };
 
         const payload = buildMinutaPayload({
             calc: {
                 originCity: calc.originCity,
                 destCity: calc.destCity,
                 cfop: calc.cfop,
+                cst: calc.cst,
                 tipoFrete: calc.tipoFrete,
                 observacoes: calc.observacoes,
                 volumes: calc.volumes,
@@ -492,8 +564,8 @@ router.post('/:calcId/emit-minuta', authenticate, authorize('ADMIN', 'HUB'), asy
                 expedidorPerson: order.expedidorPerson,
                 invoicesRel: order.invoicesRel,
             },
-            hub: { name: hub.name, code: hub.code, phone: hub.phone, rntrc: hub.rntrc },
-            person: hub.person,
+            hub: emitterPrint,
+            person: emitterPerson,
             numero,
         });
 
@@ -509,7 +581,7 @@ router.post('/:calcId/emit-minuta', authenticate, authorize('ADMIN', 'HUB'), asy
             },
         });
 
-        const branding = await getBrandingForDocuments();
+        const branding = await getBrandingForFiscalEmitter(calc.fiscalEmitterId);
 
         res.json({
             success: true,
@@ -547,7 +619,7 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
 
         const calc = await prisma.orderFreightCalculation.findFirst({
             where: { id: calcId, orderId },
-            include: { emissor: true },
+            include: { emissor: true, fiscalEmitter: { include: { person: true, hub: true } } },
         });
 
         if (!calc) throw new AppError('Cálculo de frete não encontrado', 404);
@@ -556,8 +628,8 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
             throw new AppError('Este cálculo não é do tipo CT-e. Use emit-minuta para Minuta.', 400);
         }
 
-        if (calc.status === 'CTE_AUTHORIZED') {
-            throw new AppError('CT-e já autorizado para este cálculo.', 400);
+        if (FISCAL_LOCKED_STATUSES.includes(calc.status as typeof FISCAL_LOCKED_STATUSES[number])) {
+            throw new AppError('CT-e já está preparado, enviado, autorizado ou cancelado para este cálculo.', 400);
         }
 
         if (calc.freightTotal <= 0) {
@@ -570,19 +642,34 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
         });
 
         if (!hub) throw new AppError('Emissor (Hub) não encontrado', 404);
-        if (!hub.person) throw new AppError('O Hub emissor deve ter Pessoa (CNPJ) vinculada para emitir', 400);
+        if (!hub.person && !calc.fiscalEmitter?.person) throw new AppError('O emissor deve ter Pessoa (CNPJ) vinculada para emitir', 400);
 
-        if (!hub.rntrc || !hub.rntrc.trim()) {
-            throw new AppError('O Hub emissor deve ter RNTRC cadastrado para emitir CT-e.', 400);
+        if (!(calc.fiscalEmitter?.rntrc ?? hub.rntrc)?.trim()) {
+            throw new AppError('O emitente credenciado ou Hub emissor deve ter RNTRC cadastrado para emitir CT-e.', 400);
         }
 
-        const numero = await getNextCteNumber(hub.id);
+        const ambiente = (calc.fiscalEmitter?.environment ?? (process.env.FISCAL_CTE_ENV === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO')) as CteEnvironment;
+        const providerMode = (process.env.FISCAL_CTE_PROVIDER_MODE === 'simulate-rejected'
+            ? 'simulate-rejected'
+            : 'simulate-authorized') as CteProviderMode;
+        const serie = calc.fiscalEmitter?.cteSeries ?? Number(process.env.FISCAL_CTE_SERIE || 1);
+        const emitterPerson = calc.fiscalEmitter?.person ?? hub.person;
+        if (!emitterPerson) throw new AppError('O emissor deve ter Pessoa (CNPJ) vinculada para emitir', 400);
+        const emitterPrint = {
+            id: hub.id,
+            name: calc.fiscalEmitter?.displayName ?? calc.fiscalEmitter?.person.legalName ?? hub.name,
+            code: hub.code,
+            phone: calc.fiscalEmitter?.hub?.phone ?? hub.phone,
+            rntrc: calc.fiscalEmitter?.rntrc ?? hub.rntrc,
+        };
 
-        const payload = buildCtePayload({
+        const cteBaseInput = {
             calc: {
+                id: calc.id,
                 originCity: calc.originCity,
                 destCity: calc.destCity,
                 cfop: calc.cfop,
+                cst: calc.cst,
                 tipoFrete: calc.tipoFrete,
                 observacoes: calc.observacoes,
                 volumes: calc.volumes,
@@ -603,34 +690,116 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
                 expedidorPerson: order.expedidorPerson,
                 invoicesRel: order.invoicesRel,
             },
-            hub: { name: hub.name, code: hub.code, phone: hub.phone, rntrc: hub.rntrc },
-            person: hub.person,
-            numero,
-        });
+            hub: emitterPrint,
+            person: emitterPerson,
+            numero: 0,
+            serie,
+            ambiente,
+        } satisfies CteEmissionInput;
 
-        // TODO: chamar API fiscal (Lonngren, Plugnotas, etc.) com payload; em sucesso gravar cteAccessKey e cteProtocol
-        // Por ora apenas simula e retorna payload para testes
-        const updated = await prisma.orderFreightCalculation.update({
+        const readiness = validateCteReadiness(cteBaseInput);
+        if (!readiness.ok) {
+            const rejected = await prisma.orderFreightCalculation.update({
+                where: { id: calcId },
+                data: {
+                    status: 'CTE_REJECTED',
+                    cteStatusReason: readiness.issues.join(' '),
+                    cteRejectedAt: new Date(),
+                },
+                include: {
+                    emissor: { select: { id: true, name: true, code: true, person: { select: { document: true, legalName: true } } } },
+                    pricingTable: { select: { id: true, description: true } },
+                },
+            });
+            return res.status(400).json({
+                success: false,
+                error: `CT-e com pendências fiscais: ${readiness.issues.join(' ')}`,
+                data: rejected,
+            });
+        }
+
+        const ready = await prisma.orderFreightCalculation.updateMany({
+            where: {
+                id: calcId,
+                orderId,
+                documentType: 'CTE',
+                status: { in: ['DRAFT', 'CALCULATED', 'CTE_REJECTED'] },
+            },
+            data: {
+                status: 'CTE_READY',
+                cteStatusReason: null,
+            },
+        });
+        if (ready.count !== 1) {
+            throw new AppError('CT-e não está em estado elegível para envio. Recarregue o pedido e tente novamente.', 409);
+        }
+
+        const numero = calc.fiscalEmitterId
+            ? await getNextFiscalEmitterCteNumber(calc.fiscalEmitterId)
+            : await getNextCteNumber(hub.id);
+        const cteInput = { ...cteBaseInput, numero } satisfies CteEmissionInput;
+
+        await prisma.orderFreightCalculation.update({
             where: { id: calcId },
             data: {
-                status: 'CTE_AUTHORIZED',
-                cteAccessKey: null, // preenchido quando integrar API real
-                cteProtocol: null,
+                status: 'CTE_SENT',
+                cteNumber: String(numero),
+                cteSeries: serie,
+                cteEnvironment: ambiente,
+                cteStatusReason: null,
             },
+        });
+
+        const providerResult = await authorizeCteWithProvider(cteInput, { mode: providerMode });
+        const now = new Date();
+        const payload = buildCtePayload({
+            ...cteInput,
+            chaveAcesso: providerResult.accessKey ?? null,
+            protocolo: providerResult.protocol ?? null,
+            autorizacaoEm: providerResult.status === 'AUTHORIZED' ? now.toISOString() : null,
+        });
+        const fiscalData = providerResult.status === 'AUTHORIZED'
+            ? {
+                status: 'CTE_AUTHORIZED' as const,
+                cteAccessKey: providerResult.accessKey ?? null,
+                cteProtocol: providerResult.protocol ?? null,
+                cteXml: providerResult.xml ?? null,
+                ctePdfUrl: providerResult.pdfUrl ?? null,
+                cteStatusReason: null,
+                cteAuthorizedAt: now,
+                cteRejectedAt: null,
+            }
+            : {
+                status: 'CTE_REJECTED' as const,
+                cteAccessKey: null,
+                cteProtocol: null,
+                cteXml: null,
+                ctePdfUrl: null,
+                cteStatusReason: providerResult.rejectionReason ?? 'CT-e rejeitado pelo provedor fiscal.',
+                cteAuthorizedAt: null,
+                cteRejectedAt: now,
+            };
+
+        const updated = await prisma.orderFreightCalculation.update({
+            where: { id: calcId },
+            data: fiscalData,
             include: {
                 emissor: { select: { id: true, name: true, code: true, person: { select: { document: true, legalName: true } } } },
                 pricingTable: { select: { id: true, description: true } },
             },
         });
 
-        const branding = await getBrandingForDocuments();
+        const branding = await getBrandingForFiscalEmitter(calc.fiscalEmitterId);
 
         res.json({
             success: true,
             data: updated,
             payload, // payload montado para envio à API fiscal
             branding, // identidade visual para DANFE / impressão
-            message: 'Integração com API SEFAZ pendente. Payload montado para testes.',
+            fiscal: providerResult,
+            message: providerResult.status === 'AUTHORIZED'
+                ? 'CT-e autorizado pelo provider fiscal configurado.'
+                : 'CT-e rejeitado pelo provider fiscal configurado.',
         });
     } catch (error) {
         next(error);

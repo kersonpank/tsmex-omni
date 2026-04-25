@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "typecheck:web": "tsc --noEmit --project tsconfig.json",
+    "typecheck:server": "npm run typecheck --prefix server",
+    "test:server": "npm test --prefix server",
     "preview": "vite preview"
   },
   "dependencies": {

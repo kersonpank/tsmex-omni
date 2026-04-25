@@ -18,6 +18,9 @@ import type {
     PricingRoute,
     PricingCalculateRequest,
     PricingCalculateResponse,
+    OrderFreightCalculation,
+    FiscalEmitter,
+    FiscalEmitterReadiness,
     ApiResponse,
     PaginatedResponse,
     OperationsSummaryData,
@@ -105,6 +108,46 @@ export const brandingApi = {
     },
     patch: async (data: Partial<VisualBranding>) => {
         const response = await api.patch<ApiResponse<VisualBranding>>('/settings/branding', data);
+        return response.data;
+    },
+};
+
+// ========== FISCAL EMITTERS ==========
+
+export const fiscalEmittersApi = {
+    list: async () => {
+        const response = await api.get<ApiResponse<FiscalEmitter[]>>('/fiscal-emitters');
+        return response.data;
+    },
+
+    getById: async (id: string) => {
+        const response = await api.get<ApiResponse<FiscalEmitter>>(`/fiscal-emitters/${id}`);
+        return response.data;
+    },
+
+    create: async (data: Partial<FiscalEmitter> & { personId: string }) => {
+        const response = await api.post<ApiResponse<FiscalEmitter>>('/fiscal-emitters', data);
+        return response.data;
+    },
+
+    update: async (id: string, data: Partial<FiscalEmitter>) => {
+        const response = await api.patch<ApiResponse<FiscalEmitter>>(`/fiscal-emitters/${id}`, data);
+        return response.data;
+    },
+
+    uploadCertificate: async (id: string, data: {
+        file: string;
+        filename: string;
+        mimeType?: string;
+        password: string;
+        expiresAt?: string | null;
+    }) => {
+        const response = await api.post<ApiResponse<FiscalEmitter>>(`/fiscal-emitters/${id}/certificate`, data);
+        return response.data;
+    },
+
+    readiness: async (id: string) => {
+        const response = await api.get<ApiResponse<FiscalEmitterReadiness>>(`/fiscal-emitters/${id}/readiness`);
         return response.data;
     },
 };
@@ -760,7 +803,7 @@ export const ordersEntradaApi = {
 
 export const ordersFreightApi = {
     list: async (orderId: string) => {
-        const response = await api.get<ApiResponse<import('../types').OrderFreightCalculation[]>>(
+        const response = await api.get<ApiResponse<OrderFreightCalculation[]>>(
             `/orders/${orderId}/freight-calculations`
         );
         return response.data;
@@ -772,6 +815,7 @@ export const ordersFreightApi = {
         calculationMethod: 'ESPECIAL' | 'TARIFA_GERAL' | 'INFORMADO';
         pricingTableId?: string | null;
         routeId?: string | null;
+        fiscalEmitterId?: string | null;
         originCity?: string | null;
         destCity?: string | null;
         cfop?: string | null;
@@ -779,7 +823,7 @@ export const ordersFreightApi = {
         cst?: string | null;
         observacoes?: string | null;
     }) => {
-        const response = await api.post<ApiResponse<import('../types').OrderFreightCalculation>>(
+        const response = await api.post<ApiResponse<OrderFreightCalculation>>(
             `/orders/${orderId}/freight-calculations`,
             data
         );
@@ -792,6 +836,7 @@ export const ordersFreightApi = {
         calculationMethod?: 'ESPECIAL' | 'TARIFA_GERAL' | 'INFORMADO';
         pricingTableId?: string | null;
         routeId?: string | null;
+        fiscalEmitterId?: string | null;
         originCity?: string | null;
         destCity?: string | null;
         cfop?: string | null;
@@ -802,7 +847,7 @@ export const ordersFreightApi = {
         breakdown?: Record<string, number> | null;
         icmsValue?: number | null;
     }) => {
-        const response = await api.patch<ApiResponse<import('../types').OrderFreightCalculation>>(
+        const response = await api.patch<ApiResponse<OrderFreightCalculation>>(
             `/orders/${orderId}/freight-calculations/${calcId}`,
             data
         );
@@ -817,7 +862,7 @@ export const ordersFreightApi = {
     },
 
     calculate: async (orderId: string, calcId: string) => {
-        const response = await api.post<ApiResponse<import('../types').OrderFreightCalculation>>(
+        const response = await api.post<ApiResponse<OrderFreightCalculation>>(
             `/orders/${orderId}/freight-calculations/${calcId}/calculate`,
             {}
         );
@@ -827,7 +872,7 @@ export const ordersFreightApi = {
     emitMinuta: async (orderId: string, calcId: string) => {
         const response = await api.post<{
             success: boolean;
-            data: import('../types').OrderFreightCalculation;
+            data: OrderFreightCalculation;
             payload?: unknown;
             branding?: BrandingForDocuments | null;
         }>(`/orders/${orderId}/freight-calculations/${calcId}/emit-minuta`, {});
@@ -837,9 +882,15 @@ export const ordersFreightApi = {
     emitCte: async (orderId: string, calcId: string) => {
         const response = await api.post<{
             success: boolean;
-            data: import('../types').OrderFreightCalculation;
+            data: OrderFreightCalculation;
             payload?: unknown;
             branding?: BrandingForDocuments | null;
+            fiscal?: {
+                status: 'AUTHORIZED' | 'REJECTED';
+                accessKey?: string;
+                protocol?: string;
+                rejectionReason?: string;
+            };
             message?: string;
         }>(`/orders/${orderId}/freight-calculations/${calcId}/emit-cte`, {});
         return response.data;

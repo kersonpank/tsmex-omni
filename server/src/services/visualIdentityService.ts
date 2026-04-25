@@ -32,3 +32,33 @@ export async function getBrandingForDocuments(): Promise<BrandingPublic | null> 
   if (!row) return null;
   return toBrandingPublic(row);
 }
+
+export async function getBrandingForFiscalEmitter(fiscalEmitterId?: string | null): Promise<BrandingPublic | null> {
+  if (!fiscalEmitterId) return getBrandingForDocuments();
+
+  const emitter = await prisma.fiscalEmitter.findUnique({
+    where: { id: fiscalEmitterId },
+    include: { person: true, hub: true },
+  });
+  if (!emitter) return getBrandingForDocuments();
+
+  const addressLine = [
+    emitter.person.address,
+    emitter.person.number,
+    emitter.person.neighborhood,
+    emitter.person.city,
+    emitter.person.state,
+    emitter.person.cep,
+  ].filter(Boolean).join(', ');
+
+  return {
+    legalName: emitter.person.legalName,
+    tradeName: emitter.tradeName ?? emitter.person.tradeName,
+    cnpjDisplay: emitter.person.document,
+    phone: emitter.hub?.phone ?? null,
+    email: emitter.hub?.email ?? null,
+    addressLine: addressLine || null,
+    footerNote: emitter.footerNote,
+    logoUrl: emitter.logoUrl,
+  };
+}

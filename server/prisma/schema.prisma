@@ -15,11 +15,11 @@ datasource db {
 // ========================================
 
 model User {
-  id       String   @id @default(uuid())
-  email    String   @unique
+  id       String     @id @default(uuid())
+  email    String     @unique
   password String
   roles    UserRole[] @default([]) // Múltiplos papéis por email (Link, Hub, Admin, Cliente)
-  active   Boolean  @default(true)
+  active   Boolean    @default(true)
 
   // Account relationship (for CLIENT users)
   accountId String?
@@ -27,16 +27,16 @@ model User {
 
   // Person (CPF/CNPJ - identificador único; usado para usuários de contas e HUB)
   personId String?
-  person   Person?  @relation(fields: [personId], references: [id], onDelete: SetNull)
+  person   Person? @relation(fields: [personId], references: [id], onDelete: SetNull)
 
   // Hub (quando role = HUB; usuário opera este depósito)
   hubId String?
-  hub   Hub?   @relation(fields: [hubId], references: [id], onDelete: SetNull)
+  hub   Hub?    @relation(fields: [hubId], references: [id], onDelete: SetNull)
 
-  client        Client?
-  link          Link?
-  admin         Admin?
-  hubOnboarding HubOnboarding?
+  client              Client?
+  link                Link?
+  admin               Admin?
+  hubOnboarding       HubOnboarding?
   uploadedAttachments Attachment[]
 
   // Permissões por pessoa (Admin define para cada usuário HUB)
@@ -53,18 +53,18 @@ enum AttachmentType {
 }
 
 model Attachment {
-  id        String  @id @default(uuid())
-  type      AttachmentType @default(OTHER)
-  fileName  String
-  mimeType  String
-  size      Int
-  storageKey String @unique
-  bucket    String
-  url       String?
-  checksum  String?
-  metadata  Json?
+  id               String         @id @default(uuid())
+  type             AttachmentType @default(OTHER)
+  fileName         String
+  mimeType         String
+  size             Int
+  storageKey       String         @unique
+  bucket           String
+  url              String?
+  checksum         String?
+  metadata         Json?
   uploadedByUserId String?
-  uploadedByUser   User? @relation(fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+  uploadedByUser   User?          @relation(fields: [uploadedByUserId], references: [id], onDelete: SetNull)
 
   orderLinks  OrderAttachment[]
   demandLinks DemandAttachment[]
@@ -76,26 +76,26 @@ model Attachment {
 }
 
 model OrderAttachment {
-  id           String @id @default(uuid())
-  orderId       String
-  order         Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  attachmentId  String
-  attachment    Attachment @relation(fields: [attachmentId], references: [id], onDelete: Cascade)
-  category      String?
-  createdAt     DateTime @default(now())
+  id           String     @id @default(uuid())
+  orderId      String
+  order        Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  attachmentId String
+  attachment   Attachment @relation(fields: [attachmentId], references: [id], onDelete: Cascade)
+  category     String?
+  createdAt    DateTime   @default(now())
 
   @@unique([orderId, attachmentId])
   @@index([orderId, createdAt])
 }
 
 model DemandAttachment {
-  id           String @id @default(uuid())
-  demandId      String
-  demand        Demand @relation(fields: [demandId], references: [id], onDelete: Cascade)
-  attachmentId  String
-  attachment    Attachment @relation(fields: [attachmentId], references: [id], onDelete: Cascade)
-  category      String?
-  createdAt     DateTime @default(now())
+  id           String     @id @default(uuid())
+  demandId     String
+  demand       Demand     @relation(fields: [demandId], references: [id], onDelete: Cascade)
+  attachmentId String
+  attachment   Attachment @relation(fields: [attachmentId], references: [id], onDelete: Cascade)
+  category     String?
+  createdAt    DateTime   @default(now())
 
   @@unique([demandId, attachmentId])
   @@index([demandId, createdAt])
@@ -137,30 +137,31 @@ model Person {
   tradeName    String? // fantasia (opcional)
 
   // Endereço
-  cep         String?
-  address     String?
-  number      String?
-  complement  String?
+  cep          String?
+  address      String?
+  number       String?
+  complement   String?
   neighborhood String?
-  city        String?
-  state       String?
-  country     String? @default("BRASIL")
+  city         String?
+  state        String?
+  country      String? @default("BRASIL")
 
   // PJ
-  stateRegistration    String?
+  stateRegistration     String?
   municipalRegistration String?
 
   // Relações (papéis)
-  clients Client[]
-  links   Link[]
-  users   User[]
-  hubs    Hub[]
+  clients        Client[]
+  links          Link[]
+  users          User[]
+  hubs           Hub[]
+  fiscalEmitters FiscalEmitter[]
 
   // Orders (partes)
-  ordersAsRemetente    Order[] @relation("OrderRemetente")
-  ordersAsDestinatario Order[] @relation("OrderDestinatario")
+  ordersAsRemetente     Order[] @relation("OrderRemetente")
+  ordersAsDestinatario  Order[] @relation("OrderDestinatario")
   ordersAsConsignatario Order[] @relation("OrderConsignatario")
-  ordersAsExpedidor    Order[] @relation("OrderExpedidor")
+  ordersAsExpedidor     Order[] @relation("OrderExpedidor")
   ordersAsRedespachante Order[] @relation("OrderRedespachante")
 
   createdAt DateTime @default(now())
@@ -271,16 +272,17 @@ model Hub {
   email       String?
 
   // Fiscal / emissao CT-e e Minuta
-  rntrc             String?  // RNTRC (registro ANTT) - obrigatorio para CT-e
-  lastCteNumber     Int      @default(0) // Ultimo numero CT-e emitido
-  lastMinutaNumber  Int      @default(0) // Ultimo numero Minuta emitido
-  simplesNacional   Boolean? // Regime fiscal (impacta ICMS)
+  rntrc            String? // RNTRC (registro ANTT) - obrigatorio para CT-e
+  lastCteNumber    Int      @default(0) // Ultimo numero CT-e emitido
+  lastMinutaNumber Int      @default(0) // Ultimo numero Minuta emitido
+  simplesNacional  Boolean? // Regime fiscal (impacta ICMS)
 
   // Relationships
-  manifests   Manifest[]
-  ordersAtHub Order[] // Orders com status AT_HUB neste hub (currentHubId)
-  users       User[]  // Usuários que operam este hub (role HUB)
+  manifests           Manifest[]
+  ordersAtHub         Order[] // Orders com status AT_HUB neste hub (currentHubId)
+  users               User[] // Usuários que operam este hub (role HUB)
   freightCalculations OrderFreightCalculation[]
+  fiscalEmitters      FiscalEmitter[]
 
   // Management
   canOrchestrate Boolean @default(false) // Can act as orchestrator
@@ -301,7 +303,7 @@ model HubOnboarding {
   documents   Json? // { cnpjUrl?, proofOfAddressUrl? }
   bankData    Json? // { bank, agency, account, holderName, pixKey, pixKeyType }
 
-  onboardingComplete Boolean @default(false)
+  onboardingComplete Boolean  @default(false)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 }
@@ -354,8 +356,8 @@ model Link {
   whatsappPhone String?
   whatsappOptIn Boolean @default(false)
 
-  manifests     Manifest[]
-  onboarding    LinkOnboarding?
+  manifests  Manifest[]
+  onboarding LinkOnboarding?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -377,7 +379,7 @@ model LinkOnboarding {
   documentsCarreta Json?
 
   // Contacts: personal (3), professional (3+)
-  contactsPersonal  Json? // [{ name, phone, relation }]
+  contactsPersonal     Json? // [{ name, phone, relation }]
   contactsProfessional Json? // [{ name, phone, companyOrRole }]
 
   // Vehicle photos (JSON: [{ url, label? }])
@@ -418,9 +420,9 @@ model PricingRoute {
   destCode   String
   destName   String
 
-  tables  PricingTable[]
-  orders  Order[]
-  active  Boolean        @default(true)
+  tables PricingTable[]
+  orders Order[]
+  active Boolean        @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -561,7 +563,7 @@ model Demand {
   manifest   Manifest? @relation(fields: [manifestId], references: [id], onDelete: SetNull)
 
   // Events
-  events DemandEvent[]
+  events      DemandEvent[]
   attachments DemandAttachment[]
 
   // Metadata
@@ -673,6 +675,9 @@ model Manifest {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // Fiscal travel documents (MDF-e, CIOT and future trip-level docs)
+  fiscalDocuments ManifestFiscalDocument[]
 }
 
 enum ManifestStatus {
@@ -682,6 +687,139 @@ enum ManifestStatus {
   IN_PROGRESS // In execution
   COMPLETED // Completed
   CANCELLED // Cancelled
+}
+
+enum ManifestFiscalDocType {
+  MDFE
+  CIOT
+}
+
+enum ManifestFiscalDocStatus {
+  DRAFT
+  READY
+  SENT
+  REJECTED
+  AUTHORIZED
+  CLOSED
+  CANCELLED
+}
+
+enum FiscalEnvironment {
+  HOMOLOGACAO
+  PRODUCAO
+}
+
+enum FiscalProvider {
+  SIMULATED
+  NUVEM_FISCAL
+  FOCUS_NFE
+  TECNOSPEED
+  PLUGNOTAS
+  OTHER
+}
+
+enum FiscalProviderStatus {
+  NOT_CONFIGURED
+  PENDING
+  READY
+  ERROR
+}
+
+enum FiscalCertificateStatus {
+  MISSING
+  READY
+  EXPIRED
+  INVALID
+}
+
+enum FiscalTaxRegime {
+  SIMPLES_NACIONAL
+  LUCRO_PRESUMIDO
+  LUCRO_REAL
+  MEI
+  OUTRO
+}
+
+model FiscalEmitter {
+  id String @id @default(uuid())
+
+  personId String
+  person   Person @relation(fields: [personId], references: [id], onDelete: Restrict)
+
+  hubId String?
+  hub   Hub?    @relation(fields: [hubId], references: [id], onDelete: SetNull)
+
+  displayName    String?
+  tradeName      String?
+  logoUrl        String?
+  logoStorageKey String?
+  footerNote     String? @db.Text
+
+  rntrc            String?
+  taxRegime        FiscalTaxRegime?
+  crt              String?
+  cteSeries        Int               @default(1)
+  lastCteNumber    Int               @default(0)
+  lastMinutaNumber Int               @default(0)
+  environment      FiscalEnvironment @default(HOMOLOGACAO)
+
+  provider          FiscalProvider       @default(SIMULATED)
+  providerEmitterId String?
+  providerStatus    FiscalProviderStatus @default(NOT_CONFIGURED)
+
+  certificateStorageKey        String?
+  certificateFileName          String?
+  certificatePasswordEncrypted String?                 @db.Text
+  certificateExpiresAt         DateTime?
+  certificateFingerprint       String?
+  certificateStatus            FiscalCertificateStatus @default(MISSING)
+
+  active        Boolean @default(true)
+  defaultForHub Boolean @default(false)
+
+  freightCalculations     OrderFreightCalculation[]
+  manifestFiscalDocuments ManifestFiscalDocument[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([personId])
+  @@index([hubId])
+  @@index([active])
+}
+
+model ManifestFiscalDocument {
+  id         String   @id @default(uuid())
+  manifestId String
+  manifest   Manifest @relation(fields: [manifestId], references: [id], onDelete: Cascade)
+
+  fiscalEmitterId String?
+  fiscalEmitter   FiscalEmitter? @relation(fields: [fiscalEmitterId], references: [id], onDelete: SetNull)
+
+  documentType ManifestFiscalDocType
+  status       ManifestFiscalDocStatus @default(DRAFT)
+
+  number       String?
+  series       Int?
+  environment  String?
+  accessKey    String?
+  protocol     String?
+  statusReason String? @db.Text
+  xmlUrl       String?
+  pdfUrl       String?
+  rawPayload   Json?
+  rawResponse  Json?
+
+  authorizedAt DateTime?
+  rejectedAt   DateTime?
+  closedAt     DateTime?
+  cancelledAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([manifestId])
+  @@index([fiscalEmitterId])
+  @@index([documentType, status])
 }
 
 // ========================================
@@ -1216,15 +1354,15 @@ model Order {
   // Pessoas (entrada manual)
   freightTerm           FreightTerm?
   remetentePersonId     String?
-  remetentePerson       Person?   @relation("OrderRemetente", fields: [remetentePersonId], references: [id], onDelete: SetNull)
+  remetentePerson       Person?       @relation("OrderRemetente", fields: [remetentePersonId], references: [id], onDelete: SetNull)
   destinatarioPersonId  String?
-  destinatarioPerson    Person?   @relation("OrderDestinatario", fields: [destinatarioPersonId], references: [id], onDelete: SetNull)
+  destinatarioPerson    Person?       @relation("OrderDestinatario", fields: [destinatarioPersonId], references: [id], onDelete: SetNull)
   consignatarioPersonId String?
-  consignatarioPerson   Person?   @relation("OrderConsignatario", fields: [consignatarioPersonId], references: [id], onDelete: SetNull)
+  consignatarioPerson   Person?       @relation("OrderConsignatario", fields: [consignatarioPersonId], references: [id], onDelete: SetNull)
   expedidorPersonId     String?
-  expedidorPerson       Person?   @relation("OrderExpedidor", fields: [expedidorPersonId], references: [id], onDelete: SetNull)
+  expedidorPerson       Person?       @relation("OrderExpedidor", fields: [expedidorPersonId], references: [id], onDelete: SetNull)
   redespachantePersonId String?
-  redespachantePerson   Person?   @relation("OrderRedespachante", fields: [redespachantePersonId], references: [id], onDelete: SetNull)
+  redespachantePerson   Person?       @relation("OrderRedespachante", fields: [redespachantePersonId], references: [id], onDelete: SetNull)
   origemPrestacao       String?
   fimPrestacao          String?
   routeId               String?
@@ -1236,7 +1374,7 @@ model Order {
   enteredAtHubAt DateTime? // Quando entrou no HUB/CD
 
   // Histórico completo (todos os eventos desde Opportunity até entrega)
-  history OrderHistory[]
+  history     OrderHistory[]
   attachments OrderAttachment[]
 
   // Faturamento
@@ -1308,9 +1446,9 @@ enum OrderInvoiceType {
 }
 
 model OrderInvoice {
-  id           String           @id @default(uuid())
-  orderId      String
-  order        Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  id      String @id @default(uuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   type         OrderInvoiceType
   nfNumber     String
@@ -1334,21 +1472,25 @@ model OrderInvoice {
 // ========================================
 
 enum FreightDocType {
-  CTE    // Conhecimento de Transporte Eletrônico (fiscal)
+  CTE // Conhecimento de Transporte Eletrônico (fiscal)
   MINUTA // Documento interno (sem validação fiscal)
 }
 
 enum FreightCalcMethod {
-  ESPECIAL     // Tabelas pré-cadastradas do pagador
+  ESPECIAL // Tabelas pré-cadastradas do pagador
   TARIFA_GERAL // Tarifas por rota
-  INFORMADO    // Calculadora manual
+  INFORMADO // Calculadora manual
 }
 
 enum FreightCalcStatus {
-  DRAFT           // Rascunho
-  CALCULATED      // Calculado
-  MINUTA_EMITTED  // Minuta emitida
-  CTE_AUTHORIZED  // CT-e autorizado SEFAZ
+  DRAFT // Rascunho
+  CALCULATED // Calculado
+  CTE_READY // CT-e validado e pronto para envio fiscal
+  CTE_SENT // CT-e enviado ao provedor fiscal / SEFAZ
+  CTE_REJECTED // CT-e rejeitado com pendências recuperáveis
+  MINUTA_EMITTED // Minuta emitida
+  CTE_AUTHORIZED // CT-e autorizado SEFAZ
+  CTE_CANCELLED // CT-e cancelado
 }
 
 model OrderFreightCalculation {
@@ -1356,13 +1498,15 @@ model OrderFreightCalculation {
   orderId String
   order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
-  documentType FreightDocType
-  emissorId    String
-  emissor      Hub    @relation(fields: [emissorId], references: [id], onDelete: Restrict)
+  documentType    FreightDocType
+  emissorId       String
+  emissor         Hub            @relation(fields: [emissorId], references: [id], onDelete: Restrict)
+  fiscalEmitterId String?
+  fiscalEmitter   FiscalEmitter? @relation(fields: [fiscalEmitterId], references: [id], onDelete: SetNull)
 
   calculationMethod FreightCalcMethod
   pricingTableId    String?
-  pricingTable      PricingTable? @relation(fields: [pricingTableId], references: [id], onDelete: SetNull)
+  pricingTable      PricingTable?     @relation(fields: [pricingTableId], references: [id], onDelete: SetNull)
   routeId           String?
 
   originCity  String?
@@ -1372,28 +1516,39 @@ model OrderFreightCalculation {
   cst         String?
   observacoes String? @db.Text
 
-  volumes      Float  @default(0)
-  weight       Float  @default(0)
-  cubedWeight  Float?
-  cubage       Float?
-  nfValue      Float  @default(0)
-  commodity    String?
+  volumes     Float   @default(0)
+  weight      Float   @default(0)
+  cubedWeight Float?
+  cubage      Float?
+  nfValue     Float   @default(0)
+  commodity   String?
 
   freightTotal    Float  @default(0)
   breakdown       Json?
   icmsValue       Float?
   effectiveWeight Float?
 
-  minutaNumber  String?
-  cteAccessKey  String?
-  cteProtocol   String?
-  status        FreightCalcStatus @default(DRAFT)
+  minutaNumber    String?
+  cteNumber       String?
+  cteSeries       Int?
+  cteEnvironment  String?
+  cteAccessKey    String?
+  cteProtocol     String?
+  cteStatusReason String?           @db.Text
+  cteXml          String?           @db.Text
+  cteXmlUrl       String?
+  ctePdfUrl       String?
+  cteAuthorizedAt DateTime?
+  cteRejectedAt   DateTime?
+  cteCancelledAt  DateTime?
+  status          FreightCalcStatus @default(DRAFT)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([orderId])
   @@index([emissorId])
+  @@index([fiscalEmitterId])
   @@index([pricingTableId])
 }
 
@@ -1477,29 +1632,29 @@ enum InvoiceStatus {
 
 model PipelineColumn {
   id String @id @default(uuid())
-  
+
   // Identificação
-  name String // "Aguardando Cliente", "Em Negociação", etc.
+  name  String // "Aguardando Cliente", "Em Negociação", etc.
   color String @default("#3B82F6") // Cor da coluna (hex)
-  
+
   // Mapeamento para stages (opcional - se baseada em stage)
   stage OpportunityStage? // Se null, é coluna personalizada
-  
+
   // Ordem
   order Int @default(0) // Ordem de exibição
-  
+
   // Filtros (opcional)
   filters Json? // { accountId, source, etc. }
-  
+
   // Status
   active Boolean @default(true)
-  
+
   // Opportunities nesta coluna
   opportunities Opportunity[]
-  
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   @@index([order])
   @@index([stage])
 }
