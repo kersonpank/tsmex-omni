@@ -476,6 +476,144 @@ router.post('/:calcId/calculate', authenticate, authorize('ADMIN', 'HUB'), async
     }
 });
 
+// GET /api/orders/:orderId/freight-calculations/:calcId/print-preview - Monta payload para impressão (sem alterar status)
+router.get('/:calcId/print-preview', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const orderId = req.params.orderId as string;
+        const calcId = req.params.calcId as string;
+
+        const order = await prisma.order.findUnique({
+            where: { id: orderId },
+            include: {
+                remetentePerson: true,
+                destinatarioPerson: true,
+                consignatarioPerson: true,
+                expedidorPerson: true,
+                invoicesRel: true,
+            },
+        });
+
+        if (!order) throw new AppError('Order not found', 404);
+
+        if (req.user!.roles.includes('HUB') && (!req.user!.hubId || order.currentHubId !== req.user!.hubId)) {
+            throw new AppError('Not authorized to print document for this order', 403);
+        }
+
+        const calc = await prisma.orderFreightCalculation.findFirst({
+            where: { id: calcId, orderId },
+            include: { emissor: true, fiscalEmitter: { include: { person: true, hub: true } } },
+        });
+
+        if (!calc) throw new AppError('Cálculo de frete não encontrado', 404);
+
+        if (calc.freightTotal <= 0) {
+            throw new AppError('Calcule o frete ou preencha o valor antes de imprimir.', 400);
+        }
+
+        const hub = await prisma.hub.findUnique({
+            where: { id: calc.emissorId },
+            include: { person: true },
+        });
+
+        if (!hub) throw new AppError('Emissor (Hub) não encontrado', 404);
+        if (!hub.person && !calc.fiscalEmitter?.person) {
+            throw new AppError('O emissor deve ter Pessoa (CNPJ) vinculada para imprimir', 400);
+        }
+
+        const emitterPerson = calc.fiscalEmitter?.person ?? hub.person;
+        if (!emitterPerson) throw new AppError('O emissor deve ter Pessoa (CNPJ) vinculada para imprimir', 400);
+
+        const emitterPrint = {
+            name: calc.fiscalEmitter?.displayName ?? calc.fiscalEmitter?.person.legalName ?? hub.name,
+            code: hub.code,
+            phone: calc.fiscalEmitter?.hub?.phone ?? hub.phone,
+            rntrc: calc.fiscalEmitter?.rntrc ?? hub.rntrc,
+        };
+
+        const branding = await getBrandingForFiscalEmitter(calc.fiscalEmitterId);
+
+        const calcFields = {
+            originCity: calc.originCity,
+            destCity: calc.destCity,
+            cfop: calc.cfop,
+            cst: calc.cst,
+            tipoFrete: calc.tipoFrete,
+            observacoes: calc.observacoes,
+            volumes: calc.volumes,
+            weight: calc.weight,
+            effectiveWeight: calc.effectiveWeight,
+            cubage: calc.cubage,
+            nfValue: calc.nfValue,
+            commodity: calc.commodity,
+            freightTotal: calc.freightTotal,
+            breakdown: calc.breakdown,
+            icmsValue: calc.icmsValue,
+        };
+
+        const orderFields = {
+            freightTerm: order.freightTerm,
+            remetentePerson: order.remetentePerson,
+            destinatarioPerson: order.destinatarioPerson,
+            consignatarioPerson: order.consignatarioPerson,
+            expedidorPerson: order.expedidorPerson,
+            invoicesRel: order.invoicesRel,
+        };
+
+        if (calc.documentType === 'MINUTA') {
+            const emitted = calc.status === 'MINUTA_EMITTED' && calc.minutaNumber?.trim();
+            const numero = emitted ? (parseInt(calc.minutaNumber!, 10) || 0) : 0;
+            const previewDraft = !emitted;
+
+            const payload = buildMinutaPayload({
+                calc: calcFields,
+                order: orderFields,
+                hub: emitterPrint,
+                person: emitterPerson,
+                numero,
+                previewDraft,
+            });
+
+            return res.json({ success: true, payload, branding });
+        }
+
+        if (calc.documentType === 'CTE') {
+            const ambiente = (calc.cteEnvironment ?? (process.env.FISCAL_CTE_ENV === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO')) as CteEnvironment;
+            const serie = calc.cteSeries ?? Number(process.env.FISCAL_CTE_SERIE || 1);
+            const emittedAuth = calc.status === 'CTE_AUTHORIZED' && Boolean(calc.cteAccessKey?.trim());
+            const hasNumero = Boolean(calc.cteNumber?.trim());
+            const numero = hasNumero ? (parseInt(calc.cteNumber!, 10) || 0) : 0;
+            const previewDraft = !emittedAuth;
+
+            const observacoesCte = [calc.observacoes, calc.status === 'CTE_REJECTED' && calc.cteStatusReason ? `Pendência: ${calc.cteStatusReason}` : null]
+                .filter((s): s is string => Boolean(s && String(s).trim()))
+                .join('\n') || null;
+
+            const payload = buildCtePayload({
+                calc: {
+                    ...calcFields,
+                    observacoes: observacoesCte,
+                },
+                order: orderFields,
+                hub: emitterPrint,
+                person: emitterPerson,
+                numero,
+                serie,
+                ambiente,
+                chaveAcesso: calc.cteAccessKey ?? null,
+                protocolo: calc.cteProtocol ?? null,
+                autorizacaoEm: calc.cteAuthorizedAt?.toISOString() ?? null,
+                previewDraft,
+            });
+
+            return res.json({ success: true, payload, branding });
+        }
+
+        throw new AppError('Tipo de documento não suportado para impressão.', 400);
+    } catch (error) {
+        next(error);
+    }
+});
+
 // POST /api/orders/:orderId/freight-calculations/:calcId/emit-minuta - Emitir Minuta (documento interno)
 router.post('/:calcId/emit-minuta', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {

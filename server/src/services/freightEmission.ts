@@ -222,6 +222,8 @@ export function buildMinutaPayload(params: {
     protocolo?: string | null;
     autorizacaoEm?: string | null;
     qrCodeUrl?: string | null;
+    /** Apenas impressão/preview: marca dágua de rascunho e número “—” quando numero === 0 */
+    previewDraft?: boolean;
 }): MinutaPayloadDto {
     const { calc, order, hub, person, numero } = params;
     const tomador = order.freightTerm === 'CIF'
@@ -247,13 +249,19 @@ export function buildMinutaPayload(params: {
         serieNumero: inv.nfNumber,
     })) ?? [];
 
+    const previewDraft = Boolean(params.previewDraft);
+    const watermarkDefault = params.documentLabel === 'DACTE'
+        ? (params.ambiente === 'HOMOLOGACAO' ? 'CT-E EMITIDO EM AMBIENTE DE HOMOLOGAÇÃO - SEM VALOR FISCAL' : undefined)
+        : 'MINUTA - SEM VALOR FISCAL';
+    const watermarkPreview = params.documentLabel === 'DACTE'
+        ? 'PRÉ-VISUALIZAÇÃO – LAYOUT CT-e (não autorizado / rascunho)'
+        : 'PRÉ-VISUALIZAÇÃO – MINUTA NÃO EMITIDA';
+
     return {
         numero,
         serie: params.serie ?? 1,
         documentLabel: params.documentLabel ?? 'MINUTA',
-        watermark: params.documentLabel === 'DACTE'
-            ? (params.ambiente === 'HOMOLOGACAO' ? 'CT-E EMITIDO EM AMBIENTE DE HOMOLOGAÇÃO - SEM VALOR FISCAL' : undefined)
-            : 'MINUTA - SEM VALOR FISCAL',
+        watermark: previewDraft ? watermarkPreview : watermarkDefault,
         modelo: '57',
         chaveAcesso: params.chaveAcesso ?? null,
         codigoBarras: params.chaveAcesso ?? null,
@@ -305,7 +313,7 @@ export function buildMinutaPayload(params: {
         documentosOriginarios: docs.length ? docs : undefined,
         recibo: {
             declaracao: 'Declaro que recebi os volumes deste documento em perfeito estado.',
-            documentoNumero: String(numero),
+            documentoNumero: previewDraft && numero === 0 ? '—' : String(numero),
         },
     };
 }

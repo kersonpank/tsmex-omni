@@ -238,6 +238,7 @@ function OrderFreightCard({
   const [deleting, setDeleting] = useState(false);
   const [emittingMinuta, setEmittingMinuta] = useState(false);
   const [emittingCte, setEmittingCte] = useState(false);
+  const [loadingPrintPreview, setLoadingPrintPreview] = useState(false);
   const [printDoc, setPrintDoc] = useState<{ payload: unknown; branding?: unknown } | null>(null);
 
   const headerLabel = calc.documentType === 'CTE' ? 'CT-e' : 'Minuta';
@@ -248,6 +249,8 @@ function OrderFreightCard({
   const fiscalLocked = FISCAL_LOCKED_STATUSES.has(calc.status);
   const canEmitMinuta = calc.documentType === 'MINUTA' && calc.status !== 'MINUTA_EMITTED' && (calc.freightTotal ?? 0) > 0;
   const canEmitCte = calc.documentType === 'CTE' && !fiscalLocked && (calc.freightTotal ?? 0) > 0;
+  const canPrintMinuta = calc.documentType === 'MINUTA' && (calc.freightTotal ?? 0) > 0;
+  const canPrintCte = calc.documentType === 'CTE' && (calc.freightTotal ?? 0) > 0;
 
   const handleCalculate = async () => {
     if (calc.calculationMethod === 'INFORMADO') return;
@@ -286,6 +289,19 @@ function OrderFreightCard({
       onCalculate();
     } finally {
       setEmittingCte(false);
+    }
+  };
+
+  const handlePrintPreview = async () => {
+    setLoadingPrintPreview(true);
+    try {
+      const result = await ordersFreightApi.getPrintPreview(orderId, calc.id);
+      if (result.payload) setPrintDoc({ payload: result.payload, branding: result.branding });
+      else window.alert('Não foi possível montar o documento para impressão.');
+    } catch (e: any) {
+      window.alert(e.response?.data?.error ?? e.response?.data?.message ?? e.message ?? 'Erro ao carregar impressão');
+    } finally {
+      setLoadingPrintPreview(false);
     }
   };
 
@@ -367,6 +383,26 @@ function OrderFreightCard({
               className="px-3 py-1.5 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
             >
               {emittingCte ? 'Enviando...' : calc.status === 'CTE_REJECTED' ? 'Reenviar CT-e' : 'Emitir CT-e'}
+            </button>
+          )}
+          {canPrintMinuta && (
+            <button
+              type="button"
+              onClick={handlePrintPreview}
+              disabled={loadingPrintPreview || emittingMinuta || emittingCte}
+              className="px-3 py-1.5 text-sm rounded-lg border border-brand-600 text-brand-600 dark:border-brand-500 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-950/40 disabled:opacity-50"
+            >
+              {loadingPrintPreview ? 'Carregando...' : 'Imprimir Minuta'}
+            </button>
+          )}
+          {canPrintCte && (
+            <button
+              type="button"
+              onClick={handlePrintPreview}
+              disabled={loadingPrintPreview || emittingMinuta || emittingCte}
+              className="px-3 py-1.5 text-sm rounded-lg border border-brand-600 text-brand-600 dark:border-brand-500 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-950/40 disabled:opacity-50"
+            >
+              {loadingPrintPreview ? 'Carregando...' : 'Imprimir CT-e'}
             </button>
           )}
           <button

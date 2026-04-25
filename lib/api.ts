@@ -895,6 +895,15 @@ export const ordersFreightApi = {
         }>(`/orders/${orderId}/freight-calculations/${calcId}/emit-cte`, {});
         return response.data;
     },
+
+    getPrintPreview: async (orderId: string, calcId: string) => {
+        const response = await api.get<{
+            success: boolean;
+            payload?: unknown;
+            branding?: BrandingForDocuments | null;
+        }>(`/orders/${orderId}/freight-calculations/${calcId}/print-preview`);
+        return response.data;
+    },
 };
 
 export const ordersApi = {
