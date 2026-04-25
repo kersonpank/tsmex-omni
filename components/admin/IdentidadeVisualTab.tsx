@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { fiscalEmittersApi, hubsApi, personsApi, uploadApi } from '../../lib/api';
 import type { FiscalEmitter, FiscalTaxRegime, Hub, Person } from '../../types/index';
 
@@ -70,12 +71,18 @@ function emitterToForm(emitter: FiscalEmitter): FormState {
 }
 
 const IdentidadeVisualTab: React.FC = () => {
+  const [, setSearchParams] = useSearchParams();
   const [emitters, setEmitters] = useState<FiscalEmitter[]>([]);
   const [persons, setPersons] = useState<Person[]>([]);
   const [hubs, setHubs] = useState<Hub[]>([]);
   const [form, setForm] = useState<FormState>(emptyForm);
+  const [selectedEmitterId, setSelectedEmitterId] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
   const [certificatePassword, setCertificatePassword] = useState('');
   const [certificateExpiresAt, setCertificateExpiresAt] = useState('');
+  const [showCertificatePassword, setShowCertificatePassword] = useState(false);
+  const [selectedCertificateFileName, setSelectedCertificateFileName] = useState<string | null>(null);
+  const [logoPreviewUrl, setLogoPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -85,6 +92,10 @@ const IdentidadeVisualTab: React.FC = () => {
   const selectedPerson = useMemo(
     () => persons.find((p) => p.id === form.personId),
     [persons, form.personId]
+  );
+  const selectedEmitter = useMemo(
+    () => emitters.find((emitter) => emitter.id === selectedEmitterId) ?? null,
+    [emitters, selectedEmitterId]
   );
 
   const load = useCallback(async () => {
@@ -96,18 +107,17 @@ const IdentidadeVisualTab: React.FC = () => {
         personsApi.list({ documentType: 'CNPJ' }),
         hubsApi.list(),
       ]);
-      setEmitters(emittersRes.data ?? []);
+      const emitterList = emittersRes.data ?? [];
+      setEmitters(emitterList);
       setPersons(personsRes.data ?? []);
       setHubs(hubsRes.data ?? []);
-      if (!form.id && (emittersRes.data ?? []).length > 0) {
-        setForm(emitterToForm((emittersRes.data ?? [])[0]));
-      }
+      setSelectedEmitterId((current) => current ?? emitterList[0]?.id ?? null);
     } catch (e: any) {
       setError(e.response?.data?.error ?? e.message ?? 'Erro ao carregar emitentes');
     } finally {
       setLoading(false);
     }
-  }, [form.id]);
+  }, []);
 
   useEffect(() => {
     void load();
@@ -115,6 +125,37 @@ const IdentidadeVisualTab: React.FC = () => {
 
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
+  };
+
+  const startNewEmitter = () => {
+    setSelectedEmitterId(null);
+    setForm(emptyForm);
+    setCertificatePassword('');
+    setCertificateExpiresAt('');
+    setSelectedCertificateFileName(null);
+    setIsEditing(true);
+  };
+
+  const selectEmitter = (emitter: FiscalEmitter) => {
+    setSelectedEmitterId(emitter.id);
+    setForm(emitterToForm(emitter));
+    setSelectedCertificateFileName(null);
+    setIsEditing(false);
+  };
+
+  const startEditEmitter = (emitter: FiscalEmitter) => {
+    setSelectedEmitterId(emitter.id);
+    setForm(emitterToForm(emitter));
+    setIsEditing(true);
+  };
+
+  const goToSelectedPerson = () => {
+    if (!form.personId) return;
+    setSearchParams(new URLSearchParams([
+      ['cat', 'pessoas'],
+      ['personId', form.personId],
+      ['edit', '1'],
+    ]));
   };
 
   const handleLogoChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -144,6 +185,7 @@ const IdentidadeVisualTab: React.FC = () => {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file || !form.id) return;
+    setSelectedCertificateFileName(file.name);
     if (!certificatePassword) {
       setError('Informe a senha do certificado A1 antes do upload.');
       return;
@@ -200,6 +242,8 @@ const IdentidadeVisualTab: React.FC = () => {
         ? await fiscalEmittersApi.update(form.id, payload)
         : await fiscalEmittersApi.create(payload);
       setForm(emitterToForm(result.data));
+      setSelectedEmitterId(result.data.id);
+      setIsEditing(false);
       await load();
       setSuccess('Emitente credenciado salvo.');
     } catch (e: any) {
@@ -222,12 +266,25 @@ const IdentidadeVisualTab: React.FC = () => {
 
       {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-200">{error}</div>}
       {success && <div className="rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-900 dark:border-brand-600 dark:bg-brand-950/50 dark:text-tower-100">{success}</div>}
+      {logoPreviewUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setLogoPreviewUrl(null)}>
+          <div className="max-w-3xl rounded-2xl bg-white p-4 dark:bg-tower-900" onClick={(event) => event.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between gap-4">
+              <h3 className="font-semibold text-tower-900 dark:text-tower-100">Preview da logo</h3>
+              <button type="button" onClick={() => setLogoPreviewUrl(null)} className="text-sm font-semibold text-tower-600 hover:text-tower-900 dark:text-tower-300">
+                Fechar
+              </button>
+            </div>
+            <img src={logoPreviewUrl} alt="Preview da logo" className="max-h-[70vh] max-w-full rounded-xl object-contain" />
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
         <aside className="space-y-2">
           <button
             type="button"
-            onClick={() => setForm(emptyForm)}
+            onClick={startNewEmitter}
             className="w-full rounded-lg border-2 border-dashed border-tower-300 px-3 py-2 text-sm font-semibold text-tower-700 hover:border-brand-400 hover:text-brand-700 dark:border-tower-600 dark:text-tower-200"
           >
             + Novo emitente
@@ -236,10 +293,15 @@ const IdentidadeVisualTab: React.FC = () => {
             <button
               key={emitter.id}
               type="button"
-              onClick={() => setForm(emitterToForm(emitter))}
-              className={`w-full rounded-xl border p-3 text-left text-sm ${form.id === emitter.id ? 'border-brand-400 bg-brand-50 dark:bg-brand-950/30' : 'border-tower-200 bg-white dark:border-tower-700 dark:bg-tower-900/50'}`}
+              onClick={() => selectEmitter(emitter)}
+              className={`w-full rounded-xl border p-3 text-left text-sm ${selectedEmitterId === emitter.id ? 'border-brand-400 bg-brand-50 dark:bg-brand-950/30' : 'border-tower-200 bg-white dark:border-tower-700 dark:bg-tower-900/50'}`}
             >
-              <div className="font-semibold text-tower-800 dark:text-tower-100">{emitter.displayName || emitter.person?.legalName}</div>
+              <div className="flex items-start justify-between gap-2">
+                <div className="font-semibold text-tower-800 dark:text-tower-100">{emitter.displayName || emitter.person?.legalName}</div>
+                <span className="rounded-full bg-tower-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-tower-600 dark:bg-tower-800 dark:text-tower-300">
+                  Ver
+                </span>
+              </div>
               <div className="text-xs text-tower-500">{emitter.person?.document} · {emitter.environment}</div>
               <div className="mt-1 text-xs">
                 {emitter.readiness?.readyForHomologation ? (
@@ -248,20 +310,93 @@ const IdentidadeVisualTab: React.FC = () => {
                   <span className="text-amber-700 dark:text-amber-300">{emitter.readiness?.issues?.length ?? 0} pendências</span>
                 )}
               </div>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  startEditEmitter(emitter);
+                }}
+                className="mt-3 text-xs font-semibold text-brand-700 hover:text-brand-900 dark:text-brand-300"
+              >
+                Editar
+              </button>
             </button>
           ))}
         </aside>
 
+        {!isEditing && selectedEmitter && (
+          <div className="space-y-4">
+            <section className="rounded-xl border border-tower-200 bg-white/90 p-5 dark:border-tower-700 dark:bg-tower-900/50">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-tower-900 dark:text-tower-100">{selectedEmitter.displayName || selectedEmitter.person?.legalName}</h3>
+                  <p className="text-sm text-tower-500">{selectedEmitter.person?.document} · {selectedEmitter.environment}</p>
+                </div>
+                <button type="button" onClick={() => startEditEmitter(selectedEmitter)} className="admin-focus rounded-lg bg-brand-600 px-4 py-2 text-sm font-bold text-white hover:bg-brand-700">
+                  Editar emitente
+                </button>
+              </div>
+              <div className="mt-5 grid gap-4 md:grid-cols-[180px_1fr]">
+                <div className="flex h-28 items-center justify-center rounded-lg border border-tower-200 bg-tower-50 dark:border-tower-600 dark:bg-tower-950">
+                  {selectedEmitter.logoUrl ? <img src={selectedEmitter.logoUrl} alt="Logo" className="max-h-24 max-w-full object-contain" /> : <span className="text-xs text-tower-500">Sem logo</span>}
+                </div>
+                <div className="grid gap-3 text-sm sm:grid-cols-2">
+                  <div><span className="font-semibold">Hub:</span> {selectedEmitter.hub ? `${selectedEmitter.hub.code} - ${selectedEmitter.hub.name}` : 'Sem hub específico'}</div>
+                  <div><span className="font-semibold">RNTRC:</span> {selectedEmitter.rntrc || '-'}</div>
+                  <div><span className="font-semibold">CRT:</span> {selectedEmitter.crt || '-'}</div>
+                  <div><span className="font-semibold">Série CT-e:</span> {selectedEmitter.cteSeries}</div>
+                  <div><span className="font-semibold">Certificado:</span> {selectedEmitter.certificateFileName || 'Não enviado'}</div>
+                  <div><span className="font-semibold">Status A1:</span> {selectedEmitter.certificateStatus}</div>
+                  {selectedEmitter.logoUrl && (
+                    <button type="button" onClick={() => setLogoPreviewUrl(selectedEmitter.logoUrl ?? null)} className="text-left text-sm font-semibold text-brand-700 hover:underline dark:text-brand-300">
+                      Abrir preview da logo
+                    </button>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-xl border border-tower-200 bg-white/90 p-5 dark:border-tower-700 dark:bg-tower-900/50">
+              <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-tower-500">Checklist fiscal</h3>
+              {(selectedEmitter.readiness?.issues ?? []).length === 0 ? (
+                <p className="text-sm text-green-700 dark:text-green-300">Emitente pronto para minuta e homologação.</p>
+              ) : (
+                <ul className="list-disc space-y-1 pl-5 text-sm text-amber-700 dark:text-amber-300">
+                  {(selectedEmitter.readiness?.issues ?? []).map((issue) => <li key={issue}>{issue}</li>)}
+                </ul>
+              )}
+            </section>
+          </div>
+        )}
+
+        {!isEditing && !selectedEmitter && (
+          <section className="rounded-xl border border-dashed border-tower-300 bg-white/80 p-8 text-center dark:border-tower-700 dark:bg-tower-900/40">
+            <h3 className="font-semibold text-tower-800 dark:text-tower-100">Nenhum emitente selecionado</h3>
+            <p className="mt-1 text-sm text-tower-500">Crie ou selecione um emitente fiscal para visualizar.</p>
+          </section>
+        )}
+
+        {isEditing && (
         <form onSubmit={handleSave} className="space-y-4">
           <section className="rounded-xl border border-tower-200 bg-white/90 p-5 dark:border-tower-700 dark:bg-tower-900/50">
             <h3 className="mb-4 text-sm font-bold uppercase tracking-wide text-tower-500">Dados fiscais</h3>
             <div className="grid gap-4 md:grid-cols-2">
               <label className="block md:col-span-2">
                 <span className="text-sm font-medium text-tower-800 dark:text-tower-200">Pessoa jurídica emitente</span>
-                <select className="admin-focus mt-1 w-full rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900" value={form.personId} onChange={(e) => update('personId', e.target.value)}>
-                  <option value="">Selecione CNPJ...</option>
-                  {persons.map((p) => <option key={p.id} value={p.id}>{p.legalName} - {p.document}</option>)}
-                </select>
+                <div className="mt-1 flex flex-col gap-2 sm:flex-row">
+                  <select className="admin-focus min-w-0 flex-1 rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900" value={form.personId} onChange={(e) => update('personId', e.target.value)}>
+                    <option value="">Selecione CNPJ...</option>
+                    {persons.map((p) => <option key={p.id} value={p.id}>{p.legalName} - {p.document}</option>)}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={goToSelectedPerson}
+                    disabled={!form.personId}
+                    className="admin-focus rounded-lg border border-brand-200 px-3 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-brand-700 dark:text-brand-300 dark:hover:bg-brand-950/30"
+                  >
+                    Editar pessoa
+                  </button>
+                </div>
               </label>
               <label className="block">
                 <span className="text-sm font-medium text-tower-800 dark:text-tower-200">Hub vinculado</span>
@@ -311,6 +446,11 @@ const IdentidadeVisualTab: React.FC = () => {
               </div>
               <div className="space-y-3">
                 <input type="file" accept="image/*" onChange={(e) => void handleLogoChange(e)} disabled={uploading} className="block w-full text-sm text-tower-600 file:mr-2 file:rounded-md file:border-0 file:bg-brand-100 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-brand-900" />
+                {form.logoUrl && (
+                  <button type="button" onClick={() => setLogoPreviewUrl(form.logoUrl)} className="text-sm font-semibold text-brand-700 hover:underline dark:text-brand-300">
+                    Abrir preview da logo
+                  </button>
+                )}
                 <input className="admin-focus w-full rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900" placeholder="Nome de exibição no DACTE" value={form.displayName} onChange={(e) => update('displayName', e.target.value)} />
                 <textarea className="admin-focus w-full rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900" rows={2} placeholder="Rodapé/observações dos impressos" value={form.footerNote} onChange={(e) => update('footerNote', e.target.value)} />
               </div>
@@ -321,10 +461,38 @@ const IdentidadeVisualTab: React.FC = () => {
             <h3 className="mb-4 text-sm font-bold uppercase tracking-wide text-tower-500">Certificado A1</h3>
             {!form.id && <p className="text-sm text-tower-500">Salve o emitente antes de enviar certificado.</p>}
             {form.id && (
-              <div className="grid gap-4 md:grid-cols-3">
-                <input type="password" className="admin-focus rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900" placeholder="Senha A1" value={certificatePassword} onChange={(e) => setCertificatePassword(e.target.value)} />
+              <div className="space-y-4">
+                <div className="rounded-lg border border-tower-200 bg-tower-50 p-3 text-sm dark:border-tower-700 dark:bg-tower-950/50">
+                  <div className="font-semibold text-tower-800 dark:text-tower-100">Preview seguro do certificado</div>
+                  <div className="mt-1 grid gap-1 text-tower-600 dark:text-tower-300 sm:grid-cols-2">
+                    <span>Arquivo atual: {selectedEmitter?.certificateFileName || 'Não enviado'}</span>
+                    <span>Status: {selectedEmitter?.certificateStatus || 'MISSING'}</span>
+                    <span>Validade: {selectedEmitter?.certificateExpiresAt ? new Date(selectedEmitter.certificateExpiresAt).toLocaleDateString('pt-BR') : '-'}</span>
+                    <span>Fingerprint: {selectedEmitter?.certificateFingerprint ? `${selectedEmitter.certificateFingerprint.slice(0, 12)}...` : '-'}</span>
+                    {selectedCertificateFileName && <span className="sm:col-span-2">Arquivo selecionado: {selectedCertificateFileName}</span>}
+                  </div>
+                </div>
+                <div className="grid gap-4 md:grid-cols-3">
+                <div className="relative">
+                  <input
+                    type={showCertificatePassword ? 'text' : 'password'}
+                    className="admin-focus w-full rounded-lg border border-tower-200 bg-white px-3 py-2 pr-20 dark:border-tower-600 dark:bg-tower-900"
+                    placeholder="Senha A1"
+                    value={certificatePassword}
+                    onChange={(e) => setCertificatePassword(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCertificatePassword((value) => !value)}
+                    className="absolute inset-y-0 right-2 my-auto h-7 rounded px-2 text-xs font-semibold text-tower-600 hover:text-tower-900 dark:text-tower-300"
+                    aria-label={showCertificatePassword ? 'Ocultar senha do certificado' : 'Mostrar senha do certificado'}
+                  >
+                    {showCertificatePassword ? 'Ocultar' : 'Ver'}
+                  </button>
+                </div>
                 <input type="date" className="admin-focus rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900" value={certificateExpiresAt} onChange={(e) => setCertificateExpiresAt(e.target.value)} />
                 <input type="file" accept=".pfx,.p12" onChange={(e) => void handleCertificateChange(e)} disabled={uploading} className="text-sm text-tower-600 file:mr-2 file:rounded-md file:border-0 file:bg-brand-100 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-brand-900" />
+                </div>
               </div>
             )}
           </section>
@@ -348,6 +516,7 @@ const IdentidadeVisualTab: React.FC = () => {
             </button>
           </div>
         </form>
+        )}
       </div>
     </div>
   );

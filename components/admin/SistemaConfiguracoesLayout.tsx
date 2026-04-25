@@ -4,7 +4,7 @@ import type { GeneralSubTab } from './layout/adminQuery';
 const TABS: { id: GeneralSubTab; label: string; aria: string }[] = [
   { id: 'settings', label: 'LLM', aria: 'Configurações de modelos de linguagem' },
   { id: 'especies', label: 'Espécies NF', aria: 'Cadastro de espécies de nota fiscal' },
-  { id: 'identidade', label: 'Identidade visual', aria: 'Logo e dados da empresa em documentos' },
+  { id: 'identidade', label: 'Emitentes Fiscais', aria: 'CNPJs emissores, certificado A1 e impressão fiscal' },
 ];
 
 export interface SistemaConfiguracoesLayoutProps {

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { personsApi, vehicleTypesApi, hubsApi, locationsApi } from '../../lib/api';
 import type { Person, PersonDocumentType, CreatePersonRequest } from '../../types/index';
 import type { VehicleType, Hub } from '../../types/index';
@@ -29,6 +30,7 @@ function formatDocument(doc: string, type: PersonDocumentType): string {
 }
 
 const PessoasTab: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [persons, setPersons] = useState<Person[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -45,6 +47,7 @@ const PessoasTab: React.FC = () => {
   const [showAddLinkModal, setShowAddLinkModal] = useState(false);
   const [showAddHubModal, setShowAddHubModal] = useState(false);
   const [showLinkAsEmitterModal, setShowLinkAsEmitterModal] = useState(false);
+  const [openEditFromQuery, setOpenEditFromQuery] = useState(false);
   const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
   const [formSaving, setFormSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -119,6 +122,27 @@ const PessoasTab: React.FC = () => {
     setSelectedPersonId(null);
     setSelectedPerson(null);
   };
+
+  useEffect(() => {
+    const personId = searchParams.get('personId');
+    if (!personId) return;
+
+    void openDetail(personId);
+    if (searchParams.get('edit') === '1') {
+      setOpenEditFromQuery(true);
+    }
+
+    const next = new URLSearchParams(searchParams);
+    next.delete('personId');
+    next.delete('edit');
+    setSearchParams(next, { replace: true });
+  }, []);
+
+  useEffect(() => {
+    if (!openEditFromQuery || !selectedPerson) return;
+    setShowEditModal(true);
+    setOpenEditFromQuery(false);
+  }, [openEditFromQuery, selectedPerson]);
 
   return (
     <div className="space-y-6">

@@ -147,7 +147,7 @@ export function getAdminBreadcrumbs(state: AdminNavState, isHub: boolean): { lab
     const subLabels: Record<GeneralSubTab, string> = {
       settings: 'LLM',
       especies: 'Espécies NF',
-      identidade: 'Identidade visual',
+      identidade: 'Emitentes Fiscais',
     };
     crumbs.push({ label: 'Configurações' }, { label: subLabels[state.generalSubTab] });
   }
@@ -183,7 +183,7 @@ export function getAdminPageTitle(state: AdminNavState, isHub: boolean): { title
     const m: Record<GeneralSubTab, { title: string; subtitle: string }> = {
       settings: { title: 'LLM', subtitle: 'Provedores, modelos e chaves para agentes.' },
       especies: { title: 'Espécies NF', subtitle: 'Cadastro auxiliar de espécies de nota fiscal.' },
-      identidade: { title: 'Identidade visual', subtitle: 'Logo, razão social e dados para impressão de documentos.' },
+      identidade: { title: 'Emitentes Fiscais', subtitle: 'CNPJs emissores, certificado A1 e dados para DACTE, Minuta e homologação.' },
     };
     return m[state.generalSubTab];
   }
