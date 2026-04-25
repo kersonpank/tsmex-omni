@@ -7,6 +7,17 @@ interface DactePrintPreviewProps {
   onClose: () => void;
 }
 
+/** Rótulos PT alinhados ao cartão de frete (OrderFreightCalculationSection). */
+const FREIGHT_COMPONENT_LABELS: Record<string, string> = {
+  freightBase: 'Frete Peso',
+  adValorem: 'Ad Valorem',
+  gris: 'GRIS',
+  toll: 'Pedágio',
+  dispatch: 'Despacho',
+  others: 'Outros',
+  icms: 'ICMS',
+};
+
 function ParteBox({ title, parte }: { title: string; parte?: any }) {
   return (
     <section className="border border-black p-1">
@@ -114,7 +125,12 @@ const DactePrintPreview: React.FC<DactePrintPreviewProps> = ({ payload, branding
             <div className="grid grid-cols-2 text-[10px]">
               <section className="border-b border-r border-black p-1">
                 <div className="text-center font-bold">Componentes do Frete</div>
-                {Object.entries(componentes).map(([k, v]) => Number(v) > 0 && <div key={k} className="flex justify-between"><span>{k}</span><span>{Number(v).toFixed(2)}</span></div>)}
+                {Object.entries(componentes).map(([k, v]) => Number(v) > 0 && (
+                  <div key={k} className="flex justify-between gap-1">
+                    <span>{FREIGHT_COMPONENT_LABELS[k] ?? k}</span>
+                    <span>{Number(v).toFixed(2)}</span>
+                  </div>
+                ))}
               </section>
               <section className="border-b border-black p-1">
                 <div className="text-center font-bold">Mercadoria</div>
@@ -141,9 +157,18 @@ const DactePrintPreview: React.FC<DactePrintPreviewProps> = ({ payload, branding
             </section>
             <section className="p-1 text-[10px]">
               <div className="text-center font-bold">Documentos Originários</div>
+              <div className="grid grid-cols-[minmax(0,0.7fr)_minmax(0,1.1fr)_minmax(0,1.4fr)_minmax(0,0.9fr)] gap-0.5 border-b border-black py-0.5 font-semibold">
+                <span>Tipo</span>
+                <span>Série/Nº</span>
+                <span className="break-all">Chave NF-e</span>
+                <span>CNPJ emit.</span>
+              </div>
               {(payload?.documentosOriginarios ?? []).map((doc: any, idx: number) => (
-                <div key={`${doc.serieNumero}-${idx}`} className="grid grid-cols-3">
-                  <span>{doc.tipo}</span><span>{doc.cnpjEmitente ?? '-'}</span><span>{doc.serieNumero}</span>
+                <div key={`${doc.serieNumero}-${idx}`} className="grid grid-cols-[minmax(0,0.7fr)_minmax(0,1.1fr)_minmax(0,1.4fr)_minmax(0,0.9fr)] gap-0.5 border-b border-tower-200 py-0.5 last:border-b-0">
+                  <span>{doc.tipo}</span>
+                  <span className="break-all">{doc.serieNumero}</span>
+                  <span className="break-all font-mono text-[8px] leading-tight">{doc.chaveNFe ?? '-'}</span>
+                  <span className="break-all">{doc.cnpjEmitente ?? '-'}</span>
                 </div>
               ))}
             </section>

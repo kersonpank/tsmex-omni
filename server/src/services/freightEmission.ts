@@ -122,7 +122,7 @@ export interface MinutaPayloadDto {
         ambiente: string;
     };
     observacoes?: string | null;
-    documentosOriginarios?: Array<{ tipo: string; cnpjEmitente?: string; serieNumero: string }>;
+    documentosOriginarios?: Array<{ tipo: string; cnpjEmitente?: string; serieNumero: string; chaveNFe?: string | null }>;
     recibo?: {
         declaracao: string;
         documentoNumero: string;
@@ -160,7 +160,7 @@ export interface CtePayloadDto {
     impostos?: MinutaPayloadDto['impostos'];
     ide?: MinutaPayloadDto['ide'];
     observacoes?: string | null;
-    documentosOriginarios?: Array<{ tipo: string; cnpjEmitente?: string; serieNumero: string }>;
+    documentosOriginarios?: Array<{ tipo: string; cnpjEmitente?: string; serieNumero: string; chaveNFe?: string | null }>;
 }
 
 function personToParteDto(p: { legalName: string; document: string; stateRegistration?: string | null; address?: string | null; neighborhood?: string | null; number?: string | null; city?: string | null; state?: string | null; cep?: string | null } | null): DocumentoParteDto | null {
@@ -210,7 +210,7 @@ export function buildMinutaPayload(params: {
         destinatarioPerson: { legalName: string; document: string; stateRegistration?: string | null; address?: string | null; neighborhood?: string | null; number?: string | null; city?: string | null; state?: string | null; cep?: string | null } | null;
         consignatarioPerson: { legalName: string; document: string; stateRegistration?: string | null; address?: string | null; neighborhood?: string | null; number?: string | null; city?: string | null; state?: string | null; cep?: string | null } | null;
         expedidorPerson: { legalName: string; document: string; stateRegistration?: string | null; address?: string | null; neighborhood?: string | null; number?: string | null; city?: string | null; state?: string | null; cep?: string | null } | null;
-        invoicesRel?: Array<{ nfNumber: string; type: string }>;
+        invoicesRel?: Array<{ nfNumber: string; type: string; nfKey?: string | null; nature?: string | null }>;
     };
     hub: { name: string; code: string; phone?: string | null; rntrc?: string | null };
     person: { legalName: string; document: string; stateRegistration?: string | null; address?: string | null; neighborhood?: string | null; number?: string | null; city?: string | null; state?: string | null; cep?: string | null };
@@ -244,9 +244,16 @@ export function buildMinutaPayload(params: {
     };
 
     const pesoFaturado = calc.effectiveWeight ?? calc.weight;
+
+    const natureFromNfe = order.invoicesRel?.find(
+        (inv) => inv.type === 'NFE' && typeof inv.nature === 'string' && inv.nature.trim().length > 0,
+    )?.nature?.trim();
+    const produtoPredominante = [natureFromNfe, calc.commodity?.trim()].find((s) => Boolean(s && String(s).trim())) || 'Não informado';
+
     const docs = order.invoicesRel?.map((inv) => ({
         tipo: inv.type === 'NFE' ? 'NF-E' : 'OUTRAS',
         serieNumero: inv.nfNumber,
+        chaveNFe: inv.nfKey?.trim() ? inv.nfKey.trim() : null,
     })) ?? [];
 
     const previewDraft = Boolean(params.previewDraft);
@@ -280,7 +287,7 @@ export function buildMinutaPayload(params: {
         expedidor: personToParteDto(order.expedidorPerson),
         recebedor: null,
         mercadoria: {
-            produtoPredominante: calc.commodity || 'Não informado',
+            produtoPredominante,
             pesoBruto: calc.weight,
             pesoFaturado,
             volumes: calc.volumes,

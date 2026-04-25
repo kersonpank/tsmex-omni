@@ -22,6 +22,7 @@ export interface CteInvoice {
     type: 'NFE' | 'OUTRAS' | string;
     nfNumber: string;
     nfKey?: NullableString;
+    nature?: NullableString;
     volumes?: number;
     weight?: number;
     value?: number;

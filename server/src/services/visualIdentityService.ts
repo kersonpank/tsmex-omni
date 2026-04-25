@@ -1,5 +1,18 @@
 import type { VisualIdentity } from '@prisma/client';
 import prisma from '../lib/prisma.js';
+import { getObjectDownloadUrl } from '../lib/objectStorage.js';
+
+const LOGO_SIGNED_URL_TTL_SECONDS = 86400; // 24h — suficiente para abrir o preview e imprimir
+
+async function resolveLogoUrl(logoUrl: string | null, logoStorageKey: string | null): Promise<string | null> {
+  const key = logoStorageKey?.trim();
+  if (!key) return logoUrl;
+  try {
+    return await getObjectDownloadUrl(key, LOGO_SIGNED_URL_TTL_SECONDS);
+  } catch {
+    return logoUrl;
+  }
+}
 
 export const VISUAL_IDENTITY_ID = 'default';
 
@@ -30,7 +43,8 @@ export function toBrandingPublic(row: VisualIdentity): BrandingPublic {
 export async function getBrandingForDocuments(): Promise<BrandingPublic | null> {
   const row = await prisma.visualIdentity.findUnique({ where: { id: VISUAL_IDENTITY_ID } });
   if (!row) return null;
-  return toBrandingPublic(row);
+  const base = toBrandingPublic(row);
+  return { ...base, logoUrl: await resolveLogoUrl(base.logoUrl, row.logoStorageKey) };
 }
 
 export async function getBrandingForFiscalEmitter(fiscalEmitterId?: string | null): Promise<BrandingPublic | null> {
@@ -59,6 +73,6 @@ export async function getBrandingForFiscalEmitter(fiscalEmitterId?: string | nul
     email: emitter.hub?.email ?? null,
     addressLine: addressLine || null,
     footerNote: emitter.footerNote,
-    logoUrl: emitter.logoUrl,
+    logoUrl: await resolveLogoUrl(emitter.logoUrl, emitter.logoStorageKey),
   };
 }
