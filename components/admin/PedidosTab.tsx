@@ -48,6 +48,19 @@ type PedidosFilters = {
   recipientCity: string;
 };
 
+type SortDirection = 'asc' | 'desc';
+type SortKey =
+  | 'updatedAt'
+  | 'status'
+  | 'nfNumber'
+  | 'currentHubName'
+  | 'origin'
+  | 'destination'
+  | 'senderCity'
+  | 'recipientCity'
+  | 'coleta'
+  | 'anexos';
+
 const defaultFilters: PedidosFilters = {
   q: '',
   status: '',
@@ -62,6 +75,17 @@ const defaultFilters: PedidosFilters = {
   recipientState: '',
   recipientCity: '',
 };
+
+const SERVER_SORT_KEYS: Exclude<SortKey, 'coleta' | 'anexos'>[] = [
+  'updatedAt',
+  'status',
+  'nfNumber',
+  'currentHubName',
+  'origin',
+  'destination',
+  'senderCity',
+  'recipientCity',
+];
 
 const fileToBase64 = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -112,6 +136,8 @@ const PedidosTab: React.FC = () => {
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
+  const [sortBy, setSortBy] = useState<SortKey>('updatedAt');
+  const [sortDir, setSortDir] = useState<SortDirection>('desc');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -146,6 +172,7 @@ const PedidosTab: React.FC = () => {
         ...(filters.senderCity.trim() ? { senderCity: filters.senderCity.trim() } : {}),
         ...(filters.recipientState ? { recipientState: filters.recipientState } : {}),
         ...(filters.recipientCity.trim() ? { recipientCity: filters.recipientCity.trim() } : {}),
+        ...(SERVER_SORT_KEYS.includes(sortBy as any) ? { sortBy, sortDir } : { sortBy: 'updatedAt', sortDir: 'desc' }),
       };
       const res = (await ordersApi.list(query)) as PaginatedResponse<OrderListItem>;
       const data = Array.isArray(res?.data) ? res.data : [];
@@ -235,6 +262,38 @@ const PedidosTab: React.FC = () => {
   }, [filters, hubs]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  const sortedOrders = useMemo(() => {
+    if (sortBy !== 'coleta' && sortBy !== 'anexos') return orders;
+    const dirFactor = sortDir === 'asc' ? 1 : -1;
+    const copy = [...orders];
+    copy.sort((a, b) => {
+      if (sortBy === 'anexos') {
+        const av = a.attachments?.length ?? 0;
+        const bv = b.attachments?.length ?? 0;
+        return (av - bv) * dirFactor;
+      }
+      const aCollection = getCollectionLabel(a).label;
+      const bCollection = getCollectionLabel(b).label;
+      return aCollection.localeCompare(bCollection, 'pt-BR') * dirFactor;
+    });
+    return copy;
+  }, [orders, sortBy, sortDir]);
+
+  const handleSortClick = (key: SortKey) => {
+    setPage(0);
+    if (sortBy === key) {
+      setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSortBy(key);
+    setSortDir('asc');
+  };
+
+  const sortIndicator = (key: SortKey) => {
+    if (sortBy !== key) return '↕';
+    return sortDir === 'asc' ? '↑' : '↓';
+  };
 
   return (
     <div>
@@ -351,20 +410,20 @@ const PedidosTab: React.FC = () => {
         <DataTable>
           <thead className="border-b border-tower-200 bg-tower-50/90 dark:border-tower-700 dark:bg-tower-800/80">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">Pedido/NF</th>
-              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">Status</th>
-              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">Coleta</th>
-              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">HUB atual</th>
-              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">Origem (rota)</th>
-              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">Destino (rota)</th>
-              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">Remetente</th>
-              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">Destinatário</th>
-              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">Anexos</th>
+              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300"><button type="button" onClick={() => handleSortClick('nfNumber')} className="admin-focus inline-flex items-center gap-1">Pedido/NF <span>{sortIndicator('nfNumber')}</span></button></th>
+              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300"><button type="button" onClick={() => handleSortClick('status')} className="admin-focus inline-flex items-center gap-1">Status <span>{sortIndicator('status')}</span></button></th>
+              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300"><button type="button" onClick={() => handleSortClick('coleta')} className="admin-focus inline-flex items-center gap-1">Coleta <span>{sortIndicator('coleta')}</span></button></th>
+              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300"><button type="button" onClick={() => handleSortClick('currentHubName')} className="admin-focus inline-flex items-center gap-1">HUB atual <span>{sortIndicator('currentHubName')}</span></button></th>
+              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300"><button type="button" onClick={() => handleSortClick('origin')} className="admin-focus inline-flex items-center gap-1">Origem (rota) <span>{sortIndicator('origin')}</span></button></th>
+              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300"><button type="button" onClick={() => handleSortClick('destination')} className="admin-focus inline-flex items-center gap-1">Destino (rota) <span>{sortIndicator('destination')}</span></button></th>
+              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300"><button type="button" onClick={() => handleSortClick('senderCity')} className="admin-focus inline-flex items-center gap-1">Remetente <span>{sortIndicator('senderCity')}</span></button></th>
+              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300"><button type="button" onClick={() => handleSortClick('recipientCity')} className="admin-focus inline-flex items-center gap-1">Destinatário <span>{sortIndicator('recipientCity')}</span></button></th>
+              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300"><button type="button" onClick={() => handleSortClick('anexos')} className="admin-focus inline-flex items-center gap-1">Anexos <span>{sortIndicator('anexos')}</span></button></th>
               <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-tower-100 dark:divide-tower-800">
-            {orders.map((o) => {
+            {sortedOrders.map((o) => {
               const trackingId = o.demand?.id ?? o.demandId ?? o.id;
               const origin = parseRouteCityState(o.demand?.origin ?? o.origemPrestacao);
               const destination = parseRouteCityState(o.demand?.destination ?? o.fimPrestacao);
@@ -377,7 +436,7 @@ const PedidosTab: React.FC = () => {
                 <tr
                   key={o.id}
                   className="cursor-pointer hover:bg-tower-50/80 dark:hover:bg-tower-800/40"
-                  onClick={() => navigate(`/orders/${o.id}`)}
+                  onClick={() => navigate(`/orders/${o.id}`, { state: { fromPedidos: true, backSearch: window.location.hash } })}
                 >
                   <td className="px-4 py-3 font-mono-ids text-sm font-medium text-tower-900 dark:text-tower-100">
                     <div className="flex flex-col">
@@ -471,7 +530,7 @@ const PedidosTab: React.FC = () => {
                           Entregue
                         </button>
                       )}
-                      <RouterLink to={`/orders/${o.id}`} className="admin-focus px-2 py-1 text-xs font-semibold text-brand-700 hover:text-brand-500 dark:text-brand-300">
+                      <RouterLink to={`/orders/${o.id}`} state={{ fromPedidos: true, backSearch: window.location.hash }} className="admin-focus px-2 py-1 text-xs font-semibold text-brand-700 hover:text-brand-500 dark:text-brand-300">
                         Abrir pedido
                       </RouterLink>
                       <RouterLink to={`/tracking/${trackingId}`} className="admin-focus px-2 py-1 text-xs text-brand-600 hover:text-brand-500 dark:text-brand-300">

@@ -46,6 +46,8 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
             collectionStatus,
             hasCollectionData,
             demandStatus,
+            sortBy = 'updatedAt',
+            sortDir = 'desc',
         } = req.query;
 
         const where: Prisma.OrderWhereInput = {};
@@ -229,6 +231,25 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
             where.AND = andFilters;
         }
 
+        const parsedSortDir: Prisma.SortOrder = String(sortDir).toLowerCase() === 'asc' ? 'asc' : 'desc';
+        const parsedSortBy = String(sortBy);
+
+        const orderByMap: Record<string, Prisma.OrderOrderByWithRelationInput> = {
+            updatedAt: { updatedAt: parsedSortDir },
+            createdAt: { createdAt: parsedSortDir },
+            status: { status: parsedSortDir },
+            nfNumber: { nfNumber: parsedSortDir },
+            currentHubName: { currentHub: { name: parsedSortDir } },
+            origin: { demand: { origin: parsedSortDir } },
+            destination: { demand: { destination: parsedSortDir } },
+            senderCity: { remetentePerson: { city: parsedSortDir } },
+            senderState: { remetentePerson: { state: parsedSortDir } },
+            recipientCity: { destinatarioPerson: { city: parsedSortDir } },
+            recipientState: { destinatarioPerson: { state: parsedSortDir } },
+            clientName: { demand: { client: { companyName: parsedSortDir } } },
+        };
+        const orderBy = orderByMap[parsedSortBy] ?? orderByMap.updatedAt;
+
         const [orders, total] = await prisma.$transaction([
             prisma.order.findMany({
                 where,
@@ -266,7 +287,7 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
                         orderBy: { createdAt: 'desc' },
                     },
                 },
-                orderBy: { updatedAt: 'desc' },
+                orderBy,
                 take: parsedLimit,
                 skip: parsedOffset,
             }),

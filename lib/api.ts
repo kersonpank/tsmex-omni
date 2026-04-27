@@ -924,6 +924,8 @@ export const ordersApi = {
         hasCollectionData?: boolean;
         demandStatus?: string;
         q?: string;
+        sortBy?: 'updatedAt' | 'createdAt' | 'status' | 'nfNumber' | 'currentHubName' | 'origin' | 'destination' | 'senderCity' | 'senderState' | 'recipientCity' | 'recipientState' | 'clientName';
+        sortDir?: 'asc' | 'desc';
         limit?: number;
         offset?: number;
     }) => {

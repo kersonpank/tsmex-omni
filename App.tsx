@@ -16,6 +16,7 @@ import OperacaoOnboarding from './components/operacao/OperacaoOnboarding';
 import HubCadastro from './components/HubCadastro';
 import ThemeToggle from './components/ui/ThemeToggle';
 import OrderDetailPage from './components/admin/OrderDetailPage';
+import { useLayoutStore } from './store/layoutStore';
 
 const OperacaoRedirect: React.FC = () => {
   const { user, currentRole } = useAuthStore();
@@ -40,7 +41,9 @@ const Navigation: React.FC = () => {
     else if (r === 'ADMIN' || r === 'HUB') navigate('/gestao');
   };
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { toggleSidebarCollapsed, toggleSidebarDrawer } = useLayoutStore();
   const isLogin = location.pathname === '/login';
+  const canUseSystemMenu = isAuthenticated && (role === 'ADMIN' || role === 'HUB');
 
   useEffect(() => {
     setMobileOpen(false);
@@ -90,6 +93,22 @@ const Navigation: React.FC = () => {
               <span className="font-display text-lg font-extrabold text-white dark:text-brand-900">TSM</span>
             </div>
             <span className="font-display text-xl font-bold tracking-tight text-tower-900 dark:text-tower-50">EX OMNI</span>
+            {canUseSystemMenu && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.matchMedia('(min-width: 1024px)').matches) {
+                    toggleSidebarCollapsed();
+                  } else {
+                    toggleSidebarDrawer();
+                  }
+                }}
+                className="admin-focus ml-2 rounded-lg border border-tower-200 px-2.5 py-1.5 text-xs font-semibold text-tower-700 hover:bg-tower-100 dark:border-tower-600 dark:text-tower-200 dark:hover:bg-tower-800"
+                aria-label="Alternar menu do sistema"
+              >
+                Menu sistema
+              </button>
+            )}
           </div>
 
           <div className="hidden items-center space-x-8 md:flex">
