@@ -28,9 +28,6 @@ const GlobalSystemMenu: React.FC = () => {
     [isHub, hubPermissions]
   );
 
-  const show = (isAdmin || isHub) && shouldShowGlobalSystemMenu(location.pathname);
-  if (!show) return null;
-
   const setSidebarDrawerOpen = useLayoutStore((s) => s.setSidebarDrawerOpen);
   const onOrderDetail = location.pathname.startsWith('/orders/');
   const navState = useMemo(
@@ -54,6 +51,9 @@ const GlobalSystemMenu: React.FC = () => {
       }),
     [navState, isHub, hasPermission, onOrderDetail, navigate, setSidebarDrawerOpen]
   );
+
+  const show = (isAdmin || isHub) && shouldShowGlobalSystemMenu(location.pathname);
+  if (!show) return null;
 
   return <AdminNavRails navSections={navSections} layout="global" showDesktopPanel />;
 };
