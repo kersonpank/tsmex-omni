@@ -36,6 +36,64 @@ const orderStatusTones: Record<string, StatusTone> = {
   CANCELLED: 'danger',
 };
 
+type SectionKey = 'coleta' | 'notas' | 'frete' | 'anexos';
+
+const isMeaningfulValue = (value: unknown): boolean => {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'string') return value.trim().length > 0 && value.trim() !== '-';
+  if (typeof value === 'number') return Number.isFinite(value) && value !== 0;
+  if (typeof value === 'boolean') return value;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'object') return Object.values(value as Record<string, unknown>).some(isMeaningfulValue);
+  return false;
+};
+
+const isImageFile = (mimeType?: string | null, fileName?: string | null): boolean => {
+  if (mimeType?.startsWith('image/')) return true;
+  if (!fileName) return false;
+  return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(fileName);
+};
+
+interface CollapsibleSectionProps {
+  title: string;
+  sectionKey: SectionKey;
+  expanded: boolean;
+  onToggle: (section: SectionKey) => void;
+  children: React.ReactNode;
+  helper?: string;
+}
+
+const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
+  title,
+  sectionKey,
+  expanded,
+  onToggle,
+  children,
+  helper,
+}) => (
+  <section className="rounded-2xl border border-tower-200 bg-white p-5 dark:border-tower-700 dark:bg-tower-900/50">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-tower-600 dark:text-tower-300">{title}</h2>
+      <button
+        type="button"
+        onClick={() => onToggle(sectionKey)}
+        className="admin-focus rounded-lg border border-tower-300 px-2.5 py-1 text-xs font-semibold text-tower-700 hover:bg-tower-100 dark:border-tower-600 dark:text-tower-200 dark:hover:bg-tower-800"
+        aria-expanded={expanded}
+        aria-label={`${expanded ? 'Recolher' : 'Expandir'} seção ${title}`}
+      >
+        {expanded ? 'Recolher' : 'Expandir'}
+      </button>
+    </div>
+    {helper ? <p className="mt-2 text-xs text-tower-500 dark:text-tower-400">{helper}</p> : null}
+    <div
+      className={`grid transition-all duration-300 ease-out ${expanded ? 'mt-3 grid-rows-[1fr] opacity-100' : 'mt-0 grid-rows-[0fr] opacity-0'}`}
+      aria-hidden={!expanded}
+    >
+      <div className="overflow-hidden">{children}</div>
+    </div>
+  </section>
+);
+
 const OrderDetailPage: React.FC = () => {
   const location = useLocation();
   const { id } = useParams();
@@ -46,6 +104,12 @@ const OrderDetailPage: React.FC = () => {
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [attachmentLoading, setAttachmentLoading] = useState(false);
   const [editMode, setEditMode] = useState(false);
+  const [expandedSections, setExpandedSections] = useState<Record<SectionKey, boolean>>({
+    coleta: true,
+    notas: true,
+    frete: true,
+    anexos: true,
+  });
 
   const load = async () => {
     if (!id) return;
@@ -68,6 +132,22 @@ const OrderDetailPage: React.FC = () => {
   useEffect(() => {
     void load();
   }, [id]);
+
+  useEffect(() => {
+    if (!order) return;
+    const collectionData = (order.collectionData as Record<string, unknown> | null | undefined) ?? null;
+    const hasCollectionData = isMeaningfulValue(collectionData);
+    const hasInvoices = Array.isArray(order.invoicesRel) && order.invoicesRel.length > 0;
+    const hasFreightData = isMeaningfulValue(order.freightCalculation);
+    const hasAttachments = attachments.length > 0;
+
+    setExpandedSections({
+      coleta: hasCollectionData,
+      notas: hasInvoices,
+      frete: hasFreightData,
+      anexos: hasAttachments,
+    });
+  }, [order, attachments, id]);
 
   const backToPedidosPath = useMemo(() => {
     if ((location.state as { fromPedidos?: boolean; backSearch?: string } | null)?.fromPedidos) {
@@ -112,6 +192,9 @@ const OrderDetailPage: React.FC = () => {
   if (!order) return <EmptyState title="Pedido não encontrado" description="Não foi possível localizar o pedido solicitado." />;
 
   const demandStatus = order.demand?.status ?? '-';
+  const toggleSection = (section: SectionKey) => {
+    setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
+  };
 
   return (
     <div className="mx-auto max-w-6xl p-4 md:p-6">
@@ -187,12 +270,17 @@ const OrderDetailPage: React.FC = () => {
       </div>
 
       <div className="mt-4 grid gap-4">
-        <section className="rounded-2xl border border-tower-200 bg-white p-5 dark:border-tower-700 dark:bg-tower-900/50">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-tower-600 dark:text-tower-300">Coleta</h2>
+        <CollapsibleSection
+          title="Coleta"
+          sectionKey="coleta"
+          expanded={expandedSections.coleta}
+          onToggle={toggleSection}
+          helper={!expandedSections.coleta ? 'Sem coleta registrada no momento.' : undefined}
+        >
           {editMode ? (
             <OrderColetaForm orderId={order.id} order={order} onSave={load} />
           ) : (
-            <div className="grid gap-3 md:grid-cols-2 text-sm">
+            <div className="grid gap-3 text-sm md:grid-cols-2">
               <p><span className="font-semibold">Disponibilidade:</span> {(order.collectionData as any)?.pickupAvailableTime ?? '-'}</p>
               <p><span className="font-semibold">Commodity:</span> {(order.collectionData as any)?.commodity ?? '-'}</p>
               <p><span className="font-semibold">Peso:</span> {(order.collectionData as any)?.weight ?? '-'}</p>
@@ -200,10 +288,15 @@ const OrderDetailPage: React.FC = () => {
               <p className="md:col-span-2"><span className="font-semibold">Observações:</span> {(order.collectionData as any)?.pickupNotes ?? '-'}</p>
             </div>
           )}
-        </section>
+        </CollapsibleSection>
 
-        <section className="rounded-2xl border border-tower-200 bg-white p-5 dark:border-tower-700 dark:bg-tower-900/50">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-tower-600 dark:text-tower-300">Notas fiscais e cargas</h2>
+        <CollapsibleSection
+          title="Notas fiscais e cargas"
+          sectionKey="notas"
+          expanded={expandedSections.notas}
+          onToggle={toggleSection}
+          helper={!expandedSections.notas ? 'Sem notas fiscais vinculadas por enquanto.' : undefined}
+        >
           <OrderNFForm
             orderId={order.id}
             invoices={order.invoicesRel ?? []}
@@ -211,15 +304,25 @@ const OrderDetailPage: React.FC = () => {
             disabled={!editMode}
             collectionData={order.collectionData}
           />
-        </section>
+        </CollapsibleSection>
 
-        <section className="rounded-2xl border border-tower-200 bg-white p-5 dark:border-tower-700 dark:bg-tower-900/50">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-tower-600 dark:text-tower-300">Cálculo de frete</h2>
+        <CollapsibleSection
+          title="Cálculo de frete"
+          sectionKey="frete"
+          expanded={expandedSections.frete}
+          onToggle={toggleSection}
+          helper={!expandedSections.frete ? 'Cálculo ainda não registrado.' : undefined}
+        >
           <OrderFreightCalculationSection orderId={order.id} order={order} onSaved={load} />
-        </section>
+        </CollapsibleSection>
 
-        <section className="rounded-2xl border border-tower-200 bg-white p-5 dark:border-tower-700 dark:bg-tower-900/50">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-tower-600 dark:text-tower-300">Imagens e anexos</h2>
+        <CollapsibleSection
+          title="Imagens e anexos"
+          sectionKey="anexos"
+          expanded={expandedSections.anexos}
+          onToggle={toggleSection}
+          helper={!expandedSections.anexos ? 'Sem anexos neste pedido.' : undefined}
+        >
           {attachmentError ? <p className="mb-2 text-xs text-red-600 dark:text-red-400">{attachmentError}</p> : null}
           <div className="mb-3 flex items-center gap-2">
             <label className="admin-focus cursor-pointer rounded-lg border border-tower-300 px-3 py-1.5 text-xs font-semibold text-tower-700 hover:bg-tower-100 dark:border-tower-600 dark:text-tower-200 dark:hover:bg-tower-800">
@@ -240,24 +343,36 @@ const OrderDetailPage: React.FC = () => {
           <div className="space-y-2">
             {attachments.length === 0 ? <p className="text-sm text-tower-500 dark:text-tower-400">Nenhum anexo vinculado.</p> : null}
             {attachments.map((item) => (
-              <div key={item.id} className="flex items-center justify-between rounded-lg border border-tower-200 px-3 py-2 text-sm dark:border-tower-700">
-                <a href={item.attachment?.downloadUrl} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline dark:text-brand-300">
-                  {item.attachment?.fileName ?? item.id}
-                </a>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const targetId = item.attachment?.id ?? item.id;
-                    if (targetId) void handleDeleteAttachment(targetId);
-                  }}
-                  className="admin-focus rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
-                >
-                  Remover
-                </button>
+              <div key={item.id} className="rounded-lg border border-tower-200 p-3 text-sm dark:border-tower-700">
+                <div className="flex items-center justify-between gap-2">
+                  <a href={item.attachment?.downloadUrl} target="_blank" rel="noreferrer" className="truncate text-brand-700 hover:underline dark:text-brand-300">
+                    {item.attachment?.fileName ?? item.id}
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetId = item.attachment?.id ?? item.id;
+                      if (targetId) void handleDeleteAttachment(targetId);
+                    }}
+                    className="admin-focus rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
+                  >
+                    Remover
+                  </button>
+                </div>
+                {isImageFile(item.attachment?.mimeType, item.attachment?.fileName) && item.attachment?.downloadUrl ? (
+                  <a href={item.attachment.downloadUrl} target="_blank" rel="noreferrer" className="mt-2 block">
+                    <img
+                      src={item.attachment.downloadUrl}
+                      alt={`Preview ${item.attachment?.fileName ?? 'anexo'}`}
+                      className="h-44 w-full rounded-lg border border-tower-200 object-cover dark:border-tower-700"
+                      loading="lazy"
+                    />
+                  </a>
+                ) : null}
               </div>
             ))}
           </div>
-        </section>
+        </CollapsibleSection>
       </div>
     </div>
   );
