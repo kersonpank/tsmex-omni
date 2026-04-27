@@ -15,6 +15,7 @@ import OperacaoApp from './components/operacao/OperacaoApp';
 import OperacaoOnboarding from './components/operacao/OperacaoOnboarding';
 import HubCadastro from './components/HubCadastro';
 import ThemeToggle from './components/ui/ThemeToggle';
+import OrderDetailPage from './components/admin/OrderDetailPage';
 
 const OperacaoRedirect: React.FC = () => {
   const { user, currentRole } = useAuthStore();
@@ -290,6 +291,11 @@ const App: React.FC = () => {
             <Route path="/unauthorized" element={<Unauthorized />} />
             <Route path="/chat/:slug" element={<ChatWeb />} />
             <Route path="/tracking/:id" element={<TrackingView />} />
+            <Route path="/orders/:id" element={
+              <ProtectedRoute allowedRoles={['ADMIN', 'HUB', 'LINK', 'CLIENT']}>
+                <OrderDetailPage />
+              </ProtectedRoute>
+            } />
             <Route path="/link/cadastro" element={<OperacaoOnboarding />} />
             <Route path="/hub/cadastro" element={<HubCadastro />} />
             <Route path="/link" element={

@@ -28,12 +28,148 @@ const orderAttachmentCreateSchema = z.object({
 // GET /api/orders - List orders
 router.get('/', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const { status, accountId, limit = '50', offset = '0' } = req.query;
+        const {
+            status,
+            accountId,
+            limit = '50',
+            offset = '0',
+            hubId,
+            originState,
+            originCity,
+            destinationState,
+            destinationCity,
+            senderState,
+            senderCity,
+            recipientState,
+            recipientCity,
+            q,
+            collectionStatus,
+            hasCollectionData,
+            demandStatus,
+        } = req.query;
 
-        const where: any = {};
-        
+        const where: Prisma.OrderWhereInput = {};
+        const andFilters: Prisma.OrderWhereInput[] = [];
+        const parsedLimit = Math.min(Math.max(parseInt(limit as string, 10) || 50, 1), 200);
+        const parsedOffset = Math.max(parseInt(offset as string, 10) || 0, 0);
+
+        const collectionDataPresent: Prisma.OrderWhereInput = { NOT: { collectionData: { equals: Prisma.AnyNull } } };
+        const collectionDataMissing: Prisma.OrderWhereInput = { collectionData: { equals: Prisma.AnyNull } };
+
         if (status) {
-            where.status = status as string;
+            where.status = status as any;
+        }
+
+        if (hubId && !req.user!.roles.includes('HUB')) {
+            where.currentHubId = hubId as string;
+        }
+
+        if (originCity) {
+            andFilters.push({
+                OR: [
+                    { demand: { origin: { contains: String(originCity), mode: 'insensitive' } } },
+                    { origemPrestacao: { contains: String(originCity), mode: 'insensitive' } },
+                ],
+            });
+        }
+
+        if (originState) {
+            andFilters.push({
+                OR: [
+                    { demand: { origin: { contains: String(originState), mode: 'insensitive' } } },
+                    { origemPrestacao: { contains: String(originState), mode: 'insensitive' } },
+                ],
+            });
+        }
+
+        if (destinationCity) {
+            andFilters.push({
+                OR: [
+                    { demand: { destination: { contains: String(destinationCity), mode: 'insensitive' } } },
+                    { fimPrestacao: { contains: String(destinationCity), mode: 'insensitive' } },
+                ],
+            });
+        }
+
+        if (destinationState) {
+            andFilters.push({
+                OR: [
+                    { demand: { destination: { contains: String(destinationState), mode: 'insensitive' } } },
+                    { fimPrestacao: { contains: String(destinationState), mode: 'insensitive' } },
+                ],
+            });
+        }
+
+        if (senderCity) {
+            andFilters.push({
+                remetentePerson: { city: { contains: String(senderCity), mode: 'insensitive' } },
+            });
+        }
+
+        if (senderState) {
+            andFilters.push({
+                remetentePerson: { state: { equals: String(senderState).toUpperCase(), mode: 'insensitive' } },
+            });
+        }
+
+        if (recipientCity) {
+            andFilters.push({
+                destinatarioPerson: { city: { contains: String(recipientCity), mode: 'insensitive' } },
+            });
+        }
+
+        if (recipientState) {
+            andFilters.push({
+                destinatarioPerson: { state: { equals: String(recipientState).toUpperCase(), mode: 'insensitive' } },
+            });
+        }
+
+        if (typeof hasCollectionData === 'string') {
+            const hasData = hasCollectionData === 'true';
+            andFilters.push(hasData ? collectionDataPresent : collectionDataMissing);
+        }
+
+        if (demandStatus) {
+            andFilters.push({ demand: { status: String(demandStatus) as any } });
+        }
+
+        if (collectionStatus) {
+            const cs = String(collectionStatus).toUpperCase();
+            if (cs === 'COLLECTED') {
+                andFilters.push({ demand: { status: 'COLLECTED' } });
+            } else if (cs === 'NOT_COLLECTED') {
+                andFilters.push({ demand: { status: { not: 'COLLECTED' } } });
+            } else if (cs === 'WITH_COLLECTION_DATA') {
+                andFilters.push(collectionDataPresent);
+            } else if (cs === 'WITHOUT_COLLECTION_DATA') {
+                andFilters.push(collectionDataMissing);
+            } else if (cs === 'INCONSISTENT') {
+                andFilters.push({
+                    OR: [
+                        { AND: [{ demand: { status: 'COLLECTED' } }, collectionDataMissing] },
+                        { AND: [{ demand: { status: { not: 'COLLECTED' } } }, collectionDataPresent] },
+                    ],
+                });
+            }
+        }
+
+        if (q && String(q).trim()) {
+            const term = String(q).trim();
+            andFilters.push({
+                OR: [
+                    { id: { contains: term, mode: 'insensitive' } },
+                    { nfNumber: { contains: term, mode: 'insensitive' } },
+                    { demand: { nfNumber: { contains: term, mode: 'insensitive' } } },
+                    { demand: { origin: { contains: term, mode: 'insensitive' } } },
+                    { demand: { destination: { contains: term, mode: 'insensitive' } } },
+                    { origemPrestacao: { contains: term, mode: 'insensitive' } },
+                    { fimPrestacao: { contains: term, mode: 'insensitive' } },
+                    { currentHub: { name: { contains: term, mode: 'insensitive' } } },
+                    { demand: { client: { companyName: { contains: term, mode: 'insensitive' } } } },
+                    { remetentePerson: { legalName: { contains: term, mode: 'insensitive' } } },
+                    { destinatarioPerson: { legalName: { contains: term, mode: 'insensitive' } } },
+                ],
+            });
         }
 
         // HUB users only see orders at their hub
@@ -42,7 +178,7 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
                 throw new AppError('Hub user has no hub assigned', 403);
             }
             where.currentHubId = req.user!.hubId;
-            if (status) where.status = status as string;
+            if (status) where.status = status as any;
             else where.status = 'AT_HUB'; // default: pedidos no hub
         }
         // LINK users see orders from their manifests
@@ -89,48 +225,62 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
             };
         }
 
-        const orders = await prisma.order.findMany({
-            where,
-            include: {
-                demand: {
-                    include: {
-                        client: {
-                            include: {
-                                account: true
+        if (andFilters.length > 0) {
+            where.AND = andFilters;
+        }
+
+        const [orders, total] = await prisma.$transaction([
+            prisma.order.findMany({
+                where,
+                include: {
+                    demand: {
+                        include: {
+                            client: {
+                                include: {
+                                    account: true
+                                }
                             }
                         }
-                    }
-                },
-                opportunity: true,
-                manifest: {
-                    include: {
-                        link: true,
-                        hub: true
-                    }
-                },
-                currentHub: { select: { id: true, name: true, code: true } },
-                history: {
-                    orderBy: { createdAt: 'desc' },
-                    take: 10
-                },
-                _count: {
-                    select: { history: true, invoices: true }
-                },
-                attachments: {
-                    include: {
-                        attachment: true,
                     },
-                    orderBy: { createdAt: 'desc' },
+                    opportunity: true,
+                    manifest: {
+                        include: {
+                            link: true,
+                            hub: true
+                        }
+                    },
+                    currentHub: { select: { id: true, name: true, code: true } },
+                    remetentePerson: { select: { id: true, legalName: true, city: true, state: true } },
+                    destinatarioPerson: { select: { id: true, legalName: true, city: true, state: true } },
+                    history: {
+                        orderBy: { createdAt: 'desc' },
+                        take: 10
+                    },
+                    _count: {
+                        select: { history: true, invoices: true }
+                    },
+                    attachments: {
+                        include: {
+                            attachment: true,
+                        },
+                        orderBy: { createdAt: 'desc' },
+                    },
                 },
-            },
-            orderBy: { createdAt: 'desc' },
-            take: parseInt(limit as string),
-            skip: parseInt(offset as string),
-        });
+                orderBy: { updatedAt: 'desc' },
+                take: parsedLimit,
+                skip: parsedOffset,
+            }),
+            prisma.order.count({ where }),
+        ]);
 
         res.json({
             success: true,
             data: orders,
+            pagination: {
+                total,
+                limit: parsedLimit,
+                offset: parsedOffset,
+            },
         });
     } catch (error) {
         next(error);

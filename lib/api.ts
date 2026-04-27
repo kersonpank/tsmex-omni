@@ -26,6 +26,7 @@ import type {
     OperationsSummaryData,
     VisualBranding,
     BrandingForDocuments,
+    OrderListItem,
 } from '../types/index';
 
 // Em produção, o nginx faz proxy de /api → backend (URL relativa)
@@ -907,8 +908,26 @@ export const ordersFreightApi = {
 };
 
 export const ordersApi = {
-    list: async (params?: { status?: string; accountId?: string; limit?: number; offset?: number }) => {
-        const response = await api.get<ApiResponse<any[]>>('/orders', { params });
+    list: async (params?: {
+        status?: string;
+        accountId?: string;
+        hubId?: string;
+        originState?: string;
+        originCity?: string;
+        destinationState?: string;
+        destinationCity?: string;
+        senderState?: string;
+        senderCity?: string;
+        recipientState?: string;
+        recipientCity?: string;
+        collectionStatus?: 'COLLECTED' | 'NOT_COLLECTED' | 'WITH_COLLECTION_DATA' | 'WITHOUT_COLLECTION_DATA' | 'INCONSISTENT';
+        hasCollectionData?: boolean;
+        demandStatus?: string;
+        q?: string;
+        limit?: number;
+        offset?: number;
+    }) => {
+        const response = await api.get<PaginatedResponse<OrderListItem>>('/orders', { params });
         return response.data;
     },
 

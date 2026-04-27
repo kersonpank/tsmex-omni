@@ -43,6 +43,7 @@ export type PricingTableType = 'SPECIAL' | 'GENERAL';
 
 export type FreightDocType = 'CTE' | 'MINUTA';
 export type FreightCalcMethod = 'ESPECIAL' | 'TARIFA_GERAL' | 'INFORMADO';
+export type OrderStatus = 'PENDING' | 'IN_TRANSIT' | 'AT_HUB' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED';
 export type FreightCalcStatus =
     | 'DRAFT'
     | 'CALCULATED'
@@ -356,6 +357,56 @@ export interface Manifest {
     completedAt?: string;
     createdAt: string;
     updatedAt: string;
+}
+
+export interface OrderListItem {
+    id: string;
+    demandId: string;
+    status: OrderStatus;
+    nfNumber?: string | null;
+    origemPrestacao?: string | null;
+    fimPrestacao?: string | null;
+    currentHubId?: string | null;
+    collectionData?: Record<string, unknown> | null;
+    createdAt: string;
+    updatedAt: string;
+    demand?: {
+        id: string;
+        nfNumber?: string | null;
+        origin?: string | null;
+        destination?: string | null;
+        status?: DemandStatus;
+        client?: {
+            id: string;
+            companyName: string;
+        };
+    } | null;
+    currentHub?: {
+        id: string;
+        name: string;
+        code: string;
+    } | null;
+    remetentePerson?: {
+        id: string;
+        legalName: string;
+        city?: string | null;
+        state?: string | null;
+    } | null;
+    destinatarioPerson?: {
+        id: string;
+        legalName: string;
+        city?: string | null;
+        state?: string | null;
+    } | null;
+    attachments?: Array<{
+        id: string;
+        createdAt: string;
+        attachment?: {
+            id: string;
+            fileName: string;
+            downloadUrl?: string;
+        };
+    }>;
 }
 
 export interface ManifestFiscalDocument {

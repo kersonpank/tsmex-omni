@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { Link as RouterLink } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { ordersApi, hubsApi } from '../../lib/api';
 import type { StatusTone } from '../../lib/demandStatusUi';
+import type { OrderListItem, OrderStatus, PaginatedResponse } from '../../types/index';
 import { useAuthStore } from '../../store/authStore';
 import DataTable from '../ui/DataTable';
 import EmptyState from '../ui/EmptyState';
@@ -27,6 +28,41 @@ const orderStatusTones: Record<string, StatusTone> = {
   CANCELLED: 'danger',
 };
 
+const PAGE_SIZE = 20;
+const FILTERS_STORAGE_KEY = 'pedidos-tab-filters-v2';
+
+type CollectionFilterValue = '' | 'COLLECTED' | 'NOT_COLLECTED' | 'WITH_COLLECTION_DATA' | 'WITHOUT_COLLECTION_DATA' | 'INCONSISTENT';
+
+type PedidosFilters = {
+  q: string;
+  status: string;
+  hubId: string;
+  collectionStatus: CollectionFilterValue;
+  originState: string;
+  originCity: string;
+  destinationState: string;
+  destinationCity: string;
+  senderState: string;
+  senderCity: string;
+  recipientState: string;
+  recipientCity: string;
+};
+
+const defaultFilters: PedidosFilters = {
+  q: '',
+  status: '',
+  hubId: '',
+  collectionStatus: '',
+  originState: '',
+  originCity: '',
+  destinationState: '',
+  destinationCity: '',
+  senderState: '',
+  senderCity: '',
+  recipientState: '',
+  recipientCity: '',
+};
+
 const fileToBase64 = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -35,19 +71,57 @@ const fileToBase64 = (file: File): Promise<string> =>
     reader.readAsDataURL(file);
   });
 
+const parseRouteCityState = (value?: string | null): { city: string; state: string } => {
+  if (!value) return { city: '-', state: '-' };
+  const parts = value.split(',').map((s) => s.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    return { city: parts[0], state: parts[parts.length - 1].toUpperCase() };
+  }
+  return { city: value, state: '-' };
+};
+
+const getCollectionLabel = (order: OrderListItem): { label: string; tone: StatusTone } => {
+  const demandStatus = order.demand?.status ?? '';
+  const hasCollectionData = !!order.collectionData && Object.keys(order.collectionData).length > 0;
+  const isCollected = demandStatus === 'COLLECTED';
+  if (isCollected && hasCollectionData) return { label: 'Coletado', tone: 'success' };
+  if (isCollected && !hasCollectionData) return { label: 'Coleta inconsistente', tone: 'danger' };
+  if (!isCollected && hasCollectionData) return { label: 'Coleta pendente', tone: 'warning' };
+  return { label: 'Sem coleta', tone: 'neutral' };
+};
+
 const PedidosTab: React.FC = () => {
+  const navigate = useNavigate();
   const { user } = useAuthStore();
   const isHub = user?.roles?.includes('HUB') ?? false;
   const hubId = (user as { hubId?: string })?.hubId ?? (user?.profile as { hub?: { hubId?: string } })?.hub?.hubId;
 
-  const [orders, setOrders] = useState<any[]>([]);
+  const [orders, setOrders] = useState<OrderListItem[]>([]);
   const [hubs, setHubs] = useState<any[]>([]);
+  const [filters, setFilters] = useState<PedidosFilters>(() => {
+    if (typeof window === 'undefined') return defaultFilters;
+    try {
+      const raw = window.sessionStorage.getItem(FILTERS_STORAGE_KEY);
+      if (!raw) return defaultFilters;
+      return { ...defaultFilters, ...(JSON.parse(raw) as Partial<PedidosFilters>) };
+    } catch {
+      return defaultFilters;
+    }
+  });
+  const [searchDraft, setSearchDraft] = useState(filters.q);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [page, setPage] = useState(0);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<string>('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [attachmentLoading, setAttachmentLoading] = useState<string | null>(null);
   const [chegouHubId, setChegouHubId] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.sessionStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(filters));
+  }, [filters]);
 
   useEffect(() => {
     if (!isHub) hubsApi.list().then((r: any) => setHubs((r?.data ?? r) || [])).catch(() => setHubs([]));
@@ -57,9 +131,26 @@ const PedidosTab: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await ordersApi.list({ limit: 100, ...(statusFilter ? { status: statusFilter } : {}) });
-      const data = (res as any)?.data ?? res;
-      setOrders(Array.isArray(data) ? data : []);
+      const query = {
+        limit: PAGE_SIZE,
+        offset: page * PAGE_SIZE,
+        ...(filters.status ? { status: filters.status } : {}),
+        ...(filters.hubId ? { hubId: filters.hubId } : {}),
+        ...(filters.collectionStatus ? { collectionStatus: filters.collectionStatus } : {}),
+        ...(filters.q.trim() ? { q: filters.q.trim() } : {}),
+        ...(filters.originState ? { originState: filters.originState } : {}),
+        ...(filters.originCity.trim() ? { originCity: filters.originCity.trim() } : {}),
+        ...(filters.destinationState ? { destinationState: filters.destinationState } : {}),
+        ...(filters.destinationCity.trim() ? { destinationCity: filters.destinationCity.trim() } : {}),
+        ...(filters.senderState ? { senderState: filters.senderState } : {}),
+        ...(filters.senderCity.trim() ? { senderCity: filters.senderCity.trim() } : {}),
+        ...(filters.recipientState ? { recipientState: filters.recipientState } : {}),
+        ...(filters.recipientCity.trim() ? { recipientCity: filters.recipientCity.trim() } : {}),
+      };
+      const res = (await ordersApi.list(query)) as PaginatedResponse<OrderListItem>;
+      const data = Array.isArray(res?.data) ? res.data : [];
+      setOrders(data);
+      setTotal(res?.pagination?.total ?? data.length);
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Erro ao carregar pedidos');
     } finally {
@@ -67,9 +158,22 @@ const PedidosTab: React.FC = () => {
     }
   };
 
-  useEffect(() => { load(); }, [statusFilter]);
+  useEffect(() => { void load(); }, [page, filters]);
 
-  const handleStatusUpdate = async (orderId: string, newStatus: string, currentHubId?: string) => {
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setFilters((prev) => ({ ...prev, q: searchDraft }));
+      setPage(0);
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [searchDraft]);
+
+  const setFilter = <K extends keyof PedidosFilters>(key: K, value: PedidosFilters[K]) => {
+    setFilters((prev) => ({ ...prev, [key]: value }));
+    setPage(0);
+  };
+
+  const handleStatusUpdate = async (orderId: string, newStatus: OrderStatus, currentHubId?: string) => {
     setActionLoading(orderId);
     try {
       await ordersApi.updateStatus(orderId, {
@@ -104,14 +208,47 @@ const PedidosTab: React.FC = () => {
     }
   };
 
+  const clearFilters = () => {
+    setFilters(defaultFilters);
+    setSearchDraft('');
+    setPage(0);
+  };
+
+  const activeFilterChips = useMemo(() => {
+    const chips: Array<{ key: keyof PedidosFilters; label: string }> = [];
+    if (filters.status) chips.push({ key: 'status', label: `Status: ${statusLabels[filters.status] ?? filters.status}` });
+    if (filters.hubId) {
+      const hub = hubs.find((h) => h.id === filters.hubId);
+      chips.push({ key: 'hubId', label: `Hub: ${hub?.name ?? 'Selecionado'}` });
+    }
+    if (filters.collectionStatus) chips.push({ key: 'collectionStatus', label: `Coleta: ${filters.collectionStatus}` });
+    if (filters.q.trim()) chips.push({ key: 'q', label: `Busca: ${filters.q.trim()}` });
+    if (filters.originState) chips.push({ key: 'originState', label: `Origem UF: ${filters.originState}` });
+    if (filters.originCity.trim()) chips.push({ key: 'originCity', label: `Origem cidade: ${filters.originCity.trim()}` });
+    if (filters.destinationState) chips.push({ key: 'destinationState', label: `Destino UF: ${filters.destinationState}` });
+    if (filters.destinationCity.trim()) chips.push({ key: 'destinationCity', label: `Destino cidade: ${filters.destinationCity.trim()}` });
+    if (filters.senderState) chips.push({ key: 'senderState', label: `Remetente UF: ${filters.senderState}` });
+    if (filters.senderCity.trim()) chips.push({ key: 'senderCity', label: `Remetente cidade: ${filters.senderCity.trim()}` });
+    if (filters.recipientState) chips.push({ key: 'recipientState', label: `Destinatário UF: ${filters.recipientState}` });
+    if (filters.recipientCity.trim()) chips.push({ key: 'recipientCity', label: `Destinatário cidade: ${filters.recipientCity.trim()}` });
+    return chips;
+  }, [filters, hubs]);
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
   return (
     <div>
-      <div className="mb-6 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-        <p className="text-sm text-tower-600 dark:text-tower-400">Filtre por status e atualize a lista.</p>
-        <div className="flex flex-wrap items-center gap-2">
+      <div className="mb-6 rounded-2xl border border-tower-200 bg-white p-4 dark:border-tower-700 dark:bg-tower-900/40">
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-5">
+          <input
+            value={searchDraft}
+            onChange={(e) => setSearchDraft(e.target.value)}
+            placeholder="Buscar NF, cliente, cidade, pedido..."
+            className="admin-focus rounded-xl border border-tower-200 bg-white px-3 py-2 text-sm text-tower-900 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100 lg:col-span-2"
+          />
           <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            value={filters.status}
+            onChange={(e) => setFilter('status', e.target.value)}
             className="admin-focus rounded-xl border border-tower-200 bg-white px-3 py-2 text-sm text-tower-900 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100"
           >
             <option value="">Todos os status</option>
@@ -121,6 +258,39 @@ const PedidosTab: React.FC = () => {
               </option>
             ))}
           </select>
+          <select
+            value={filters.hubId}
+            disabled={isHub}
+            onChange={(e) => setFilter('hubId', e.target.value)}
+            className="admin-focus rounded-xl border border-tower-200 bg-white px-3 py-2 text-sm text-tower-900 disabled:opacity-60 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100"
+          >
+            <option value="">{isHub ? 'Hub atual' : 'Todos os hubs'}</option>
+            {hubs.filter((h: { active?: boolean }) => h.active !== false).map((h: { id: string; name: string }) => (
+              <option key={h.id} value={h.id}>{h.name}</option>
+            ))}
+          </select>
+          <select
+            value={filters.collectionStatus}
+            onChange={(e) => setFilter('collectionStatus', e.target.value as CollectionFilterValue)}
+            className="admin-focus rounded-xl border border-tower-200 bg-white px-3 py-2 text-sm text-tower-900 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100"
+          >
+            <option value="">Coleta (todos)</option>
+            <option value="COLLECTED">Coletado</option>
+            <option value="NOT_COLLECTED">Não coletado</option>
+            <option value="WITH_COLLECTION_DATA">Com dados de coleta</option>
+            <option value="WITHOUT_COLLECTION_DATA">Sem dados de coleta</option>
+            <option value="INCONSISTENT">Inconsistente</option>
+          </select>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowAdvancedFilters((v) => !v)}
+            className="admin-focus rounded-xl border border-tower-200 px-3 py-2 text-xs font-semibold text-tower-700 hover:bg-tower-100 dark:border-tower-600 dark:text-tower-200 dark:hover:bg-tower-800"
+          >
+            {showAdvancedFilters ? 'Ocultar filtros avançados' : 'Mostrar filtros avançados'}
+          </button>
           <button
             type="button"
             onClick={load}
@@ -128,7 +298,45 @@ const PedidosTab: React.FC = () => {
           >
             Atualizar
           </button>
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="admin-focus rounded-xl border border-tower-200 px-3 py-2 text-xs font-semibold text-tower-700 hover:bg-tower-100 dark:border-tower-600 dark:text-tower-200 dark:hover:bg-tower-800"
+          >
+            Limpar filtros
+          </button>
+          <p className="ml-auto text-xs text-tower-500 dark:text-tower-400">
+            {total} pedido(s) encontrado(s)
+          </p>
         </div>
+
+        {showAdvancedFilters ? (
+          <div className="mt-3 grid gap-3 border-t border-tower-100 pt-3 md:grid-cols-2 lg:grid-cols-4 dark:border-tower-700">
+            <input value={filters.originCity} onChange={(e) => setFilter('originCity', e.target.value)} placeholder="Cidade origem (rota)" className="admin-focus rounded-xl border border-tower-200 bg-white px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800" />
+            <input value={filters.originState} onChange={(e) => setFilter('originState', e.target.value.toUpperCase())} placeholder="UF origem (rota)" maxLength={2} className="admin-focus rounded-xl border border-tower-200 bg-white px-3 py-2 text-sm uppercase dark:border-tower-600 dark:bg-tower-800" />
+            <input value={filters.destinationCity} onChange={(e) => setFilter('destinationCity', e.target.value)} placeholder="Cidade destino (rota)" className="admin-focus rounded-xl border border-tower-200 bg-white px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800" />
+            <input value={filters.destinationState} onChange={(e) => setFilter('destinationState', e.target.value.toUpperCase())} placeholder="UF destino (rota)" maxLength={2} className="admin-focus rounded-xl border border-tower-200 bg-white px-3 py-2 text-sm uppercase dark:border-tower-600 dark:bg-tower-800" />
+            <input value={filters.senderCity} onChange={(e) => setFilter('senderCity', e.target.value)} placeholder="Cidade remetente" className="admin-focus rounded-xl border border-tower-200 bg-white px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800" />
+            <input value={filters.senderState} onChange={(e) => setFilter('senderState', e.target.value.toUpperCase())} placeholder="UF remetente" maxLength={2} className="admin-focus rounded-xl border border-tower-200 bg-white px-3 py-2 text-sm uppercase dark:border-tower-600 dark:bg-tower-800" />
+            <input value={filters.recipientCity} onChange={(e) => setFilter('recipientCity', e.target.value)} placeholder="Cidade destinatário" className="admin-focus rounded-xl border border-tower-200 bg-white px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800" />
+            <input value={filters.recipientState} onChange={(e) => setFilter('recipientState', e.target.value.toUpperCase())} placeholder="UF destinatário" maxLength={2} className="admin-focus rounded-xl border border-tower-200 bg-white px-3 py-2 text-sm uppercase dark:border-tower-600 dark:bg-tower-800" />
+          </div>
+        ) : null}
+
+        {activeFilterChips.length > 0 ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {activeFilterChips.map((chip) => (
+              <button
+                key={chip.key}
+                type="button"
+                onClick={() => setFilter(chip.key, defaultFilters[chip.key])}
+                className="admin-focus rounded-full border border-tower-300 px-3 py-1 text-xs text-tower-700 hover:bg-tower-100 dark:border-tower-600 dark:text-tower-200 dark:hover:bg-tower-800"
+              >
+                {chip.label} ×
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
       {error && (
         <div className="mb-4">
@@ -143,10 +351,14 @@ const PedidosTab: React.FC = () => {
         <DataTable>
           <thead className="border-b border-tower-200 bg-tower-50/90 dark:border-tower-700 dark:bg-tower-800/80">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">NF / Demanda</th>
-              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">Origem → Destino</th>
+              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">Pedido/NF</th>
               <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">Status</th>
+              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">Coleta</th>
               <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">HUB atual</th>
+              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">Origem (rota)</th>
+              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">Destino (rota)</th>
+              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">Remetente</th>
+              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">Destinatário</th>
               <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">Anexos</th>
               <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">Ações</th>
             </tr>
@@ -154,18 +366,38 @@ const PedidosTab: React.FC = () => {
           <tbody className="divide-y divide-tower-100 dark:divide-tower-800">
             {orders.map((o) => {
               const trackingId = o.demand?.id ?? o.demandId ?? o.id;
+              const origin = parseRouteCityState(o.demand?.origin ?? o.origemPrestacao);
+              const destination = parseRouteCityState(o.demand?.destination ?? o.fimPrestacao);
+              const senderCity = o.remetentePerson?.city ?? '-';
+              const senderState = o.remetentePerson?.state ?? '-';
+              const recipientCity = o.destinatarioPerson?.city ?? '-';
+              const recipientState = o.destinatarioPerson?.state ?? '-';
+              const collection = getCollectionLabel(o);
               return (
-                <tr key={o.id} className="hover:bg-tower-50/80 dark:hover:bg-tower-800/40">
+                <tr
+                  key={o.id}
+                  className="cursor-pointer hover:bg-tower-50/80 dark:hover:bg-tower-800/40"
+                  onClick={() => navigate(`/orders/${o.id}`)}
+                >
                   <td className="px-4 py-3 font-mono-ids text-sm font-medium text-tower-900 dark:text-tower-100">
-                    {o.nfNumber || o.demand?.nfNumber || o.id.slice(0, 8)}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-tower-700 dark:text-tower-200">
-                    {o.demand?.origin ?? o.origemPrestacao ?? '-'} → {o.demand?.destination ?? o.fimPrestacao ?? '-'}
+                    <div className="flex flex-col">
+                      <span>{o.nfNumber || o.demand?.nfNumber || o.id.slice(0, 8)}</span>
+                      <span className="font-sans text-xs text-tower-500 dark:text-tower-400">
+                        {o.demand?.client?.companyName ?? 'Sem cliente'}
+                      </span>
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     <StatusBadge label={statusLabels[o.status] ?? o.status} tone={orderStatusTones[o.status] ?? 'neutral'} />
                   </td>
+                  <td className="px-4 py-3">
+                    <StatusBadge label={collection.label} tone={collection.tone} />
+                  </td>
                   <td className="px-4 py-3 text-sm text-tower-600 dark:text-tower-300">{o.currentHub?.name ?? o.currentHub?.code ?? '-'}</td>
+                  <td className="px-4 py-3 text-sm text-tower-700 dark:text-tower-200">{origin.city} / {origin.state}</td>
+                  <td className="px-4 py-3 text-sm text-tower-700 dark:text-tower-200">{destination.city} / {destination.state}</td>
+                  <td className="px-4 py-3 text-sm text-tower-700 dark:text-tower-200">{senderCity} / {senderState}</td>
+                  <td className="px-4 py-3 text-sm text-tower-700 dark:text-tower-200">{recipientCity} / {recipientState}</td>
                   <td className="px-4 py-3">
                     <div className="flex flex-col gap-1">
                       <span className="text-xs text-tower-500 dark:text-tower-400">
@@ -184,7 +416,7 @@ const PedidosTab: React.FC = () => {
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex flex-wrap items-center gap-1">
+                    <div className="flex flex-wrap items-center gap-1" onClick={(event) => event.stopPropagation()}>
                       {o.status === 'IN_TRANSIT' &&
                         (isHub && hubId ? (
                           <button
@@ -239,11 +471,11 @@ const PedidosTab: React.FC = () => {
                           Entregue
                         </button>
                       )}
-                      <RouterLink
-                        to={`/tracking/${trackingId}`}
-                        className="admin-focus px-2 py-1 text-xs text-brand-600 hover:text-brand-500 dark:text-brand-300"
-                      >
-                        Ver tracking
+                      <RouterLink to={`/orders/${o.id}`} className="admin-focus px-2 py-1 text-xs font-semibold text-brand-700 hover:text-brand-500 dark:text-brand-300">
+                        Abrir pedido
+                      </RouterLink>
+                      <RouterLink to={`/tracking/${trackingId}`} className="admin-focus px-2 py-1 text-xs text-brand-600 hover:text-brand-500 dark:text-brand-300">
+                        Tracking
                       </RouterLink>
                       <label className="admin-focus rounded-lg border border-tower-300 dark:border-tower-600 px-2 py-1 text-xs text-tower-700 dark:text-tower-200 cursor-pointer hover:bg-tower-100 dark:hover:bg-tower-800">
                         {attachmentLoading === o.id ? 'Enviando...' : 'Anexar'}
@@ -267,6 +499,32 @@ const PedidosTab: React.FC = () => {
           </tbody>
         </DataTable>
       )}
+
+      {!loading ? (
+        <div className="mt-4 flex items-center justify-between">
+          <p className="text-xs text-tower-500 dark:text-tower-400">
+            Página {page + 1} de {totalPages}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={page <= 0}
+              className="admin-focus rounded-lg border border-tower-300 px-3 py-1.5 text-xs font-semibold text-tower-700 disabled:opacity-50 dark:border-tower-600 dark:text-tower-200"
+            >
+              Anterior
+            </button>
+            <button
+              type="button"
+              onClick={() => setPage((p) => (p + 1 < totalPages ? p + 1 : p))}
+              disabled={page + 1 >= totalPages}
+              className="admin-focus rounded-lg border border-tower-300 px-3 py-1.5 text-xs font-semibold text-tower-700 disabled:opacity-50 dark:border-tower-600 dark:text-tower-200"
+            >
+              Próxima
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };
