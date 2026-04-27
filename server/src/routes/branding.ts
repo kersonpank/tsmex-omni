@@ -3,7 +3,7 @@ import { z } from 'zod';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
-import { toBrandingPublic, VISUAL_IDENTITY_ID } from '../services/visualIdentityService.js';
+import { resolveStoredLogoUrl, toBrandingPublic, VISUAL_IDENTITY_ID } from '../services/visualIdentityService.js';
 
 const patchSchema = z.object({
   legalName: z.string().max(500).nullable().optional(),
@@ -38,9 +38,14 @@ router.get('/', authenticate, authorize('ADMIN', 'HUB'), async (_req: AuthReques
     if (!row) {
       return res.json({ success: true, data: emptyRow() });
     }
+    const publicBranding = toBrandingPublic(row);
     res.json({
       success: true,
-      data: { ...toBrandingPublic(row), logoStorageKey: row.logoStorageKey },
+      data: {
+        ...publicBranding,
+        logoUrl: await resolveStoredLogoUrl(publicBranding.logoUrl, row.logoStorageKey),
+        logoStorageKey: row.logoStorageKey,
+      },
     });
   } catch (error) {
     next(error);
@@ -81,9 +86,14 @@ router.patch('/', authenticate, authorize('ADMIN'), async (req: AuthRequest, res
       update,
     });
 
+    const publicBranding = toBrandingPublic(row);
     res.json({
       success: true,
-      data: { ...toBrandingPublic(row), logoStorageKey: row.logoStorageKey },
+      data: {
+        ...publicBranding,
+        logoUrl: await resolveStoredLogoUrl(publicBranding.logoUrl, row.logoStorageKey),
+        logoStorageKey: row.logoStorageKey,
+      },
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

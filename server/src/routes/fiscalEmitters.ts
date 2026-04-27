@@ -5,6 +5,7 @@ import prisma from '../lib/prisma.js';
 import { uploadBase64Object } from '../lib/objectStorage.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
+import { resolveStoredLogoUrl } from '../services/visualIdentityService.js';
 import {
     buildFiscalEmitterReadiness,
     encryptCertificatePassword,
@@ -43,7 +44,7 @@ const certificateSchema = z.object({
     expiresAt: z.string().datetime().nullable().optional(),
 });
 
-function toPublicEmitter(emitter: any) {
+async function toPublicEmitter(emitter: any) {
     const {
         certificatePasswordEncrypted: _secret,
         certificateStorageKey: _storageKey,
@@ -51,13 +52,14 @@ function toPublicEmitter(emitter: any) {
     } = emitter;
     return {
         ...safe,
+        logoUrl: await resolveStoredLogoUrl(safe.logoUrl ?? null, safe.logoStorageKey ?? null),
         readiness: buildFiscalEmitterReadiness({
             person: safe.person,
             rntrc: safe.rntrc,
             crt: safe.crt,
             cteSeries: safe.cteSeries,
             environment: safe.environment,
-            certificateStorageKey: safe.certificateStorageKey,
+            certificateStorageKey: _storageKey,
             certificatePasswordEncrypted: emitter.certificatePasswordEncrypted,
         }),
     };
@@ -91,7 +93,7 @@ router.get('/', authenticate, authorize('ADMIN', 'HUB'), async (_req: AuthReques
             include: { person: true, hub: true },
             orderBy: [{ active: 'desc' }, { createdAt: 'desc' }],
         });
-        res.json({ success: true, data: emitters.map(toPublicEmitter) });
+        res.json({ success: true, data: await Promise.all(emitters.map(toPublicEmitter)) });
     } catch (error) {
         next(error);
     }
@@ -109,7 +111,7 @@ router.get('/:id', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequ
         if (!isAdmin && req.user?.roles.includes('HUB') && emitter.hubId && emitter.hubId !== req.user.hubId) {
             throw new AppError('Not authorized to access this fiscal emitter', 403);
         }
-        res.json({ success: true, data: toPublicEmitter(emitter) });
+        res.json({ success: true, data: await toPublicEmitter(emitter) });
     } catch (error) {
         next(error);
     }
@@ -138,7 +140,7 @@ router.post('/', authenticate, authorize('ADMIN'), async (req: AuthRequest, res:
             include: { person: true, hub: true },
         });
 
-        res.status(201).json({ success: true, data: toPublicEmitter(emitter) });
+        res.status(201).json({ success: true, data: await toPublicEmitter(emitter) });
     } catch (error) {
         if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
         next(error);
@@ -161,7 +163,7 @@ router.patch('/:id', authenticate, authorize('ADMIN'), async (req: AuthRequest, 
             data,
             include: { person: true, hub: true },
         });
-        res.json({ success: true, data: toPublicEmitter(emitter) });
+        res.json({ success: true, data: await toPublicEmitter(emitter) });
     } catch (error) {
         if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
         next(error);
@@ -205,7 +207,7 @@ router.post('/:id/certificate', authenticate, authorize('ADMIN'), async (req: Au
             include: { person: true, hub: true },
         });
 
-        res.json({ success: true, data: toPublicEmitter(updated) });
+        res.json({ success: true, data: await toPublicEmitter(updated) });
     } catch (error) {
         if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
         next(error);
@@ -224,7 +226,8 @@ router.get('/:id/readiness', authenticate, authorize('ADMIN', 'HUB'), async (req
         if (!isAdmin && req.user?.roles.includes('HUB') && emitter.hubId && emitter.hubId !== req.user.hubId) {
             throw new AppError('Not authorized to access this fiscal emitter', 403);
         }
-        res.json({ success: true, data: toPublicEmitter(emitter).readiness });
+        const publicEmitter = await toPublicEmitter(emitter);
+        res.json({ success: true, data: publicEmitter.readiness });
     } catch (error) {
         next(error);
     }

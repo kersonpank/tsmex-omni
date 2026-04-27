@@ -171,7 +171,7 @@ const IdentidadeVisualTab: React.FC = () => {
     try {
       const base64 = await fileToBase64DataPart(file);
       const uploaded = await uploadApi.upload(base64, file.name, file.type, { keyPrefix: 'branding/logos' });
-      update('logoUrl', uploaded.data.url ?? '');
+      update('logoUrl', uploaded.data.downloadUrl ?? uploaded.data.url ?? '');
       update('logoStorageKey', uploaded.data.storageKey ?? '');
       setSuccess('Logo enviado. Salve o emitente para aplicar.');
     } catch (e: any) {
