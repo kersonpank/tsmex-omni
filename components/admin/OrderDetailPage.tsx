@@ -44,7 +44,11 @@ const isMeaningfulValue = (value: unknown): boolean => {
   if (typeof value === 'number') return Number.isFinite(value) && value !== 0;
   if (typeof value === 'boolean') return value;
   if (Array.isArray(value)) return value.length > 0;
-  if (typeof value === 'object') return Object.values(value as Record<string, unknown>).some(isMeaningfulValue);
+  if (typeof value === 'object') {
+    const vals = Object.values(value as Record<string, unknown>);
+    if (vals.length === 0) return false;
+    return vals.some(isMeaningfulValue);
+  }
   return false;
 };
 
@@ -61,6 +65,7 @@ interface CollapsibleSectionProps {
   onToggle: (section: SectionKey) => void;
   children: React.ReactNode;
   helper?: string;
+  showToggle?: boolean;
 }
 
 const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
@@ -70,27 +75,34 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
   onToggle,
   children,
   helper,
+  showToggle = true,
 }) => (
   <section className="rounded-2xl border border-tower-200 bg-white p-5 dark:border-tower-700 dark:bg-tower-900/50">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <h2 className="text-sm font-semibold uppercase tracking-wide text-tower-600 dark:text-tower-300">{title}</h2>
-      <button
-        type="button"
-        onClick={() => onToggle(sectionKey)}
-        className="admin-focus rounded-lg border border-tower-300 px-2.5 py-1 text-xs font-semibold text-tower-700 hover:bg-tower-100 dark:border-tower-600 dark:text-tower-200 dark:hover:bg-tower-800"
-        aria-expanded={expanded}
-        aria-label={`${expanded ? 'Recolher' : 'Expandir'} seção ${title}`}
-      >
-        {expanded ? 'Recolher' : 'Expandir'}
-      </button>
+      {showToggle ? (
+        <button
+          type="button"
+          onClick={() => onToggle(sectionKey)}
+          className="admin-focus rounded-lg border border-tower-300 px-2.5 py-1 text-xs font-semibold text-tower-700 hover:bg-tower-100 dark:border-tower-600 dark:text-tower-200 dark:hover:bg-tower-800"
+          aria-expanded={expanded}
+          aria-label={`${expanded ? 'Recolher' : 'Expandir'} seção ${title}`}
+        >
+          {expanded ? 'Recolher' : 'Expandir'}
+        </button>
+      ) : null}
     </div>
     {helper ? <p className="mt-2 text-xs text-tower-500 dark:text-tower-400">{helper}</p> : null}
-    <div
-      className={`grid transition-all duration-300 ease-out ${expanded ? 'mt-3 grid-rows-[1fr] opacity-100' : 'mt-0 grid-rows-[0fr] opacity-0'}`}
-      aria-hidden={!expanded}
-    >
-      <div className="overflow-hidden">{children}</div>
-    </div>
+    {showToggle ? (
+      <div
+        className={`grid transition-all duration-300 ease-out ${expanded ? 'mt-3 grid-rows-[1fr] opacity-100' : 'mt-0 grid-rows-[0fr] opacity-0'}`}
+        aria-hidden={!expanded}
+      >
+        <div className="overflow-hidden">{children}</div>
+      </div>
+    ) : (
+      <div className="mt-3">{children}</div>
+    )}
   </section>
 );
 
@@ -133,28 +145,48 @@ const OrderDetailPage: React.FC = () => {
     void load();
   }, [id]);
 
+  const hasFiscalData = useMemo(() => {
+    if (!order) return false;
+    if (Array.isArray(order.invoicesRel) && order.invoicesRel.length > 0) return true;
+    if (typeof order.nfNumber === 'string' && order.nfNumber.trim().length > 0) return true;
+    if (typeof order.nfDocumentUrl === 'string' && order.nfDocumentUrl.trim().length > 0) return true;
+    if (typeof order.demand?.nfNumber === 'string' && order.demand.nfNumber.trim().length > 0) return true;
+    return false;
+  }, [order]);
+
+  const hasFreightCalcs = useMemo(() => {
+    if (!order) return false;
+    const arr = order.freightCalculations;
+    return Array.isArray(arr) && arr.length > 0;
+  }, [order]);
+
+  const hasColetaData = useMemo(() => {
+    if (!order) return false;
+    return isMeaningfulValue(order.collectionData);
+  }, [order]);
+
+  const hasAttachments = attachments.length > 0;
+
   useEffect(() => {
     if (!order) return;
-    const collectionData = (order.collectionData as Record<string, unknown> | null | undefined) ?? null;
-    const hasCollectionData = isMeaningfulValue(collectionData);
-    const hasInvoices = Array.isArray(order.invoicesRel) && order.invoicesRel.length > 0;
-    const hasFreightData = isMeaningfulValue(order.freightCalculation);
-    const hasAttachments = attachments.length > 0;
-
     setExpandedSections({
-      coleta: hasCollectionData,
-      notas: hasInvoices,
-      frete: hasFreightData,
+      coleta: hasColetaData,
+      notas: hasFiscalData,
+      frete: hasFreightCalcs,
       anexos: hasAttachments,
     });
-  }, [order, attachments, id]);
+  }, [order, hasColetaData, hasFiscalData, hasFreightCalcs, hasAttachments]);
 
-  const backToPedidosPath = useMemo(() => {
-    if ((location.state as { fromPedidos?: boolean; backSearch?: string } | null)?.fromPedidos) {
-      return '/gestao?category=transport&transportSubTab=pedidos';
+  useEffect(() => {
+    if (editMode && !hasColetaData) {
+      setExpandedSections((s) => ({ ...s, coleta: true }));
     }
-    return '/gestao?category=transport&transportSubTab=pedidos';
-  }, [location.state]);
+    if (!editMode && !hasColetaData) {
+      setExpandedSections((s) => ({ ...s, coleta: false }));
+    }
+  }, [editMode, hasColetaData]);
+
+  const backToPedidosPath = useMemo(() => '/gestao?cat=transport&sub=pedidos', []);
 
   const handleAddAttachment = async (file: File) => {
     if (!id) return;
@@ -195,6 +227,8 @@ const OrderDetailPage: React.FC = () => {
   const toggleSection = (section: SectionKey) => {
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
+
+  const coletaCanToggle = hasColetaData || editMode;
 
   return (
     <div className="mx-auto max-w-6xl p-4 md:p-6">
@@ -270,32 +304,40 @@ const OrderDetailPage: React.FC = () => {
       </div>
 
       <div className="mt-4 grid gap-4">
-        <CollapsibleSection
-          title="Coleta"
-          sectionKey="coleta"
-          expanded={expandedSections.coleta}
-          onToggle={toggleSection}
-          helper={!expandedSections.coleta ? 'Sem coleta registrada no momento.' : undefined}
-        >
-          {editMode ? (
-            <OrderColetaForm orderId={order.id} order={order} onSave={load} />
-          ) : (
-            <div className="grid gap-3 text-sm md:grid-cols-2">
-              <p><span className="font-semibold">Disponibilidade:</span> {(order.collectionData as any)?.pickupAvailableTime ?? '-'}</p>
-              <p><span className="font-semibold">Commodity:</span> {(order.collectionData as any)?.commodity ?? '-'}</p>
-              <p><span className="font-semibold">Peso:</span> {(order.collectionData as any)?.weight ?? '-'}</p>
-              <p><span className="font-semibold">Valor NF:</span> {(order.collectionData as any)?.nfValue ?? '-'}</p>
-              <p className="md:col-span-2"><span className="font-semibold">Observações:</span> {(order.collectionData as any)?.pickupNotes ?? '-'}</p>
-            </div>
-          )}
-        </CollapsibleSection>
+        {coletaCanToggle ? (
+          <CollapsibleSection
+            title="Coleta"
+            sectionKey="coleta"
+            expanded={expandedSections.coleta}
+            onToggle={toggleSection}
+            helper={!hasColetaData ? 'Sem coleta registrada no momento.' : undefined}
+            showToggle
+          >
+            {editMode ? (
+              <OrderColetaForm orderId={order.id} order={order} onSave={load} />
+            ) : (
+              <div className="grid gap-3 text-sm md:grid-cols-2">
+                <p><span className="font-semibold">Disponibilidade:</span> {(order.collectionData as any)?.pickupAvailableTime ?? '-'}</p>
+                <p><span className="font-semibold">Commodity:</span> {(order.collectionData as any)?.commodity ?? '-'}</p>
+                <p><span className="font-semibold">Peso:</span> {(order.collectionData as any)?.weight ?? '-'}</p>
+                <p><span className="font-semibold">Valor NF:</span> {(order.collectionData as any)?.nfValue ?? '-'}</p>
+                <p className="md:col-span-2"><span className="font-semibold">Observações:</span> {(order.collectionData as any)?.pickupNotes ?? '-'}</p>
+              </div>
+            )}
+          </CollapsibleSection>
+        ) : (
+          <section className="rounded-2xl border border-tower-200 bg-white p-5 dark:border-tower-700 dark:bg-tower-900/50">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-tower-600 dark:text-tower-300">Coleta</h2>
+            <p className="mt-2 text-sm text-tower-600 dark:text-tower-300">Sem coleta registrada. Use &quot;Editar pedido&quot; para informar a coleta.</p>
+          </section>
+        )}
 
         <CollapsibleSection
           title="Notas fiscais e cargas"
           sectionKey="notas"
           expanded={expandedSections.notas}
           onToggle={toggleSection}
-          helper={!expandedSections.notas ? 'Sem notas fiscais vinculadas por enquanto.' : undefined}
+          helper={!hasFiscalData ? 'Sem notas fiscais vinculadas por enquanto.' : undefined}
         >
           <OrderNFForm
             orderId={order.id}
@@ -311,7 +353,7 @@ const OrderDetailPage: React.FC = () => {
           sectionKey="frete"
           expanded={expandedSections.frete}
           onToggle={toggleSection}
-          helper={!expandedSections.frete ? 'Cálculo ainda não registrado.' : undefined}
+          helper={!hasFreightCalcs ? 'Cálculo ainda não registrado.' : undefined}
         >
           <OrderFreightCalculationSection orderId={order.id} order={order} onSaved={load} />
         </CollapsibleSection>
@@ -321,7 +363,7 @@ const OrderDetailPage: React.FC = () => {
           sectionKey="anexos"
           expanded={expandedSections.anexos}
           onToggle={toggleSection}
-          helper={!expandedSections.anexos ? 'Sem anexos neste pedido.' : undefined}
+          helper={!hasAttachments ? 'Sem anexos neste pedido.' : undefined}
         >
           {attachmentError ? <p className="mb-2 text-xs text-red-600 dark:text-red-400">{attachmentError}</p> : null}
           <div className="mb-3 flex items-center gap-2">

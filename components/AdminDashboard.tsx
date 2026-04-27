@@ -18,7 +18,8 @@ import FrotaTab from './admin/FrotaTab';
 import FaturasTab from './admin/FaturasTab';
 import EntradaTab from './admin/EntradaTab';
 import TarifasTab from './commercial/TarifasTab';
-import AdminShell, { type AdminNavSection } from './admin/layout/AdminShell';
+import AdminShell from './admin/layout/AdminShell';
+import { buildAdminNavSections } from './admin/layout/adminNavModel';
 import {
   adminStateToSearchParams,
   getAdminBreadcrumbs,
@@ -76,93 +77,17 @@ const AdminDashboard: React.FC = () => {
     return name ? `Depósito: ${name}` : 'Modo operador de hub';
   }, [isHub, user?.profile]);
 
-  const navSections = useMemo((): AdminNavSection[] => {
-    const { category, transportSubTab, commercialSubTab, generalSubTab } = navState;
-    const go = (patch: Partial<AdminNavState>) => () => setNavState(patch);
-
-    if (isHub) {
-      const items: AdminNavSection['items'] = [];
-      if (hasPermission('entrada')) {
-        items.push({
-          id: 'entrada',
-          label: 'Entrada',
-          active: transportSubTab === 'entrada',
-          onSelect: go({ category: 'transport', transportSubTab: 'entrada' }),
-        });
-      }
-      if (hasPermission('demandas')) {
-        items.push({
-          id: 'demands',
-          label: 'Demandas',
-          active: transportSubTab === 'demands',
-          onSelect: go({ category: 'transport', transportSubTab: 'demands' }),
-        });
-      }
-      if (hasPermission('manifestos')) {
-        items.push({
-          id: 'viagens',
-          label: 'Viagens',
-          active: transportSubTab === 'viagens',
-          onSelect: go({ category: 'transport', transportSubTab: 'viagens' }),
-        });
-      }
-      if (hasPermission('pedidos')) {
-        items.push({
-          id: 'pedidos',
-          label: 'Pedidos',
-          active: transportSubTab === 'pedidos',
-          onSelect: go({ category: 'transport', transportSubTab: 'pedidos' }),
-        });
-      }
-      return [{ title: 'Operação', items }];
-    }
-
-    return [
-      {
-        title: 'Comercial',
-        items: [
-          { id: 'co', label: 'Cotações', active: category === 'commercial' && commercialSubTab === 'cotacoes', onSelect: go({ category: 'commercial', commercialSubTab: 'cotacoes' }) },
-          { id: 'cl', label: 'Clientes', active: category === 'commercial' && commercialSubTab === 'clientes', onSelect: go({ category: 'commercial', commercialSubTab: 'clientes' }) },
-          { id: 'ta', label: 'Tarifas', active: category === 'commercial' && commercialSubTab === 'tarifas', onSelect: go({ category: 'commercial', commercialSubTab: 'tarifas' }) },
-        ],
-      },
-      {
-        title: 'Rede',
-        items: [
-          { id: 'en', label: 'Entrada', active: category === 'transport' && transportSubTab === 'entrada', onSelect: go({ category: 'transport', transportSubTab: 'entrada' }) },
-          { id: 'de', label: 'Demandas', active: category === 'transport' && transportSubTab === 'demands', onSelect: go({ category: 'transport', transportSubTab: 'demands' }) },
-          { id: 'vi', label: 'Viagens', active: category === 'transport' && transportSubTab === 'viagens', onSelect: go({ category: 'transport', transportSubTab: 'viagens' }) },
-          { id: 'pe', label: 'Pedidos', active: category === 'transport' && transportSubTab === 'pedidos', onSelect: go({ category: 'transport', transportSubTab: 'pedidos' }) },
-          { id: 'mo', label: 'Motoristas', active: category === 'transport' && transportSubTab === 'motoristas', onSelect: go({ category: 'transport', transportSubTab: 'motoristas' }) },
-          { id: 'ro', label: 'Rotas', active: category === 'transport' && transportSubTab === 'rotas', onSelect: go({ category: 'transport', transportSubTab: 'rotas' }) },
-          { id: 'hu', label: 'Hubs', active: category === 'transport' && transportSubTab === 'hubs', onSelect: go({ category: 'transport', transportSubTab: 'hubs' }) },
-        ],
-      },
-      {
-        title: 'Cadastros',
-        items: [{ id: 'pes', label: 'Pessoas', active: category === 'pessoas', onSelect: go({ category: 'pessoas' }) }],
-      },
-      {
-        title: 'Frota',
-        items: [{ id: 'fr', label: 'Tipos de veículo', active: category === 'fleet', onSelect: go({ category: 'fleet' }) }],
-      },
-      {
-        title: 'Finanças',
-        items: [{ id: 'fat', label: 'Faturas', active: category === 'finance', onSelect: go({ category: 'finance' }) }],
-      },
-      {
-        title: 'Sistema',
-        items: [
-          {
-            id: 'cfg',
-            label: 'Configurações',
-            active: category === 'general',
-            onSelect: go({ category: 'general', generalSubTab: 'settings' }),
-          },
-        ],
-      },
-    ];
-  }, [navState, isHub, hasPermission, setNavState]);
+  const navSections = useMemo(
+    () =>
+      buildAdminNavSections({
+        navState,
+        isHub,
+        hasPermission,
+        onOrderDetailPage: false,
+        onSelectNav: (patch) => setNavState(patch),
+      }),
+    [navState, isHub, hasPermission, setNavState]
+  );
 
   const isDemandsView = navState.category === 'transport' && navState.transportSubTab === 'demands';
 

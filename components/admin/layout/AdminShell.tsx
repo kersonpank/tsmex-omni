@@ -2,16 +2,9 @@ import React, { useId } from 'react';
 import type { BreadcrumbItem } from '../../ui/PageHeader';
 import PageHeader from '../../ui/PageHeader';
 import { useLayoutStore } from '../../../store/layoutStore';
+import type { AdminNavSection } from './adminNavModel';
 
-export interface AdminNavSection {
-  title: string;
-  items: {
-    id: string;
-    label: string;
-    active: boolean;
-    onSelect: () => void;
-  }[];
-}
+export type { AdminNavSection } from './adminNavModel';
 
 interface AdminShellProps {
   isHub: boolean;

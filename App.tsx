@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate, Link, useLocation, useNavigate } from 'react-router-dom';
+import GlobalSystemMenu, { shouldShowGlobalSystemMenu } from './components/admin/layout/GlobalSystemMenu';
 import AdminDashboard from './components/AdminDashboard';
 import ClientDashboard from './components/ClientDashboard';
 import CompanyOnboarding from './components/CompanyOnboarding';
@@ -269,16 +270,20 @@ const Navigation: React.FC = () => {
   );
 };
 
-const App: React.FC = () => {
+const AppMain: React.FC = () => {
+  const location = useLocation();
+  const { sidebarCollapsed } = useLayoutStore();
   const { isAuthenticated, user, currentRole } = useAuthStore();
   const role = currentRole && user?.roles?.includes(currentRole) ? currentRole : user?.roles?.[0];
+  const canSystem = role === 'ADMIN' || role === 'HUB';
+  const useGlobalPl = canSystem && shouldShowGlobalSystemMenu(location.pathname);
+  const mainPl = useGlobalPl ? (sidebarCollapsed ? 'lg:pl-16' : 'lg:pl-72') : '';
 
   return (
-    <HashRouter>
-      <div className="flex min-h-screen flex-col bg-tower-50 text-tower-900 dark:bg-brand-950 dark:text-tower-100">
-        <Navigation />
-        <main className="flex-grow">
-          <Routes>
+    <>
+      <GlobalSystemMenu />
+      <main className={`flex-grow ${mainPl}`}>
+        <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/onboarding" element={<CompanyOnboarding />} />
             <Route path="/app" element={<Navigate to="/gestao" replace />} />
@@ -335,8 +340,18 @@ const App: React.FC = () => {
                       : <Navigate to="/gestao" replace />
               ) : <Navigate to="/login" replace />
             } />
-          </Routes>
-        </main>
+        </Routes>
+      </main>
+    </>
+  );
+};
+
+const App: React.FC = () => {
+  return (
+    <HashRouter>
+      <div className="flex min-h-screen flex-col bg-tower-50 text-tower-900 dark:bg-brand-950 dark:text-tower-100">
+        <Navigation />
+        <AppMain />
 
         <footer className="mt-auto border-t border-brand-800 bg-brand-900 px-4 py-8 text-tower-400 dark:border-brand-800 dark:bg-brand-950 dark:text-tower-500">
           <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 text-xs font-medium uppercase tracking-widest md:flex-row">
