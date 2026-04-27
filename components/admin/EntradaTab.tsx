@@ -1,4 +1,5 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   ordersApi,
   ordersEntradaApi,
@@ -31,6 +32,7 @@ const fileToBase64 = (file: File): Promise<string> =>
   });
 
 const EntradaTab: React.FC = () => {
+  const [searchParams] = useSearchParams();
   const { user } = useAuthStore();
   const isHub = user?.roles?.includes('HUB') ?? false;
   const hubId = (user?.profile as { hub?: { hubId?: string } })?.hub?.hubId ?? (user as any)?.hubId;
@@ -164,6 +166,17 @@ const EntradaTab: React.FC = () => {
   useEffect(() => {
     loadOrders();
   }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    const sub = searchParams.get('sub');
+    if (sub !== 'entrada') return;
+    if (!isHub && searchParams.get('cat') !== 'transport') return;
+    const raw = searchParams.get('orderId');
+    if (!raw || !UUID_REGEX.test(raw)) return;
+    setSelectedOrderId(raw);
+    setIsCreatingNew(false);
+  }, [loading, searchParams, isHub]);
 
   useEffect(() => {
     hubsApi.list().then((r: any) => setHubs((r?.data ?? r) || [])).catch(() => setHubs([]));

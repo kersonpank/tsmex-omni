@@ -1,6 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link as RouterLink, useLocation, useParams } from 'react-router-dom';
 import { ordersApi } from '../../lib/api';
+import { useAuthStore } from '../../store/authStore';
+import { gestaoEntradaOrderUrl } from './layout/adminQuery';
 import EmptyState from '../ui/EmptyState';
 import ErrorPanel from '../ui/ErrorPanel';
 import LoadingPanel from '../ui/LoadingPanel';
@@ -109,6 +111,17 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
 const OrderDetailPage: React.FC = () => {
   const location = useLocation();
   const { id } = useParams();
+  const { user } = useAuthStore();
+  const isHub = user?.roles?.includes('HUB') ?? false;
+  const isAdmin = user?.roles?.includes('ADMIN') ?? false;
+  const hubPermissions =
+    (user?.profile as { hub?: { permissions?: string[] } })?.hub?.permissions ?? (user as { permissions?: string[] })?.permissions ?? [];
+  const hasPermission = useCallback(
+    (p: string) => !isHub || hubPermissions.length === 0 || hubPermissions.includes(p),
+    [isHub, hubPermissions]
+  );
+  const canEditInEntrada = isAdmin || (isHub && hasPermission('entrada'));
+
   const [order, setOrder] = useState<any | null>(null);
   const [attachments, setAttachments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -178,13 +191,14 @@ const OrderDetailPage: React.FC = () => {
   }, [order, hasColetaData, hasFiscalData, hasFreightCalcs, hasAttachments]);
 
   useEffect(() => {
+    if (canEditInEntrada) return;
     if (editMode && !hasColetaData) {
       setExpandedSections((s) => ({ ...s, coleta: true }));
     }
     if (!editMode && !hasColetaData) {
       setExpandedSections((s) => ({ ...s, coleta: false }));
     }
-  }, [editMode, hasColetaData]);
+  }, [editMode, hasColetaData, canEditInEntrada]);
 
   const backToPedidosPath = useMemo(() => '/gestao?cat=transport&sub=pedidos', []);
 
@@ -228,7 +242,7 @@ const OrderDetailPage: React.FC = () => {
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
-  const coletaCanToggle = hasColetaData || editMode;
+  const coletaCanToggle = hasColetaData || (!canEditInEntrada && editMode);
 
   return (
     <div className="mx-auto max-w-6xl p-4 md:p-6">
@@ -239,13 +253,22 @@ const OrderDetailPage: React.FC = () => {
         >
           Voltar para pedidos
         </RouterLink>
-        <button
-          type="button"
-          onClick={() => setEditMode((prev) => !prev)}
-          className="admin-focus rounded-lg border border-brand-300 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50 dark:border-brand-700 dark:text-brand-300 dark:hover:bg-brand-900/40"
-        >
-          {editMode ? 'Visualizar pedido' : 'Editar pedido'}
-        </button>
+        {canEditInEntrada ? (
+          <RouterLink
+            to={gestaoEntradaOrderUrl(order.id, isHub)}
+            className="admin-focus rounded-lg border border-brand-300 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50 dark:border-brand-700 dark:text-brand-300 dark:hover:bg-brand-900/40"
+          >
+            Editar na Entrada
+          </RouterLink>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setEditMode((prev) => !prev)}
+            className="admin-focus rounded-lg border border-brand-300 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50 dark:border-brand-700 dark:text-brand-300 dark:hover:bg-brand-900/40"
+          >
+            {editMode ? 'Visualizar pedido' : 'Editar pedido'}
+          </button>
+        )}
         <RouterLink
           to={`/tracking/${order.demand?.id ?? order.demandId ?? order.id}`}
           className="admin-focus rounded-lg border border-brand-300 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50 dark:border-brand-700 dark:text-brand-300 dark:hover:bg-brand-900/40"
@@ -313,7 +336,21 @@ const OrderDetailPage: React.FC = () => {
             helper={!hasColetaData ? 'Sem coleta registrada no momento.' : undefined}
             showToggle
           >
-            {editMode ? (
+            {canEditInEntrada ? (
+              hasColetaData ? (
+                <div className="grid gap-3 text-sm md:grid-cols-2">
+                  <p><span className="font-semibold">Disponibilidade:</span> {(order.collectionData as any)?.pickupAvailableTime ?? '-'}</p>
+                  <p><span className="font-semibold">Commodity:</span> {(order.collectionData as any)?.commodity ?? '-'}</p>
+                  <p><span className="font-semibold">Peso:</span> {(order.collectionData as any)?.weight ?? '-'}</p>
+                  <p><span className="font-semibold">Valor NF:</span> {(order.collectionData as any)?.nfValue ?? '-'}</p>
+                  <p className="md:col-span-2"><span className="font-semibold">Observações:</span> {(order.collectionData as any)?.pickupNotes ?? '-'}</p>
+                </div>
+              ) : (
+                <p className="text-sm text-tower-600 dark:text-tower-300">
+                  Edição de coleta neste fluxo é feita em <strong>Transporte → Entrada</strong>. Use o botão <strong>Editar na Entrada</strong> acima.
+                </p>
+              )
+            ) : editMode ? (
               <OrderColetaForm orderId={order.id} order={order} onSave={load} />
             ) : (
               <div className="grid gap-3 text-sm md:grid-cols-2">
@@ -328,7 +365,11 @@ const OrderDetailPage: React.FC = () => {
         ) : (
           <section className="rounded-2xl border border-tower-200 bg-white p-5 dark:border-tower-700 dark:bg-tower-900/50">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-tower-600 dark:text-tower-300">Coleta</h2>
-            <p className="mt-2 text-sm text-tower-600 dark:text-tower-300">Sem coleta registrada. Use &quot;Editar pedido&quot; para informar a coleta.</p>
+            <p className="mt-2 text-sm text-tower-600 dark:text-tower-300">
+              {canEditInEntrada
+                ? 'Sem coleta registrada. Use o botão "Editar na Entrada" acima para abrir Transporte → Entrada e informar a coleta.'
+                : 'Sem coleta registrada. Use "Editar pedido" para informar a coleta.'}
+            </p>
           </section>
         )}
 
@@ -343,7 +384,7 @@ const OrderDetailPage: React.FC = () => {
             orderId={order.id}
             invoices={order.invoicesRel ?? []}
             onAdded={load}
-            disabled={!editMode}
+            disabled={canEditInEntrada ? true : !editMode}
             collectionData={order.collectionData}
           />
         </CollapsibleSection>

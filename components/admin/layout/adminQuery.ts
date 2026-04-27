@@ -8,11 +8,15 @@ const TRANSPORT_SUBS: TransportSubTab[] = ['entrada', 'demands', 'viagens', 'ped
 const COMMERCIAL_SUBS: CommercialSubTab[] = ['cotacoes', 'clientes', 'tarifas'];
 const GENERAL_SUBS: GeneralSubTab[] = ['settings', 'especies', 'identidade'];
 
+/** Deep link: abrir Entrada já com um pedido (UUID). */
+const ORDER_ID_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export interface AdminNavState {
   category: Category;
   transportSubTab: TransportSubTab;
   commercialSubTab: CommercialSubTab;
   generalSubTab: GeneralSubTab;
+  entradaOrderId: string | null;
 }
 
 const defaultState = (): AdminNavState => ({
@@ -20,7 +24,15 @@ const defaultState = (): AdminNavState => ({
   transportSubTab: 'demands',
   commercialSubTab: 'cotacoes',
   generalSubTab: 'settings',
+  entradaOrderId: null,
 });
+
+function parseEntradaOrderIdFromSearch(search: URLSearchParams, transportSubTab: TransportSubTab): string | null {
+  if (transportSubTab !== 'entrada') return null;
+  const raw = search.get('orderId');
+  if (raw && ORDER_ID_UUID.test(raw)) return raw;
+  return null;
+}
 
 function isCategory(v: string | null): v is Category {
   return !!v && (CATEGORIES as string[]).includes(v);
@@ -66,6 +78,7 @@ export function parseAdminSearchParams(
     const fallback = defaultHubTransportSub(hasPermission);
     const wanted = isTransportSub(subRaw) ? subRaw : fallback;
     out.transportSubTab = allowed.has(wanted) ? wanted : fallback;
+    out.entradaOrderId = parseEntradaOrderIdFromSearch(search, out.transportSubTab);
     return out;
   }
 
@@ -80,7 +93,19 @@ export function parseAdminSearchParams(
     out.generalSubTab = isGeneralSub(subRaw) ? subRaw : 'settings';
   }
 
+  out.entradaOrderId = parseEntradaOrderIdFromSearch(search, out.transportSubTab);
   return out;
+}
+
+function appendEntradaOrderQuery(sp: URLSearchParams, state: AdminNavState, isHub: boolean) {
+  const onEntrada =
+    (isHub && state.transportSubTab === 'entrada') ||
+    (!isHub && state.category === 'transport' && state.transportSubTab === 'entrada');
+  if (onEntrada && state.entradaOrderId) {
+    sp.set('orderId', state.entradaOrderId);
+  } else {
+    sp.delete('orderId');
+  }
 }
 
 export function adminStateToSearchParams(state: AdminNavState, isHub: boolean): URLSearchParams {
@@ -88,6 +113,7 @@ export function adminStateToSearchParams(state: AdminNavState, isHub: boolean): 
   if (isHub) {
     sp.set('cat', 'transport');
     sp.set('sub', state.transportSubTab);
+    appendEntradaOrderQuery(sp, state, true);
     return sp;
   }
   sp.set('cat', state.category);
@@ -97,7 +123,22 @@ export function adminStateToSearchParams(state: AdminNavState, isHub: boolean): 
   else {
     sp.delete('sub');
   }
+  appendEntradaOrderQuery(sp, state, false);
   return sp;
+}
+
+/** Link hash para Torre → Entrada com pedido selecionado. */
+export function gestaoEntradaOrderUrl(orderId: string, isHub: boolean): string {
+  const sp = adminStateToSearchParams(
+    {
+      ...defaultState(),
+      category: 'transport',
+      transportSubTab: 'entrada',
+      entradaOrderId: orderId,
+    },
+    isHub
+  );
+  return `/gestao?${sp.toString()}`;
 }
 
 export function getAdminBreadcrumbs(state: AdminNavState, isHub: boolean): { label: string }[] {

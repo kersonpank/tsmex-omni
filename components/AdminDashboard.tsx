@@ -62,7 +62,11 @@ const AdminDashboard: React.FC = () => {
       setSearchParams(
         (prev) => {
           const current = parseAdminSearchParams(prev, isHub, hasPermission);
-          return adminStateToSearchParams({ ...current, ...patch }, isHub);
+          let next: AdminNavState = { ...current, ...patch };
+          if (next.category !== 'transport' || next.transportSubTab !== 'entrada') {
+            next = { ...next, entradaOrderId: null };
+          }
+          return adminStateToSearchParams(next, isHub);
         },
         { replace: true }
       );
