@@ -16,9 +16,69 @@ const region = process.env.S3_REGION ?? process.env.MINIO_REGION ?? 'us-east-1';
 const bucket = process.env.S3_BUCKET ?? process.env.MINIO_BUCKET ?? 'tsm-ex-uploads';
 const forcePathStyle = (process.env.S3_FORCE_PATH_STYLE ?? 'true') === 'true';
 const publicBaseUrl = process.env.S3_PUBLIC_BASE_URL ?? process.env.MINIO_PUBLIC_BASE_URL;
+const signedUrlPublicHost = process.env.S3_SIGNED_URL_PUBLIC_HOST ?? publicBaseUrl ?? null;
+const isProduction = (process.env.NODE_ENV ?? '').toLowerCase() === 'production';
 
 if (!endpoint || !accessKeyId || !secretAccessKey) {
     throw new Error('Missing MinIO/S3 env vars. Configure endpoint, access key and secret key.');
+}
+
+function isPrivateIpv4(hostname: string): boolean {
+    const parts = hostname.split('.').map((segment) => Number(segment));
+    if (parts.length !== 4 || parts.some((part) => Number.isNaN(part) || part < 0 || part > 255)) return false;
+    const [a, b] = parts;
+    if (a === 10) return true;
+    if (a === 127) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    return false;
+}
+
+function isInternalHostname(hostname: string): boolean {
+    const normalized = hostname.toLowerCase();
+    if (!normalized) return true;
+    if (normalized === 'localhost' || normalized === 'minio') return true;
+    if (normalized.endsWith('.local') || normalized.endsWith('.internal')) return true;
+    if (isPrivateIpv4(normalized)) return true;
+    return false;
+}
+
+function assertProductionSafeEndpoint(rawEndpoint: string): void {
+    let parsed: URL;
+    try {
+        parsed = new URL(rawEndpoint);
+    } catch {
+        throw new Error(`Invalid S3 endpoint "${rawEndpoint}". Use a full URL like "https://minio.example.com".`);
+    }
+
+    if (parsed.protocol !== 'https:') {
+        throw new Error(`Unsafe S3 endpoint "${rawEndpoint}" in production. Configure S3 endpoint with HTTPS.`);
+    }
+
+    if (isInternalHostname(parsed.hostname)) {
+        throw new Error(
+            `Unsafe S3 endpoint "${rawEndpoint}" in production. Configure S3 endpoint with a public hostname reachable by the browser.`
+        );
+    }
+}
+
+function rewriteSignedUrlToPublicHost(url: string): string {
+    const hostOverride = signedUrlPublicHost?.trim();
+    if (!hostOverride) return url;
+
+    try {
+        const signed = new URL(url);
+        const publicHost = new URL(hostOverride);
+        signed.protocol = publicHost.protocol;
+        signed.host = publicHost.host;
+        return signed.toString();
+    } catch {
+        return url;
+    }
+}
+
+if (isProduction) {
+    assertProductionSafeEndpoint(endpoint);
 }
 
 const s3Client = new S3Client({
@@ -92,7 +152,7 @@ export async function uploadBase64Object(params: {
         storageKey,
         checksum,
         size: buffer.length,
-        signedUrl,
+        signedUrl: rewriteSignedUrlToPublicHost(signedUrl),
         publicUrl: publicBaseUrl ? `${publicBaseUrl.replace(/\/$/, '')}/${storageKey}` : null,
     };
 }
@@ -107,11 +167,12 @@ export async function deleteObjectByKey(storageKey: string): Promise<void> {
 }
 
 export async function getObjectDownloadUrl(storageKey: string, expiresInSeconds = 3600): Promise<string> {
-    return getSignedUrl(
+    const signedUrl = await getSignedUrl(
         s3Client,
         new GetObjectCommand({ Bucket: bucket, Key: storageKey }),
         { expiresIn: expiresInSeconds }
     );
+    return rewriteSignedUrlToPublicHost(signedUrl);
 }
 
 export async function ensureBucketExists(): Promise<void> {

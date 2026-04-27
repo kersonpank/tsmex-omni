@@ -17,6 +17,7 @@ Use esta matriz no Portainer (Stack variables) para evitar drift e falha no star
 - `S3_SECRET_KEY`
 - `S3_BUCKET`
 - `S3_PUBLIC_BASE_URL`
+- `S3_SIGNED_URL_PUBLIC_HOST` (recomendado, pode repetir o mesmo valor de `S3_PUBLIC_BASE_URL`)
 
 ## Variáveis opcionais (somente imagem `tsmex-migrate`)
 
@@ -55,6 +56,7 @@ S3_BUCKET=tsmex-staging-uploads
 S3_REGION=us-east-1
 S3_FORCE_PATH_STYLE=true
 S3_PUBLIC_BASE_URL=https://minio-stg.seu-dominio.com
+S3_SIGNED_URL_PUBLIC_HOST=https://minio-stg.seu-dominio.com
 UPLOAD_MAX_SIZE_BYTES=10485760
 
 RUN_SEED=false
@@ -81,6 +83,7 @@ S3_BUCKET=tsmex-prod-uploads
 S3_REGION=us-east-1
 S3_FORCE_PATH_STYLE=true
 S3_PUBLIC_BASE_URL=https://minio.seu-dominio.com
+S3_SIGNED_URL_PUBLIC_HOST=https://minio.seu-dominio.com
 UPLOAD_MAX_SIZE_BYTES=10485760
 
 RUN_SEED=false
@@ -92,4 +95,5 @@ RUN_MIGRATE_PERSONS=false
 - Nunca reutilizar `JWT_SECRET`, `S3_ACCESS_KEY` ou `S3_SECRET_KEY` entre ambientes.
 - Nunca usar credenciais de admin MinIO (`MINIO_ROOT_*`) na aplicação.
 - `S3_ENDPOINT` deve ser o domínio HTTPS público (não usar porta interna quando há proxy).
+- Para assinatura estável no browser, `S3_SIGNED_URL_PUBLIC_HOST` deve apontar para host HTTPS público do MinIO.
 
