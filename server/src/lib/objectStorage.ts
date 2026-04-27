@@ -9,14 +9,19 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
-const endpoint = process.env.S3_ENDPOINT ?? process.env.MINIO_ENDPOINT;
+function normalizeUrlEnv(rawValue?: string | null): string | null {
+    if (!rawValue) return null;
+    return rawValue.trim().replace(/[{}]/g, '');
+}
+
+const endpoint = normalizeUrlEnv(process.env.S3_ENDPOINT ?? process.env.MINIO_ENDPOINT);
 const accessKeyId = process.env.S3_ACCESS_KEY ?? process.env.MINIO_ACCESS_KEY;
 const secretAccessKey = process.env.S3_SECRET_KEY ?? process.env.MINIO_SECRET_KEY;
 const region = process.env.S3_REGION ?? process.env.MINIO_REGION ?? 'us-east-1';
 const bucket = process.env.S3_BUCKET ?? process.env.MINIO_BUCKET ?? 'tsm-ex-uploads';
 const forcePathStyle = (process.env.S3_FORCE_PATH_STYLE ?? 'true') === 'true';
-const publicBaseUrl = process.env.S3_PUBLIC_BASE_URL ?? process.env.MINIO_PUBLIC_BASE_URL;
-const signedUrlPublicHost = process.env.S3_SIGNED_URL_PUBLIC_HOST ?? publicBaseUrl ?? null;
+const publicBaseUrl = normalizeUrlEnv(process.env.S3_PUBLIC_BASE_URL ?? process.env.MINIO_PUBLIC_BASE_URL);
+const signedUrlPublicHost = normalizeUrlEnv(process.env.S3_SIGNED_URL_PUBLIC_HOST) ?? publicBaseUrl ?? null;
 const isProduction = (process.env.NODE_ENV ?? '').toLowerCase() === 'production';
 
 if (!endpoint || !accessKeyId || !secretAccessKey) {
@@ -44,6 +49,12 @@ function isInternalHostname(hostname: string): boolean {
 }
 
 function assertProductionSafeEndpoint(rawEndpoint: string): void {
+    if (/[{}]/.test(rawEndpoint)) {
+        throw new Error(
+            `Invalid S3 endpoint "${rawEndpoint}". Remove invalid characters and use format "https://minio.example.com".`
+        );
+    }
+
     let parsed: URL;
     try {
         parsed = new URL(rawEndpoint);
@@ -65,6 +76,7 @@ function assertProductionSafeEndpoint(rawEndpoint: string): void {
 function rewriteSignedUrlToPublicHost(url: string): string {
     const hostOverride = signedUrlPublicHost?.trim();
     if (!hostOverride) return url;
+    if (/[{}]/.test(hostOverride)) return url;
 
     try {
         const signed = new URL(url);

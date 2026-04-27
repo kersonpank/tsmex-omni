@@ -4,13 +4,24 @@ import { getObjectDownloadUrl } from '../lib/objectStorage.js';
 
 const LOGO_SIGNED_URL_TTL_SECONDS = 86400; // 24h — suficiente para abrir o preview e imprimir
 
+function shouldDropLegacyLogoUrl(logoUrl: string | null): boolean {
+  if (!logoUrl) return true;
+  const normalized = logoUrl.trim().toLowerCase();
+  if (!normalized) return true;
+  if (normalized.includes('minio:9000')) return true;
+  if (normalized.includes('localhost:9000')) return true;
+  if (normalized.startsWith('http://')) return true;
+  if (normalized.includes('{') || normalized.includes('}')) return true;
+  return false;
+}
+
 export async function resolveStoredLogoUrl(logoUrl: string | null, logoStorageKey: string | null): Promise<string | null> {
   const key = logoStorageKey?.trim();
   if (!key) return logoUrl;
   try {
     return await getObjectDownloadUrl(key, LOGO_SIGNED_URL_TTL_SECONDS);
   } catch {
-    return logoUrl;
+    return shouldDropLegacyLogoUrl(logoUrl) ? null : logoUrl;
   }
 }
 
