@@ -46,6 +46,7 @@ const ManifestsTab: React.FC = () => {
     hubId: '',
   });
   const [assignLinkId, setAssignLinkId] = useState('');
+  const [fiscalBusyId, setFiscalBusyId] = useState<string | null>(null);
   const [selectedDemandId, setSelectedDemandId] = useState('');
 
   const load = async () => {
@@ -99,6 +100,7 @@ const ManifestsTab: React.FC = () => {
         origin: createForm.origin,
         destination: createForm.destination,
         hubId: createForm.hubId || undefined,
+        demandIds: [],
       });
       setSuccess('Viagem criada.');
       setShowCreate(false);
@@ -170,6 +172,39 @@ const ManifestsTab: React.FC = () => {
       setError(e.response?.data?.error || e.message);
     }
   };
+
+  const handleEmitMdfe = async (manifestId: string) => {
+    setError(null);
+    setFiscalBusyId(manifestId);
+    try {
+      await manifestsApi.emitMdfe(manifestId);
+      setSuccess('MDF-e solicitado via ACBr. Verifique documentos fiscais do manifesto.');
+      load();
+      setTimeout(() => setSuccess(null), 4000);
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.response?.data?.message || e.message || 'Erro ao emitir MDF-e');
+    } finally {
+      setFiscalBusyId(null);
+    }
+  };
+
+  const handleCiotPlaceholder = async (manifestId: string) => {
+    setError(null);
+    setFiscalBusyId(manifestId);
+    try {
+      await manifestsApi.ciotPlaceholder(manifestId);
+      setSuccess('Registro CIOT (placeholder) criado — integração ANTEF em sprint dedicada.');
+      load();
+      setTimeout(() => setSuccess(null), 4000);
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Erro ao registrar CIOT placeholder');
+    } finally {
+      setFiscalBusyId(null);
+    }
+  };
+
+  const canShowFiscalActions = (status: string) =>
+    ['PENDING_ACCEPT', 'ACCEPTED', 'IN_PROGRESS'].includes(status);
 
   return (
     <div>
@@ -364,6 +399,28 @@ const ManifestsTab: React.FC = () => {
                     >
                       Concluir viagem
                     </button>
+                  )}
+                  {canShowFiscalActions(m.status) && (
+                    <>
+                      <button
+                        type="button"
+                        disabled={fiscalBusyId === m.id}
+                        onClick={() => handleEmitMdfe(m.id)}
+                        className="rounded-lg border border-tower-300 bg-white px-3 py-1.5 text-sm text-tower-800 hover:bg-tower-50 disabled:opacity-50 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100 dark:hover:bg-tower-700"
+                        title="Requer credenciais ACBr e CT-es autorizados vinculados à viagem"
+                      >
+                        {fiscalBusyId === m.id ? '…' : 'MDF-e (ACBr)'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={fiscalBusyId === m.id}
+                        onClick={() => handleCiotPlaceholder(m.id)}
+                        className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100 dark:hover:bg-amber-900/50"
+                        title="Placeholder até integração ANTEF / compliance"
+                      >
+                        CIOT (rascunho)
+                      </button>
+                    </>
                   )}
                 </div>
               </div>

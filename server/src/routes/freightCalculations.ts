@@ -3,13 +3,32 @@ import { z } from 'zod';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
-import { getNextMinutaNumber, getNextCteNumber, getNextFiscalEmitterMinutaNumber, getNextFiscalEmitterCteNumber, buildMinutaPayload, buildCtePayload } from '../services/freightEmission.js';
+import {
+    getNextMinutaNumber,
+    getNextCteNumber,
+    getNextDceNumber,
+    getNextFiscalEmitterMinutaNumber,
+    getNextFiscalEmitterCteNumber,
+    getNextFiscalEmitterDceNumber,
+    buildMinutaPayload,
+    buildCtePayload,
+} from '../services/freightEmission.js';
 import { authorizeCteWithProvider, validateCteReadiness, type CteEmissionInput, type CteEnvironment, type CteProviderMode } from '../services/cteService.js';
+import { authorizeDceWithProvider, validateDceReadiness } from '../services/dceService.js';
 import { getBrandingForFiscalEmitter } from '../services/visualIdentityService.js';
 
 const router = Router({ mergeParams: true });
 
-const FISCAL_LOCKED_STATUSES = ['CTE_READY', 'CTE_SENT', 'CTE_AUTHORIZED', 'CTE_CANCELLED'] as const;
+const FISCAL_LOCKED_STATUSES = [
+    'CTE_READY',
+    'CTE_SENT',
+    'CTE_AUTHORIZED',
+    'CTE_CANCELLED',
+    'DCE_READY',
+    'DCE_SENT',
+    'DCE_AUTHORIZED',
+    'DCE_CANCELLED',
+] as const;
 
 // Helper: coleta parâmetros do pedido (volumes, peso, cubagem, valor NF)
 function getOrderParams(order: { invoicesRel: { volumes: number; weight: number; cubedVolume: number | null; value: number }[]; collectionData: unknown }) {
@@ -29,7 +48,7 @@ function getOrderParams(order: { invoicesRel: { volumes: number; weight: number;
 
 // Validation schemas
 const createFreightCalcSchema = z.object({
-    documentType: z.enum(['CTE', 'MINUTA']),
+    documentType: z.enum(['CTE', 'DCE', 'MINUTA']),
     emissorId: z.string().uuid(),
     calculationMethod: z.enum(['ESPECIAL', 'TARIFA_GERAL', 'INFORMADO']),
     pricingTableId: z.string().uuid().optional().nullable(),
@@ -156,7 +175,7 @@ router.post('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthReques
         const calc = await prisma.orderFreightCalculation.create({
             data: {
                 orderId,
-                documentType: data.documentType as 'CTE' | 'MINUTA',
+                documentType: data.documentType as 'CTE' | 'DCE' | 'MINUTA',
                 emissorId: data.emissorId,
                 calculationMethod: data.calculationMethod as 'ESPECIAL' | 'TARIFA_GERAL' | 'INFORMADO',
                 pricingTableId: data.pricingTableId || null,
@@ -557,6 +576,7 @@ router.get('/:calcId/print-preview', authenticate, authorize('ADMIN', 'HUB'), as
             consignatarioPerson: order.consignatarioPerson,
             expedidorPerson: order.expedidorPerson,
             invoicesRel: order.invoicesRel,
+            collectionData: order.collectionData,
         };
 
         if (calc.documentType === 'MINUTA') {
@@ -606,6 +626,38 @@ router.get('/:calcId/print-preview', authenticate, authorize('ADMIN', 'HUB'), as
             });
 
             return res.json({ success: true, payload, branding });
+        }
+
+        if (calc.documentType === 'DCE') {
+            const ambiente = (calc.dceEnvironment ?? (process.env.FISCAL_CTE_ENV === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO')) as CteEnvironment;
+            const serie = calc.dceSeries ?? calc.cteSeries ?? Number(process.env.FISCAL_CTE_SERIE || 1);
+            const emittedAuth = calc.status === 'DCE_AUTHORIZED' && Boolean(calc.dceAccessKey?.trim());
+            const hasNumero = Boolean(calc.dceNumber?.trim());
+            const numero = hasNumero ? (parseInt(calc.dceNumber!, 10) || 0) : 0;
+            const previewDraft = !emittedAuth;
+
+            const observacoesDce = [calc.observacoes, calc.status === 'DCE_REJECTED' && calc.dceStatusReason ? `Pendência: ${calc.dceStatusReason}` : null]
+                .filter((s): s is string => Boolean(s && String(s).trim()))
+                .join('\n') || null;
+
+            const payload = buildCtePayload({
+                calc: {
+                    ...calcFields,
+                    observacoes: observacoesDce,
+                },
+                order: orderFields,
+                hub: emitterPrint,
+                person: emitterPerson,
+                numero,
+                serie,
+                ambiente,
+                chaveAcesso: calc.dceAccessKey ?? null,
+                protocolo: calc.dceProtocol ?? null,
+                autorizacaoEm: calc.dceAuthorizedAt?.toISOString() ?? null,
+                previewDraft,
+            });
+
+            return res.json({ success: true, payload: { ...payload, documentLabel: 'DC-e' }, branding });
         }
 
         throw new AppError('Tipo de documento não suportado para impressão.', 400);
@@ -701,6 +753,7 @@ router.post('/:calcId/emit-minuta', authenticate, authorize('ADMIN', 'HUB'), asy
                 consignatarioPerson: order.consignatarioPerson,
                 expedidorPerson: order.expedidorPerson,
                 invoicesRel: order.invoicesRel,
+                collectionData: order.collectionData,
             },
             hub: emitterPrint,
             person: emitterPerson,
@@ -827,6 +880,7 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
                 consignatarioPerson: order.consignatarioPerson,
                 expedidorPerson: order.expedidorPerson,
                 invoicesRel: order.invoicesRel,
+                collectionData: order.collectionData,
             },
             hub: emitterPrint,
             person: emitterPerson,
@@ -888,7 +942,10 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
             },
         });
 
-        const providerResult = await authorizeCteWithProvider(cteInput, { mode: providerMode });
+        const providerResult = await authorizeCteWithProvider(cteInput, {
+            mode: providerMode,
+            fiscalEmitterProvider: calc.fiscalEmitter?.provider ?? null,
+        });
         const now = new Date();
         const payload = buildCtePayload({
             ...cteInput,
@@ -938,6 +995,221 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
             message: providerResult.status === 'AUTHORIZED'
                 ? 'CT-e autorizado pelo provider fiscal configurado.'
                 : 'CT-e rejeitado pelo provider fiscal configurado.',
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// POST .../emit-dce — DC-e (declaração sem NF-e completa) via ACBr ou simulação
+router.post('/:calcId/emit-dce', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const orderId = req.params.orderId as string;
+        const calcId = req.params.calcId as string;
+
+        const order = await prisma.order.findUnique({
+            where: { id: orderId },
+            include: {
+                remetentePerson: true,
+                destinatarioPerson: true,
+                consignatarioPerson: true,
+                expedidorPerson: true,
+                invoicesRel: true,
+            },
+        });
+
+        if (!order) throw new AppError('Order not found', 404);
+
+        if (req.user!.roles.includes('HUB') && (!req.user!.hubId || order.currentHubId !== req.user!.hubId)) {
+            throw new AppError('Not authorized to emit document for this order', 403);
+        }
+
+        const calc = await prisma.orderFreightCalculation.findFirst({
+            where: { id: calcId, orderId },
+            include: { emissor: true, fiscalEmitter: { include: { person: true, hub: true } } },
+        });
+
+        if (!calc) throw new AppError('Cálculo de frete não encontrado', 404);
+
+        if (calc.documentType !== 'DCE') {
+            throw new AppError('Este cálculo não é do tipo DC-e. Escolha documento DC-e ou use emit-cte.', 400);
+        }
+
+        const dceLocked = ['DCE_READY', 'DCE_SENT', 'DCE_AUTHORIZED', 'DCE_CANCELLED'] as const;
+        if (dceLocked.includes(calc.status as (typeof dceLocked)[number])) {
+            throw new AppError('DC-e já enviado, autorizado ou cancelado para este cálculo.', 400);
+        }
+
+        if (calc.freightTotal <= 0) {
+            throw new AppError('Calcule o frete ou preencha o valor antes de emitir o DC-e.', 400);
+        }
+
+        const hub = await prisma.hub.findUnique({
+            where: { id: calc.emissorId },
+            include: { person: true },
+        });
+
+        if (!hub) throw new AppError('Emissor (Hub) não encontrado', 404);
+        if (!hub.person && !calc.fiscalEmitter?.person) throw new AppError('O emissor deve ter Pessoa vinculada para emitir', 400);
+
+        const ambiente = (calc.fiscalEmitter?.environment ?? (process.env.FISCAL_CTE_ENV === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO')) as CteEnvironment;
+        const providerMode = (process.env.FISCAL_CTE_PROVIDER_MODE === 'simulate-rejected'
+            ? 'simulate-rejected'
+            : 'simulate-authorized') as CteProviderMode;
+        const serie = calc.fiscalEmitter?.cteSeries ?? Number(process.env.FISCAL_CTE_SERIE || 1);
+        const emitterPerson = calc.fiscalEmitter?.person ?? hub.person;
+        if (!emitterPerson) throw new AppError('O emissor deve ter Pessoa vinculada para emitir', 400);
+        const emitterPrint = {
+            id: hub.id,
+            name: calc.fiscalEmitter?.displayName ?? calc.fiscalEmitter?.person.legalName ?? hub.name,
+            code: hub.code,
+            phone: calc.fiscalEmitter?.hub?.phone ?? hub.phone,
+            rntrc: calc.fiscalEmitter?.rntrc ?? hub.rntrc,
+        };
+
+        const dceBaseInput = {
+            calc: {
+                id: calc.id,
+                originCity: calc.originCity,
+                destCity: calc.destCity,
+                cfop: calc.cfop,
+                cst: calc.cst,
+                tipoFrete: calc.tipoFrete,
+                observacoes: calc.observacoes,
+                volumes: calc.volumes,
+                weight: calc.weight,
+                effectiveWeight: calc.effectiveWeight,
+                cubage: calc.cubage,
+                nfValue: calc.nfValue,
+                commodity: calc.commodity,
+                freightTotal: calc.freightTotal,
+                breakdown: calc.breakdown,
+                icmsValue: calc.icmsValue,
+            },
+            order: {
+                freightTerm: order.freightTerm,
+                remetentePerson: order.remetentePerson,
+                destinatarioPerson: order.destinatarioPerson,
+                consignatarioPerson: order.consignatarioPerson,
+                expedidorPerson: order.expedidorPerson,
+                invoicesRel: order.invoicesRel,
+                collectionData: order.collectionData,
+            },
+            hub: emitterPrint,
+            person: emitterPerson,
+            numero: 0,
+            serie,
+            ambiente,
+        } satisfies CteEmissionInput;
+
+        const readiness = validateDceReadiness(dceBaseInput);
+        if (!readiness.ok) {
+            const rejected = await prisma.orderFreightCalculation.update({
+                where: { id: calcId },
+                data: {
+                    status: 'DCE_REJECTED',
+                    dceStatusReason: readiness.issues.join(' '),
+                    dceRejectedAt: new Date(),
+                },
+                include: {
+                    emissor: { select: { id: true, name: true, code: true, person: { select: { document: true, legalName: true } } } },
+                    pricingTable: { select: { id: true, description: true } },
+                },
+            });
+            return res.status(400).json({
+                success: false,
+                error: `DC-e com pendências: ${readiness.issues.join(' ')}`,
+                data: rejected,
+            });
+        }
+
+        const ready = await prisma.orderFreightCalculation.updateMany({
+            where: {
+                id: calcId,
+                orderId,
+                documentType: 'DCE',
+                status: { in: ['DRAFT', 'CALCULATED', 'DCE_REJECTED'] },
+            },
+            data: {
+                status: 'DCE_READY',
+                dceStatusReason: null,
+            },
+        });
+        if (ready.count !== 1) {
+            throw new AppError('DC-e não está em estado elegível para envio. Recarregue o pedido e tente novamente.', 409);
+        }
+
+        const numero = calc.fiscalEmitterId
+            ? await getNextFiscalEmitterDceNumber(calc.fiscalEmitterId)
+            : await getNextDceNumber(hub.id);
+        const dceInput = { ...dceBaseInput, numero } satisfies CteEmissionInput;
+
+        await prisma.orderFreightCalculation.update({
+            where: { id: calcId },
+            data: {
+                status: 'DCE_SENT',
+                dceNumber: String(numero),
+                dceSeries: serie,
+                dceEnvironment: ambiente,
+                dceStatusReason: null,
+            },
+        });
+
+        const providerResult = await authorizeDceWithProvider(dceInput, {
+            mode: providerMode,
+            fiscalEmitterProvider: calc.fiscalEmitter?.provider ?? null,
+        });
+        const now = new Date();
+        const payload = buildCtePayload({
+            ...dceInput,
+            chaveAcesso: providerResult.accessKey ?? null,
+            protocolo: providerResult.protocol ?? null,
+            autorizacaoEm: providerResult.status === 'AUTHORIZED' ? now.toISOString() : null,
+        });
+        const fiscalData =
+            providerResult.status === 'AUTHORIZED'
+                ? {
+                    status: 'DCE_AUTHORIZED' as const,
+                    dceAccessKey: providerResult.accessKey ?? null,
+                    dceProtocol: providerResult.protocol ?? null,
+                    dceXml: providerResult.xml ?? null,
+                    dcePdfUrl: providerResult.pdfUrl ?? null,
+                    dceStatusReason: null,
+                    dceAuthorizedAt: now,
+                    dceRejectedAt: null,
+                }
+                : {
+                    status: 'DCE_REJECTED' as const,
+                    dceAccessKey: null,
+                    dceProtocol: null,
+                    dceXml: null,
+                    dcePdfUrl: null,
+                    dceStatusReason: providerResult.rejectionReason ?? 'DC-e rejeitado.',
+                    dceAuthorizedAt: null,
+                    dceRejectedAt: now,
+                };
+
+        const updated = await prisma.orderFreightCalculation.update({
+            where: { id: calcId },
+            data: fiscalData,
+            include: {
+                emissor: { select: { id: true, name: true, code: true, person: { select: { document: true, legalName: true } } } },
+                pricingTable: { select: { id: true, description: true } },
+            },
+        });
+
+        const branding = await getBrandingForFiscalEmitter(calc.fiscalEmitterId);
+
+        res.json({
+            success: true,
+            data: updated,
+            payload: { ...payload, documentLabel: 'DC-e' },
+            branding,
+            fiscal: providerResult,
+            message:
+                providerResult.status === 'AUTHORIZED'
+                    ? 'DC-e autorizado pelo provedor fiscal configurado.'
+                    : 'DC-e rejeitado pelo provedor fiscal configurado.',
         });
     } catch (error) {
         next(error);

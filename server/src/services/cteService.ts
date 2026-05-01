@@ -1,4 +1,6 @@
 import { buildCtePayload } from './freightEmission.js';
+import { shouldUseAcbrHttp } from './acbr/acbrConfig.js';
+import { emitCteViaAcbr } from './acbr/acbrCteEmit.js';
 
 export type CteEnvironment = 'HOMOLOGACAO' | 'PRODUCAO';
 
@@ -54,6 +56,7 @@ export interface CteEmissionInput {
         consignatarioPerson: CtePerson | null;
         expedidorPerson: CtePerson | null;
         invoicesRel: CteInvoice[];
+        collectionData?: unknown;
     };
     hub: {
         id: string;
@@ -75,6 +78,8 @@ export interface CteReadinessResult {
 
 export interface CteProviderOptions {
     mode?: CteProviderMode;
+    /** Quando ACBR, emite via API ACBr (requer ACBR_CLIENT_*). */
+    fiscalEmitterProvider?: string | null;
 }
 
 export interface CteProviderResult {
@@ -175,6 +180,22 @@ export async function authorizeCteWithProvider(
             rejectionReason: 'Rejeição simulada do provedor fiscal.',
             rawResponse: { provider: 'simulation', status: 'rejected' },
         };
+    }
+
+    const useAcbr = shouldUseAcbrHttp(options.fiscalEmitterProvider ?? null);
+    if (useAcbr && (options.mode ?? 'simulate-authorized') === 'simulate-authorized') {
+        try {
+            const r = await emitCteViaAcbr(input, input.calc.id);
+            r.rawResponse = { ...r.rawResponse, provider: 'acbr' };
+            return r;
+        } catch (e) {
+            return {
+                status: 'REJECTED',
+                rejectionCode: 'ACBR_HTTP',
+                rejectionReason: e instanceof Error ? e.message : String(e),
+                rawResponse: { provider: 'acbr', error: String(e) },
+            };
+        }
     }
 
     const payload = buildCtePayload({

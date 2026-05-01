@@ -6,6 +6,11 @@ import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { freightCalculationsRouter } from './freightCalculations.js';
 import {
+    suggestFiscalDocType,
+    collectionDataHasDeclaracao,
+    orderQualifiesForCte,
+} from '../services/fiscal/fiscalDocPolicy.js';
+import {
     deleteObjectByKey,
     getObjectDownloadUrl,
     inferAttachmentType,
@@ -15,6 +20,31 @@ import {
 const router = Router();
 
 router.use('/:orderId/freight-calculations', freightCalculationsRouter);
+
+router.get('/:orderId/fiscal-doc-suggestion', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const orderId = req.params.orderId as string;
+        const order = await prisma.order.findUnique({
+            where: { id: orderId },
+            include: { invoicesRel: true },
+        });
+        if (!order) throw new AppError('Order not found', 404);
+        if (req.user!.roles.includes('HUB') && (!req.user!.hubId || order.currentHubId !== req.user!.hubId)) {
+            throw new AppError('Not authorized', 403);
+        }
+        const hint = suggestFiscalDocType(order);
+        res.json({
+            success: true,
+            data: {
+                ...hint,
+                hasNfeKey: orderQualifiesForCte(order),
+                hasCollectionDeclaration: collectionDataHasDeclaracao(order.collectionData),
+            },
+        });
+    } catch (e) {
+        next(e);
+    }
+});
 
 const orderAttachmentCreateSchema = z.object({
     file: z.string().min(1),

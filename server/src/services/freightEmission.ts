@@ -44,6 +44,24 @@ export async function getNextFiscalEmitterCteNumber(fiscalEmitterId: string): Pr
     return emitter.lastCteNumber;
 }
 
+export async function getNextDceNumber(hubId: string): Promise<number> {
+    const hub = await prisma.hub.update({
+        where: { id: hubId },
+        data: { lastDceNumber: { increment: 1 } },
+        select: { lastDceNumber: true },
+    });
+    return hub.lastDceNumber;
+}
+
+export async function getNextFiscalEmitterDceNumber(fiscalEmitterId: string): Promise<number> {
+    const emitter = await prisma.fiscalEmitter.update({
+        where: { id: fiscalEmitterId },
+        data: { lastDceNumber: { increment: 1 } },
+        select: { lastDceNumber: true },
+    });
+    return emitter.lastDceNumber;
+}
+
 // --- DTOs para Minuta e CT-e ---
 
 export interface DocumentoParteDto {
@@ -211,6 +229,7 @@ export function buildMinutaPayload(params: {
         consignatarioPerson: { legalName: string; document: string; stateRegistration?: string | null; address?: string | null; neighborhood?: string | null; number?: string | null; city?: string | null; state?: string | null; cep?: string | null } | null;
         expedidorPerson: { legalName: string; document: string; stateRegistration?: string | null; address?: string | null; neighborhood?: string | null; number?: string | null; city?: string | null; state?: string | null; cep?: string | null } | null;
         invoicesRel?: Array<{ nfNumber: string; type: string; nfKey?: string | null; nature?: string | null }>;
+        collectionData?: unknown;
     };
     hub: { name: string; code: string; phone?: string | null; rntrc?: string | null };
     person: { legalName: string; document: string; stateRegistration?: string | null; address?: string | null; neighborhood?: string | null; number?: string | null; city?: string | null; state?: string | null; cep?: string | null };

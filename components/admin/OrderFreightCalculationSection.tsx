@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ordersFreightApi, hubsApi, pricingApi, clientsApi, fiscalEmittersApi } from '../../lib/api';
+import { ordersFreightApi, ordersApi, hubsApi, pricingApi, clientsApi, fiscalEmittersApi } from '../../lib/api';
 import DactePrintPreview from './DactePrintPreview';
 import type {
   OrderFreightCalculation,
@@ -32,9 +32,23 @@ const STATUS_LABELS: Record<string, string> = {
   MINUTA_EMITTED: 'Minuta emitida',
   CTE_AUTHORIZED: 'CT-e autorizado',
   CTE_CANCELLED: 'CT-e cancelado',
+  DCE_READY: 'Doc Fiscal (DC-e) pronto',
+  DCE_SENT: 'DC-e enviado',
+  DCE_REJECTED: 'DC-e rejeitado',
+  DCE_AUTHORIZED: 'DC-e autorizado',
+  DCE_CANCELLED: 'DC-e cancelado',
 };
 
-const FISCAL_LOCKED_STATUSES = new Set(['CTE_READY', 'CTE_SENT', 'CTE_AUTHORIZED', 'CTE_CANCELLED']);
+const FISCAL_LOCKED_STATUSES = new Set([
+  'CTE_READY',
+  'CTE_SENT',
+  'CTE_AUTHORIZED',
+  'CTE_CANCELLED',
+  'DCE_READY',
+  'DCE_SENT',
+  'DCE_AUTHORIZED',
+  'DCE_CANCELLED',
+]);
 
 interface OrderFreightCalculationSectionProps {
   orderId: string;
@@ -67,6 +81,12 @@ export const OrderFreightCalculationSection: React.FC<OrderFreightCalculationSec
   const [error, setError] = useState<string | null>(null);
   const [addingNew, setAddingNew] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [fiscalSuggestion, setFiscalSuggestion] = useState<{
+    suggested: 'CTE' | 'DCE';
+    reason: string;
+    hasNfeKey: boolean;
+    hasCollectionDeclaration: boolean;
+  } | null>(null);
 
   const loadCalculations = async () => {
     setLoading(true);
@@ -84,6 +104,28 @@ export const OrderFreightCalculationSection: React.FC<OrderFreightCalculationSec
 
   useEffect(() => {
     loadCalculations();
+  }, [orderId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    ordersApi
+      .getFiscalDocSuggestion(orderId)
+      .then((r) => {
+        if (cancelled) return;
+        const d = (r as { data?: {
+          suggested: 'CTE' | 'DCE';
+          reason: string;
+          hasNfeKey: boolean;
+          hasCollectionDeclaration: boolean;
+        } })?.data;
+        setFiscalSuggestion(d ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setFiscalSuggestion(null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [orderId]);
 
   const handleCreated = () => {
@@ -111,6 +153,14 @@ export const OrderFreightCalculationSection: React.FC<OrderFreightCalculationSec
       {error && (
         <div className="p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-300 text-sm">
           {error}
+        </div>
+      )}
+
+      {fiscalSuggestion && (
+        <div className="p-3 bg-brand-50 dark:bg-brand-900/20 border border-brand-200 dark:border-brand-800 rounded-lg text-sm text-tower-800 dark:text-tower-100">
+          <span className="font-semibold text-brand-800 dark:text-brand-200">Minuta e Doc Fiscal — sugestão:</span>{' '}
+          {fiscalSuggestion.suggested === 'CTE' ? 'CT-e' : 'DC-e (declaração sem NF-e completa)'}.
+          <span className="block mt-1 text-tower-600 dark:text-tower-300">{fiscalSuggestion.reason}</span>
         </div>
       )}
 
@@ -238,10 +288,16 @@ function OrderFreightCard({
   const [deleting, setDeleting] = useState(false);
   const [emittingMinuta, setEmittingMinuta] = useState(false);
   const [emittingCte, setEmittingCte] = useState(false);
+  const [emittingDce, setEmittingDce] = useState(false);
   const [loadingPrintPreview, setLoadingPrintPreview] = useState(false);
   const [printDoc, setPrintDoc] = useState<{ payload: unknown; branding?: unknown } | null>(null);
 
-  const headerLabel = calc.documentType === 'CTE' ? 'CT-e' : 'Minuta';
+  const headerLabel =
+    calc.documentType === 'CTE'
+      ? 'CT-e'
+      : calc.documentType === 'DCE'
+        ? 'Doc Fiscal (DC-e)'
+        : 'Minuta';
   const emissorLabel = calc.emissor
     ? `${calc.emissor.code ?? calc.emissor.name} ${(calc.emissor as any)?.person?.document ?? ''}`
     : 'Emissor';
@@ -249,8 +305,10 @@ function OrderFreightCard({
   const fiscalLocked = FISCAL_LOCKED_STATUSES.has(calc.status);
   const canEmitMinuta = calc.documentType === 'MINUTA' && calc.status !== 'MINUTA_EMITTED' && (calc.freightTotal ?? 0) > 0;
   const canEmitCte = calc.documentType === 'CTE' && !fiscalLocked && (calc.freightTotal ?? 0) > 0;
+  const canEmitDce = calc.documentType === 'DCE' && !fiscalLocked && (calc.freightTotal ?? 0) > 0;
   const canPrintMinuta = calc.documentType === 'MINUTA' && (calc.freightTotal ?? 0) > 0;
   const canPrintCte = calc.documentType === 'CTE' && (calc.freightTotal ?? 0) > 0;
+  const canPrintDce = calc.documentType === 'DCE' && (calc.freightTotal ?? 0) > 0;
 
   const handleCalculate = async () => {
     if (calc.calculationMethod === 'INFORMADO') return;
@@ -289,6 +347,20 @@ function OrderFreightCard({
       onCalculate();
     } finally {
       setEmittingCte(false);
+    }
+  };
+
+  const handleEmitDce = async () => {
+    setEmittingDce(true);
+    try {
+      const result = await ordersFreightApi.emitDce(orderId, calc.id);
+      if (result.payload) setPrintDoc({ payload: result.payload, branding: result.branding });
+      onCalculate();
+    } catch (e: any) {
+      window.alert(e.response?.data?.error ?? e.response?.data?.message ?? e.message ?? 'Erro ao emitir DC-e');
+      onCalculate();
+    } finally {
+      setEmittingDce(false);
     }
   };
 
@@ -345,9 +417,9 @@ function OrderFreightCard({
         <div>
           <span className="font-semibold text-tower-800 dark:text-tower-100">{headerLabel} - {emissorLabel}</span>
           <span className={`ml-2 px-2 py-0.5 rounded text-xs ${
-            calc.status === 'CTE_REJECTED'
+            calc.status === 'CTE_REJECTED' || calc.status === 'DCE_REJECTED'
               ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
-              : calc.status === 'CTE_AUTHORIZED'
+              : calc.status === 'CTE_AUTHORIZED' || calc.status === 'DCE_AUTHORIZED'
                 ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
                 : 'bg-tower-100 dark:bg-tower-600 text-tower-600 dark:text-tower-300'
           }`}>
@@ -385,11 +457,21 @@ function OrderFreightCard({
               {emittingCte ? 'Enviando...' : calc.status === 'CTE_REJECTED' ? 'Reenviar CT-e' : 'Emitir CT-e'}
             </button>
           )}
+          {canEmitDce && (
+            <button
+              type="button"
+              onClick={handleEmitDce}
+              disabled={emittingDce}
+              className="px-3 py-1.5 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
+            >
+              {emittingDce ? 'Enviando...' : calc.status === 'DCE_REJECTED' ? 'Reenviar DC-e' : 'Emitir Doc Fiscal (DC-e)'}
+            </button>
+          )}
           {canPrintMinuta && (
             <button
               type="button"
               onClick={handlePrintPreview}
-              disabled={loadingPrintPreview || emittingMinuta || emittingCte}
+              disabled={loadingPrintPreview || emittingMinuta || emittingCte || emittingDce}
               className="px-3 py-1.5 text-sm rounded-lg border border-brand-600 text-brand-600 dark:border-brand-500 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-950/40 disabled:opacity-50"
             >
               {loadingPrintPreview ? 'Carregando...' : 'Imprimir Minuta'}
@@ -399,10 +481,20 @@ function OrderFreightCard({
             <button
               type="button"
               onClick={handlePrintPreview}
-              disabled={loadingPrintPreview || emittingMinuta || emittingCte}
+              disabled={loadingPrintPreview || emittingMinuta || emittingCte || emittingDce}
               className="px-3 py-1.5 text-sm rounded-lg border border-brand-600 text-brand-600 dark:border-brand-500 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-950/40 disabled:opacity-50"
             >
               {loadingPrintPreview ? 'Carregando...' : 'Imprimir CT-e'}
+            </button>
+          )}
+          {canPrintDce && (
+            <button
+              type="button"
+              onClick={handlePrintPreview}
+              disabled={loadingPrintPreview || emittingMinuta || emittingCte || emittingDce}
+              className="px-3 py-1.5 text-sm rounded-lg border border-brand-600 text-brand-600 dark:border-brand-500 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-950/40 disabled:opacity-50"
+            >
+              {loadingPrintPreview ? 'Carregando...' : 'Imprimir Doc Fiscal'}
             </button>
           )}
           <button
@@ -410,7 +502,7 @@ function OrderFreightCard({
             onClick={onEdit}
             disabled={fiscalLocked}
             className="px-3 py-1.5 text-sm text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-700 rounded-lg disabled:opacity-50"
-            title={fiscalLocked ? 'CT-e enviado/autorizado não pode ser editado' : undefined}
+            title={fiscalLocked ? 'Documento fiscal (CT-e ou DC-e) em trâmite ou autorizado não pode ser editado' : undefined}
           >
             Editar
           </button>
@@ -442,7 +534,13 @@ function OrderFreightCard({
           <span className="font-medium">Pendência fiscal:</span> {calc.cteStatusReason}
         </div>
       )}
-      {(calc.minutaNumber || calc.cteNumber || calc.cteAccessKey || calc.cteProtocol || calc.ctePdfUrl || calc.cteXmlUrl) && (
+      {calc.status === 'DCE_REJECTED' && calc.dceStatusReason && (
+        <div className="mt-3 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-300">
+          <span className="font-medium">Pendência fiscal (DC-e):</span> {calc.dceStatusReason}
+        </div>
+      )}
+      {(calc.minutaNumber || calc.cteNumber || calc.cteAccessKey || calc.cteProtocol || calc.ctePdfUrl || calc.cteXmlUrl
+        || calc.dceNumber || calc.dceAccessKey || calc.dceProtocol || calc.dcePdfUrl) && (
         <div className="mt-2 pt-2 border-t border-tower-200 dark:border-tower-600 text-sm">
           {calc.minutaNumber && (
             <div className="text-tower-600 dark:text-tower-300">
@@ -471,6 +569,29 @@ function OrderFreightCard({
             <div className="flex gap-3 mt-1">
               {calc.ctePdfUrl && <a href={calc.ctePdfUrl} className="text-brand-600 dark:text-brand-400 hover:underline" target="_blank" rel="noreferrer">PDF</a>}
               {calc.cteXmlUrl && <a href={calc.cteXmlUrl} className="text-brand-600 dark:text-brand-400 hover:underline" target="_blank" rel="noreferrer">XML</a>}
+            </div>
+          )}
+          {calc.dceNumber && (
+            <div className="text-tower-600 dark:text-tower-300 mt-2">
+              <span className="font-medium">DC-e nº</span> {calc.dceNumber}
+              {calc.dceSeries != null && <span> · Série {calc.dceSeries}</span>}
+              {calc.dceEnvironment && <span> · {calc.dceEnvironment}</span>}
+            </div>
+          )}
+          {calc.dceAccessKey && (
+            <div className="text-tower-600 dark:text-tower-300 mt-1">
+              <span className="font-medium">Chave DC-e:</span>{' '}
+              <span className="font-mono text-xs break-all">{calc.dceAccessKey}</span>
+            </div>
+          )}
+          {calc.dceProtocol && (
+            <div className="text-tower-600 dark:text-tower-300 mt-0.5">
+              <span className="font-medium">Protocolo DC-e:</span> {calc.dceProtocol}
+            </div>
+          )}
+          {calc.dcePdfUrl && (
+            <div className="flex gap-3 mt-1">
+              <a href={calc.dcePdfUrl} className="text-brand-600 dark:text-brand-400 hover:underline" target="_blank" rel="noreferrer">PDF DC-e</a>
             </div>
           )}
         </div>
@@ -512,7 +633,7 @@ function OrderFreightForm({
   const [preview, setPreview] = useState<{ total: number; breakdown: Record<string, number>; tableName?: string } | null>(null);
 
   const [form, setForm] = useState({
-    documentType: (calc?.documentType ?? 'MINUTA') as 'CTE' | 'MINUTA',
+    documentType: (calc?.documentType ?? 'MINUTA') as 'CTE' | 'DCE' | 'MINUTA',
     emissorId: calc?.emissorId ?? (isHub ? userHubId ?? '' : availableHubs[0]?.id ?? ''),
     fiscalEmitterId: calc?.fiscalEmitterId ?? '',
     calculationMethod: (calc?.calculationMethod ?? 'ESPECIAL') as 'ESPECIAL' | 'TARIFA_GERAL' | 'INFORMADO',
@@ -755,15 +876,23 @@ function OrderFreightForm({
             )}
           </div>
           <div>
-            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Documento</label>
-            <div className="flex gap-4 pt-2">
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Minuta e Doc Fiscal</label>
+            <div className="flex flex-wrap gap-4 pt-2">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="radio"
                   checked={form.documentType === 'CTE'}
                   onChange={() => setForm((f) => ({ ...f, documentType: 'CTE' }))}
                 />
-                <span>CT-e</span>
+                <span>Doc Fiscal — CT-e</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  checked={form.documentType === 'DCE'}
+                  onChange={() => setForm((f) => ({ ...f, documentType: 'DCE' }))}
+                />
+                <span>Doc Fiscal — DC-e</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
@@ -771,9 +900,12 @@ function OrderFreightForm({
                   checked={form.documentType === 'MINUTA'}
                   onChange={() => setForm((f) => ({ ...f, documentType: 'MINUTA' }))}
                 />
-                <span>Minuta</span>
+                <span>Só minuta</span>
               </label>
             </div>
+            <p className="text-xs text-tower-500 dark:text-tower-400 mt-1">
+              CT-e quando há NF-e; DC-e quando há declaração de conteúdo sem NF-e completa (conforme entrada do pedido).
+            </p>
           </div>
         </div>
 

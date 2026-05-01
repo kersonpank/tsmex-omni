@@ -41,7 +41,7 @@ export type TollUnit = 'RS_KG' | 'FIXED';
 
 export type PricingTableType = 'SPECIAL' | 'GENERAL';
 
-export type FreightDocType = 'CTE' | 'MINUTA';
+export type FreightDocType = 'CTE' | 'DCE' | 'MINUTA';
 export type FreightCalcMethod = 'ESPECIAL' | 'TARIFA_GERAL' | 'INFORMADO';
 export type OrderStatus = 'PENDING' | 'IN_TRANSIT' | 'AT_HUB' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED';
 export type FreightCalcStatus =
@@ -52,11 +52,16 @@ export type FreightCalcStatus =
     | 'CTE_REJECTED'
     | 'MINUTA_EMITTED'
     | 'CTE_AUTHORIZED'
-    | 'CTE_CANCELLED';
+    | 'CTE_CANCELLED'
+    | 'DCE_READY'
+    | 'DCE_SENT'
+    | 'DCE_REJECTED'
+    | 'DCE_AUTHORIZED'
+    | 'DCE_CANCELLED';
 export type ManifestFiscalDocType = 'MDFE' | 'CIOT';
 export type ManifestFiscalDocStatus = 'DRAFT' | 'READY' | 'SENT' | 'REJECTED' | 'AUTHORIZED' | 'CLOSED' | 'CANCELLED';
 export type FiscalEnvironment = 'HOMOLOGACAO' | 'PRODUCAO';
-export type FiscalProvider = 'SIMULATED' | 'NUVEM_FISCAL' | 'FOCUS_NFE' | 'TECNOSPEED' | 'PLUGNOTAS' | 'OTHER';
+export type FiscalProvider = 'SIMULATED' | 'ACBR' | 'NUVEM_FISCAL' | 'FOCUS_NFE' | 'TECNOSPEED' | 'PLUGNOTAS' | 'OTHER';
 export type FiscalProviderStatus = 'NOT_CONFIGURED' | 'PENDING' | 'READY' | 'ERROR';
 export type FiscalCertificateStatus = 'MISSING' | 'READY' | 'EXPIRED' | 'INVALID';
 export type FiscalTaxRegime = 'SIMPLES_NACIONAL' | 'LUCRO_PRESUMIDO' | 'LUCRO_REAL' | 'MEI' | 'OUTRO';
@@ -102,6 +107,17 @@ export interface OrderFreightCalculation {
     cteAuthorizedAt?: string | null;
     cteRejectedAt?: string | null;
     cteCancelledAt?: string | null;
+    dceNumber?: string | null;
+    dceSeries?: number | null;
+    dceEnvironment?: string | null;
+    dceAccessKey?: string | null;
+    dceProtocol?: string | null;
+    dceStatusReason?: string | null;
+    dceXml?: string | null;
+    dcePdfUrl?: string | null;
+    dceAuthorizedAt?: string | null;
+    dceRejectedAt?: string | null;
+    dceCancelledAt?: string | null;
     status: FreightCalcStatus;
     createdAt: string;
     updatedAt: string;
@@ -130,6 +146,7 @@ export interface FiscalEmitter {
     crt?: string | null;
     cteSeries: number;
     lastCteNumber: number;
+    lastDceNumber?: number;
     lastMinutaNumber: number;
     environment: FiscalEnvironment;
     provider: FiscalProvider;

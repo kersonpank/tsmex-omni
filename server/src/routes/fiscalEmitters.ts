@@ -11,8 +11,39 @@ import {
     encryptCertificatePassword,
     getCertificateStatus,
 } from '../services/fiscalEmitterService.js';
+import { isAcbrCredentialsConfigured } from '../services/acbr/acbrConfig.js';
+import { putAcbrEmpresaCertificado, syncFiscalEmitterToAcbr } from '../services/acbr/acbrEmpresa.js';
 
 const router = Router();
+
+function digitsOnly(s: string): string {
+    return s.replace(/\D/g, '');
+}
+
+/** Sincroniza empresa + config CT-e na ACBr quando emitente é ACBR e credenciais globais existem. */
+async function trySyncAcbrEmitter(emitterId: string): Promise<{ acbrSync?: { ok: boolean; message?: string } }> {
+    const e = await prisma.fiscalEmitter.findUnique({ where: { id: emitterId }, include: { person: true } });
+    if (!e || e.provider !== 'ACBR' || !isAcbrCredentialsConfigured()) {
+        return {};
+    }
+    const env = e.environment === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO';
+    const sync = await syncFiscalEmitterToAcbr({ environment: env, crt: e.crt, person: e.person });
+    if (sync.ok) {
+        await prisma.fiscalEmitter.update({
+            where: { id: emitterId },
+            data: {
+                providerEmitterId: digitsOnly(e.person.document),
+                providerStatus: 'READY',
+            },
+        });
+    } else {
+        await prisma.fiscalEmitter.update({
+            where: { id: emitterId },
+            data: { providerStatus: 'ERROR' },
+        });
+    }
+    return { acbrSync: { ok: sync.ok, message: sync.message } };
+}
 
 const fiscalEmitterSchema = z.object({
     personId: z.string().uuid(),
@@ -29,7 +60,7 @@ const fiscalEmitterSchema = z.object({
     lastCteNumber: z.number().int().min(0).optional(),
     lastMinutaNumber: z.number().int().min(0).optional(),
     environment: z.enum(['HOMOLOGACAO', 'PRODUCAO']).optional(),
-    provider: z.enum(['SIMULATED', 'NUVEM_FISCAL', 'FOCUS_NFE', 'TECNOSPEED', 'PLUGNOTAS', 'OTHER']).optional(),
+    provider: z.enum(['SIMULATED', 'ACBR', 'NUVEM_FISCAL', 'FOCUS_NFE', 'TECNOSPEED', 'PLUGNOTAS', 'OTHER']).optional(),
     providerEmitterId: z.string().max(256).nullable().optional(),
     providerStatus: z.enum(['NOT_CONFIGURED', 'PENDING', 'READY', 'ERROR']).optional(),
     active: z.boolean().optional(),
@@ -122,9 +153,13 @@ router.post('/', authenticate, authorize('ADMIN'), async (req: AuthRequest, res:
         const data = fiscalEmitterSchema.parse(req.body);
         await assertPersonAndHub(data);
 
+        const { provider, providerEmitterId, providerStatus, ...restCreate } = data;
         const emitter = await prisma.fiscalEmitter.create({
             data: {
-                ...data,
+                ...restCreate,
+                provider: provider ?? 'SIMULATED',
+                providerEmitterId: providerEmitterId ?? null,
+                providerStatus: providerStatus ?? (provider === 'ACBR' ? 'PENDING' : 'NOT_CONFIGURED'),
                 hubId: data.hubId ?? null,
                 displayName: data.displayName ?? null,
                 tradeName: data.tradeName ?? null,
@@ -140,7 +175,13 @@ router.post('/', authenticate, authorize('ADMIN'), async (req: AuthRequest, res:
             include: { person: true, hub: true },
         });
 
-        res.status(201).json({ success: true, data: await toPublicEmitter(emitter) });
+        const acbrExtra = await trySyncAcbrEmitter(emitter.id);
+        const fresh = await prisma.fiscalEmitter.findUnique({
+            where: { id: emitter.id },
+            include: { person: true, hub: true },
+        });
+
+        res.status(201).json({ success: true, data: await toPublicEmitter(fresh!), ...acbrExtra });
     } catch (error) {
         if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
         next(error);
@@ -163,7 +204,12 @@ router.patch('/:id', authenticate, authorize('ADMIN'), async (req: AuthRequest, 
             data,
             include: { person: true, hub: true },
         });
-        res.json({ success: true, data: await toPublicEmitter(emitter) });
+        const acbrExtra = await trySyncAcbrEmitter(emitter.id);
+        const fresh = await prisma.fiscalEmitter.findUnique({
+            where: { id },
+            include: { person: true, hub: true },
+        });
+        res.json({ success: true, data: await toPublicEmitter(fresh!), ...acbrExtra });
     } catch (error) {
         if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
         next(error);
@@ -207,7 +253,27 @@ router.post('/:id/certificate', authenticate, authorize('ADMIN'), async (req: Au
             include: { person: true, hub: true },
         });
 
-        res.json({ success: true, data: await toPublicEmitter(updated) });
+        let acbrCert: { ok: boolean; message?: string } | undefined;
+        if (updated.provider === 'ACBR' && isAcbrCredentialsConfigured()) {
+            const env = updated.environment === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO';
+            const certRes = await putAcbrEmpresaCertificado(updated.person, env, data.file, data.password);
+            acbrCert = { ok: certRes.ok, message: certRes.message };
+            await prisma.fiscalEmitter.update({
+                where: { id: updated.id },
+                data: { providerStatus: certRes.ok ? 'READY' : 'ERROR' },
+            });
+        }
+
+        const afterCert = await prisma.fiscalEmitter.findUnique({
+            where: { id: updated.id },
+            include: { person: true, hub: true },
+        });
+
+        res.json({
+            success: true,
+            data: await toPublicEmitter(afterCert!),
+            ...(acbrCert ? { acbrCertificate: acbrCert } : {}),
+        });
     } catch (error) {
         if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
         next(error);

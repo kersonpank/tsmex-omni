@@ -274,6 +274,7 @@ model Hub {
   // Fiscal / emissao CT-e e Minuta
   rntrc            String? // RNTRC (registro ANTT) - obrigatorio para CT-e
   lastCteNumber    Int      @default(0) // Ultimo numero CT-e emitido
+  lastDceNumber    Int      @default(0) // Ultimo numero DC-e emitido
   lastMinutaNumber Int      @default(0) // Ultimo numero Minuta emitido
   simplesNacional  Boolean? // Regime fiscal (impacta ICMS)
 
@@ -711,6 +712,7 @@ enum FiscalEnvironment {
 
 enum FiscalProvider {
   SIMULATED
+  ACBR
   NUVEM_FISCAL
   FOCUS_NFE
   TECNOSPEED
@@ -760,6 +762,7 @@ model FiscalEmitter {
   crt              String?
   cteSeries        Int               @default(1)
   lastCteNumber    Int               @default(0)
+  lastDceNumber    Int               @default(0)
   lastMinutaNumber Int               @default(0)
   environment      FiscalEnvironment @default(HOMOLOGACAO)
 
@@ -1473,6 +1476,7 @@ model OrderInvoice {
 
 enum FreightDocType {
   CTE // Conhecimento de Transporte Eletrônico (fiscal)
+  DCE // Declaração de Conteúdo Eletrônica (fiscal)
   MINUTA // Documento interno (sem validação fiscal)
 }
 
@@ -1491,6 +1495,11 @@ enum FreightCalcStatus {
   MINUTA_EMITTED // Minuta emitida
   CTE_AUTHORIZED // CT-e autorizado SEFAZ
   CTE_CANCELLED // CT-e cancelado
+  DCE_READY // DC-e pronto para envio
+  DCE_SENT
+  DCE_REJECTED
+  DCE_AUTHORIZED
+  DCE_CANCELLED
 }
 
 model OrderFreightCalculation {
@@ -1543,6 +1552,18 @@ model OrderFreightCalculation {
   cteCancelledAt  DateTime?
   status          FreightCalcStatus @default(DRAFT)
 
+  dceNumber       String?
+  dceSeries       Int?
+  dceEnvironment  String?
+  dceAccessKey    String?
+  dceProtocol     String?
+  dceStatusReason String?           @db.Text
+  dceXml          String?           @db.Text
+  dcePdfUrl       String?
+  dceAuthorizedAt DateTime?
+  dceRejectedAt   DateTime?
+  dceCancelledAt  DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1550,6 +1571,18 @@ model OrderFreightCalculation {
   @@index([emissorId])
   @@index([fiscalEmitterId])
   @@index([pricingTableId])
+}
+
+// Último NSU Distribuição DF-e (ACBr) por CNPJ/CPF + ambiente
+model FiscalDistribuicaoCheckpoint {
+  id        String @id @default(uuid())
+  cpfCnpj   String // só dígitos
+  ambiente  String // homologacao | producao
+  ultimoNsu String @default("0") // NSU como string para suportar inteiros grandes
+  updatedAt DateTime @updatedAt
+
+  @@unique([cpfCnpj, ambiente])
+  @@index([cpfCnpj])
 }
 
 // ========================================

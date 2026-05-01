@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { fiscalEmittersApi, hubsApi, personsApi, uploadApi } from '../../lib/api';
-import type { FiscalEmitter, FiscalTaxRegime, Hub, Person } from '../../types/index';
+import type { FiscalEmitter, FiscalProvider, FiscalTaxRegime, Hub, Person } from '../../types/index';
+import { Toggle } from '../ui/toggle-1';
 
 type FormState = {
   id?: string;
@@ -17,6 +18,7 @@ type FormState = {
   crt: string;
   cteSeries: number;
   environment: 'HOMOLOGACAO' | 'PRODUCAO';
+  provider: FiscalProvider;
   active: boolean;
   defaultForHub: boolean;
 };
@@ -34,6 +36,7 @@ const emptyForm: FormState = {
   crt: '1',
   cteSeries: 1,
   environment: 'HOMOLOGACAO',
+  provider: 'SIMULATED',
   active: true,
   defaultForHub: false,
 };
@@ -65,6 +68,7 @@ function emitterToForm(emitter: FiscalEmitter): FormState {
     crt: emitter.crt ?? '',
     cteSeries: emitter.cteSeries ?? 1,
     environment: emitter.environment,
+    provider: emitter.provider ?? 'SIMULATED',
     active: emitter.active,
     defaultForHub: emitter.defaultForHub,
   };
@@ -205,10 +209,16 @@ const IdentidadeVisualTab: React.FC = () => {
         mimeType: file.type || 'application/x-pkcs12',
         password: certificatePassword,
         expiresAt: certificateExpiresAt ? new Date(certificateExpiresAt).toISOString() : null,
-      });
+      }) as { success?: boolean; data: FiscalEmitter; acbrCertificate?: { ok: boolean; message?: string } };
       setEmitters((current) => current.map((e) => (e.id === updated.data.id ? updated.data : e)));
       setCertificatePassword('');
-      setSuccess('Certificado A1 enviado com segurança.');
+      let certMsg = 'Certificado A1 enviado com segurança.';
+      if (updated.acbrCertificate && !updated.acbrCertificate.ok) {
+        certMsg += ` ACBr: ${updated.acbrCertificate.message ?? 'falha ao registrar certificado na nuvem.'}`;
+      } else if (updated.acbrCertificate?.ok) {
+        certMsg += ' Registrado na ACBr.';
+      }
+      setSuccess(certMsg);
     } catch (e: any) {
       setError(e.response?.data?.error ?? e.message ?? 'Falha ao enviar certificado');
     } finally {
@@ -235,17 +245,30 @@ const IdentidadeVisualTab: React.FC = () => {
         crt: form.crt || null,
         cteSeries: Number(form.cteSeries) || 1,
         environment: form.environment,
+        provider: form.provider,
         active: form.active,
         defaultForHub: form.defaultForHub,
       };
       const result = form.id
         ? await fiscalEmittersApi.update(form.id, payload)
         : await fiscalEmittersApi.create(payload);
+      const extra = result as { acbrSync?: { ok: boolean; message?: string }; acbrCertificate?: { ok: boolean; message?: string } };
       setForm(emitterToForm(result.data));
       setSelectedEmitterId(result.data.id);
       setIsEditing(false);
       await load();
-      setSuccess('Emitente credenciado salvo.');
+      let msg = 'Emitente credenciado salvo.';
+      if (extra.acbrSync && !extra.acbrSync.ok) {
+        msg += ` Sincronização ACBr (empresa): ${extra.acbrSync.message ?? 'falhou — verifique credenciais e dados da pessoa.'}`;
+      } else if (extra.acbrSync?.ok) {
+        msg += ' Empresa sincronizada na ACBr.';
+      }
+      if (extra.acbrCertificate && !extra.acbrCertificate.ok) {
+        msg += ` Certificado na ACBr: ${extra.acbrCertificate.message ?? 'falhou.'}`;
+      } else if (extra.acbrCertificate?.ok) {
+        msg += ' Certificado enviado à ACBr.';
+      }
+      setSuccess(msg);
     } catch (e: any) {
       setError(e.response?.data?.error ?? e.message ?? 'Erro ao salvar emitente');
     } finally {
@@ -260,7 +283,7 @@ const IdentidadeVisualTab: React.FC = () => {
       <div>
         <h2 className="mb-1 text-lg font-bold text-tower-800 dark:text-tower-100">Emitentes credenciados</h2>
         <p className="text-sm text-tower-600 dark:text-tower-400">
-          Configure CNPJs emissores, logo, RNTRC, CRT, certificado A1 e ambiente para Minuta, CT-e, DACTE, MDF-e e CIOT.
+          Configure CNPJs emissores, logo, RNTRC, CRT, certificado A1 e ambiente (homologação ou produção na API ACBr) para Minuta, Doc Fiscal (CT-e / DC-e), DACTE, MDF-e e CIOT. Credenciais OAuth da ACBr ficam no servidor (ex.: Portainer); aqui você escolhe o provedor e o ambiente por emitente.
         </p>
       </div>
 
@@ -345,6 +368,8 @@ const IdentidadeVisualTab: React.FC = () => {
                   <div><span className="font-semibold">RNTRC:</span> {selectedEmitter.rntrc || '-'}</div>
                   <div><span className="font-semibold">CRT:</span> {selectedEmitter.crt || '-'}</div>
                   <div><span className="font-semibold">Série CT-e:</span> {selectedEmitter.cteSeries}</div>
+                  <div><span className="font-semibold">Provedor:</span> {selectedEmitter.provider === 'ACBR' ? 'ACBr API' : selectedEmitter.provider}</div>
+                  <div><span className="font-semibold">Status provedor:</span> {selectedEmitter.providerStatus}</div>
                   <div><span className="font-semibold">Certificado:</span> {selectedEmitter.certificateFileName || 'Não enviado'}</div>
                   <div><span className="font-semibold">Status A1:</span> {selectedEmitter.certificateStatus}</div>
                   {selectedEmitter.logoUrl && (
@@ -405,13 +430,25 @@ const IdentidadeVisualTab: React.FC = () => {
                   {hubs.map((h) => <option key={h.id} value={h.id}>{h.code} - {h.name}</option>)}
                 </select>
               </label>
-              <label className="block">
-                <span className="text-sm font-medium text-tower-800 dark:text-tower-200">Ambiente</span>
-                <select className="admin-focus mt-1 w-full rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900" value={form.environment} onChange={(e) => update('environment', e.target.value as 'HOMOLOGACAO' | 'PRODUCAO')}>
-                  <option value="HOMOLOGACAO">Homologação</option>
-                  <option value="PRODUCAO">Produção</option>
-                </select>
-              </label>
+              <div className="block md:col-span-2">
+                <span className="text-sm font-medium text-tower-800 dark:text-tower-200">Ambiente ACBr (host da API)</span>
+                <p className="mt-0.5 text-xs text-tower-500 dark:text-tower-400">
+                  Homologação usa <code className="rounded bg-tower-100 px-1 dark:bg-tower-800">hom.acbr.api.br</code>; produção usa <code className="rounded bg-tower-100 px-1 dark:bg-tower-800">prod.acbr.api.br</code>. Deve coincidir com o certificado A1.
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-4">
+                  <Toggle
+                    color="amber"
+                    size="large"
+                    checked={form.environment === 'PRODUCAO'}
+                    onChange={(e) => update('environment', e.target.checked ? 'PRODUCAO' : 'HOMOLOGACAO')}
+                  >
+                    <span className="font-medium text-tower-800 dark:text-tower-100">
+                      {form.environment === 'PRODUCAO' ? 'Produção' : 'Homologação'}
+                    </span>
+                  </Toggle>
+                  <span className="text-xs text-tower-500">Ative para produção; desligado = homologação.</span>
+                </div>
+              </div>
               <label className="block">
                 <span className="text-sm font-medium text-tower-800 dark:text-tower-200">RNTRC</span>
                 <input className="admin-focus mt-1 w-full rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900" value={form.rntrc} onChange={(e) => update('rntrc', e.target.value)} />
@@ -436,6 +473,25 @@ const IdentidadeVisualTab: React.FC = () => {
                 <input type="number" min={1} className="admin-focus mt-1 w-full rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900" value={form.cteSeries} onChange={(e) => update('cteSeries', Number(e.target.value) || 1)} />
               </label>
             </div>
+          </section>
+
+          <section className="rounded-xl border border-tower-200 bg-white/90 p-5 dark:border-tower-700 dark:bg-tower-900/50">
+            <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-tower-500">Provedores</h3>
+            <p className="mb-4 text-xs text-tower-500 dark:text-tower-400">
+              Escolha quais integrações em nuvem este emitente utiliza. Outros provedores podem ser adicionados depois.
+            </p>
+            <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-tower-200 bg-tower-50/80 px-4 py-3 dark:border-tower-600 dark:bg-tower-950/40">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-tower-300 text-brand-600 focus:ring-brand-500"
+                checked={form.provider === 'ACBR'}
+                onChange={(e) => update('provider', e.target.checked ? 'ACBR' : 'SIMULATED')}
+              />
+              <div>
+                <div className="text-sm font-semibold text-tower-800 dark:text-tower-100">ACBr API</div>
+                <div className="text-xs text-tower-500 dark:text-tower-400">Emissão e cadastro de empresa/certificado na ACBr (requer variáveis ACBR_CLIENT_* no servidor).</div>
+              </div>
+            </label>
           </section>
 
           <section className="rounded-xl border border-tower-200 bg-white/90 p-5 dark:border-tower-700 dark:bg-tower-900/50">

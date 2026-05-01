@@ -3,6 +3,9 @@ import { z } from 'zod';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
+import { isAcbrCredentialsConfigured } from '../services/acbr/acbrConfig.js';
+import { emitMdfeViaAcbr } from '../services/acbr/acbrMdfeEmit.js';
+import { buildCiotPlaceholder } from '../services/ciotService.js';
 
 const router = Router();
 
@@ -557,6 +560,86 @@ router.patch('/:id/complete', authenticate, authorize('LINK', 'ADMIN'), async (r
             success: true,
             message: 'Manifest completed',
         });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// POST /api/manifests/:id/emit-mdfe — MDF-e (ACBr) para viagem com CT-es autorizados
+router.post('/:id/emit-mdfe', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const id = req.params.id as string;
+        if (!isAcbrCredentialsConfigured()) {
+            throw new AppError('MDF-e via ACBr requer ACBR_CLIENT_ID e ACBR_CLIENT_SECRET.', 503);
+        }
+
+        const manifest = await prisma.manifest.findUnique({ where: { id }, include: { hub: true } });
+        if (!manifest) throw new AppError('Manifest not found', 404);
+        if (req.user!.roles.includes('HUB') && req.user!.hubId && manifest.hubId !== req.user!.hubId) {
+            throw new AppError('Not authorized', 403);
+        }
+
+        const dup = await prisma.manifestFiscalDocument.findFirst({
+            where: { manifestId: id, documentType: 'MDFE', status: { in: ['AUTHORIZED', 'SENT', 'READY'] } },
+        });
+        if (dup) throw new AppError('MDF-e já existe ou está em processamento para este manifesto.', 409);
+
+        const result = await emitMdfeViaAcbr(id, id);
+        if (!result.ok) {
+            await prisma.manifestFiscalDocument.create({
+                data: {
+                    manifestId: id,
+                    documentType: 'MDFE',
+                    status: 'REJECTED',
+                    statusReason: result.error ?? 'Falha MDF-e',
+                    rawResponse: (result.raw ?? { error: result.error }) as object,
+                    rejectedAt: new Date(),
+                },
+            });
+            throw new AppError(result.error ?? 'Falha ao emitir MDF-e', 400);
+        }
+
+        const doc = await prisma.manifestFiscalDocument.create({
+            data: {
+                manifestId: id,
+                documentType: 'MDFE',
+                status: 'AUTHORIZED',
+                accessKey: result.accessKey,
+                protocol: result.protocol,
+                xmlUrl: null,
+                pdfUrl: result.apiId ? `mdfe:${result.apiId}` : null,
+                rawResponse: (result.raw ?? {}) as object,
+                authorizedAt: new Date(),
+            },
+        });
+
+        res.json({ success: true, data: doc, mdfe: result });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// POST /api/manifests/:id/ciot-placeholder — registro CIOT (planejado)
+router.post('/:id/ciot-placeholder', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const id = req.params.id as string;
+        const manifest = await prisma.manifest.findUnique({ where: { id }, include: { hub: true } });
+        if (!manifest) throw new AppError('Manifest not found', 404);
+        if (req.user!.roles.includes('HUB') && req.user!.hubId && manifest.hubId !== req.user!.hubId) {
+            throw new AppError('Not authorized', 403);
+        }
+
+        const info = buildCiotPlaceholder(id);
+        const doc = await prisma.manifestFiscalDocument.create({
+            data: {
+                manifestId: id,
+                documentType: 'CIOT',
+                status: 'DRAFT',
+                statusReason: info.message,
+                rawPayload: info as object,
+            },
+        });
+        res.status(202).json({ success: true, data: doc, ciot: info });
     } catch (error) {
         next(error);
     }

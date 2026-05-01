@@ -153,6 +153,18 @@ export const fiscalEmittersApi = {
     },
 };
 
+/** Distribuição DF-e (ACBr) — uso administrativo / torre. */
+export const fiscalDistribuicaoApi = {
+    solicitar: async (body: { cpfCnpj: string; ambiente?: string; ultimoNsu?: string }) => {
+        const response = await api.post<ApiResponse<unknown>>('/fiscal/distribuicao-nfe/solicitar', body);
+        return response.data;
+    },
+    documentos: async (params?: { cpfCnpj?: string; ambiente?: string; limit?: number }) => {
+        const response = await api.get<ApiResponse<unknown[]>>('/fiscal/distribuicao-nfe/documentos', { params });
+        return response.data;
+    },
+};
+
 // ========== DASHBOARD API ==========
 
 export const dashboardApi = {
@@ -273,6 +285,16 @@ export const manifestsApi = {
 
     complete: async (id: string) => {
         const response = await api.patch<ApiResponse<Manifest>>(`/manifests/${id}/complete`);
+        return response.data;
+    },
+
+    emitMdfe: async (id: string) => {
+        const response = await api.post<ApiResponse<Manifest>>(`/manifests/${id}/emit-mdfe`, {});
+        return response.data;
+    },
+
+    ciotPlaceholder: async (id: string) => {
+        const response = await api.post<ApiResponse<Manifest>>(`/manifests/${id}/ciot-placeholder`, {});
         return response.data;
     },
 };
@@ -811,7 +833,7 @@ export const ordersFreightApi = {
     },
 
     create: async (orderId: string, data: {
-        documentType: 'CTE' | 'MINUTA';
+        documentType: 'CTE' | 'DCE' | 'MINUTA';
         emissorId: string;
         calculationMethod: 'ESPECIAL' | 'TARIFA_GERAL' | 'INFORMADO';
         pricingTableId?: string | null;
@@ -832,7 +854,7 @@ export const ordersFreightApi = {
     },
 
     update: async (orderId: string, calcId: string, data: {
-        documentType?: 'CTE' | 'MINUTA';
+        documentType?: 'CTE' | 'DCE' | 'MINUTA';
         emissorId?: string;
         calculationMethod?: 'ESPECIAL' | 'TARIFA_GERAL' | 'INFORMADO';
         pricingTableId?: string | null;
@@ -894,6 +916,18 @@ export const ordersFreightApi = {
             };
             message?: string;
         }>(`/orders/${orderId}/freight-calculations/${calcId}/emit-cte`, {});
+        return response.data;
+    },
+
+    emitDce: async (orderId: string, calcId: string) => {
+        const response = await api.post<{
+            success: boolean;
+            data: OrderFreightCalculation;
+            payload?: unknown;
+            branding?: BrandingForDocuments | null;
+            fiscal?: { status: string; rejectionReason?: string };
+            message?: string;
+        }>(`/orders/${orderId}/freight-calculations/${calcId}/emit-dce`, {});
         return response.data;
     },
 
@@ -965,6 +999,18 @@ export const ordersApi = {
 
     removeAttachment: async (id: string, attachmentId: string) => {
         const response = await api.delete<ApiResponse<{ id: string }>>(`/orders/${id}/attachments/${attachmentId}`);
+        return response.data;
+    },
+
+    getFiscalDocSuggestion: async (orderId: string) => {
+        const response = await api.get<
+            ApiResponse<{
+                suggested: 'CTE' | 'DCE';
+                reason: string;
+                hasNfeKey: boolean;
+                hasCollectionDeclaration: boolean;
+            }>
+        >(`/orders/${orderId}/fiscal-doc-suggestion`);
         return response.data;
     },
 };
