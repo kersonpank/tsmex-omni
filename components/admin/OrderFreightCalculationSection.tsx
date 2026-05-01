@@ -10,6 +10,18 @@ import type {
   FiscalEmitter,
 } from '../../types/index';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function looksLikeUuid(value: string): boolean {
+  return UUID_RE.test(value.trim());
+}
+
+/** Payload/API: nunca enviar "" em campos UUID opcionais (evita "Invalid uuid" no Zod). */
+function optionalUuid(value: string | undefined | null): string | null {
+  const t = String(value ?? '').trim();
+  return t === '' ? null : t;
+}
+
 const CFOP_OPTIONS = ['6351', '6352', '6353', '6354', '6355', '6356', '6357', '6360', '6932', '6949', '7358'];
 const TIPO_FRETE_OPTIONS = ['Normal', 'Descarga', 'Devolução', 'Diária', 'Paletização', 'Reentrega', 'Retorno'];
 
@@ -50,6 +62,16 @@ const FISCAL_LOCKED_STATUSES = new Set([
   'DCE_CANCELLED',
 ]);
 
+export type FiscalDocSuggestionPayload = {
+  suggested: 'CTE' | 'DCE';
+  reason: string;
+  allowedFreightDocType: 'CTE' | 'DCE' | null;
+  blockingReason?: string;
+  hasNfeKey: boolean;
+  hasOutrasDeclaration?: boolean;
+  hasCollectionDeclaration: boolean;
+};
+
 interface OrderFreightCalculationSectionProps {
   orderId: string;
   order: {
@@ -60,7 +82,16 @@ interface OrderFreightCalculationSectionProps {
     remetentePersonId?: string | null;
     destinatarioPersonId?: string | null;
     consignatarioPersonId?: string | null;
-    invoicesRel?: { volumes: number; weight: number; cubedVolume?: number | null; value: number }[];
+    invoicesRel?: Array<{
+      volumes: number;
+      weight: number;
+      cubedVolume?: number | null;
+      value: number;
+      type?: 'NFE' | 'OUTRAS' | string | null;
+      nfKey?: string | null;
+      nature?: string | null;
+      nfNumber?: string | null;
+    }>;
     collectionData?: unknown;
     demand?: { client?: Client };
   };
@@ -81,12 +112,7 @@ export const OrderFreightCalculationSection: React.FC<OrderFreightCalculationSec
   const [error, setError] = useState<string | null>(null);
   const [addingNew, setAddingNew] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [fiscalSuggestion, setFiscalSuggestion] = useState<{
-    suggested: 'CTE' | 'DCE';
-    reason: string;
-    hasNfeKey: boolean;
-    hasCollectionDeclaration: boolean;
-  } | null>(null);
+  const [fiscalSuggestion, setFiscalSuggestion] = useState<FiscalDocSuggestionPayload | null>(null);
 
   const loadCalculations = async () => {
     setLoading(true);
@@ -112,12 +138,7 @@ export const OrderFreightCalculationSection: React.FC<OrderFreightCalculationSec
       .getFiscalDocSuggestion(orderId)
       .then((r) => {
         if (cancelled) return;
-        const d = (r as { data?: {
-          suggested: 'CTE' | 'DCE';
-          reason: string;
-          hasNfeKey: boolean;
-          hasCollectionDeclaration: boolean;
-        } })?.data;
+        const d = (r as { data?: FiscalDocSuggestionPayload })?.data;
         setFiscalSuggestion(d ?? null);
       })
       .catch(() => {
@@ -158,9 +179,18 @@ export const OrderFreightCalculationSection: React.FC<OrderFreightCalculationSec
 
       {fiscalSuggestion && (
         <div className="p-3 bg-brand-50 dark:bg-brand-900/20 border border-brand-200 dark:border-brand-800 rounded-lg text-sm text-tower-800 dark:text-tower-100">
-          <span className="font-semibold text-brand-800 dark:text-brand-200">Minuta e Doc Fiscal — sugestão:</span>{' '}
-          {fiscalSuggestion.suggested === 'CTE' ? 'CT-e' : 'DC-e (declaração sem NF-e completa)'}.
+          <span className="font-semibold text-brand-800 dark:text-brand-200">Doc fiscal do frete (conforme aba Notas fiscais):</span>{' '}
+          {fiscalSuggestion.allowedFreightDocType === 'CTE'
+            ? 'apenas CT-e (NF-e com chave válida).'
+            : fiscalSuggestion.allowedFreightDocType === 'DCE'
+              ? 'apenas DC-e (declaração em “Outras”).'
+              : 'não disponível até cadastrar NF-e ou “Outras”.'}
           <span className="block mt-1 text-tower-600 dark:text-tower-300">{fiscalSuggestion.reason}</span>
+          {fiscalSuggestion.allowedFreightDocType === null && (
+            <span className="block mt-1 text-amber-700 dark:text-amber-300 text-xs">
+              A emissão de DC-e na prática ainda pode exigir dados na coleta (commodity/observações) — veja a mensagem ao emitir.
+            </span>
+          )}
         </div>
       )}
 
@@ -185,6 +215,7 @@ export const OrderFreightCalculationSection: React.FC<OrderFreightCalculationSec
             order={order}
             params={params}
             availableHubs={availableHubs}
+            fiscalDocSuggestion={fiscalSuggestion}
             onEdit={() => setEditingId(calc.id)}
             onDelete={handleDeleted}
             onCalculate={loadCalculations}
@@ -203,6 +234,7 @@ export const OrderFreightCalculationSection: React.FC<OrderFreightCalculationSec
           order={order}
           params={params}
           availableHubs={availableHubs}
+          fiscalDocSuggestion={fiscalSuggestion}
           onSaved={handleCreated}
           onCancel={() => setAddingNew(false)}
           isHub={isHub}
@@ -259,6 +291,7 @@ interface OrderFreightCardProps {
   order: OrderFreightCalculationSectionProps['order'];
   params: { volumes: number; weight: number; cubage?: number; nfValue: number };
   availableHubs: Hub[];
+  fiscalDocSuggestion: FiscalDocSuggestionPayload | null;
   onEdit: () => void;
   onDelete: () => void;
   onCalculate: () => void;
@@ -275,6 +308,7 @@ function OrderFreightCard({
   order,
   params,
   availableHubs,
+  fiscalDocSuggestion,
   onEdit,
   onDelete,
   onCalculate,
@@ -397,6 +431,7 @@ function OrderFreightCard({
         order={order}
         params={params}
         availableHubs={availableHubs}
+        fiscalDocSuggestion={fiscalDocSuggestion}
         onSaved={() => { onSaved(); onCloseEdit(); }}
         onCancel={onCloseEdit}
         isHub={isHub}
@@ -612,6 +647,7 @@ interface OrderFreightFormProps {
   order: OrderFreightCalculationSectionProps['order'];
   params: { volumes: number; weight: number; cubage?: number; nfValue: number };
   availableHubs: Hub[];
+  fiscalDocSuggestion: FiscalDocSuggestionPayload | null;
   onSaved: () => void;
   onCancel: () => void;
   isHub?: boolean;
@@ -624,6 +660,7 @@ function OrderFreightForm({
   order,
   params,
   availableHubs,
+  fiscalDocSuggestion,
   onSaved,
   onCancel,
   isHub,
@@ -638,13 +675,14 @@ function OrderFreightForm({
   const [fiscalEmitters, setFiscalEmitters] = useState<FiscalEmitter[]>([]);
   const [preview, setPreview] = useState<{ total: number; breakdown: Record<string, number>; tableName?: string } | null>(null);
 
+  const initialRouteRaw = calc?.routeId ?? order.routeId ?? '';
   const [form, setForm] = useState({
     documentType: (calc?.documentType ?? 'MINUTA') as 'CTE' | 'DCE' | 'MINUTA',
     emissorId: calc?.emissorId ?? (isHub ? userHubId ?? '' : availableHubs[0]?.id ?? ''),
     fiscalEmitterId: calc?.fiscalEmitterId ?? '',
     calculationMethod: (calc?.calculationMethod ?? 'ESPECIAL') as 'ESPECIAL' | 'TARIFA_GERAL' | 'INFORMADO',
     pricingTableId: calc?.pricingTableId ?? '',
-    routeId: calc?.routeId ?? order.routeId ?? '',
+    routeId: looksLikeUuid(String(initialRouteRaw)) ? String(initialRouteRaw) : '',
     originCity: calc?.originCity ?? order.origemPrestacao ?? '',
     destCity: calc?.destCity ?? order.fimPrestacao ?? '',
     cfop: calc?.cfop ?? '',
@@ -691,6 +729,20 @@ function OrderFreightForm({
       setForm((f) => ({ ...f, freightTotal: total }));
     }
   }, [form.breakdown, form.calculationMethod]);
+
+  useEffect(() => {
+    if (calc) return;
+    if (!fiscalDocSuggestion) return;
+    const allowed = fiscalDocSuggestion.allowedFreightDocType;
+    setForm((f) => {
+      if (allowed === null && (f.documentType === 'CTE' || f.documentType === 'DCE')) {
+        return { ...f, documentType: 'MINUTA' };
+      }
+      if (allowed === 'CTE' && f.documentType === 'DCE') return { ...f, documentType: 'MINUTA' };
+      if (allowed === 'DCE' && f.documentType === 'CTE') return { ...f, documentType: 'MINUTA' };
+      return f;
+    });
+  }, [fiscalDocSuggestion, calc]);
 
   // Carrega tabelas GENERAL da rota selecionada (TARIFA_GERAL)
   useEffect(() => {
@@ -776,6 +828,25 @@ function OrderFreightForm({
       setErr('Selecione um emitente credenciado para CT-e ou DC-e.');
       return;
     }
+    if (
+      !calc
+      && fiscalDocSuggestion
+      && (form.documentType === 'CTE' || form.documentType === 'DCE')
+    ) {
+      const allowed = fiscalDocSuggestion.allowedFreightDocType;
+      if (allowed === null) {
+        setErr(fiscalDocSuggestion.blockingReason ?? fiscalDocSuggestion.reason);
+        return;
+      }
+      if (form.documentType !== allowed) {
+        setErr(
+          allowed === 'CTE'
+            ? 'Este pedido só permite CT-e (NF-e na aba Notas). Ajuste as notas ou escolha só minuta.'
+            : 'Este pedido só permite DC-e (declaração “Outras”). Ajuste as notas ou escolha só minuta.',
+        );
+        return;
+      }
+    }
     setSaving(true);
     try {
       if (calc) {
@@ -783,9 +854,9 @@ function OrderFreightForm({
           documentType: form.documentType,
           emissorId: form.emissorId,
           calculationMethod: form.calculationMethod,
-          pricingTableId: form.pricingTableId || null,
-          routeId: form.routeId || null,
-          fiscalEmitterId: form.fiscalEmitterId || null,
+          pricingTableId: optionalUuid(form.pricingTableId),
+          routeId: optionalUuid(form.routeId),
+          fiscalEmitterId: optionalUuid(form.fiscalEmitterId),
           originCity: form.originCity || null,
           destCity: form.destCity || null,
           cfop: form.cfop || null,
@@ -804,9 +875,9 @@ function OrderFreightForm({
           documentType: form.documentType,
           emissorId: form.emissorId,
           calculationMethod: form.calculationMethod,
-          pricingTableId: form.pricingTableId || null,
-          routeId: form.routeId || null,
-          fiscalEmitterId: form.fiscalEmitterId || null,
+          pricingTableId: optionalUuid(form.pricingTableId),
+          routeId: optionalUuid(form.routeId),
+          fiscalEmitterId: optionalUuid(form.fiscalEmitterId),
           originCity: form.originCity || null,
           destCity: form.destCity || null,
           cfop: form.cfop || null,
@@ -894,22 +965,26 @@ function OrderFreightForm({
           <div>
             <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Minuta e Doc Fiscal</label>
             <div className="flex flex-wrap gap-4 pt-2">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  checked={form.documentType === 'CTE'}
-                  onChange={() => setForm((f) => ({ ...f, documentType: 'CTE' }))}
-                />
-                <span>Doc Fiscal — CT-e</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  checked={form.documentType === 'DCE'}
-                  onChange={() => setForm((f) => ({ ...f, documentType: 'DCE' }))}
-                />
-                <span>Doc Fiscal — DC-e</span>
-              </label>
+              {(fiscalDocSuggestion?.allowedFreightDocType === 'CTE' || calc?.documentType === 'CTE') && (
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={form.documentType === 'CTE'}
+                    onChange={() => setForm((f) => ({ ...f, documentType: 'CTE' }))}
+                  />
+                  <span>Doc fiscal — CT-e (NF-e)</span>
+                </label>
+              )}
+              {(fiscalDocSuggestion?.allowedFreightDocType === 'DCE' || calc?.documentType === 'DCE') && (
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={form.documentType === 'DCE'}
+                    onChange={() => setForm((f) => ({ ...f, documentType: 'DCE' }))}
+                  />
+                  <span>Doc fiscal — DC-e (declaração / Outras)</span>
+                </label>
+              )}
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="radio"
@@ -919,8 +994,16 @@ function OrderFreightForm({
                 <span>Só minuta</span>
               </label>
             </div>
+            {!fiscalDocSuggestion && (
+              <p className="text-xs text-tower-500 dark:text-tower-400 mt-1">Carregando regras de documento fiscal do pedido…</p>
+            )}
+            {fiscalDocSuggestion?.allowedFreightDocType === null && (
+              <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                Doc fiscal indisponível: cadastre na aba <strong>Notas fiscais</strong> uma NF-e (chave 44 dígitos) ou uma declaração em <strong>Outras</strong>.
+              </p>
+            )}
             <p className="text-xs text-tower-500 dark:text-tower-400 mt-1">
-              CT-e e DC-e exigem emitente credenciado ativo. Minuta pode usar só o Hub. CT-e quando há NF-e; DC-e quando há declaração de conteúdo sem NF-e completa.
+              O tipo de doc fiscal segue as notas do pedido. CT-e e DC-e exigem emitente credenciado. Minuta pode usar só o Hub.
             </p>
           </div>
         </div>

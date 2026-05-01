@@ -1014,7 +1014,10 @@ export const ordersApi = {
             ApiResponse<{
                 suggested: 'CTE' | 'DCE';
                 reason: string;
+                allowedFreightDocType: 'CTE' | 'DCE' | null;
+                blockingReason?: string;
                 hasNfeKey: boolean;
+                hasOutrasDeclaration?: boolean;
                 hasCollectionDeclaration: boolean;
             }>
         >(`/orders/${orderId}/fiscal-doc-suggestion`);

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { fiscalEmittersApi, hubsApi, personsApi, uploadApi } from '../../lib/api';
+import { useAuthStore } from '../../store/authStore';
 import type { FiscalEmitter, FiscalProvider, FiscalTaxRegime, Hub, Person } from '../../types/index';
 import { Toggle } from '../ui/toggle-1';
 
@@ -110,6 +111,7 @@ function emitterToForm(emitter: FiscalEmitter): FormState {
 }
 
 const IdentidadeVisualTab: React.FC = () => {
+  const isAdmin = useAuthStore((s) => s.user?.roles?.includes('ADMIN') ?? false);
   const [, setSearchParams] = useSearchParams();
   const [emitters, setEmitters] = useState<FiscalEmitter[]>([]);
   const [persons, setPersons] = useState<Person[]>([]);
@@ -248,6 +250,7 @@ const IdentidadeVisualTab: React.FC = () => {
       }) as { success?: boolean; data: FiscalEmitter; acbrCertificate?: { ok: boolean; message?: string } };
       setEmitters((current) => current.map((e) => (e.id === updated.data.id ? updated.data : e)));
       setCertificatePassword('');
+      await load();
       let certMsg = 'Certificado A1 enviado com segurança.';
       if (updated.acbrCertificate && !updated.acbrCertificate.ok) {
         certMsg += ` ACBr: ${updated.acbrCertificate.message ?? 'falha ao registrar certificado na nuvem.'}`;
@@ -429,7 +432,7 @@ const IdentidadeVisualTab: React.FC = () => {
                   <div><span className="font-semibold">Status provedor:</span> {selectedEmitter.providerStatus}</div>
                   <div><span className="font-semibold">Certificado:</span> {selectedEmitter.certificateFileName || 'Não enviado'}</div>
                   <div><span className="font-semibold">Status A1:</span> {selectedEmitter.certificateStatus}</div>
-                  {selectedEmitter.certificateFileName && (
+                  {selectedEmitter.certificateFileName && isAdmin && (
                     <button
                       type="button"
                       disabled={certificateDownloadBusy}
@@ -438,6 +441,11 @@ const IdentidadeVisualTab: React.FC = () => {
                     >
                       {certificateDownloadBusy ? 'Gerando link…' : 'Baixar certificado atual'}
                     </button>
+                  )}
+                  {selectedEmitter.certificateFileName && !isAdmin && (
+                    <span className="text-xs text-tower-500 dark:text-tower-400">
+                      Apenas administradores podem gerar link temporário para baixar o certificado (.pfx).
+                    </span>
                   )}
                   {selectedEmitter.logoUrl && (
                     <button type="button" onClick={() => setLogoPreviewUrl(selectedEmitter.logoUrl ?? null)} className="text-left text-sm font-semibold text-brand-700 hover:underline dark:text-brand-300">
@@ -611,7 +619,7 @@ const IdentidadeVisualTab: React.FC = () => {
                     {selectedCertificateFileName && <span className="sm:col-span-2">Arquivo selecionado: {selectedCertificateFileName}</span>}
                   </div>
                 </div>
-                {selectedEmitter?.certificateFileName && (
+                {selectedEmitter?.certificateFileName && isAdmin && (
                   <button
                     type="button"
                     disabled={certificateDownloadBusy}
@@ -620,6 +628,11 @@ const IdentidadeVisualTab: React.FC = () => {
                   >
                     {certificateDownloadBusy ? 'Gerando link seguro…' : 'Baixar certificado atual (link temporário)'}
                   </button>
+                )}
+                {selectedEmitter?.certificateFileName && !isAdmin && (
+                  <p className="text-xs text-tower-500 dark:text-tower-400">
+                    Apenas administradores podem gerar link temporário para baixar o certificado (.pfx).
+                  </p>
                 )}
                 <div className="grid gap-4 md:grid-cols-3">
                   <div className="relative">

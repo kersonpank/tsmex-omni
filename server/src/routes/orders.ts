@@ -8,7 +8,9 @@ import { freightCalculationsRouter } from './freightCalculations.js';
 import {
     suggestFiscalDocType,
     collectionDataHasDeclaracao,
-    orderQualifiesForCte,
+    orderEligibleForCteFreight,
+    orderEligibleForDceFreight,
+    getFiscalDocModeForFreight,
 } from '../services/fiscal/fiscalDocPolicy.js';
 import {
     deleteObjectByKey,
@@ -33,11 +35,15 @@ router.get('/:orderId/fiscal-doc-suggestion', authenticate, authorize('ADMIN', '
             throw new AppError('Not authorized', 403);
         }
         const hint = suggestFiscalDocType(order);
+        const mode = getFiscalDocModeForFreight(order);
         res.json({
             success: true,
             data: {
                 ...hint,
-                hasNfeKey: orderQualifiesForCte(order),
+                allowedFreightDocType: mode.allowed,
+                blockingReason: mode.allowed === null ? mode.reason : undefined,
+                hasNfeKey: orderEligibleForCteFreight(order),
+                hasOutrasDeclaration: orderEligibleForDceFreight(order),
                 hasCollectionDeclaration: collectionDataHasDeclaracao(order.collectionData),
             },
         });

@@ -16,8 +16,48 @@ import {
 import { authorizeCteWithProvider, validateCteReadiness, type CteEmissionInput, type CteEnvironment, type CteProviderMode } from '../services/cteService.js';
 import { authorizeDceWithProvider, validateDceReadiness } from '../services/dceService.js';
 import { getBrandingForFiscalEmitter } from '../services/visualIdentityService.js';
+import { getFiscalDocModeForFreight } from '../services/fiscal/fiscalDocPolicy.js';
 
 const router = Router({ mergeParams: true });
+
+/** Evita "Invalid uuid" quando o cliente envia "" em campos UUID opcionais. */
+function emptyToNull(v: unknown): unknown {
+    if (v === '' || v === undefined) return null;
+    return v;
+}
+
+const nullableUuid = z.preprocess(emptyToNull, z.string().uuid().nullable().optional());
+
+type OrderInvoicesShape = {
+    invoicesRel: {
+        type?: string | null;
+        nfKey?: string | null;
+        nature?: string | null;
+        nfNumber?: string | null;
+    }[];
+};
+
+function assertFreightDocTypeAllowedForOrder(documentType: 'CTE' | 'DCE' | 'MINUTA', order: OrderInvoicesShape): void {
+    if (documentType === 'MINUTA') return;
+    const mode = getFiscalDocModeForFreight(order);
+    if (documentType === 'CTE') {
+        if (mode.allowed !== 'CTE') {
+            throw new AppError(
+                mode.allowed === null ? mode.reason : 'Este pedido está configurado para DC-e (declaração “Outras”). Ajuste as notas ou escolha DC-e.',
+                400,
+            );
+        }
+        return;
+    }
+    if (documentType === 'DCE') {
+        if (mode.allowed !== 'DCE') {
+            throw new AppError(
+                mode.allowed === null ? mode.reason : 'Este pedido está configurado para CT-e (NF-e). Ajuste as notas ou escolha CT-e.',
+                400,
+            );
+        }
+    }
+}
 
 /** Modo simulado sem variável Portainer; emissão ACBr real não usa este valor. */
 const SIMULATED_FISCAL_PROVIDER_MODE: CteProviderMode = 'simulate-authorized';
@@ -54,9 +94,9 @@ const freightCalcShape = z.object({
     documentType: z.enum(['CTE', 'DCE', 'MINUTA']),
     emissorId: z.string().uuid(),
     calculationMethod: z.enum(['ESPECIAL', 'TARIFA_GERAL', 'INFORMADO']),
-    pricingTableId: z.string().uuid().optional().nullable(),
-    routeId: z.string().uuid().optional().nullable(),
-    fiscalEmitterId: z.string().uuid().optional().nullable(),
+    pricingTableId: nullableUuid,
+    routeId: nullableUuid,
+    fiscalEmitterId: nullableUuid,
     originCity: z.string().optional().nullable(),
     destCity: z.string().optional().nullable(),
     cfop: z.string().optional().nullable(),
@@ -180,6 +220,8 @@ router.post('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthReques
             user: req.user,
         });
 
+        assertFreightDocTypeAllowedForOrder(data.documentType, order);
+
         const { volumes, weight, cubage, nfValue } = getOrderParams(order);
         const cd = (order.collectionData || {}) as Record<string, unknown>;
         const commodity = (cd.commodity as string) || null;
@@ -231,7 +273,7 @@ router.patch('/:calcId', authenticate, authorize('ADMIN', 'HUB'), async (req: Au
 
         const order = await prisma.order.findUnique({
             where: { id: orderId },
-            select: { id: true, currentHubId: true },
+            include: { invoicesRel: true },
         });
 
         if (!order) throw new AppError('Order not found', 404);
@@ -263,6 +305,8 @@ router.patch('/:calcId', authenticate, authorize('ADMIN', 'HUB'), async (req: Au
         if ((nextDocType === 'CTE' || nextDocType === 'DCE') && !nextFiscalEmitterId) {
             throw new AppError('Emitente credenciado é obrigatório para CT-e e DC-e.', 400);
         }
+
+        assertFreightDocTypeAllowedForOrder(nextDocType, order);
 
         const updatePayload: Record<string, unknown> = {};
         if (data.documentType != null) updatePayload.documentType = data.documentType;
