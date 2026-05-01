@@ -110,7 +110,10 @@ export async function createAcbrEmpresaForPerson(
     return { ok: false, message: msg };
 }
 
-/** PUT /empresas/{cnpj}/cte — CRT + ambiente (obrigatório antes da 1ª emissão na ACBr). */
+/**
+ * PUT /empresas/{cnpj}/cte — OpenAPI oficial: apenas CRT + ambiente (homologação/produção).
+ * Série e último número ficam como fonte de verdade no TSM (`FiscalEmitter`); não há campos neste PUT para reconciliar numeração na nuvem.
+ */
 export async function putAcbrEmpresaCteConfig(
     person: PersonLike,
     apiEnvironment: AcbrFiscalEnvironment,

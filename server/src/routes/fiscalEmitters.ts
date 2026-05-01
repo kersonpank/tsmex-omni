@@ -11,6 +11,7 @@ import {
     encryptCertificatePassword,
     getCertificateStatus,
 } from '../services/fiscalEmitterService.js';
+import { getObjectDownloadUrl } from '../lib/objectStorage.js';
 import { isAcbrCredentialsConfigured } from '../services/acbr/acbrConfig.js';
 import { putAcbrEmpresaCertificado, syncFiscalEmitterToAcbr } from '../services/acbr/acbrEmpresa.js';
 
@@ -58,6 +59,7 @@ const fiscalEmitterSchema = z.object({
     crt: z.string().max(8).nullable().optional(),
     cteSeries: z.number().int().positive().optional(),
     lastCteNumber: z.number().int().min(0).optional(),
+    lastDceNumber: z.number().int().min(0).optional(),
     lastMinutaNumber: z.number().int().min(0).optional(),
     environment: z.enum(['HOMOLOGACAO', 'PRODUCAO']).optional(),
     provider: z.enum(['SIMULATED', 'ACBR', 'NUVEM_FISCAL', 'FOCUS_NFE', 'TECNOSPEED', 'PLUGNOTAS', 'OTHER']).optional(),
@@ -125,6 +127,35 @@ router.get('/', authenticate, authorize('ADMIN', 'HUB'), async (_req: AuthReques
             orderBy: [{ active: 'desc' }, { createdAt: 'desc' }],
         });
         res.json({ success: true, data: await Promise.all(emitters.map(toPublicEmitter)) });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/** Link assinado (curta duração) para baixar o PFX — só ADMIN; use auditoria nos logs de acesso. */
+router.get('/:id/certificate-download', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const id = req.params.id as string;
+        const emitter = await prisma.fiscalEmitter.findUnique({
+            where: { id },
+            select: {
+                certificateStorageKey: true,
+                certificateFileName: true,
+            },
+        });
+        if (!emitter?.certificateStorageKey) {
+            throw new AppError('Nenhum certificado A1 armazenado para este emitente', 404);
+        }
+        const expiresInSeconds = 900;
+        const downloadUrl = await getObjectDownloadUrl(emitter.certificateStorageKey, expiresInSeconds);
+        res.json({
+            success: true,
+            data: {
+                downloadUrl,
+                filename: emitter.certificateFileName ?? 'certificado.pfx',
+                expiresInSeconds,
+            },
+        });
     } catch (error) {
         next(error);
     }

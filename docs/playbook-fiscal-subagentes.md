@@ -45,3 +45,13 @@ Paralelize quando a entrega envolver **mais de ~5 arquivos** entre `server/src` 
 - **Onda 2:** DC-e + modelo/UX “Doc Fiscal”.
 - **Onda 3:** MDF-e no manifesto.
 - **Onda 4+:** CIOT / compliance (validação jurídica antes de escopo definitivo).
+
+## Numeração MDF-e (spike — 2026)
+
+- **Estado atual:** `FiscalEmitter` não possui `lastMdfeNumber`. A emissão MDF-e (`acbrMdfeEmit`) monta o payload com referência/chaves; conferir na operação de envio se o provedor exige numeração pré-configurada por empresa.
+- **Decisão pendente:** persistir “último MDF-e” por **emitente** (paridade com sistemas legados) versus por **manifesto** ou somente na nuvem ACBr.
+- **Próximo passo sugerido:** após primeira emissão real, inspecionar retorno ACBr e campos de série/número obrigatórios; então alinhar Prisma + PUT de configuração (se existir na OpenAPI para MDF-e, análogo ao CT-e).
+
+## Seguro / averbação eletrônica (backlog)
+
+- **Fora do escopo atual.** Sistemas de referência têm bloco “Seguro” (seguradora, apólice, credenciais de integração). No TSM não há modelo nem UI; abrir épico dedicado com LGPD e segregação por hub/emitente quando for prioridade.

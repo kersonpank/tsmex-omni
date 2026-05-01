@@ -146,7 +146,7 @@ export interface FiscalEmitter {
     crt?: string | null;
     cteSeries: number;
     lastCteNumber: number;
-    lastDceNumber?: number;
+    lastDceNumber: number;
     lastMinutaNumber: number;
     environment: FiscalEnvironment;
     provider: FiscalProvider;

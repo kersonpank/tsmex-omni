@@ -4,6 +4,32 @@ import { fiscalEmittersApi, hubsApi, personsApi, uploadApi } from '../../lib/api
 import type { FiscalEmitter, FiscalProvider, FiscalTaxRegime, Hub, Person } from '../../types/index';
 import { Toggle } from '../ui/toggle-1';
 
+function EmitterAccordion({
+  title,
+  defaultOpen = true,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <section className="overflow-hidden rounded-xl border border-tower-200 bg-white/90 dark:border-tower-700 dark:bg-tower-900/50">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-3 px-5 py-3 text-left hover:bg-tower-50/80 dark:hover:bg-tower-950/40"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+      >
+        <span className="text-sm font-bold uppercase tracking-wide text-tower-500">{title}</span>
+        <span className="tabular-nums text-lg leading-none text-tower-400">{open ? '−' : '+'}</span>
+      </button>
+      {open ? <div className="border-t border-tower-100 p-5 dark:border-tower-700">{children}</div> : null}
+    </section>
+  );
+}
+
 type FormState = {
   id?: string;
   personId: string;
@@ -17,6 +43,9 @@ type FormState = {
   taxRegime: FiscalTaxRegime | '';
   crt: string;
   cteSeries: number;
+  lastCteNumber: number;
+  lastDceNumber: number;
+  lastMinutaNumber: number;
   environment: 'HOMOLOGACAO' | 'PRODUCAO';
   provider: FiscalProvider;
   active: boolean;
@@ -35,6 +64,9 @@ const emptyForm: FormState = {
   taxRegime: '',
   crt: '1',
   cteSeries: 1,
+  lastCteNumber: 0,
+  lastDceNumber: 0,
+  lastMinutaNumber: 0,
   environment: 'HOMOLOGACAO',
   provider: 'SIMULATED',
   active: true,
@@ -67,6 +99,9 @@ function emitterToForm(emitter: FiscalEmitter): FormState {
     taxRegime: emitter.taxRegime ?? '',
     crt: emitter.crt ?? '',
     cteSeries: emitter.cteSeries ?? 1,
+    lastCteNumber: emitter.lastCteNumber ?? 0,
+    lastDceNumber: emitter.lastDceNumber ?? 0,
+    lastMinutaNumber: emitter.lastMinutaNumber ?? 0,
     environment: emitter.environment,
     provider: emitter.provider ?? 'SIMULATED',
     active: emitter.active,
@@ -92,6 +127,7 @@ const IdentidadeVisualTab: React.FC = () => {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [certificateDownloadBusy, setCertificateDownloadBusy] = useState(false);
 
   const selectedPerson = useMemo(
     () => persons.find((p) => p.id === form.personId),
@@ -226,6 +262,21 @@ const IdentidadeVisualTab: React.FC = () => {
     }
   };
 
+  const handleCertificateDownloadLink = async (emitterId: string) => {
+    setCertificateDownloadBusy(true);
+    setError(null);
+    try {
+      const res = await fiscalEmittersApi.certificateDownloadLink(emitterId);
+      const url = res.data.downloadUrl;
+      if (!url) throw new Error('Link de download não retornado pela API.');
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (e: any) {
+      setError(e.response?.data?.error ?? e.message ?? 'Não foi possível gerar o link do certificado (apenas administradores).');
+    } finally {
+      setCertificateDownloadBusy(false);
+    }
+  };
+
   const handleSave = async (event: React.FormEvent) => {
     event.preventDefault();
     setSaving(true);
@@ -244,6 +295,9 @@ const IdentidadeVisualTab: React.FC = () => {
         taxRegime: form.taxRegime || null,
         crt: form.crt || null,
         cteSeries: Number(form.cteSeries) || 1,
+        lastCteNumber: Math.max(0, Number(form.lastCteNumber) || 0),
+        lastDceNumber: Math.max(0, Number(form.lastDceNumber) || 0),
+        lastMinutaNumber: Math.max(0, Number(form.lastMinutaNumber) || 0),
         environment: form.environment,
         provider: form.provider,
         active: form.active,
@@ -368,10 +422,23 @@ const IdentidadeVisualTab: React.FC = () => {
                   <div><span className="font-semibold">RNTRC:</span> {selectedEmitter.rntrc || '-'}</div>
                   <div><span className="font-semibold">CRT:</span> {selectedEmitter.crt || '-'}</div>
                   <div><span className="font-semibold">Série CT-e:</span> {selectedEmitter.cteSeries}</div>
+                  <div><span className="font-semibold">Último CT-e:</span> {selectedEmitter.lastCteNumber ?? 0}</div>
+                  <div><span className="font-semibold">Último DC-e:</span> {selectedEmitter.lastDceNumber ?? 0}</div>
+                  <div><span className="font-semibold">Última minuta:</span> {selectedEmitter.lastMinutaNumber ?? 0}</div>
                   <div><span className="font-semibold">Provedor:</span> {selectedEmitter.provider === 'ACBR' ? 'ACBr API' : selectedEmitter.provider}</div>
                   <div><span className="font-semibold">Status provedor:</span> {selectedEmitter.providerStatus}</div>
                   <div><span className="font-semibold">Certificado:</span> {selectedEmitter.certificateFileName || 'Não enviado'}</div>
                   <div><span className="font-semibold">Status A1:</span> {selectedEmitter.certificateStatus}</div>
+                  {selectedEmitter.certificateFileName && (
+                    <button
+                      type="button"
+                      disabled={certificateDownloadBusy}
+                      onClick={() => void handleCertificateDownloadLink(selectedEmitter.id)}
+                      className="text-left text-sm font-semibold text-brand-700 hover:underline disabled:opacity-50 dark:text-brand-300"
+                    >
+                      {certificateDownloadBusy ? 'Gerando link…' : 'Baixar certificado atual'}
+                    </button>
+                  )}
                   {selectedEmitter.logoUrl && (
                     <button type="button" onClick={() => setLogoPreviewUrl(selectedEmitter.logoUrl ?? null)} className="text-left text-sm font-semibold text-brand-700 hover:underline dark:text-brand-300">
                       Abrir preview da logo
@@ -403,8 +470,7 @@ const IdentidadeVisualTab: React.FC = () => {
 
         {isEditing && (
         <form onSubmit={handleSave} className="space-y-4">
-          <section className="rounded-xl border border-tower-200 bg-white/90 p-5 dark:border-tower-700 dark:bg-tower-900/50">
-            <h3 className="mb-4 text-sm font-bold uppercase tracking-wide text-tower-500">Dados fiscais</h3>
+          <EmitterAccordion title="Dados fiscais" defaultOpen>
             <div className="grid gap-4 md:grid-cols-2">
               <label className="block md:col-span-2">
                 <span className="text-sm font-medium text-tower-800 dark:text-tower-200">Pessoa jurídica emitente</span>
@@ -457,7 +523,7 @@ const IdentidadeVisualTab: React.FC = () => {
                 <span className="text-sm font-medium text-tower-800 dark:text-tower-200">CRT</span>
                 <input className="admin-focus mt-1 w-full rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900" value={form.crt} onChange={(e) => update('crt', e.target.value)} placeholder="1, 2 ou 3" />
               </label>
-              <label className="block">
+              <label className="block md:col-span-2">
                 <span className="text-sm font-medium text-tower-800 dark:text-tower-200">Regime tributário</span>
                 <select className="admin-focus mt-1 w-full rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900" value={form.taxRegime} onChange={(e) => update('taxRegime', e.target.value as FiscalTaxRegime | '')}>
                   <option value="">Selecione...</option>
@@ -468,17 +534,12 @@ const IdentidadeVisualTab: React.FC = () => {
                   <option value="OUTRO">Outro</option>
                 </select>
               </label>
-              <label className="block">
-                <span className="text-sm font-medium text-tower-800 dark:text-tower-200">Série CT-e</span>
-                <input type="number" min={1} className="admin-focus mt-1 w-full rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900" value={form.cteSeries} onChange={(e) => update('cteSeries', Number(e.target.value) || 1)} />
-              </label>
             </div>
-          </section>
+          </EmitterAccordion>
 
-          <section className="rounded-xl border border-tower-200 bg-white/90 p-5 dark:border-tower-700 dark:bg-tower-900/50">
-            <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-tower-500">Provedores</h3>
+          <EmitterAccordion title="Provedores" defaultOpen={false}>
             <p className="mb-4 text-xs text-tower-500 dark:text-tower-400">
-              Escolha quais integrações em nuvem este emitente utiliza. Outros provedores podem ser adicionados depois.
+              Credenciais OAuth ACBr ficam no Portainer. Aqui você define se este emitente usa a ACBr para emissão e cadastro.
             </p>
             <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-tower-200 bg-tower-50/80 px-4 py-3 dark:border-tower-600 dark:bg-tower-950/40">
               <input
@@ -489,13 +550,36 @@ const IdentidadeVisualTab: React.FC = () => {
               />
               <div>
                 <div className="text-sm font-semibold text-tower-800 dark:text-tower-100">ACBr API</div>
-                <div className="text-xs text-tower-500 dark:text-tower-400">Emissão e cadastro de empresa/certificado na ACBr (requer variáveis ACBR_CLIENT_* no servidor).</div>
+                <div className="text-xs text-tower-500 dark:text-tower-400">Emissão e cadastro de empresa/certificado na ACBr (requer ACBR_CLIENT_ID / ACBR_CLIENT_SECRET no servidor).</div>
               </div>
             </label>
-          </section>
+          </EmitterAccordion>
 
-          <section className="rounded-xl border border-tower-200 bg-white/90 p-5 dark:border-tower-700 dark:bg-tower-900/50">
-            <h3 className="mb-4 text-sm font-bold uppercase tracking-wide text-tower-500">Impressão DACTE / Minuta</h3>
+          <EmitterAccordion title="Numerações" defaultOpen={false}>
+            <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+              Ajuste somente em migração ou correção: número maior que o último documento já autorizado na SEFAZ pode gerar lacunas ou conflito de sequência. O PUT de configuração CT-e na ACBr expõe apenas CRT e ambiente — série e último número são controlados pelo TSM.
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="block">
+                <span className="text-sm font-medium text-tower-800 dark:text-tower-200">Série CT-e</span>
+                <input type="number" min={1} className="admin-focus mt-1 w-full rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900" value={form.cteSeries} onChange={(e) => update('cteSeries', Number(e.target.value) || 1)} />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-tower-800 dark:text-tower-200">Último número CT-e</span>
+                <input type="number" min={0} className="admin-focus mt-1 w-full rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900" value={form.lastCteNumber} onChange={(e) => update('lastCteNumber', Math.max(0, Number(e.target.value) || 0))} />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-tower-800 dark:text-tower-200">Último número DC-e</span>
+                <input type="number" min={0} className="admin-focus mt-1 w-full rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900" value={form.lastDceNumber} onChange={(e) => update('lastDceNumber', Math.max(0, Number(e.target.value) || 0))} />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-tower-800 dark:text-tower-200">Última minuta</span>
+                <input type="number" min={0} className="admin-focus mt-1 w-full rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900" value={form.lastMinutaNumber} onChange={(e) => update('lastMinutaNumber', Math.max(0, Number(e.target.value) || 0))} />
+              </label>
+            </div>
+          </EmitterAccordion>
+
+          <EmitterAccordion title="Identidade visual / impressão" defaultOpen={false}>
             <div className="grid gap-4 md:grid-cols-[180px_1fr]">
               <div className="flex h-28 items-center justify-center rounded-lg border border-tower-200 bg-tower-50 dark:border-tower-600 dark:bg-tower-950">
                 {form.logoUrl ? <img src={form.logoUrl} alt="Logo" className="max-h-24 max-w-full object-contain" /> : <span className="text-xs text-tower-500">Sem logo</span>}
@@ -511,10 +595,9 @@ const IdentidadeVisualTab: React.FC = () => {
                 <textarea className="admin-focus w-full rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900" rows={2} placeholder="Rodapé/observações dos impressos" value={form.footerNote} onChange={(e) => update('footerNote', e.target.value)} />
               </div>
             </div>
-          </section>
+          </EmitterAccordion>
 
-          <section className="rounded-xl border border-tower-200 bg-white/90 p-5 dark:border-tower-700 dark:bg-tower-900/50">
-            <h3 className="mb-4 text-sm font-bold uppercase tracking-wide text-tower-500">Certificado A1</h3>
+          <EmitterAccordion title="Certificado A1" defaultOpen={false}>
             {!form.id && <p className="text-sm text-tower-500">Salve o emitente antes de enviar certificado.</p>}
             {form.id && (
               <div className="space-y-4">
@@ -528,34 +611,43 @@ const IdentidadeVisualTab: React.FC = () => {
                     {selectedCertificateFileName && <span className="sm:col-span-2">Arquivo selecionado: {selectedCertificateFileName}</span>}
                   </div>
                 </div>
-                <div className="grid gap-4 md:grid-cols-3">
-                <div className="relative">
-                  <input
-                    type={showCertificatePassword ? 'text' : 'password'}
-                    className="admin-focus w-full rounded-lg border border-tower-200 bg-white px-3 py-2 pr-20 dark:border-tower-600 dark:bg-tower-900"
-                    placeholder="Senha A1"
-                    value={certificatePassword}
-                    onChange={(e) => setCertificatePassword(e.target.value)}
-                  />
+                {selectedEmitter?.certificateFileName && (
                   <button
                     type="button"
-                    onClick={() => setShowCertificatePassword((value) => !value)}
-                    className="absolute inset-y-0 right-2 my-auto h-7 rounded px-2 text-xs font-semibold text-tower-600 hover:text-tower-900 dark:text-tower-300"
-                    aria-label={showCertificatePassword ? 'Ocultar senha do certificado' : 'Mostrar senha do certificado'}
+                    disabled={certificateDownloadBusy}
+                    onClick={() => void handleCertificateDownloadLink(form.id!)}
+                    className="text-sm font-semibold text-brand-700 underline-offset-2 hover:underline disabled:opacity-50 dark:text-brand-300"
                   >
-                    {showCertificatePassword ? 'Ocultar' : 'Ver'}
+                    {certificateDownloadBusy ? 'Gerando link seguro…' : 'Baixar certificado atual (link temporário)'}
                   </button>
-                </div>
-                <input type="date" className="admin-focus rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900" value={certificateExpiresAt} onChange={(e) => setCertificateExpiresAt(e.target.value)} />
-                <input type="file" accept=".pfx,.p12" onChange={(e) => void handleCertificateChange(e)} disabled={uploading} className="text-sm text-tower-600 file:mr-2 file:rounded-md file:border-0 file:bg-brand-100 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-brand-900" />
+                )}
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="relative">
+                    <input
+                      type={showCertificatePassword ? 'text' : 'password'}
+                      className="admin-focus w-full rounded-lg border border-tower-200 bg-white px-3 py-2 pr-20 dark:border-tower-600 dark:bg-tower-900"
+                      placeholder="Senha A1"
+                      value={certificatePassword}
+                      onChange={(e) => setCertificatePassword(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowCertificatePassword((value) => !value)}
+                      className="absolute inset-y-0 right-2 my-auto h-7 rounded px-2 text-xs font-semibold text-tower-600 hover:text-tower-900 dark:text-tower-300"
+                      aria-label={showCertificatePassword ? 'Ocultar senha do certificado' : 'Mostrar senha do certificado'}
+                    >
+                      {showCertificatePassword ? 'Ocultar' : 'Ver'}
+                    </button>
+                  </div>
+                  <input type="date" className="admin-focus rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900" value={certificateExpiresAt} onChange={(e) => setCertificateExpiresAt(e.target.value)} />
+                  <input type="file" accept=".pfx,.p12" onChange={(e) => void handleCertificateChange(e)} disabled={uploading} className="text-sm text-tower-600 file:mr-2 file:rounded-md file:border-0 file:bg-brand-100 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-brand-900" />
                 </div>
               </div>
             )}
-          </section>
+          </EmitterAccordion>
 
           {form.id && emitters.find((e) => e.id === form.id)?.readiness && (
-            <section className="rounded-xl border border-tower-200 bg-white/90 p-5 dark:border-tower-700 dark:bg-tower-900/50">
-              <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-tower-500">Checklist fiscal</h3>
+            <EmitterAccordion title="Checklist fiscal" defaultOpen={false}>
               {(emitters.find((e) => e.id === form.id)?.readiness?.issues ?? []).length === 0 ? (
                 <p className="text-sm text-green-700 dark:text-green-300">Emitente pronto para minuta e homologação.</p>
               ) : (
@@ -563,7 +655,7 @@ const IdentidadeVisualTab: React.FC = () => {
                   {(emitters.find((e) => e.id === form.id)?.readiness?.issues ?? []).map((issue) => <li key={issue}>{issue}</li>)}
                 </ul>
               )}
-            </section>
+            </EmitterAccordion>
           )}
 
           <div className="flex justify-end">

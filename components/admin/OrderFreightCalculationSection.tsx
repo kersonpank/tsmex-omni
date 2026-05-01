@@ -303,9 +303,10 @@ function OrderFreightCard({
     : 'Emissor';
 
   const fiscalLocked = FISCAL_LOCKED_STATUSES.has(calc.status);
+  const hasFiscalEmitter = Boolean(calc.fiscalEmitterId?.trim());
   const canEmitMinuta = calc.documentType === 'MINUTA' && calc.status !== 'MINUTA_EMITTED' && (calc.freightTotal ?? 0) > 0;
-  const canEmitCte = calc.documentType === 'CTE' && !fiscalLocked && (calc.freightTotal ?? 0) > 0;
-  const canEmitDce = calc.documentType === 'DCE' && !fiscalLocked && (calc.freightTotal ?? 0) > 0;
+  const canEmitCte = calc.documentType === 'CTE' && !fiscalLocked && (calc.freightTotal ?? 0) > 0 && hasFiscalEmitter;
+  const canEmitDce = calc.documentType === 'DCE' && !fiscalLocked && (calc.freightTotal ?? 0) > 0 && hasFiscalEmitter;
   const canPrintMinuta = calc.documentType === 'MINUTA' && (calc.freightTotal ?? 0) > 0;
   const canPrintCte = calc.documentType === 'CTE' && (calc.freightTotal ?? 0) > 0;
   const canPrintDce = calc.documentType === 'DCE' && (calc.freightTotal ?? 0) > 0;
@@ -517,6 +518,11 @@ function OrderFreightCard({
           </button>
         </div>
       </div>
+      {(calc.documentType === 'CTE' || calc.documentType === 'DCE') && !hasFiscalEmitter && !fiscalLocked && (
+        <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+          Vincule um emitente credenciado ao cálculo (Editar) para emitir CT-e ou DC-e.
+        </p>
+      )}
       <div className="mt-2 text-sm text-tower-600 dark:text-tower-300">
         Método: {calc.calculationMethod === 'ESPECIAL' ? 'Especial' : calc.calculationMethod === 'TARIFA_GERAL' ? 'Tarifa Geral' : 'Informado'}
         {calc.pricingTable && ` · Tabela: ${calc.pricingTable.description}`}
@@ -766,6 +772,10 @@ function OrderFreightForm({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr(null);
+    if ((form.documentType === 'CTE' || form.documentType === 'DCE') && !form.fiscalEmitterId) {
+      setErr('Selecione um emitente credenciado para CT-e ou DC-e.');
+      return;
+    }
     setSaving(true);
     try {
       if (calc) {
@@ -849,9 +859,13 @@ function OrderFreightForm({
             )}
           </div>
           <div>
-            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Emitente credenciado</label>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">
+              Emitente credenciado
+              {(form.documentType === 'CTE' || form.documentType === 'DCE') ? <span className="text-red-600 dark:text-red-400"> *</span> : null}
+            </label>
             <select
               value={form.fiscalEmitterId}
+              required={form.documentType === 'CTE' || form.documentType === 'DCE'}
               onChange={(e) => {
                 const emitter = fiscalEmitters.find((item) => item.id === e.target.value);
                 setForm((f) => ({
@@ -862,7 +876,9 @@ function OrderFreightForm({
               }}
               className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100"
             >
-              <option value="">Usar apenas Hub legado</option>
+              <option value="">
+                {form.documentType === 'CTE' || form.documentType === 'DCE' ? 'Selecione o emitente…' : 'Opcional (só minuta / legado)'}
+              </option>
               {fiscalEmitters.map((emitter) => (
                 <option key={emitter.id} value={emitter.id}>
                   {emitter.displayName || emitter.person?.legalName} ({emitter.environment})
@@ -904,7 +920,7 @@ function OrderFreightForm({
               </label>
             </div>
             <p className="text-xs text-tower-500 dark:text-tower-400 mt-1">
-              CT-e quando há NF-e; DC-e quando há declaração de conteúdo sem NF-e completa (conforme entrada do pedido).
+              CT-e e DC-e exigem emitente credenciado ativo. Minuta pode usar só o Hub. CT-e quando há NF-e; DC-e quando há declaração de conteúdo sem NF-e completa.
             </p>
           </div>
         </div>

@@ -147,6 +147,13 @@ export const fiscalEmittersApi = {
         return response.data;
     },
 
+    certificateDownloadLink: async (id: string) => {
+        const response = await api.get<ApiResponse<{ downloadUrl: string; filename: string; expiresInSeconds: number }>>(
+            `/fiscal-emitters/${id}/certificate-download`,
+        );
+        return response.data;
+    },
+
     readiness: async (id: string) => {
         const response = await api.get<ApiResponse<FiscalEmitterReadiness>>(`/fiscal-emitters/${id}/readiness`);
         return response.data;
