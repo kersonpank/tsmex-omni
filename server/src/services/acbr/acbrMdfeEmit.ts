@@ -65,7 +65,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
     const cMunDesc = emitCmun;
     const xMunDesc = (emit.city ?? 'MUN').slice(0, 60);
     const cUF = ufToCuf(emit.state);
-    let apiEnv: AcbrFiscalEnvironment = process.env.FISCAL_CTE_ENV === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO';
+    let apiEnv: AcbrFiscalEnvironment = 'HOMOLOGACAO';
     if (manifest.hubId) {
         const fe = await prisma.fiscalEmitter.findFirst({
             where: { hubId: manifest.hubId, active: true },

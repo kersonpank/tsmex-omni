@@ -5,7 +5,7 @@ export type AcbrRequestInit = Omit<RequestInit, 'headers'> & {
     /** Escopos OAuth exigidos pelo endpoint (ex.: cte, mdfe, dce, empresa, distribuicao). */
     scopes: string[];
     headers?: Record<string, string>;
-    /** Homologação/produção: define o host hom.acbr vs prod.acbr. Omitir = fallback global (`FISCAL_CTE_ENV` / `ACBR_API_BASE_URL`). */
+    /** Homologação/produção: define o host hom.acbr vs prod.acbr. Omitir = `ACBR_API_BASE_URL` ou hom.acbr por padrão. */
     apiEnvironment?: AcbrFiscalEnvironment;
 };
 

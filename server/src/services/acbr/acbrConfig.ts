@@ -13,10 +13,10 @@ export function getAcbrApiBaseUrlForEnvironment(env?: AcbrFiscalEnvironment | nu
         return env === 'PRODUCAO' ? 'https://prod.acbr.api.br' : 'https://hom.acbr.api.br';
     }
     if (process.env.ACBR_API_BASE_URL?.trim()) return process.env.ACBR_API_BASE_URL.trim();
-    return process.env.FISCAL_CTE_ENV === 'PRODUCAO' ? 'https://prod.acbr.api.br' : 'https://hom.acbr.api.br';
+    return 'https://hom.acbr.api.br';
 }
 
-/** Fallback global (env ou `FISCAL_CTE_ENV`). */
+/** Fallback global quando nenhum `env` do emitente: opcionalmente `ACBR_API_BASE_URL`, senão homologação ACBr. */
 export function getAcbrApiBaseUrl(): string {
     return getAcbrApiBaseUrlForEnvironment(null);
 }

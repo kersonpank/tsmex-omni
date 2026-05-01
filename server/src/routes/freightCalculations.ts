@@ -19,6 +19,9 @@ import { getBrandingForFiscalEmitter } from '../services/visualIdentityService.j
 
 const router = Router({ mergeParams: true });
 
+/** Modo simulado sem variável Portainer; emissão ACBr real não usa este valor. */
+const SIMULATED_FISCAL_PROVIDER_MODE: CteProviderMode = 'simulate-authorized';
+
 const FISCAL_LOCKED_STATUSES = [
     'CTE_READY',
     'CTE_SENT',
@@ -47,7 +50,7 @@ function getOrderParams(order: { invoicesRel: { volumes: number; weight: number;
 }
 
 // Validation schemas
-const createFreightCalcSchema = z.object({
+const freightCalcShape = z.object({
     documentType: z.enum(['CTE', 'DCE', 'MINUTA']),
     emissorId: z.string().uuid(),
     calculationMethod: z.enum(['ESPECIAL', 'TARIFA_GERAL', 'INFORMADO']),
@@ -62,8 +65,17 @@ const createFreightCalcSchema = z.object({
     observacoes: z.string().optional().nullable(),
 });
 
-const updateFreightCalcSchema = createFreightCalcSchema.partial().extend({
-    // Para INFORMADO: breakdown manual
+const createFreightCalcSchema = freightCalcShape.superRefine((data, ctx) => {
+    if ((data.documentType === 'CTE' || data.documentType === 'DCE') && !data.fiscalEmitterId) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Emitente credenciado é obrigatório para CT-e e DC-e.',
+            path: ['fiscalEmitterId'],
+        });
+    }
+});
+
+const updateFreightCalcSchema = freightCalcShape.partial().extend({
     freightTotal: z.number().optional(),
     breakdown: z.record(z.string(), z.number()).optional().nullable(),
     icmsValue: z.number().optional().nullable(),
@@ -246,6 +258,11 @@ router.patch('/:calcId', authenticate, authorize('ADMIN', 'HUB'), async (req: Au
             fiscalEmitterId: nextFiscalEmitterId,
             user: req.user,
         });
+
+        const nextDocType = (data.documentType ?? existing.documentType) as 'CTE' | 'DCE' | 'MINUTA';
+        if ((nextDocType === 'CTE' || nextDocType === 'DCE') && !nextFiscalEmitterId) {
+            throw new AppError('Emitente credenciado é obrigatório para CT-e e DC-e.', 400);
+        }
 
         const updatePayload: Record<string, unknown> = {};
         if (data.documentType != null) updatePayload.documentType = data.documentType;
@@ -597,8 +614,8 @@ router.get('/:calcId/print-preview', authenticate, authorize('ADMIN', 'HUB'), as
         }
 
         if (calc.documentType === 'CTE') {
-            const ambiente = (calc.cteEnvironment ?? (process.env.FISCAL_CTE_ENV === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO')) as CteEnvironment;
-            const serie = calc.cteSeries ?? Number(process.env.FISCAL_CTE_SERIE || 1);
+            const ambiente = (calc.cteEnvironment ?? calc.fiscalEmitter?.environment ?? 'HOMOLOGACAO') as CteEnvironment;
+            const serie = calc.cteSeries ?? calc.fiscalEmitter?.cteSeries ?? 1;
             const emittedAuth = calc.status === 'CTE_AUTHORIZED' && Boolean(calc.cteAccessKey?.trim());
             const hasNumero = Boolean(calc.cteNumber?.trim());
             const numero = hasNumero ? (parseInt(calc.cteNumber!, 10) || 0) : 0;
@@ -629,8 +646,8 @@ router.get('/:calcId/print-preview', authenticate, authorize('ADMIN', 'HUB'), as
         }
 
         if (calc.documentType === 'DCE') {
-            const ambiente = (calc.dceEnvironment ?? (process.env.FISCAL_CTE_ENV === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO')) as CteEnvironment;
-            const serie = calc.dceSeries ?? calc.cteSeries ?? Number(process.env.FISCAL_CTE_SERIE || 1);
+            const ambiente = (calc.dceEnvironment ?? calc.fiscalEmitter?.environment ?? 'HOMOLOGACAO') as CteEnvironment;
+            const serie = calc.dceSeries ?? calc.cteSeries ?? calc.fiscalEmitter?.cteSeries ?? 1;
             const emittedAuth = calc.status === 'DCE_AUTHORIZED' && Boolean(calc.dceAccessKey?.trim());
             const hasNumero = Boolean(calc.dceNumber?.trim());
             const numero = hasNumero ? (parseInt(calc.dceNumber!, 10) || 0) : 0;
@@ -833,25 +850,27 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
         });
 
         if (!hub) throw new AppError('Emissor (Hub) não encontrado', 404);
-        if (!hub.person && !calc.fiscalEmitter?.person) throw new AppError('O emissor deve ter Pessoa (CNPJ) vinculada para emitir', 400);
 
-        if (!(calc.fiscalEmitter?.rntrc ?? hub.rntrc)?.trim()) {
+        if (!calc.fiscalEmitterId || !calc.fiscalEmitter || !calc.fiscalEmitter.active) {
+            throw new AppError('É obrigatório vincular um emitente credenciado ativo a este cálculo para emitir CT-e.', 400);
+        }
+
+        if (!calc.fiscalEmitter.person) throw new AppError('Emitente credenciado sem pessoa jurídica vinculada.', 400);
+
+        if (!calc.fiscalEmitter.rntrc?.trim() && !hub.rntrc?.trim()) {
             throw new AppError('O emitente credenciado ou Hub emissor deve ter RNTRC cadastrado para emitir CT-e.', 400);
         }
 
-        const ambiente = (calc.fiscalEmitter?.environment ?? (process.env.FISCAL_CTE_ENV === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO')) as CteEnvironment;
-        const providerMode = (process.env.FISCAL_CTE_PROVIDER_MODE === 'simulate-rejected'
-            ? 'simulate-rejected'
-            : 'simulate-authorized') as CteProviderMode;
-        const serie = calc.fiscalEmitter?.cteSeries ?? Number(process.env.FISCAL_CTE_SERIE || 1);
-        const emitterPerson = calc.fiscalEmitter?.person ?? hub.person;
-        if (!emitterPerson) throw new AppError('O emissor deve ter Pessoa (CNPJ) vinculada para emitir', 400);
+        const ambiente = (calc.fiscalEmitter.environment ?? 'HOMOLOGACAO') as CteEnvironment;
+        const providerMode = SIMULATED_FISCAL_PROVIDER_MODE;
+        const serie = calc.fiscalEmitter.cteSeries ?? 1;
+        const emitterPerson = calc.fiscalEmitter.person;
         const emitterPrint = {
             id: hub.id,
-            name: calc.fiscalEmitter?.displayName ?? calc.fiscalEmitter?.person.legalName ?? hub.name,
+            name: calc.fiscalEmitter.displayName ?? calc.fiscalEmitter.person.legalName ?? hub.name,
             code: hub.code,
-            phone: calc.fiscalEmitter?.hub?.phone ?? hub.phone,
-            rntrc: calc.fiscalEmitter?.rntrc ?? hub.rntrc,
+            phone: calc.fiscalEmitter.hub?.phone ?? hub.phone,
+            rntrc: calc.fiscalEmitter.rntrc ?? hub.rntrc,
         };
 
         const cteBaseInput = {
@@ -1050,21 +1069,22 @@ router.post('/:calcId/emit-dce', authenticate, authorize('ADMIN', 'HUB'), async 
         });
 
         if (!hub) throw new AppError('Emissor (Hub) não encontrado', 404);
-        if (!hub.person && !calc.fiscalEmitter?.person) throw new AppError('O emissor deve ter Pessoa vinculada para emitir', 400);
 
-        const ambiente = (calc.fiscalEmitter?.environment ?? (process.env.FISCAL_CTE_ENV === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO')) as CteEnvironment;
-        const providerMode = (process.env.FISCAL_CTE_PROVIDER_MODE === 'simulate-rejected'
-            ? 'simulate-rejected'
-            : 'simulate-authorized') as CteProviderMode;
-        const serie = calc.fiscalEmitter?.cteSeries ?? Number(process.env.FISCAL_CTE_SERIE || 1);
-        const emitterPerson = calc.fiscalEmitter?.person ?? hub.person;
-        if (!emitterPerson) throw new AppError('O emissor deve ter Pessoa vinculada para emitir', 400);
+        if (!calc.fiscalEmitterId || !calc.fiscalEmitter || !calc.fiscalEmitter.active) {
+            throw new AppError('É obrigatório vincular um emitente credenciado ativo a este cálculo para emitir DC-e.', 400);
+        }
+        if (!calc.fiscalEmitter.person) throw new AppError('Emitente credenciado sem pessoa jurídica vinculada.', 400);
+
+        const ambiente = (calc.fiscalEmitter.environment ?? 'HOMOLOGACAO') as CteEnvironment;
+        const providerMode = SIMULATED_FISCAL_PROVIDER_MODE;
+        const serie = calc.fiscalEmitter.cteSeries ?? 1;
+        const emitterPerson = calc.fiscalEmitter.person;
         const emitterPrint = {
             id: hub.id,
-            name: calc.fiscalEmitter?.displayName ?? calc.fiscalEmitter?.person.legalName ?? hub.name,
+            name: calc.fiscalEmitter.displayName ?? calc.fiscalEmitter.person.legalName ?? hub.name,
             code: hub.code,
-            phone: calc.fiscalEmitter?.hub?.phone ?? hub.phone,
-            rntrc: calc.fiscalEmitter?.rntrc ?? hub.rntrc,
+            phone: calc.fiscalEmitter.hub?.phone ?? hub.phone,
+            rntrc: calc.fiscalEmitter.rntrc ?? hub.rntrc,
         };
 
         const dceBaseInput = {
