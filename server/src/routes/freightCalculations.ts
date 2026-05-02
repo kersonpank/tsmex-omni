@@ -28,6 +28,12 @@ function emptyToNull(v: unknown): unknown {
 
 const nullableUuid = z.preprocess(emptyToNull, z.string().uuid().nullable().optional());
 
+/** Rotas/tabelas podem ter id slug legado (ex.: route-sp-ma), não só UUID. */
+const nullableDbId = z.preprocess(
+    emptyToNull,
+    z.union([z.string().min(1).max(128), z.null()]).optional(),
+);
+
 type OrderInvoicesShape = {
     invoicesRel: {
         type?: string | null;
@@ -94,8 +100,8 @@ const freightCalcShape = z.object({
     documentType: z.enum(['CTE', 'DCE', 'MINUTA']),
     emissorId: z.string().uuid(),
     calculationMethod: z.enum(['ESPECIAL', 'TARIFA_GERAL', 'INFORMADO']),
-    pricingTableId: nullableUuid,
-    routeId: nullableUuid,
+    pricingTableId: nullableDbId,
+    routeId: nullableDbId,
     fiscalEmitterId: nullableUuid,
     originCity: z.string().optional().nullable(),
     destCity: z.string().optional().nullable(),

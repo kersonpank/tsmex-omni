@@ -65,12 +65,17 @@ describe('UUID opcionais no payload de frete (mesmo preprocess que freightCalcul
 
     const nullableUuid = z.preprocess(emptyToNull, z.string().uuid().nullable().optional());
 
+    const nullableDbId = z.preprocess(
+        emptyToNull,
+        z.union([z.string().min(1).max(128), z.null()]).optional(),
+    );
+
     const freightPayloadShape = z.object({
         documentType: z.enum(['CTE', 'DCE', 'MINUTA']),
         emissorId: z.string().uuid(),
         calculationMethod: z.enum(['ESPECIAL', 'TARIFA_GERAL', 'INFORMADO']),
-        pricingTableId: nullableUuid,
-        routeId: nullableUuid,
+        pricingTableId: nullableDbId,
+        routeId: nullableDbId,
         fiscalEmitterId: nullableUuid,
     });
 
@@ -86,5 +91,20 @@ describe('UUID opcionais no payload de frete (mesmo preprocess que freightCalcul
         assert.equal(parsed.pricingTableId, null);
         assert.equal(parsed.routeId, null);
         assert.equal(parsed.fiscalEmitterId, null);
+    });
+
+    it('aceita routeId slug legado e pricingTableId UUID (produção route-sp-ma)', () => {
+        const tableUuid = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
+        const parsed = freightPayloadShape.parse({
+            documentType: 'CTE',
+            emissorId: U,
+            calculationMethod: 'TARIFA_GERAL',
+            pricingTableId: tableUuid,
+            routeId: 'route-sp-ma',
+            fiscalEmitterId: U,
+        });
+        assert.equal(parsed.routeId, 'route-sp-ma');
+        assert.equal(parsed.pricingTableId, tableUuid);
+        assert.equal(parsed.fiscalEmitterId, U);
     });
 });
