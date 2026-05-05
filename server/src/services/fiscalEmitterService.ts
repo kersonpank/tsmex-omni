@@ -21,6 +21,9 @@ export interface FiscalEmitterReadinessInput {
     environment?: FiscalEnvironment | string | null;
     certificateStorageKey?: string | null;
     certificatePasswordEncrypted?: string | null;
+    provider?: string | null;
+    defaultCteCfop?: string | null;
+    defaultCteCst?: string | null;
 }
 
 export interface FiscalEmitterReadiness {
@@ -83,6 +86,16 @@ export function buildFiscalEmitterReadiness(input: FiscalEmitterReadinessInput):
     if (!isPresent(input.crt)) issues.push('CRT/regime tributário é obrigatório.');
     if (!input.cteSeries || input.cteSeries <= 0) issues.push('Série CT-e é obrigatória.');
     if (!input.environment) issues.push('Ambiente fiscal é obrigatório.');
+
+    const needsCteTaxDefaults = input.provider === 'ACBR';
+    if (needsCteTaxDefaults) {
+        if (!isPresent(input.defaultCteCfop)) {
+            issues.push('Defina CFOP padrão do CT-e nas configurações do emitente.');
+        }
+        if (!isPresent(input.defaultCteCst)) {
+            issues.push('Defina CST padrão do CT-e nas configurações do emitente.');
+        }
+    }
 
     const readyForMinuta = issues.length === 0;
 

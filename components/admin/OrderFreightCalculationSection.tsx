@@ -10,6 +10,7 @@ import type {
   FiscalEmitter,
   CtePreflightResult,
 } from '../../types/index';
+import { CTE_CFOP_SELECT_OPTIONS, CTE_CST_SELECT_OPTIONS } from '../../lib/cteTaxCatalog';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -23,27 +24,8 @@ function optionalUuid(value: string | undefined | null): string | null {
   return t === '' ? null : t;
 }
 
-const CFOP_OPTIONS = [
-  { code: '6351', label: 'Transporte para serviço da mesma natureza' },
-  { code: '6352', label: 'Transporte a estabelecimento industrial' },
-  { code: '6353', label: 'Transporte a estabelecimento comercial' },
-  { code: '6354', label: 'Transporte a comunicação' },
-  { code: '6355', label: 'Transporte a energia' },
-  { code: '6356', label: 'Transporte a produtor rural' },
-  { code: '6357', label: 'Transporte a não contribuinte' },
-  { code: '6360', label: 'Transporte a contribuinte substituto' },
-  { code: '6932', label: 'Prestação iniciada em UF diversa' },
-  { code: '6949', label: 'Outra prestação de serviço' },
-  { code: '7358', label: 'Transporte para o exterior' },
-];
-const CST_OPTIONS = [
-  { code: '00', label: 'Tributada integralmente' },
-  { code: '20', label: 'Com redução de base de cálculo' },
-  { code: '40', label: 'Isenta' },
-  { code: '41', label: 'Não tributada' },
-  { code: '51', label: 'Diferimento' },
-  { code: '90', label: 'Outras' },
-];
+const CFOP_OPTIONS = CTE_CFOP_SELECT_OPTIONS;
+const CST_OPTIONS = CTE_CST_SELECT_OPTIONS;
 const TIPO_FRETE_OPTIONS = ['Normal', 'Descarga', 'Devolução', 'Diária', 'Paletização', 'Reentrega', 'Retorno'];
 
 const BREAKDOWN_LABELS: Record<string, string> = {

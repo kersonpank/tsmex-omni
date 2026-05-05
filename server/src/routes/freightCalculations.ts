@@ -18,6 +18,7 @@ import { authorizeDceWithProvider, validateDceReadiness } from '../services/dceS
 import { getBrandingForFiscalEmitter } from '../services/visualIdentityService.js';
 import { getFiscalDocModeForFreight } from '../services/fiscal/fiscalDocPolicy.js';
 import { buildCtePreflightResult, type CtePreflightResult } from '../services/fiscal/ctePreflight.js';
+import { resolveCteCfopCstForEmission } from '../services/fiscal/cteEmitterDefaults.js';
 
 const router = Router({ mergeParams: true });
 
@@ -359,6 +360,7 @@ function buildCteEmissionInputFromRecords(params: {
     const emitterPerson = calc.fiscalEmitter?.person ?? hub?.person ?? null;
     const rntrc = calc.fiscalEmitter?.rntrc ?? hub?.rntrc ?? null;
     const canBuildInput = calc.documentType === 'CTE' && Boolean(hub && emitterPerson);
+    const effectiveTax = resolveCteCfopCstForEmission(calc, calc.fiscalEmitter);
 
     const input = canBuildInput
         ? {
@@ -366,8 +368,8 @@ function buildCteEmissionInputFromRecords(params: {
                 id: calc.id,
                 originCity: calc.originCity,
                 destCity: calc.destCity,
-                cfop: calc.cfop,
-                cst: calc.cst,
+                cfop: effectiveTax.cfop,
+                cst: effectiveTax.cst,
                 tipoFrete: calc.tipoFrete,
                 observacoes: calc.observacoes,
                 volumes: calc.volumes,
@@ -818,11 +820,16 @@ router.get('/:calcId/print-preview', authenticate, authorize('ADMIN', 'HUB'), as
 
         const branding = await getBrandingForFiscalEmitter(calc.fiscalEmitterId);
 
+        const effTaxForPrint =
+            calc.documentType === 'CTE' || calc.documentType === 'DCE'
+                ? resolveCteCfopCstForEmission(calc, calc.fiscalEmitter)
+                : null;
+
         const calcFields = {
             originCity: calc.originCity,
             destCity: calc.destCity,
-            cfop: calc.cfop,
-            cst: calc.cst,
+            cfop: effTaxForPrint ? effTaxForPrint.cfop : calc.cfop,
+            cst: effTaxForPrint ? effTaxForPrint.cst : calc.cst,
             tipoFrete: calc.tipoFrete,
             observacoes: calc.observacoes,
             volumes: calc.volumes,
@@ -1285,13 +1292,15 @@ router.post('/:calcId/emit-dce', authenticate, authorize('ADMIN', 'HUB'), async 
             rntrc: calc.fiscalEmitter.rntrc ?? hub.rntrc,
         };
 
+        const dceEffectiveTax = resolveCteCfopCstForEmission(calc, calc.fiscalEmitter);
+
         const dceBaseInput = {
             calc: {
                 id: calc.id,
                 originCity: calc.originCity,
                 destCity: calc.destCity,
-                cfop: calc.cfop,
-                cst: calc.cst,
+                cfop: dceEffectiveTax.cfop,
+                cst: dceEffectiveTax.cst,
                 tipoFrete: calc.tipoFrete,
                 observacoes: calc.observacoes,
                 volumes: calc.volumes,

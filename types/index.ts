@@ -159,6 +159,10 @@ export interface FiscalEmitter {
     certificateStatus: FiscalCertificateStatus;
     active: boolean;
     defaultForHub: boolean;
+    /** Padrão fiscal do CT-e/DC-e quando o cálculo de frete não informa CFOP. */
+    defaultCteCfop?: string | null;
+    /** Padrão fiscal do CT-e/DC-e quando o cálculo de frete não informa CST. */
+    defaultCteCst?: string | null;
     readiness?: FiscalEmitterReadiness;
     createdAt: string;
     updatedAt: string;

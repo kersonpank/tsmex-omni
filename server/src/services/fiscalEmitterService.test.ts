@@ -69,4 +69,29 @@ describe('buildFiscalEmitterReadiness', () => {
         assert.ok(readiness.issues.includes('Série CT-e é obrigatória.'));
         assert.ok(readiness.issues.includes('Certificado A1 e senha são obrigatórios para homologação/produção.'));
     });
+
+    it('exige CFOP e CST padrão do CT-e para emitente ACBr', () => {
+        const readiness = buildFiscalEmitterReadiness({
+            ...readyEmitter,
+            provider: 'ACBR',
+            defaultCteCfop: null,
+            defaultCteCst: null,
+        });
+
+        assert.equal(readiness.readyForMinuta, false);
+        assert.ok(readiness.issues.some((i) => i.includes('CFOP padrão do CT-e')));
+        assert.ok(readiness.issues.some((i) => i.includes('CST padrão do CT-e')));
+    });
+
+    it('aceita emitente ACBr com CFOP/CST padrão definidos', () => {
+        const readiness = buildFiscalEmitterReadiness({
+            ...readyEmitter,
+            provider: 'ACBR',
+            defaultCteCfop: '6352',
+            defaultCteCst: '00',
+        });
+
+        assert.equal(readiness.readyForHomologation, true);
+        assert.deepEqual(readiness.issues, []);
+    });
 });

@@ -14,6 +14,7 @@ import {
 import { getObjectDownloadUrl } from '../lib/objectStorage.js';
 import { isAcbrCredentialsConfigured } from '../services/acbr/acbrConfig.js';
 import { putAcbrEmpresaCertificado, syncFiscalEmitterToAcbr } from '../services/acbr/acbrEmpresa.js';
+import { getCteCfopOption, getCteCstRule } from '../services/fiscal/cteTaxRules.js';
 
 const router = Router();
 
@@ -46,7 +47,12 @@ async function trySyncAcbrEmitter(emitterId: string): Promise<{ acbrSync?: { ok:
     return { acbrSync: { ok: sync.ok, message: sync.message } };
 }
 
-const fiscalEmitterSchema = z.object({
+const nullableCteTaxString = z.preprocess(
+    (v) => (v === '' || v === undefined ? null : v),
+    z.string().max(8).nullable().optional(),
+);
+
+const fiscalEmitterShape = z.object({
     personId: z.string().uuid(),
     hubId: z.string().uuid().nullable().optional(),
     displayName: z.string().max(500).nullable().optional(),
@@ -67,7 +73,32 @@ const fiscalEmitterSchema = z.object({
     providerStatus: z.enum(['NOT_CONFIGURED', 'PENDING', 'READY', 'ERROR']).optional(),
     active: z.boolean().optional(),
     defaultForHub: z.boolean().optional(),
+    defaultCteCfop: nullableCteTaxString,
+    defaultCteCst: nullableCteTaxString,
 });
+
+function refineFiscalEmitterCteTax(
+    data: { defaultCteCfop?: string | null; defaultCteCst?: string | null },
+    ctx: z.RefinementCtx,
+) {
+    if (data.defaultCteCfop != null && data.defaultCteCfop !== '' && !getCteCfopOption(data.defaultCteCfop)) {
+        ctx.addIssue({
+            code: 'custom',
+            message: 'CFOP padrão não está no catálogo CT-e do sistema.',
+            path: ['defaultCteCfop'],
+        });
+    }
+    if (data.defaultCteCst != null && data.defaultCteCst !== '' && !getCteCstRule(data.defaultCteCst)) {
+        ctx.addIssue({
+            code: 'custom',
+            message: 'CST padrão não está habilitado para CT-e no MVP.',
+            path: ['defaultCteCst'],
+        });
+    }
+}
+
+const fiscalEmitterSchema = fiscalEmitterShape.superRefine(refineFiscalEmitterCteTax);
+const fiscalEmitterPatchSchema = fiscalEmitterShape.partial().superRefine(refineFiscalEmitterCteTax);
 
 const certificateSchema = z.object({
     file: z.string().min(1),
@@ -94,6 +125,9 @@ async function toPublicEmitter(emitter: any) {
             environment: safe.environment,
             certificateStorageKey: _storageKey,
             certificatePasswordEncrypted: emitter.certificatePasswordEncrypted,
+            provider: safe.provider,
+            defaultCteCfop: safe.defaultCteCfop,
+            defaultCteCst: safe.defaultCteCst,
         }),
     };
 }
@@ -233,7 +267,7 @@ router.post('/', authenticate, authorize('ADMIN'), async (req: AuthRequest, res:
 router.patch('/:id', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const id = req.params.id as string;
-        const data = fiscalEmitterSchema.partial().parse(req.body);
+        const data = fiscalEmitterPatchSchema.parse(req.body);
         const current = await prisma.fiscalEmitter.findUnique({ where: { id } });
         if (!current) throw new AppError('Emitente credenciado não encontrado', 404);
 

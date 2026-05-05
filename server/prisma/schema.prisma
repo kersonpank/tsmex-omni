@@ -764,6 +764,10 @@ model FiscalEmitter {
   lastCteNumber    Int               @default(0)
   lastDceNumber    Int               @default(0)
   lastMinutaNumber Int               @default(0)
+  /// CFOP padrão do CT-e (e DC-e quando não informado no cálculo)
+  defaultCteCfop   String?
+  /// CST do ICMS padrão do CT-e (e DC-e quando não informado no cálculo)
+  defaultCteCst    String?
   environment      FiscalEnvironment @default(HOMOLOGACAO)
 
   provider          FiscalProvider       @default(SIMULATED)

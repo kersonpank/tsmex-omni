@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { fiscalEmittersApi, hubsApi, personsApi, uploadApi } from '../../lib/api';
 import { useAuthStore } from '../../store/authStore';
 import type { FiscalEmitter, FiscalProvider, FiscalTaxRegime, Hub, Person } from '../../types/index';
+import { CTE_CFOP_SELECT_OPTIONS, CTE_CST_SELECT_OPTIONS } from '../../lib/cteTaxCatalog';
 import { Toggle } from '../ui/toggle-1';
 
 function EmitterAccordion({
@@ -51,6 +52,8 @@ type FormState = {
   provider: FiscalProvider;
   active: boolean;
   defaultForHub: boolean;
+  defaultCteCfop: string;
+  defaultCteCst: string;
 };
 
 const emptyForm: FormState = {
@@ -72,6 +75,8 @@ const emptyForm: FormState = {
   provider: 'SIMULATED',
   active: true,
   defaultForHub: false,
+  defaultCteCfop: '',
+  defaultCteCst: '',
 };
 
 function fileToBase64DataPart(file: File): Promise<string> {
@@ -107,6 +112,8 @@ function emitterToForm(emitter: FiscalEmitter): FormState {
     provider: emitter.provider ?? 'SIMULATED',
     active: emitter.active,
     defaultForHub: emitter.defaultForHub,
+    defaultCteCfop: emitter.defaultCteCfop ?? '',
+    defaultCteCst: emitter.defaultCteCst ?? '',
   };
 }
 
@@ -305,6 +312,8 @@ const IdentidadeVisualTab: React.FC = () => {
         provider: form.provider,
         active: form.active,
         defaultForHub: form.defaultForHub,
+        defaultCteCfop: form.defaultCteCfop.trim() || null,
+        defaultCteCst: form.defaultCteCst.trim() || null,
       };
       const result = form.id
         ? await fiscalEmittersApi.update(form.id, payload)
@@ -428,6 +437,8 @@ const IdentidadeVisualTab: React.FC = () => {
                   <div><span className="font-semibold">Último CT-e:</span> {selectedEmitter.lastCteNumber ?? 0}</div>
                   <div><span className="font-semibold">Último DC-e:</span> {selectedEmitter.lastDceNumber ?? 0}</div>
                   <div><span className="font-semibold">Última minuta:</span> {selectedEmitter.lastMinutaNumber ?? 0}</div>
+                  <div><span className="font-semibold">CFOP padrão CT-e:</span> {selectedEmitter.defaultCteCfop || '—'}</div>
+                  <div><span className="font-semibold">CST padrão CT-e:</span> {selectedEmitter.defaultCteCst || '—'}</div>
                   <div><span className="font-semibold">Provedor:</span> {selectedEmitter.provider === 'ACBR' ? 'ACBr API' : selectedEmitter.provider}</div>
                   <div><span className="font-semibold">Status provedor:</span> {selectedEmitter.providerStatus}</div>
                   <div><span className="font-semibold">Certificado:</span> {selectedEmitter.certificateFileName || 'Não enviado'}</div>
@@ -542,6 +553,44 @@ const IdentidadeVisualTab: React.FC = () => {
                   <option value="OUTRO">Outro</option>
                 </select>
               </label>
+              <div className="block md:col-span-2 rounded-lg border border-tower-100 bg-tower-50/80 p-4 dark:border-tower-700 dark:bg-tower-950/30">
+                <p className="text-sm font-semibold text-tower-800 dark:text-tower-100">Padrões fiscais CT-e / DC-e</p>
+                <p className="mt-1 text-xs text-tower-500 dark:text-tower-400">
+                  Usados quando o cálculo de frete não preenche CFOP ou CST. Obrigatório no checklist para emitentes com provedor ACBr.
+                </p>
+                <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="text-sm font-medium text-tower-800 dark:text-tower-200">CFOP padrão</span>
+                    <select
+                      className="admin-focus mt-1 w-full rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900"
+                      value={form.defaultCteCfop}
+                      onChange={(e) => update('defaultCteCfop', e.target.value)}
+                    >
+                      <option value="">Selecione…</option>
+                      {CTE_CFOP_SELECT_OPTIONS.map((o) => (
+                        <option key={o.code} value={o.code}>
+                          {o.code} — {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-medium text-tower-800 dark:text-tower-200">CST padrão (ICMS)</span>
+                    <select
+                      className="admin-focus mt-1 w-full rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900"
+                      value={form.defaultCteCst}
+                      onChange={(e) => update('defaultCteCst', e.target.value)}
+                    >
+                      <option value="">Selecione…</option>
+                      {CTE_CST_SELECT_OPTIONS.map((o) => (
+                        <option key={o.code} value={o.code}>
+                          {o.code} — {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </div>
             </div>
           </EmitterAccordion>
 
