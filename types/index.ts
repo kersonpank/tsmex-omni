@@ -164,6 +164,29 @@ export interface FiscalEmitter {
     updatedAt: string;
 }
 
+export interface CteTaxOption {
+    code: string;
+    label: string;
+}
+
+export interface CteTaxRule extends CteTaxOption {
+    group: 'ICMS00' | 'ICMS20' | 'ICMS45' | 'ICMS90';
+}
+
+export interface CtePreflightResult {
+    ok: boolean;
+    canEmit: boolean;
+    issues: string[];
+    warnings: string[];
+    missingFields: string[];
+    environment: FiscalEnvironment | null;
+    provider: FiscalProvider | string | null;
+    tax: {
+        cfop: CteTaxOption | null;
+        cst: CteTaxRule | null;
+    };
+}
+
 export type PersonDocumentType = 'CPF' | 'CNPJ';
 
 // ========== ENTITIES ==========

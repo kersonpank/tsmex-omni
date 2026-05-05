@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ordersFreightApi, ordersApi, hubsApi, pricingApi, clientsApi, fiscalEmittersApi } from '../../lib/api';
 import DactePrintPreview from './DactePrintPreview';
 import type {
@@ -8,6 +8,7 @@ import type {
   PricingRoute,
   Client,
   FiscalEmitter,
+  CtePreflightResult,
 } from '../../types/index';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -22,7 +23,27 @@ function optionalUuid(value: string | undefined | null): string | null {
   return t === '' ? null : t;
 }
 
-const CFOP_OPTIONS = ['6351', '6352', '6353', '6354', '6355', '6356', '6357', '6360', '6932', '6949', '7358'];
+const CFOP_OPTIONS = [
+  { code: '6351', label: 'Transporte para serviço da mesma natureza' },
+  { code: '6352', label: 'Transporte a estabelecimento industrial' },
+  { code: '6353', label: 'Transporte a estabelecimento comercial' },
+  { code: '6354', label: 'Transporte a comunicação' },
+  { code: '6355', label: 'Transporte a energia' },
+  { code: '6356', label: 'Transporte a produtor rural' },
+  { code: '6357', label: 'Transporte a não contribuinte' },
+  { code: '6360', label: 'Transporte a contribuinte substituto' },
+  { code: '6932', label: 'Prestação iniciada em UF diversa' },
+  { code: '6949', label: 'Outra prestação de serviço' },
+  { code: '7358', label: 'Transporte para o exterior' },
+];
+const CST_OPTIONS = [
+  { code: '00', label: 'Tributada integralmente' },
+  { code: '20', label: 'Com redução de base de cálculo' },
+  { code: '40', label: 'Isenta' },
+  { code: '41', label: 'Não tributada' },
+  { code: '51', label: 'Diferimento' },
+  { code: '90', label: 'Outras' },
+];
 const TIPO_FRETE_OPTIONS = ['Normal', 'Descarga', 'Devolução', 'Diária', 'Paletização', 'Reentrega', 'Retorno'];
 
 const BREAKDOWN_LABELS: Record<string, string> = {
@@ -266,6 +287,33 @@ function getOrderParams(order: OrderFreightCalculationSectionProps['order']) {
   return { volumes, weight, cubage: cubedVolume > 0 ? cubedVolume : undefined, nfValue: value };
 }
 
+function defaultDocumentTypeForNew(
+  suggestion: FiscalDocSuggestionPayload | null,
+): 'CTE' | 'DCE' | 'MINUTA' {
+  const allowed = suggestion?.allowedFreightDocType;
+  if (allowed === 'CTE' || allowed === 'DCE') return allowed;
+  return 'MINUTA';
+}
+
+/** Emitentes ativos elegíveis para o Hub emissor (CNPJ do emitente vinculado ao Hub ou emitente global). */
+function eligibleFiscalEmitters(emitters: FiscalEmitter[], emissorHubId: string): FiscalEmitter[] {
+  return emitters.filter((e) => e.active && (!e.hubId || e.hubId === emissorHubId));
+}
+
+function pickDefaultFiscalEmitterId(emitters: FiscalEmitter[], emissorHubId: string): string {
+  const list = eligibleFiscalEmitters(emitters, emissorHubId);
+  if (list.length === 0) return '';
+  const forHub = list.filter((e) => e.hubId === emissorHubId);
+  const defForHub = forHub.find((e) => e.defaultForHub);
+  if (defForHub) return defForHub.id;
+  const defAny = list.find((e) => e.defaultForHub);
+  if (defAny) return defAny.id;
+  if (forHub.length === 1) return forHub[0].id;
+  if (list.length === 1) return list[0].id;
+  if (forHub.length) return forHub[0].id;
+  return list[0].id;
+}
+
 function useEmissorHubs(isHub: boolean, userHubId?: string): Hub[] {
   const [hubs, setHubs] = useState<Hub[]>([]);
   useEffect(() => {
@@ -325,6 +373,32 @@ function OrderFreightCard({
   const [emittingDce, setEmittingDce] = useState(false);
   const [loadingPrintPreview, setLoadingPrintPreview] = useState(false);
   const [printDoc, setPrintDoc] = useState<{ payload: unknown; branding?: unknown } | null>(null);
+  const [ctePreflight, setCtePreflight] = useState<CtePreflightResult | null>(null);
+  const [loadingCtePreflight, setLoadingCtePreflight] = useState(false);
+  const [cteInlineError, setCteInlineError] = useState<string | null>(null);
+
+  const refreshCtePreflight = async (): Promise<CtePreflightResult | null> => {
+    if (calc.documentType !== 'CTE') return null;
+    setLoadingCtePreflight(true);
+    try {
+      const result = await ordersFreightApi.ctePreflight(orderId, calc.id);
+      setCtePreflight(result.data ?? null);
+      return result.data ?? null;
+    } catch (e: any) {
+      const message = e.response?.data?.error ?? e.response?.data?.message ?? e.message ?? 'Erro ao validar CT-e';
+      setCteInlineError(message);
+      return null;
+    } finally {
+      setLoadingCtePreflight(false);
+    }
+  };
+
+  useEffect(() => {
+    setCteInlineError(null);
+    setCtePreflight(null);
+    if (calc.documentType !== 'CTE') return;
+    void refreshCtePreflight();
+  }, [orderId, calc.id, calc.documentType, calc.status, calc.cfop, calc.cst, calc.fiscalEmitterId, calc.freightTotal]);
 
   const headerLabel =
     calc.documentType === 'CTE'
@@ -339,7 +413,9 @@ function OrderFreightCard({
   const fiscalLocked = FISCAL_LOCKED_STATUSES.has(calc.status);
   const hasFiscalEmitter = Boolean(calc.fiscalEmitterId?.trim());
   const canEmitMinuta = calc.documentType === 'MINUTA' && calc.status !== 'MINUTA_EMITTED' && (calc.freightTotal ?? 0) > 0;
-  const canEmitCte = calc.documentType === 'CTE' && !fiscalLocked && (calc.freightTotal ?? 0) > 0 && hasFiscalEmitter;
+  const ctePreflightBlocks = calc.documentType === 'CTE' && ctePreflight != null && !ctePreflight.canEmit;
+  const showEmitCte = calc.documentType === 'CTE' && !fiscalLocked;
+  const canEmitCte = calc.documentType === 'CTE' && !fiscalLocked && (calc.freightTotal ?? 0) > 0 && hasFiscalEmitter && !loadingCtePreflight && !ctePreflightBlocks;
   const canEmitDce = calc.documentType === 'DCE' && !fiscalLocked && (calc.freightTotal ?? 0) > 0 && hasFiscalEmitter;
   const canPrintMinuta = calc.documentType === 'MINUTA' && (calc.freightTotal ?? 0) > 0;
   const canPrintCte = calc.documentType === 'CTE' && (calc.freightTotal ?? 0) > 0;
@@ -372,14 +448,21 @@ function OrderFreightCard({
   };
 
   const handleEmitCte = async () => {
+    setCteInlineError(null);
     setEmittingCte(true);
     try {
+      const preflight = await refreshCtePreflight();
+      if (!preflight?.canEmit) {
+        setCteInlineError('Resolva as pendências fiscais do CT-e antes de emitir.');
+        return;
+      }
       const result = await ordersFreightApi.emitCte(orderId, calc.id);
       if (result.payload) setPrintDoc({ payload: result.payload, branding: result.branding });
       onCalculate();
     } catch (e: any) {
-      window.alert(e.response?.data?.error ?? e.response?.data?.message ?? e.message ?? 'Erro ao emitir CT-e');
-      onCalculate();
+      const preflight = e.response?.data?.preflight as CtePreflightResult | undefined;
+      if (preflight) setCtePreflight(preflight);
+      setCteInlineError(e.response?.data?.error ?? e.response?.data?.message ?? e.message ?? 'Erro ao emitir CT-e');
     } finally {
       setEmittingCte(false);
     }
@@ -483,14 +566,15 @@ function OrderFreightCard({
               {emittingMinuta ? 'Emitindo...' : 'Emitir Minuta'}
             </button>
           )}
-          {canEmitCte && (
+          {showEmitCte && (
             <button
               type="button"
               onClick={handleEmitCte}
-              disabled={emittingCte}
+              disabled={emittingCte || !canEmitCte}
               className="px-3 py-1.5 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
+              title={canEmitCte ? undefined : 'Resolva as pendências fiscais antes de emitir o CT-e'}
             >
-              {emittingCte ? 'Enviando...' : calc.status === 'CTE_REJECTED' ? 'Reenviar CT-e' : 'Emitir CT-e'}
+              {emittingCte || loadingCtePreflight ? 'Validando...' : calc.status === 'CTE_REJECTED' ? 'Reenviar CT-e' : 'Emitir CT-e'}
             </button>
           )}
           {canEmitDce && (
@@ -557,6 +641,15 @@ function OrderFreightCard({
         <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
           Vincule um emitente credenciado ao cálculo (Editar) para emitir CT-e ou DC-e.
         </p>
+      )}
+      {calc.documentType === 'CTE' && (
+        <CtePreflightChecklist
+          preflight={ctePreflight}
+          loading={loadingCtePreflight}
+          inlineError={cteInlineError}
+          cfop={calc.cfop}
+          cst={calc.cst}
+        />
       )}
       <div className="mt-2 text-sm text-tower-600 dark:text-tower-300">
         Método: {calc.calculationMethod === 'ESPECIAL' ? 'Especial' : calc.calculationMethod === 'TARIFA_GERAL' ? 'Tarifa Geral' : 'Informado'}
@@ -641,6 +734,68 @@ function OrderFreightCard({
   );
 }
 
+function CtePreflightChecklist({
+  preflight,
+  loading,
+  inlineError,
+  cfop,
+  cst,
+}: {
+  preflight: CtePreflightResult | null;
+  loading: boolean;
+  inlineError: string | null;
+  cfop?: string | null;
+  cst?: string | null;
+}) {
+  const cfopLabel = preflight?.tax.cfop
+    ? `${preflight.tax.cfop.code} - ${preflight.tax.cfop.label}`
+    : cfop
+      ? `${cfop} - não validado no catálogo`
+      : 'Obrigatório';
+  const cstLabel = preflight?.tax.cst
+    ? `${preflight.tax.cst.code} - ${preflight.tax.cst.label}`
+    : cst
+      ? `${cst} - não validado no catálogo`
+      : 'Obrigatório';
+  const missing = new Set(preflight?.missingFields ?? []);
+  const hasIssues = Boolean(inlineError || !preflight || !preflight.canEmit);
+
+  return (
+    <div className={`mt-3 rounded-lg border p-3 text-sm ${
+      hasIssues
+        ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'
+        : 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800'
+    }`}>
+      <div className="flex items-center justify-between gap-3">
+        <span className={`font-medium ${hasIssues ? 'text-amber-800 dark:text-amber-200' : 'text-emerald-800 dark:text-emerald-200'}`}>
+          Checklist fiscal CT-e
+        </span>
+        <span className="text-xs text-tower-500 dark:text-tower-400">
+          {loading ? 'Validando...' : preflight?.canEmit ? 'Pronto para emitir' : 'Pendente'}
+        </span>
+      </div>
+      <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-tower-700 dark:text-tower-200">
+        <div>
+          <span className="font-medium">CFOP *</span>
+          <span className="block text-xs">{cfopLabel}</span>
+          {missing.has('cfop') && <span className="block text-xs text-amber-700 dark:text-amber-300">Selecione um CFOP.</span>}
+        </div>
+        <div>
+          <span className="font-medium">CST *</span>
+          <span className="block text-xs">{cstLabel}</span>
+          {missing.has('cst') && <span className="block text-xs text-amber-700 dark:text-amber-300">Selecione um CST.</span>}
+        </div>
+      </div>
+      {(inlineError || (preflight?.issues.length ?? 0) > 0) && (
+        <div className="mt-2 text-xs text-amber-800 dark:text-amber-200 space-y-1">
+          {inlineError && <p>{inlineError}</p>}
+          {preflight?.issues.map((issue) => <p key={issue}>{issue}</p>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface OrderFreightFormProps {
   orderId: string;
   calc?: OrderFreightCalculation;
@@ -674,10 +829,12 @@ function OrderFreightForm({
   const [generalTables, setGeneralTables] = useState<PricingTable[]>([]);
   const [fiscalEmitters, setFiscalEmitters] = useState<FiscalEmitter[]>([]);
   const [preview, setPreview] = useState<{ total: number; breakdown: Record<string, number>; tableName?: string } | null>(null);
+  /** Quando true, não forçamos CT-e/DC-e a partir da sugestão fiscal (usuário pediu só minuta). */
+  const docFiscalOptedOutRef = useRef(calc?.documentType === 'MINUTA');
 
   const initialRouteRaw = calc?.routeId ?? order.routeId ?? '';
   const [form, setForm] = useState({
-    documentType: (calc?.documentType ?? 'MINUTA') as 'CTE' | 'DCE' | 'MINUTA',
+    documentType: (calc?.documentType ?? defaultDocumentTypeForNew(null)) as 'CTE' | 'DCE' | 'MINUTA',
     emissorId: calc?.emissorId ?? (isHub ? userHubId ?? '' : availableHubs[0]?.id ?? ''),
     fiscalEmitterId: calc?.fiscalEmitterId ?? '',
     calculationMethod: (calc?.calculationMethod ?? 'ESPECIAL') as 'ESPECIAL' | 'TARIFA_GERAL' | 'INFORMADO',
@@ -699,11 +856,6 @@ function OrderFreightForm({
       setRoutes(Array.isArray(data) ? data : []);
     }).catch(() => {});
 
-    fiscalEmittersApi.list().then((r) => {
-      const list = r.data ?? [];
-      setFiscalEmitters(isHub && userHubId ? list.filter((e) => e.hubId === userHubId || !e.hubId) : list);
-    }).catch(() => setFiscalEmitters([]));
-
     const payerPersonId = getPayerPersonId(order);
     if (payerPersonId) {
       clientsApi.list().then((r: any) => {
@@ -723,6 +875,22 @@ function OrderFreightForm({
   }, [order]);
 
   useEffect(() => {
+    const hubParam =
+      isHub && userHubId
+        ? { hubId: userHubId }
+        : form.emissorId
+          ? { hubId: form.emissorId }
+          : undefined;
+    fiscalEmittersApi
+      .list(hubParam)
+      .then((r) => {
+        const list = r.data ?? [];
+        setFiscalEmitters(isHub && userHubId ? list.filter((e) => e.hubId === userHubId || !e.hubId) : list);
+      })
+      .catch(() => setFiscalEmitters([]));
+  }, [isHub, userHubId, form.emissorId]);
+
+  useEffect(() => {
     if (form.calculationMethod === 'INFORMADO') {
       const b = form.breakdown;
       const total = (b.freightBase ?? 0) + (b.adValorem ?? 0) + (b.gris ?? 0) + (b.toll ?? 0) + (b.dispatch ?? 0) + (b.others ?? 0) + (b.icms ?? 0);
@@ -740,9 +908,25 @@ function OrderFreightForm({
       }
       if (allowed === 'CTE' && f.documentType === 'DCE') return { ...f, documentType: 'MINUTA' };
       if (allowed === 'DCE' && f.documentType === 'CTE') return { ...f, documentType: 'MINUTA' };
+      if (!docFiscalOptedOutRef.current && (allowed === 'CTE' || allowed === 'DCE')) {
+        if (f.documentType === 'MINUTA' || f.documentType !== allowed) {
+          return { ...f, documentType: allowed };
+        }
+      }
       return f;
     });
   }, [fiscalDocSuggestion, calc]);
+
+  useEffect(() => {
+    if (form.documentType !== 'CTE' && form.documentType !== 'DCE') return;
+    if (!form.emissorId || fiscalEmitters.length === 0) return;
+    const eligible = eligibleFiscalEmitters(fiscalEmitters, form.emissorId);
+    const curId = form.fiscalEmitterId;
+    const curOk = Boolean(curId && eligible.some((e) => e.id === curId));
+    if (curOk) return;
+    const next = pickDefaultFiscalEmitterId(fiscalEmitters, form.emissorId);
+    if (next) setForm((f) => ({ ...f, fiscalEmitterId: next }));
+  }, [form.documentType, form.emissorId, form.fiscalEmitterId, fiscalEmitters]);
 
   // Carrega tabelas GENERAL da rota selecionada (TARIFA_GERAL)
   useEffect(() => {
@@ -782,12 +966,13 @@ function OrderFreightForm({
     const cubage = params.cubage ?? (params.weight / 300);
     const cubedWeight = cubage * cubeFactor;
     const effectiveWeight = table.cubeEnabled ? Math.max(params.weight, cubedWeight) : params.weight;
+    const volUnits = params.volumes > 0 ? params.volumes : 1;
 
     let baseFreight = 0;
     switch (table.freightUnit) {
       case 'RS_KG':   baseFreight = effectiveWeight * (table.freightValue ?? 0); break;
       case 'RS_M3':   baseFreight = cubage * (table.freightValue ?? 0); break;
-      case 'RS_UNIT': baseFreight = (params.volumes || 1) * (table.freightValue ?? 0); break;
+      case 'RS_UNIT': baseFreight = volUnits * (table.freightValue ?? 0); break;
       case 'PERCENT': baseFreight = params.nfValue * (table.freightValue ?? 0) / 100; break;
     }
 
@@ -970,7 +1155,10 @@ function OrderFreightForm({
                   <input
                     type="radio"
                     checked={form.documentType === 'CTE'}
-                    onChange={() => setForm((f) => ({ ...f, documentType: 'CTE' }))}
+                    onChange={() => {
+                      docFiscalOptedOutRef.current = false;
+                      setForm((f) => ({ ...f, documentType: 'CTE' }));
+                    }}
                   />
                   <span>Doc fiscal — CT-e (NF-e)</span>
                 </label>
@@ -980,7 +1168,10 @@ function OrderFreightForm({
                   <input
                     type="radio"
                     checked={form.documentType === 'DCE'}
-                    onChange={() => setForm((f) => ({ ...f, documentType: 'DCE' }))}
+                    onChange={() => {
+                      docFiscalOptedOutRef.current = false;
+                      setForm((f) => ({ ...f, documentType: 'DCE' }));
+                    }}
                   />
                   <span>Doc fiscal — DC-e (declaração / Outras)</span>
                 </label>
@@ -989,7 +1180,10 @@ function OrderFreightForm({
                 <input
                   type="radio"
                   checked={form.documentType === 'MINUTA'}
-                  onChange={() => setForm((f) => ({ ...f, documentType: 'MINUTA' }))}
+                  onChange={() => {
+                    docFiscalOptedOutRef.current = true;
+                    setForm((f) => ({ ...f, documentType: 'MINUTA' }));
+                  }}
                 />
                 <span>Só minuta</span>
               </label>
@@ -1033,15 +1227,18 @@ function OrderFreightForm({
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">CFOP</label>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">
+              CFOP{form.documentType === 'CTE' ? <span className="text-red-600 dark:text-red-400"> *</span> : null}
+            </label>
             <select
               value={form.cfop}
               onChange={(e) => setForm((f) => ({ ...f, cfop: e.target.value }))}
+              required={form.documentType === 'CTE'}
               className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700"
             >
               <option value="">Selecione</option>
               {CFOP_OPTIONS.map((c) => (
-                <option key={c} value={c}>{c}</option>
+                <option key={c.code} value={c.code}>{c.code} - {c.label}</option>
               ))}
             </select>
           </div>
@@ -1186,14 +1383,25 @@ function OrderFreightForm({
         )}
 
         <div>
-          <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">CST</label>
-          <input
-            type="text"
+          <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">
+            CST{form.documentType === 'CTE' ? <span className="text-red-600 dark:text-red-400"> *</span> : null}
+          </label>
+          <select
             value={form.cst}
             onChange={(e) => setForm((f) => ({ ...f, cst: e.target.value }))}
-            placeholder="CST"
+            required={form.documentType === 'CTE'}
             className="w-full max-w-xs border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700"
-          />
+          >
+            <option value="">Selecione</option>
+            {CST_OPTIONS.map((option) => (
+              <option key={option.code} value={option.code}>{option.code} - {option.label}</option>
+            ))}
+          </select>
+          {form.documentType === 'CTE' && (
+            <p className="text-xs text-tower-500 dark:text-tower-400 mt-1">
+              O CST selecionado define o grupo ICMS enviado ao ACBR, sem fallback automático.
+            </p>
+          )}
         </div>
 
         <div>

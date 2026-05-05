@@ -1,6 +1,7 @@
 import { buildCtePayload } from './freightEmission.js';
 import { shouldUseAcbrHttp } from './acbr/acbrConfig.js';
 import { emitCteViaAcbr } from './acbr/acbrCteEmit.js';
+import { validateCteTaxSelection } from './fiscal/cteTaxRules.js';
 
 export type CteEnvironment = 'HOMOLOGACAO' | 'PRODUCAO';
 
@@ -132,6 +133,7 @@ export function validateCteReadiness(input: CteEmissionInput): CteReadinessResul
 
     if (!present(input.calc.cfop)) issues.push('CT-e precisa de CFOP.');
     if (!present(input.calc.cst)) issues.push('CT-e precisa de CST.');
+    issues.push(...validateCteTaxSelection({ cfop: input.calc.cfop, cst: input.calc.cst }).issues);
     if (!present(input.calc.originCity) || !present(input.calc.destCity)) {
         issues.push('CT-e precisa de origem e fim da prestação.');
     }

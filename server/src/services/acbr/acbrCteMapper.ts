@@ -1,4 +1,5 @@
 import type { CteEmissionInput, CtePerson } from '../cteService.js';
+import { buildCteIcmsBlock, getCteCfopOption, normalizeCfop } from '../fiscal/cteTaxRules.js';
 import { resolveIbgeMunicipio, ufToCuf } from './acbrIbge.js';
 
 function digits(s: string): string {
@@ -21,16 +22,6 @@ function getTomador(input: CteEmissionInput): CtePerson | null {
     return input.order.consignatarioPerson ?? input.order.destinatarioPerson;
 }
 
-function icmsBlock(cst: string | null | undefined, vTPrest: number, icmsValue: number | null): Record<string, unknown> {
-    const c = (cst ?? '41').replace(/\D/g, '').padStart(2, '0').slice(0, 2);
-    if (c === '00' && icmsValue != null && icmsValue > 0) {
-        const vBC = Math.max(0, vTPrest - icmsValue);
-        const pICMS = vBC > 0 ? Number(((icmsValue / vBC) * 100).toFixed(2)) : 0;
-        return { ICMS: { ICMS00: { CST: '00', vBC, pICMS, vICMS: icmsValue } } };
-    }
-    return { ICMS: { ICMS45: { CST: '41' } } };
-}
-
 /** Monta corpo JSON para POST /cte da ACBr (layout SEFAZ embutido em infCte). */
 export async function buildAcbrCteEmitBody(input: CteEmissionInput, referencia: string): Promise<Record<string, unknown>> {
     const emit = input.person;
@@ -46,7 +37,10 @@ export async function buildAcbrCteEmitBody(input: CteEmissionInput, referencia: 
 
     const cUF = ufToCuf(emit.state);
     const tpAmb = input.ambiente === 'PRODUCAO' ? 1 : 2;
-    const cfopNum = parseInt(String(input.calc.cfop ?? '5353').replace(/\D/g, ''), 10) || 5353;
+    const cfop = getCteCfopOption(input.calc.cfop);
+    if (!cfop) {
+        throw new Error(`CFOP ${normalizeCfop(input.calc.cfop) || 'não informado'} não está habilitado para CT-e no MVP.`);
+    }
     const vTPrest = Number(input.calc.freightTotal.toFixed(2));
     const peso = input.calc.effectiveWeight ?? input.calc.weight ?? 0.01;
     const infNFe = input.order.invoicesRel
@@ -103,8 +97,8 @@ export async function buildAcbrCteEmitBody(input: CteEmissionInput, referencia: 
         ide: {
             cUF,
             cCT,
-            CFOP: String(cfopNum),
-            natOp: 'PRESTACAO DE SERVICO DE TRANSPORTE',
+            CFOP: cfop.code,
+            natOp: cfop.nature,
             mod: 57,
             serie: input.serie,
             nCT: input.numero,
@@ -131,7 +125,7 @@ export async function buildAcbrCteEmitBody(input: CteEmissionInput, referencia: 
         rem: remParty,
         dest: destParty,
         vPrest: { vTPrest, vRec: vTPrest },
-        imp: { ...icmsBlock(input.calc.cst, vTPrest, input.calc.icmsValue), vTotTrib: 0 },
+        imp: { ...buildCteIcmsBlock(input.calc.cst, vTPrest, input.calc.icmsValue), vTotTrib: 0 },
         infCTeNorm: {
             infCarga: {
                 vCarga: Number((input.calc.nfValue || vTPrest).toFixed(2)),

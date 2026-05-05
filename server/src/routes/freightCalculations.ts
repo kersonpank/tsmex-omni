@@ -13,10 +13,11 @@ import {
     buildMinutaPayload,
     buildCtePayload,
 } from '../services/freightEmission.js';
-import { authorizeCteWithProvider, validateCteReadiness, type CteEmissionInput, type CteEnvironment, type CteProviderMode } from '../services/cteService.js';
+import { authorizeCteWithProvider, type CteEmissionInput, type CteEnvironment, type CteProviderMode } from '../services/cteService.js';
 import { authorizeDceWithProvider, validateDceReadiness } from '../services/dceService.js';
 import { getBrandingForFiscalEmitter } from '../services/visualIdentityService.js';
 import { getFiscalDocModeForFreight } from '../services/fiscal/fiscalDocPolicy.js';
+import { buildCtePreflightResult, type CtePreflightResult } from '../services/fiscal/ctePreflight.js';
 
 const router = Router({ mergeParams: true });
 
@@ -95,6 +96,169 @@ function getOrderParams(order: { invoicesRel: { volumes: number; weight: number;
     return { volumes, weight, cubage, nfValue: value };
 }
 
+/** Calcula e persiste frete (Especial / Tarifa Geral). Usado em POST /calculate e após salvar create/update. */
+async function persistAutoFreightCalculation(orderId: string, calcId: string): Promise<void> {
+    const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        include: {
+            invoicesRel: true,
+            demand: { include: { client: true } },
+        },
+    });
+
+    if (!order) throw new AppError('Order not found', 404);
+
+    const calc = await prisma.orderFreightCalculation.findFirst({
+        where: { id: calcId, orderId },
+        include: {
+            pricingTable: { include: { minFreightRanges: { orderBy: { minWeight: 'asc' } } } },
+        },
+    });
+
+    if (!calc) throw new AppError('Cálculo de frete não encontrado', 404);
+
+    if (calc.status === 'MINUTA_EMITTED' || FISCAL_LOCKED_STATUSES.includes(calc.status as (typeof FISCAL_LOCKED_STATUSES)[number])) {
+        throw new AppError('Cálculo com documento emitido/enviado não pode ser recalculado.', 400);
+    }
+
+    if (calc.calculationMethod === 'INFORMADO') {
+        throw new AppError('Método Informado não usa cálculo automático. Preencha os valores manualmente e salve.', 400);
+    }
+
+    const { volumes, weight, cubage, nfValue } = getOrderParams(order);
+
+    let table = calc.pricingTable;
+
+    if (calc.calculationMethod === 'ESPECIAL') {
+        if (!calc.pricingTableId || !table) {
+            throw new AppError('Método Especial exige seleção de uma tabela de preço', 400);
+        }
+    } else {
+        const routeId = calc.routeId || order.routeId;
+        if (!routeId) {
+            throw new AppError('Método Tarifa Geral exige uma rota. Informe a rota ou vincule ao pedido.', 400);
+        }
+
+        const route = await prisma.pricingRoute.findUnique({
+            where: { id: routeId },
+        });
+
+        if (!route) throw new AppError('Rota não encontrada', 404);
+
+        table = null;
+        if (calc.pricingTableId) {
+            table = await prisma.pricingTable.findFirst({
+                where: {
+                    id: calc.pricingTableId,
+                    routeId: route.id,
+                    type: 'GENERAL',
+                    active: true,
+                },
+                include: { minFreightRanges: { orderBy: { minWeight: 'asc' } } },
+            });
+        }
+        if (!table) {
+            table = await prisma.pricingTable.findFirst({
+                where: {
+                    routeId: route.id,
+                    type: 'GENERAL',
+                    active: true,
+                },
+                include: { minFreightRanges: { orderBy: { minWeight: 'asc' } } },
+                orderBy: { priority: 'desc' },
+            });
+        }
+
+        if (!table) throw new AppError('Nenhuma tabela Tarifa Geral encontrada para esta rota', 404);
+    }
+
+    const cubeFactor = table!.cubeFactor || 300;
+    const volume = cubage ?? (weight / 300);
+    const cubedWeight = volume * cubeFactor;
+    const effectiveWeight = Math.max(weight, cubedWeight);
+    const volUnits = volumes > 0 ? volumes : 1;
+
+    let baseFreight = 0;
+    switch (table!.freightUnit) {
+        case 'RS_KG':
+            baseFreight = effectiveWeight * (table!.freightValue || 0);
+            break;
+        case 'RS_M3':
+            baseFreight = volume * (table!.freightValue || 0);
+            break;
+        case 'RS_UNIT':
+            baseFreight = volUnits * (table!.freightValue || 0);
+            break;
+        case 'PERCENT':
+            baseFreight = nfValue * (table!.freightValue || 0) / 100;
+            break;
+    }
+
+    let minFreightValue = table!.minFreightValue || 0;
+    const minRanges = table!.minFreightRanges || [];
+    if (minRanges.length > 0) {
+        const r = minRanges.find(
+            (r: { minWeight: number; maxWeight: number | null }) =>
+                effectiveWeight >= r.minWeight && (r.maxWeight == null || effectiveWeight <= r.maxWeight),
+        );
+        if (r && r.value > baseFreight) {
+            minFreightValue = r.value;
+            baseFreight = minFreightValue;
+        }
+    } else if (minFreightValue > baseFreight) {
+        baseFreight = minFreightValue;
+    }
+
+    const adValorem = (table!.adValoremPercent || 0) * (nfValue / 1000);
+    const gris = (table!.grisPercent || 0) * (nfValue / 1000);
+
+    let toll = 0;
+    if (table!.tollUnit === 'RS_KG') {
+        toll = effectiveWeight * (table!.tollValue || 0);
+    } else if (table!.tollUnit === 'FIXED') {
+        toll = table!.tollValue || 0;
+    }
+
+    const dispatch = table!.dispatchFee || 0;
+    const others = table!.otherFees || 0;
+    const subtotal = baseFreight + adValorem + gris + toll + dispatch + others;
+
+    let icms = 0;
+    if (!table!.icmsIncluded && table!.icmsPercent) {
+        icms = subtotal * (table!.icmsPercent / 100);
+    }
+
+    const total = subtotal + icms;
+
+    const breakdown = {
+        freightBase: baseFreight,
+        adValorem,
+        gris,
+        toll,
+        dispatch,
+        others,
+        icms,
+    };
+
+    await prisma.orderFreightCalculation.update({
+        where: { id: calcId },
+        data: {
+            volumes,
+            weight,
+            cubage: cubage ?? null,
+            cubedWeight,
+            effectiveWeight,
+            nfValue: nfValue || 0,
+            freightTotal: total,
+            breakdown: breakdown as object,
+            icmsValue: icms || null,
+            status: 'CALCULATED',
+            pricingTableId: calc.calculationMethod === 'TARIFA_GERAL' ? table!.id : calc.pricingTableId,
+            routeId: calc.calculationMethod === 'TARIFA_GERAL' ? (calc.routeId || order.routeId) : calc.routeId,
+        },
+    });
+}
+
 // Validation schemas
 const freightCalcShape = z.object({
     documentType: z.enum(['CTE', 'DCE', 'MINUTA']),
@@ -157,6 +321,97 @@ async function validateFiscalEmitterSelection(params: {
     if (params.user?.roles.includes('HUB') && fiscalEmitter.hubId && fiscalEmitter.hubId !== params.user.hubId) {
         throw new AppError('Você não pode usar emitente credenciado de outro Hub', 403);
     }
+}
+
+type CteInputBuildResult = {
+    input: CteEmissionInput | null;
+    preflight: CtePreflightResult;
+};
+
+function buildCteEmissionInputFromRecords(params: {
+    order: any;
+    calc: any;
+    hub: any;
+    numero?: number;
+}): CteInputBuildResult {
+    const { order, calc, hub } = params;
+    const ambiente = (calc.fiscalEmitter?.environment ?? calc.cteEnvironment ?? 'HOMOLOGACAO') as CteEnvironment;
+    const serie = calc.fiscalEmitter?.cteSeries ?? calc.cteSeries ?? 1;
+    const additionalIssues: string[] = [];
+    const additionalMissingFields: string[] = [];
+
+    if (calc.documentType !== 'CTE') {
+        additionalIssues.push('Este cálculo não é do tipo CT-e.');
+    }
+    if ((calc.freightTotal ?? 0) <= 0) {
+        additionalIssues.push('CT-e precisa de valor de frete maior que zero.');
+        additionalMissingFields.push('freightTotal');
+    }
+    if (!calc.fiscalEmitterId || !calc.fiscalEmitter || !calc.fiscalEmitter.active) {
+        additionalIssues.push('É obrigatório vincular um emitente credenciado ativo a este cálculo para emitir CT-e.');
+        additionalMissingFields.push('fiscalEmitterId');
+    }
+    if (calc.fiscalEmitter && !calc.fiscalEmitter.person) {
+        additionalIssues.push('Emitente credenciado sem pessoa jurídica vinculada.');
+        additionalMissingFields.push('fiscalEmitterId');
+    }
+
+    const emitterPerson = calc.fiscalEmitter?.person ?? hub?.person ?? null;
+    const rntrc = calc.fiscalEmitter?.rntrc ?? hub?.rntrc ?? null;
+    const canBuildInput = calc.documentType === 'CTE' && Boolean(hub && emitterPerson);
+
+    const input = canBuildInput
+        ? {
+            calc: {
+                id: calc.id,
+                originCity: calc.originCity,
+                destCity: calc.destCity,
+                cfop: calc.cfop,
+                cst: calc.cst,
+                tipoFrete: calc.tipoFrete,
+                observacoes: calc.observacoes,
+                volumes: calc.volumes,
+                weight: calc.weight,
+                effectiveWeight: calc.effectiveWeight,
+                cubage: calc.cubage,
+                nfValue: calc.nfValue,
+                commodity: calc.commodity,
+                freightTotal: calc.freightTotal,
+                breakdown: calc.breakdown,
+                icmsValue: calc.icmsValue,
+            },
+            order: {
+                freightTerm: order.freightTerm,
+                remetentePerson: order.remetentePerson,
+                destinatarioPerson: order.destinatarioPerson,
+                consignatarioPerson: order.consignatarioPerson,
+                expedidorPerson: order.expedidorPerson,
+                invoicesRel: order.invoicesRel,
+                collectionData: order.collectionData,
+            },
+            hub: {
+                id: hub.id,
+                name: calc.fiscalEmitter?.displayName ?? emitterPerson.legalName ?? hub.name,
+                code: hub.code,
+                phone: calc.fiscalEmitter?.hub?.phone ?? hub.phone,
+                rntrc,
+            },
+            person: emitterPerson,
+            numero: params.numero ?? 0,
+            serie,
+            ambiente,
+        } satisfies CteEmissionInput
+        : null;
+
+    return {
+        input,
+        preflight: buildCtePreflightResult(input, {
+            environment: ambiente,
+            provider: calc.fiscalEmitter?.provider ?? null,
+            additionalIssues,
+            additionalMissingFields,
+        }),
+    };
 }
 
 // ==================== ROUTES ====================
@@ -232,7 +487,7 @@ router.post('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthReques
         const cd = (order.collectionData || {}) as Record<string, unknown>;
         const commodity = (cd.commodity as string) || null;
 
-        const calc = await prisma.orderFreightCalculation.create({
+        const created = await prisma.orderFreightCalculation.create({
             data: {
                 orderId,
                 documentType: data.documentType as 'CTE' | 'DCE' | 'MINUTA',
@@ -255,6 +510,24 @@ router.post('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthReques
                 freightTotal: 0,
                 status: 'DRAFT',
             },
+            include: {
+                emissor: { select: { id: true, name: true, code: true, person: { select: { document: true, legalName: true } } } },
+                fiscalEmitter: { include: { person: true, hub: true } },
+                pricingTable: { select: { id: true, description: true } },
+            },
+        });
+
+        if (data.calculationMethod !== 'INFORMADO') {
+            try {
+                await persistAutoFreightCalculation(orderId, created.id);
+            } catch (e) {
+                await prisma.orderFreightCalculation.delete({ where: { id: created.id } });
+                throw e;
+            }
+        }
+
+        const calc = await prisma.orderFreightCalculation.findFirstOrThrow({
+            where: { id: created.id },
             include: {
                 emissor: { select: { id: true, name: true, code: true, person: { select: { document: true, legalName: true } } } },
                 fiscalEmitter: { include: { person: true, hub: true } },
@@ -331,9 +604,26 @@ router.patch('/:calcId', authenticate, authorize('ADMIN', 'HUB'), async (req: Au
         if (data.breakdown !== undefined) updatePayload.breakdown = data.breakdown;
         if (data.icmsValue !== undefined) updatePayload.icmsValue = data.icmsValue;
 
-        const updated = await prisma.orderFreightCalculation.update({
+        let updated = await prisma.orderFreightCalculation.update({
             where: { id: calcId },
             data: updatePayload as object,
+            include: {
+                emissor: { select: { id: true, name: true, code: true, person: { select: { document: true, legalName: true } } } },
+                fiscalEmitter: { include: { person: true, hub: true } },
+                pricingTable: { select: { id: true, description: true } },
+            },
+        });
+
+        if (
+            updated.calculationMethod !== 'INFORMADO'
+            && updated.status !== 'MINUTA_EMITTED'
+            && !FISCAL_LOCKED_STATUSES.includes(updated.status as (typeof FISCAL_LOCKED_STATUSES)[number])
+        ) {
+            await persistAutoFreightCalculation(orderId, calcId);
+        }
+
+        updated = await prisma.orderFreightCalculation.findFirstOrThrow({
+            where: { id: calcId },
             include: {
                 emissor: { select: { id: true, name: true, code: true, person: { select: { document: true, legalName: true } } } },
                 fiscalEmitter: { include: { person: true, hub: true } },
@@ -395,10 +685,7 @@ router.post('/:calcId/calculate', authenticate, authorize('ADMIN', 'HUB'), async
 
         const order = await prisma.order.findUnique({
             where: { id: orderId },
-            include: {
-                invoicesRel: true,
-                demand: { include: { client: true } },
-            },
+            select: { id: true, currentHubId: true },
         });
 
         if (!order) throw new AppError('Order not found', 404);
@@ -407,148 +694,17 @@ router.post('/:calcId/calculate', authenticate, authorize('ADMIN', 'HUB'), async
             throw new AppError('Not authorized to calculate freight for this order', 403);
         }
 
-        const calc = await prisma.orderFreightCalculation.findFirst({
+        await persistAutoFreightCalculation(orderId, calcId);
+
+        const updated = await prisma.orderFreightCalculation.findFirst({
             where: { id: calcId, orderId },
-            include: {
-                pricingTable: { include: { minFreightRanges: { orderBy: { minWeight: 'asc' } } } },
-            },
-        });
-
-        if (!calc) throw new AppError('Cálculo de frete não encontrado', 404);
-
-        if (calc.status === 'MINUTA_EMITTED' || FISCAL_LOCKED_STATUSES.includes(calc.status as typeof FISCAL_LOCKED_STATUSES[number])) {
-            throw new AppError('Cálculo com documento emitido/enviado não pode ser recalculado.', 400);
-        }
-
-        if (calc.calculationMethod === 'INFORMADO') {
-            throw new AppError('Método Informado não usa cálculo automático. Preencha os valores manualmente e salve.', 400);
-        }
-
-        const { volumes, weight, cubage, nfValue } = getOrderParams(order);
-
-        let table = calc.pricingTable;
-
-        if (calc.calculationMethod === 'ESPECIAL') {
-            if (!calc.pricingTableId || !table) {
-                throw new AppError('Método Especial exige seleção de uma tabela de preço', 400);
-            }
-        } else {
-            // TARIFA_GERAL: buscar tabela GENERAL pela rota
-            const routeId = calc.routeId || order.routeId;
-            if (!routeId) {
-                throw new AppError('Método Tarifa Geral exige uma rota. Informe a rota ou vincule ao pedido.', 400);
-            }
-
-            const route = await prisma.pricingRoute.findUnique({
-                where: { id: routeId },
-            });
-
-            if (!route) throw new AppError('Rota não encontrada', 404);
-
-            if (!table || calc.calculationMethod === 'TARIFA_GERAL') {
-                table = await prisma.pricingTable.findFirst({
-                    where: {
-                        routeId: route.id,
-                        type: 'GENERAL',
-                        active: true,
-                    },
-                    include: { minFreightRanges: { orderBy: { minWeight: 'asc' } } },
-                    orderBy: { priority: 'desc' },
-                });
-            }
-
-            if (!table) throw new AppError('Nenhuma tabela Tarifa Geral encontrada para esta rota', 404);
-        }
-
-        // Executar cálculo (lógica do pricing/calculate)
-        const cubeFactor = table!.cubeFactor || 300;
-        const volume = cubage ?? (weight / 300); // fallback m³
-        const cubedWeight = volume * cubeFactor;
-        const effectiveWeight = Math.max(weight, cubedWeight);
-
-        let baseFreight = 0;
-        switch (table!.freightUnit) {
-            case 'RS_KG':
-                baseFreight = effectiveWeight * (table!.freightValue || 0);
-                break;
-            case 'RS_M3':
-                baseFreight = volume * (table!.freightValue || 0);
-                break;
-            case 'RS_UNIT':
-                baseFreight = volumes * (table!.freightValue || 0);
-                break;
-            case 'PERCENT':
-                baseFreight = nfValue * (table!.freightValue || 0) / 100;
-                break;
-        }
-
-        let minFreightValue = table!.minFreightValue || 0;
-        const minRanges = table!.minFreightRanges || [];
-        if (minRanges.length > 0) {
-            const r = minRanges.find(
-                (r: { minWeight: number; maxWeight: number | null }) =>
-                    effectiveWeight >= r.minWeight && (r.maxWeight == null || effectiveWeight <= r.maxWeight)
-            );
-            if (r && r.value > baseFreight) {
-                minFreightValue = r.value;
-                baseFreight = minFreightValue;
-            }
-        } else if (minFreightValue > baseFreight) {
-            baseFreight = minFreightValue;
-        }
-
-        const adValorem = (table!.adValoremPercent || 0) * (nfValue / 1000);
-        const gris = (table!.grisPercent || 0) * (nfValue / 1000);
-
-        let toll = 0;
-        if (table!.tollUnit === 'RS_KG') {
-            toll = effectiveWeight * (table!.tollValue || 0);
-        } else if (table!.tollUnit === 'FIXED') {
-            toll = table!.tollValue || 0;
-        }
-
-        const dispatch = table!.dispatchFee || 0;
-        const others = table!.otherFees || 0;
-        const subtotal = baseFreight + adValorem + gris + toll + dispatch + others;
-
-        let icms = 0;
-        if (!table!.icmsIncluded && table!.icmsPercent) {
-            icms = subtotal * (table!.icmsPercent / 100);
-        }
-
-        const total = subtotal + icms;
-
-        const breakdown = {
-            freightBase: baseFreight,
-            adValorem,
-            gris,
-            toll,
-            dispatch,
-            others,
-            icms,
-        };
-
-        const updated = await prisma.orderFreightCalculation.update({
-            where: { id: calcId },
-            data: {
-                volumes,
-                weight,
-                cubage: cubage ?? null,
-                cubedWeight,
-                effectiveWeight,
-                nfValue: nfValue || 0,
-                freightTotal: total,
-                breakdown: breakdown as object,
-                icmsValue: icms || null,
-                status: 'CALCULATED',
-                pricingTableId: calc.calculationMethod === 'TARIFA_GERAL' ? table!.id : calc.pricingTableId,
-                routeId: calc.calculationMethod === 'TARIFA_GERAL' ? (calc.routeId || order.routeId) : calc.routeId,
-            },
             include: {
                 emissor: { select: { id: true, name: true, code: true, person: { select: { document: true, legalName: true } } } },
                 pricingTable: { select: { id: true, description: true } },
             },
         });
+
+        if (!updated) throw new AppError('Cálculo de frete não encontrado', 404);
 
         res.json({
             success: true,
@@ -558,6 +714,50 @@ router.post('/:calcId/calculate', authenticate, authorize('ADMIN', 'HUB'), async
         if (error instanceof z.ZodError) {
             return next(new AppError(error.errors[0].message, 400));
         }
+        next(error);
+    }
+});
+
+// GET /api/orders/:orderId/freight-calculations/:calcId/cte-preflight - valida CT-e sem alterar estado
+router.get('/:calcId/cte-preflight', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const orderId = req.params.orderId as string;
+        const calcId = req.params.calcId as string;
+
+        const order = await prisma.order.findUnique({
+            where: { id: orderId },
+            include: {
+                remetentePerson: true,
+                destinatarioPerson: true,
+                consignatarioPerson: true,
+                expedidorPerson: true,
+                invoicesRel: true,
+            },
+        });
+
+        if (!order) throw new AppError('Order not found', 404);
+
+        if (req.user!.roles.includes('HUB') && (!req.user!.hubId || order.currentHubId !== req.user!.hubId)) {
+            throw new AppError('Not authorized to validate CT-e for this order', 403);
+        }
+
+        const calc = await prisma.orderFreightCalculation.findFirst({
+            where: { id: calcId, orderId },
+            include: { fiscalEmitter: { include: { person: true, hub: true } } },
+        });
+
+        if (!calc) throw new AppError('Cálculo de frete não encontrado', 404);
+
+        const hub = await prisma.hub.findUnique({
+            where: { id: calc.emissorId },
+            include: { person: true },
+        });
+
+        if (!hub) throw new AppError('Emissor (Hub) não encontrado', 404);
+
+        const { preflight } = buildCteEmissionInputFromRecords({ order, calc, hub });
+        res.json({ success: true, data: preflight });
+    } catch (error) {
         next(error);
     }
 });
@@ -900,84 +1100,18 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
         });
 
         if (!hub) throw new AppError('Emissor (Hub) não encontrado', 404);
-
-        if (!calc.fiscalEmitterId || !calc.fiscalEmitter || !calc.fiscalEmitter.active) {
-            throw new AppError('É obrigatório vincular um emitente credenciado ativo a este cálculo para emitir CT-e.', 400);
-        }
-
-        if (!calc.fiscalEmitter.person) throw new AppError('Emitente credenciado sem pessoa jurídica vinculada.', 400);
-
-        if (!calc.fiscalEmitter.rntrc?.trim() && !hub.rntrc?.trim()) {
-            throw new AppError('O emitente credenciado ou Hub emissor deve ter RNTRC cadastrado para emitir CT-e.', 400);
-        }
-
-        const ambiente = (calc.fiscalEmitter.environment ?? 'HOMOLOGACAO') as CteEnvironment;
         const providerMode = SIMULATED_FISCAL_PROVIDER_MODE;
-        const serie = calc.fiscalEmitter.cteSeries ?? 1;
-        const emitterPerson = calc.fiscalEmitter.person;
-        const emitterPrint = {
-            id: hub.id,
-            name: calc.fiscalEmitter.displayName ?? calc.fiscalEmitter.person.legalName ?? hub.name,
-            code: hub.code,
-            phone: calc.fiscalEmitter.hub?.phone ?? hub.phone,
-            rntrc: calc.fiscalEmitter.rntrc ?? hub.rntrc,
-        };
-
-        const cteBaseInput = {
-            calc: {
-                id: calc.id,
-                originCity: calc.originCity,
-                destCity: calc.destCity,
-                cfop: calc.cfop,
-                cst: calc.cst,
-                tipoFrete: calc.tipoFrete,
-                observacoes: calc.observacoes,
-                volumes: calc.volumes,
-                weight: calc.weight,
-                effectiveWeight: calc.effectiveWeight,
-                cubage: calc.cubage,
-                nfValue: calc.nfValue,
-                commodity: calc.commodity,
-                freightTotal: calc.freightTotal,
-                breakdown: calc.breakdown,
-                icmsValue: calc.icmsValue,
-            },
-            order: {
-                freightTerm: order.freightTerm,
-                remetentePerson: order.remetentePerson,
-                destinatarioPerson: order.destinatarioPerson,
-                consignatarioPerson: order.consignatarioPerson,
-                expedidorPerson: order.expedidorPerson,
-                invoicesRel: order.invoicesRel,
-                collectionData: order.collectionData,
-            },
-            hub: emitterPrint,
-            person: emitterPerson,
-            numero: 0,
-            serie,
-            ambiente,
-        } satisfies CteEmissionInput;
-
-        const readiness = validateCteReadiness(cteBaseInput);
-        if (!readiness.ok) {
-            const rejected = await prisma.orderFreightCalculation.update({
-                where: { id: calcId },
-                data: {
-                    status: 'CTE_REJECTED',
-                    cteStatusReason: readiness.issues.join(' '),
-                    cteRejectedAt: new Date(),
-                },
-                include: {
-                    emissor: { select: { id: true, name: true, code: true, person: { select: { document: true, legalName: true } } } },
-                    pricingTable: { select: { id: true, description: true } },
-                },
-            });
+        const { input: cteBaseInput, preflight } = buildCteEmissionInputFromRecords({ order, calc, hub });
+        if (!preflight.ok || !cteBaseInput) {
             return res.status(400).json({
                 success: false,
-                error: `CT-e com pendências fiscais: ${readiness.issues.join(' ')}`,
-                data: rejected,
+                error: `CT-e com pendências fiscais: ${[...preflight.issues, ...preflight.missingFields.map((field) => `Campo obrigatório: ${field}.`)].join(' ')}`,
+                data: calc,
+                preflight,
             });
         }
+        const ambiente = cteBaseInput.ambiente;
+        const serie = cteBaseInput.serie;
 
         const ready = await prisma.orderFreightCalculation.updateMany({
             where: {
@@ -1018,6 +1152,20 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
         const now = new Date();
         const payload = buildCtePayload({
             ...cteInput,
+            calc: {
+                ...cteInput.calc,
+                originCity: cteInput.calc.originCity ?? null,
+                destCity: cteInput.calc.destCity ?? null,
+                cfop: cteInput.calc.cfop ?? null,
+                cst: cteInput.calc.cst ?? null,
+                tipoFrete: cteInput.calc.tipoFrete ?? null,
+                observacoes: cteInput.calc.observacoes ?? null,
+                commodity: cteInput.calc.commodity ?? null,
+            },
+            order: {
+                ...cteInput.order,
+                freightTerm: cteInput.order.freightTerm ?? null,
+            },
             chaveAcesso: providerResult.accessKey ?? null,
             protocolo: providerResult.protocol ?? null,
             autorizacaoEm: providerResult.status === 'AUTHORIZED' ? now.toISOString() : null,

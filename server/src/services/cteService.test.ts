@@ -114,6 +114,16 @@ describe('validateCteReadiness', () => {
         assert.ok(result.issues.includes('CT-e precisa de CST.'));
         assert.ok(result.issues.includes('NF-e 123 precisa de chave de acesso com 44 dígitos.'));
     });
+
+    it('rejeita CST fora do catálogo fiscal suportado', () => {
+        const result = validateCteReadiness({
+            ...completeInput,
+            calc: { ...completeInput.calc, cst: '99' },
+        });
+
+        assert.equal(result.ok, false);
+        assert.ok(result.issues.includes('CST 99 não está habilitado para CT-e no MVP.'));
+    });
 });
 
 describe('authorizeCteWithProvider', () => {

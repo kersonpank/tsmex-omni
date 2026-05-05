@@ -119,10 +119,21 @@ async function assertPersonAndHub(data: { personId: string; hubId?: string | nul
     }
 }
 
-router.get('/', authenticate, authorize('ADMIN', 'HUB'), async (_req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+        const baseWhere = buildEmitterWhereForUser(req);
+        const hubIdParam = typeof req.query.hubId === 'string' ? req.query.hubId.trim() : '';
+        const hubScope =
+            hubIdParam && (req.user?.roles.includes('ADMIN') ?? false)
+                ? { OR: [{ hubId: hubIdParam }, { hubId: null }] }
+                : null;
+        const where =
+            hubScope && Object.keys(baseWhere).length > 0
+                ? { AND: [baseWhere, hubScope] }
+                : hubScope ?? baseWhere;
+
         const emitters = await prisma.fiscalEmitter.findMany({
-            where: buildEmitterWhereForUser(_req),
+            where,
             include: { person: true, hub: true },
             orderBy: [{ active: 'desc' }, { createdAt: 'desc' }],
         });

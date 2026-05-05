@@ -19,6 +19,7 @@ import type {
     PricingCalculateRequest,
     PricingCalculateResponse,
     OrderFreightCalculation,
+    CtePreflightResult,
     FiscalEmitter,
     FiscalEmitterReadiness,
     ApiResponse,
@@ -116,8 +117,8 @@ export const brandingApi = {
 // ========== FISCAL EMITTERS ==========
 
 export const fiscalEmittersApi = {
-    list: async () => {
-        const response = await api.get<ApiResponse<FiscalEmitter[]>>('/fiscal-emitters');
+    list: async (params?: { hubId?: string }) => {
+        const response = await api.get<ApiResponse<FiscalEmitter[]>>('/fiscal-emitters', { params });
         return response.data;
     },
 
@@ -913,6 +914,7 @@ export const ordersFreightApi = {
         const response = await api.post<{
             success: boolean;
             data: OrderFreightCalculation;
+            preflight?: CtePreflightResult;
             payload?: unknown;
             branding?: BrandingForDocuments | null;
             fiscal?: {
@@ -923,6 +925,13 @@ export const ordersFreightApi = {
             };
             message?: string;
         }>(`/orders/${orderId}/freight-calculations/${calcId}/emit-cte`, {});
+        return response.data;
+    },
+
+    ctePreflight: async (orderId: string, calcId: string) => {
+        const response = await api.get<ApiResponse<CtePreflightResult>>(
+            `/orders/${orderId}/freight-calculations/${calcId}/cte-preflight`
+        );
         return response.data;
     },
 
