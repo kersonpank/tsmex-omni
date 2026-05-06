@@ -67,8 +67,12 @@ function assertFreightDocTypeAllowedForOrder(documentType: 'CTE' | 'DCE' | 'MINU
     }
 }
 
-/** Modo simulado sem variável Portainer; emissão ACBr real não usa este valor. */
-const SIMULATED_FISCAL_PROVIDER_MODE: CteProviderMode = 'simulate-authorized';
+/**
+ * Modo feliz-path no `authorizeCteWithProvider` (vide `server/src/services/cteService.ts`):
+ * com `simulate-authorized`, chama ACBr HTTP quando credenciais + provedor/global batem (`shouldUseAcbrHttp`);
+ * senão autoriza apenas em simulação local (sem SEFAZ), com protocolo típico `SIM…`.
+ */
+const CTE_PROVIDER_HAPPY_PATH_MODE: CteProviderMode = 'simulate-authorized';
 
 const FISCAL_LOCKED_STATUSES = [
     'CTE_READY',
@@ -1107,7 +1111,7 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
         });
 
         if (!hub) throw new AppError('Emissor (Hub) não encontrado', 404);
-        const providerMode = SIMULATED_FISCAL_PROVIDER_MODE;
+        const providerMode = CTE_PROVIDER_HAPPY_PATH_MODE;
         const { input: cteBaseInput, preflight } = buildCteEmissionInputFromRecords({ order, calc, hub });
         if (!preflight.ok || !cteBaseInput) {
             return res.status(400).json({
@@ -1281,7 +1285,7 @@ router.post('/:calcId/emit-dce', authenticate, authorize('ADMIN', 'HUB'), async 
         if (!calc.fiscalEmitter.person) throw new AppError('Emitente credenciado sem pessoa jurídica vinculada.', 400);
 
         const ambiente = (calc.fiscalEmitter.environment ?? 'HOMOLOGACAO') as CteEnvironment;
-        const providerMode = SIMULATED_FISCAL_PROVIDER_MODE;
+        const providerMode = CTE_PROVIDER_HAPPY_PATH_MODE;
         const serie = calc.fiscalEmitter.cteSeries ?? 1;
         const emitterPerson = calc.fiscalEmitter.person;
         const emitterPrint = {

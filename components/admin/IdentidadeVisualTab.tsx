@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { fiscalEmittersApi, hubsApi, personsApi, uploadApi } from '../../lib/api';
 import { useAuthStore } from '../../store/authStore';
 import type { FiscalEmitter, FiscalProvider, FiscalTaxRegime, Hub, Person } from '../../types/index';
-import { CTE_CFOP_SELECT_OPTIONS, CTE_CST_SELECT_OPTIONS } from '../../lib/cteTaxCatalog';
+import { CTE_CFOP_SELECT_OPTIONS, CTE_CST_SELECT_OPTIONS, cfopOptionSelectText } from '../../lib/cteTaxCatalog';
 import { Toggle } from '../ui/toggle-1';
 
 function EmitterAccordion({
@@ -568,8 +568,8 @@ const IdentidadeVisualTab: React.FC = () => {
                     >
                       <option value="">Selecione…</option>
                       {CTE_CFOP_SELECT_OPTIONS.map((o) => (
-                        <option key={o.code} value={o.code}>
-                          {o.code} — {o.label}
+                        <option key={o.code} value={o.code} title={o.labelFull}>
+                          {cfopOptionSelectText(o)}
                         </option>
                       ))}
                     </select>

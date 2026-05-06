@@ -922,6 +922,8 @@ export const ordersFreightApi = {
                 accessKey?: string;
                 protocol?: string;
                 rejectionReason?: string;
+                rejectionCode?: string;
+                rawResponse?: Record<string, unknown>;
             };
             message?: string;
         }>(`/orders/${orderId}/freight-calculations/${calcId}/emit-cte`, {});

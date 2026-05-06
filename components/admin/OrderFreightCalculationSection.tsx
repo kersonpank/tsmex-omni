@@ -10,7 +10,7 @@ import type {
   FiscalEmitter,
   CtePreflightResult,
 } from '../../types/index';
-import { CTE_CFOP_SELECT_OPTIONS, CTE_CST_SELECT_OPTIONS } from '../../lib/cteTaxCatalog';
+import { CTE_CFOP_SELECT_OPTIONS, CTE_CST_SELECT_OPTIONS, cfopOptionSelectText } from '../../lib/cteTaxCatalog';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -24,7 +24,6 @@ function optionalUuid(value: string | undefined | null): string | null {
   return t === '' ? null : t;
 }
 
-const CFOP_OPTIONS = CTE_CFOP_SELECT_OPTIONS;
 const CST_OPTIONS = CTE_CST_SELECT_OPTIONS;
 const TIPO_FRETE_OPTIONS = ['Normal', 'Descarga', 'Devolução', 'Diária', 'Paletização', 'Reentrega', 'Retorno'];
 
@@ -358,6 +357,11 @@ function OrderFreightCard({
   const [ctePreflight, setCtePreflight] = useState<CtePreflightResult | null>(null);
   const [loadingCtePreflight, setLoadingCtePreflight] = useState(false);
   const [cteInlineError, setCteInlineError] = useState<string | null>(null);
+  const [lastCteEmitNote, setLastCteEmitNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLastCteEmitNote(null);
+  }, [calc.id]);
 
   const refreshCtePreflight = async (): Promise<CtePreflightResult | null> => {
     if (calc.documentType !== 'CTE') return null;
@@ -431,6 +435,7 @@ function OrderFreightCard({
 
   const handleEmitCte = async () => {
     setCteInlineError(null);
+    setLastCteEmitNote(null);
     setEmittingCte(true);
     try {
       const preflight = await refreshCtePreflight();
@@ -440,6 +445,29 @@ function OrderFreightCard({
       }
       const result = await ordersFreightApi.emitCte(orderId, calc.id);
       if (result.payload) setPrintDoc({ payload: result.payload, branding: result.branding });
+      const fiscal = result.fiscal;
+      const provider =
+        fiscal?.rawResponse &&
+        typeof (fiscal.rawResponse as Record<string, unknown>).provider === 'string'
+          ? String((fiscal.rawResponse as Record<string, unknown>).provider)
+          : '';
+      const proto =
+        typeof fiscal?.protocol === 'string' ? fiscal.protocol : '';
+      if (provider === 'acbr') {
+        setLastCteEmitNote(
+          'Última emissão: processada pela API ACBr (`fiscal.rawResponse.provider`: acbr). Confira também os logs do servidor/API.',
+        );
+      } else if (provider === 'simulation') {
+        setLastCteEmitNote(
+          'Última emissão: modo simulado no TSM (`fiscal.rawResponse.provider`: simulation — sem vínculo SEFAZ neste modo). Para produção: OAuth ACBR no servidor + emitente marcado como ACBr API (ou env FISCAL_CTE_PROVIDER=acbr).',
+        );
+      } else if (proto.startsWith('SIM')) {
+        setLastCteEmitNote(
+          'Protocolo iniciando com SIM indica autorização apenas simulada (desenvolvimento).',
+        );
+      } else {
+        setLastCteEmitNote(null);
+      }
       onCalculate();
     } catch (e: any) {
       const preflight = e.response?.data?.preflight as CtePreflightResult | undefined;
@@ -625,13 +653,21 @@ function OrderFreightCard({
         </p>
       )}
       {calc.documentType === 'CTE' && (
-        <CtePreflightChecklist
-          preflight={ctePreflight}
-          loading={loadingCtePreflight}
-          inlineError={cteInlineError}
-          cfop={calc.cfop}
-          cst={calc.cst}
-        />
+        <>
+          <CtePreflightChecklist
+            preflight={ctePreflight}
+            loading={loadingCtePreflight}
+            inlineError={cteInlineError}
+            cfop={calc.cfop}
+            cst={calc.cst}
+            fiscalEmitterProvider={calc.fiscalEmitter?.provider ?? null}
+          />
+          {lastCteEmitNote && (
+            <div className="mt-2 rounded-lg border border-brand-200 bg-brand-50/80 px-3 py-2 text-xs text-tower-800 dark:border-brand-800 dark:bg-brand-950/40 dark:text-tower-100">
+              {lastCteEmitNote}
+            </div>
+          )}
+        </>
       )}
       <div className="mt-2 text-sm text-tower-600 dark:text-tower-300">
         Método: {calc.calculationMethod === 'ESPECIAL' ? 'Especial' : calc.calculationMethod === 'TARIFA_GERAL' ? 'Tarifa Geral' : 'Informado'}
@@ -722,12 +758,14 @@ function CtePreflightChecklist({
   inlineError,
   cfop,
   cst,
+  fiscalEmitterProvider,
 }: {
   preflight: CtePreflightResult | null;
   loading: boolean;
   inlineError: string | null;
   cfop?: string | null;
   cst?: string | null;
+  fiscalEmitterProvider?: string | null;
 }) {
   const cfopLabel = preflight?.tax.cfop
     ? `${preflight.tax.cfop.code} - ${preflight.tax.cfop.label}`
@@ -773,6 +811,19 @@ function CtePreflightChecklist({
           {inlineError && <p>{inlineError}</p>}
           {preflight?.issues.map((issue) => <p key={issue}>{issue}</p>)}
         </div>
+      )}
+      <p className="mt-2 pt-2 border-t border-tower-200/80 dark:border-tower-600/80 text-[11px] leading-relaxed text-tower-600 dark:text-tower-400">
+        <span className="font-medium text-tower-700 dark:text-tower-300">ACBr x simulado:</span>{' '}
+        na resposta de <strong>Emitir CT-e</strong>, o campo <span className="font-mono">fiscal.rawResponse.provider</span> vem{' '}
+        <span className="font-mono">acbr</span> quando houve chamada à API ACBr; <span className="font-mono">simulation</span> é só teste interno.
+        Protocolo começando com <span className="font-mono">SIM</span> também indica simulação. Exige no servidor{' '}
+        <span className="font-mono">ACBR_CLIENT_ID</span> / <span className="font-mono">ACBR_CLIENT_SECRET</span> e (emitente com ACBr API ou{' '}
+        <span className="font-mono">FISCAL_CTE_PROVIDER=acbr</span>).
+      </p>
+      {fiscalEmitterProvider === 'SIMULATED' && (
+        <p className="mt-1 text-[11px] text-amber-800 dark:text-amber-200">
+          Emitente configurado como <strong>simulado</strong>: emissão real depende de <span className="font-mono">FISCAL_CTE_PROVIDER=acbr</span> no servidor ou trocar o provedor do emitente para ACBr API.
+        </p>
       )}
     </div>
   );
@@ -1216,11 +1267,13 @@ function OrderFreightForm({
               value={form.cfop}
               onChange={(e) => setForm((f) => ({ ...f, cfop: e.target.value }))}
               required={form.documentType === 'CTE'}
-              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700"
+              className="w-full min-w-0 sm:min-w-[22rem] max-w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700"
             >
               <option value="">Selecione</option>
-              {CFOP_OPTIONS.map((c) => (
-                <option key={c.code} value={c.code}>{c.code} - {c.label}</option>
+              {CTE_CFOP_SELECT_OPTIONS.map((c) => (
+                <option key={c.code} value={c.code} title={c.labelFull}>
+                  {cfopOptionSelectText(c)}
+                </option>
               ))}
             </select>
           </div>
