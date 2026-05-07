@@ -31,7 +31,7 @@ const fileToBase64 = (file: File): Promise<string> =>
     reader.readAsDataURL(file);
   });
 
-const EntradaTab: React.FC = () => {
+const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false }) => {
   const [searchParams] = useSearchParams();
   const { user } = useAuthStore();
   const isHub = user?.roles?.includes('HUB') ?? false;
@@ -416,8 +416,26 @@ const EntradaTab: React.FC = () => {
     await doGravarPessoas();
   };
 
+  const activeSectionIndex = SECTION_IDS.findIndex((id) => sectionsExpanded[id]);
+  const safeActiveIndex = activeSectionIndex >= 0 ? activeSectionIndex : 0;
+
   const toggleSection = (id: string) => {
+    if (mobileWizard) {
+      setSectionsExpanded(() =>
+        SECTION_IDS.reduce<Record<string, boolean>>((acc, key) => {
+          acc[key] = key === id;
+          return acc;
+        }, {})
+      );
+      return;
+    }
     setSectionsExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const goToSectionByIndex = (nextIndex: number) => {
+    const clamped = Math.min(Math.max(nextIndex, 0), SECTION_IDS.length - 1);
+    const nextId = SECTION_IDS[clamped];
+    toggleSection(nextId);
   };
 
   const invoicesRel: OrderInvoiceItem[] = order?.invoicesRel ?? [];
@@ -476,8 +494,28 @@ const EntradaTab: React.FC = () => {
         </div>
       </div>
 
-      {error && <div className="p-4 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-300 text-sm">{error}</div>}
-      {success && <div className="p-4 bg-brand-50 dark:bg-brand-900/30 border border-brand-200 dark:border-brand-800 rounded-xl text-brand-700 dark:text-brand-300 text-sm">{success}</div>}
+      {mobileWizard && (
+        <div className="rounded-xl border border-tower-200 bg-white p-4 dark:border-tower-700 dark:bg-tower-800">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="font-display text-[10px] uppercase tracking-[0.14em] text-tower-500 dark:text-tower-300">Nova entrada de carga</p>
+            <p className="text-xs text-tower-500 dark:text-tower-300">{safeActiveIndex + 1}/{SECTION_IDS.length}</p>
+          </div>
+          <div className="flex gap-1">
+            {SECTION_IDS.map((id, idx) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => goToSectionByIndex(idx)}
+                className={`h-2 flex-1 rounded-full ${idx === safeActiveIndex ? 'bg-brand-500' : 'bg-tower-200 dark:bg-tower-600'}`}
+                aria-label={`Ir para etapa ${idx + 1}`}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {error && <div className="mobile-enter p-4 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-300 text-sm">{error}</div>}
+      {success && <div className="mobile-enter p-4 bg-brand-50 dark:bg-brand-900/30 border border-brand-200 dark:border-brand-800 rounded-xl text-brand-700 dark:text-brand-300 text-sm">{success}</div>}
 
       {!selectedOrderId && !isCreatingNew ? (
         loading ? (
@@ -541,7 +579,7 @@ const EntradaTab: React.FC = () => {
                     <div className="space-y-3">
                       <div>
                         <h3 className="text-sm font-bold text-brand-800 dark:text-brand-200">
-                          Identificar NF-e antes de preencher
+                          Identifique a NF-e primeiro
                         </h3>
                         <p className="text-xs text-brand-600 dark:text-brand-300 mt-0.5">
                           Opcional — pré-preenche a nota fiscal e identifica o remetente automaticamente.
@@ -601,7 +639,7 @@ const EntradaTab: React.FC = () => {
                         </button>
                       </div>
                       <p className="text-xs text-brand-500 dark:text-brand-400">
-                        {prescanChaveInput.length}/44 dígitos
+                        {prescanChaveInput.length} de 44 dígitos
                         {prescanChaveInput.length === 44 && <span className="text-brand-600 dark:text-brand-400 ml-2">✓ pronto</span>}
                       </p>
                     </div>
@@ -649,11 +687,18 @@ const EntradaTab: React.FC = () => {
 
               <Section title="PESSOAS" expanded={sectionsExpanded.pessoas} onToggle={() => toggleSection('pessoas')}>
                 <form onSubmit={handleGravarPessoas} className="space-y-6">
-                  <div className="bg-amber-50 dark:bg-amber-900/30 border-2 border-amber-200 dark:border-amber-800 rounded-xl p-6">
-                    <h4 className="text-base font-bold text-tower-800 dark:text-tower-100 mb-4">1. Quem paga o frete?</h4>
-                    <div className="flex flex-wrap gap-6 items-center">
+                  <div className="rounded-xl border border-brand-500/25 bg-brand-500/5 p-6 dark:bg-brand-900/20">
+                    <h4 className="font-display text-sm font-semibold uppercase tracking-[0.14em] text-tower-700 dark:text-tower-200">Quem paga o frete</h4>
+                    <div className="mt-4 grid gap-3">
                       {(['CIF', 'FOB', 'REDESPACHO'] as const).map((ft) => (
-                        <label key={ft} className="flex items-center gap-3 cursor-pointer p-3 rounded-lg hover:bg-amber-100/50 dark:hover:bg-amber-800/50 min-w-[120px]">
+                        <label
+                          key={ft}
+                          className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
+                            peopleForm.freightTerm === ft
+                              ? 'border-brand-500 bg-brand-500/10'
+                              : 'border-tower-300 bg-white hover:border-brand-400 dark:border-tower-600 dark:bg-tower-800 dark:hover:border-brand-500'
+                          }`}
+                        >
                           <input
                             type="radio"
                             name="freightTerm"
@@ -676,13 +721,19 @@ const EntradaTab: React.FC = () => {
                                 }
                               }
                             }}
-                            className="w-5 h-5 text-amber-600"
+                            className="mt-1 h-5 w-5 text-brand-600"
                           />
-                          <span className="text-base font-medium text-tower-800 dark:text-tower-100">{ft === 'REDESPACHO' ? 'Outro' : ft}</span>
+                          <span className="space-y-1">
+                            <span className="block text-sm font-semibold text-tower-800 dark:text-tower-100">{ft === 'REDESPACHO' ? 'Outro' : ft}</span>
+                            <span className="block text-xs text-tower-500 dark:text-tower-300">
+                              {ft === 'CIF' && 'O remetente paga o frete.'}
+                              {ft === 'FOB' && 'O destinatário paga o frete.'}
+                              {ft === 'REDESPACHO' && 'O consignatário (redespacho) paga o frete.'}
+                            </span>
+                          </span>
                         </label>
                       ))}
                     </div>
-                    <p className="text-xs text-tower-600 dark:text-tower-300 mt-2">CIF: remetente paga · FOB: destinatário paga · Outro: consignatário paga</p>
                   </div>
 
                   {!peopleForm.freightTerm ? (
@@ -982,6 +1033,28 @@ const EntradaTab: React.FC = () => {
                 </button>
               </div>
             </>
+          )}
+          {mobileWizard && (
+            <div className="sticky bottom-20 z-20 rounded-xl border border-tower-200 bg-white/95 p-3 backdrop-blur dark:border-tower-700 dark:bg-brand-950/90">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => goToSectionByIndex(safeActiveIndex - 1)}
+                  disabled={safeActiveIndex === 0}
+                  className="min-h-[44px] flex-1 rounded-lg border border-tower-300 px-3 py-2 text-sm font-medium text-tower-700 disabled:opacity-40 dark:border-tower-600 dark:text-tower-200"
+                >
+                  Voltar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => goToSectionByIndex(safeActiveIndex + 1)}
+                  disabled={safeActiveIndex === SECTION_IDS.length - 1}
+                  className="min-h-[44px] flex-1 rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
+                >
+                  Próximo
+                </button>
+              </div>
+            </div>
           )}
         </div>
       )}

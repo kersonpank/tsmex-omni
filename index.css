@@ -165,4 +165,64 @@
   display: none;
 }
 
+@keyframes mobile-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+.mobile-enter {
+  animation: mobile-enter 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes fab-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fab-up {
+  animation: fab-up 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.tone-warning {
+  @apply border border-brand-yellow-500/25 bg-brand-yellow-500/15 text-brand-yellow-500;
+}
+
+.tone-info {
+  @apply border border-brand-500/25 bg-brand-500/15 text-brand-500 dark:text-brand-300;
+}
+
+.tone-success {
+  @apply border border-emerald-500/25 bg-emerald-500/15 text-emerald-600 dark:text-emerald-300;
+}
+
+.tone-danger {
+  @apply border border-brand-red-500/25 bg-brand-red-500/15 text-brand-red-600 dark:text-brand-red-400;
+}
+
+.tone-neutral {
+  @apply border border-tower-500/25 bg-tower-500/15 text-tower-600 dark:text-tower-300;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-enter,
+  .fab-up,
+  .admin-panel-animate {
+    animation: none !important;
+  }
+}
+
 /* Fase 2 (PR separado): substituir classes emerald/green em formulários, CRM e settings por tokens brand-* ou utilitários semânticos. */
