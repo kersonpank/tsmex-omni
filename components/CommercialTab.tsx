@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     DndContext,
     DragOverlay,
@@ -24,6 +24,7 @@ import { opportunitiesApi, pipelineApi } from '../lib/api';
 import type { Opportunity } from '../types/index';
 import OpportunityDetailsModal from './admin/OpportunityDetailsModal';
 import TarifasTab from './commercial/TarifasTab';
+import { useRegisterGestaoModuleActions } from './admin/layout/GestaoModuleActionsContext';
 
 interface PipelineColumn {
     id: string;
@@ -265,6 +266,16 @@ const CommercialTab: React.FC<{ forceSubTab?: CommercialSubTab }> = ({ forceSubT
     const [success, setSuccess] = useState<string | null>(null);
     const [selectedOpportunity, setSelectedOpportunity] = useState<OpportunityWithColumn | null>(null);
     const [activeId, setActiveId] = useState<string | null>(null);
+    const [viewMode, setViewMode] = useState<'kanban' | 'table'>('kanban');
+    const [filterPanelOpen, setFilterPanelOpen] = useState(false);
+    const [filterStage, setFilterStage] = useState<string>('');
+    const [filterSearch, setFilterSearch] = useState('');
+    const [pipelineSelectedId, setPipelineSelectedId] = useState<string | null>(null);
+    const [showCreateOpp, setShowCreateOpp] = useState(false);
+    const [createAccountId, setCreateAccountId] = useState('');
+    const [createOrigin, setCreateOrigin] = useState('');
+    const [createDestination, setCreateDestination] = useState('');
+    const [createSaving, setCreateSaving] = useState(false);
 
     const sensors = useSensors(
         useSensor(PointerSensor),
@@ -316,6 +327,56 @@ const CommercialTab: React.FC<{ forceSubTab?: CommercialSubTab }> = ({ forceSubT
 
     const handleDragStart = (event: DragStartEvent) => {
         setActiveId(event.active.id as string);
+    };
+
+    const filteredOpportunities = useMemo(() => {
+        let list = opportunities;
+        if (filterStage) {
+            list = list.filter((o) => o.stage === filterStage);
+        }
+        const q = filterSearch.trim().toLowerCase();
+        if (q) {
+            list = list.filter((o) => {
+                const acc = (o as any).account?.name?.toLowerCase?.() ?? '';
+                const origin = (o.origin ?? '').toLowerCase();
+                const dest = (o.destination ?? '').toLowerCase();
+                const comm = (o.commodity ?? '').toLowerCase();
+                return acc.includes(q) || origin.includes(q) || dest.includes(q) || comm.includes(q);
+            });
+        }
+        return list;
+    }, [opportunities, filterStage, filterSearch]);
+
+    const handleCreateOpportunity = async () => {
+        const aid = createAccountId.trim();
+        if (!aid) {
+            setError('Informe o UUID da conta (accountId).');
+            return;
+        }
+        setCreateSaving(true);
+        setError(null);
+        try {
+            await opportunitiesApi.create({
+                accountId: aid,
+                sessionId: crypto.randomUUID(),
+                type: 'QUOTE_ONLY',
+                source: 'MANUAL',
+                origin: createOrigin.trim() || undefined,
+                destination: createDestination.trim() || undefined,
+                conversationSnapshot: [],
+            });
+            setShowCreateOpp(false);
+            setCreateAccountId('');
+            setCreateOrigin('');
+            setCreateDestination('');
+            setSuccess('Oportunidade criada.');
+            await loadData();
+            setTimeout(() => setSuccess(null), 3000);
+        } catch (err: any) {
+            setError(err?.response?.data?.error || 'Erro ao criar oportunidade');
+        } finally {
+            setCreateSaving(false);
+        }
     };
 
     const handleDragEnd = async (event: DragEndEvent) => {
@@ -391,6 +452,66 @@ const CommercialTab: React.FC<{ forceSubTab?: CommercialSubTab }> = ({ forceSubT
 
     const effectiveSubTab = forceSubTab ?? commercialSubTab;
 
+    const gestaoPipeline = useMemo(
+        () =>
+            effectiveSubTab !== 'pipeline'
+                ? null
+                : {
+                      listActive: viewMode === 'table',
+                      filterOpen: filterPanelOpen,
+                      filterCount: (filterStage ? 1 : 0) + (filterSearch.trim() ? 1 : 0),
+                      pills: [
+                          ...(filterStage
+                              ? [{ id: 'st', label: `Estágio: ${filterStage}`, onRemove: () => setFilterStage('') }]
+                              : []),
+                          ...(filterSearch.trim()
+                              ? [
+                                    {
+                                        id: 'q',
+                                        label: `Busca: ${filterSearch.trim()}`,
+                                        onRemove: () => setFilterSearch(''),
+                                    },
+                                ]
+                              : []),
+                      ],
+                      onList: () => {
+                          setFilterPanelOpen(false);
+                          setViewMode((m) => (m === 'kanban' ? 'table' : 'kanban'));
+                      },
+                      onFilterToggle: () => setFilterPanelOpen((v) => !v),
+                      onEdit: pipelineSelectedId
+                          ? () => {
+                                const o = opportunities.find((x) => x.id === pipelineSelectedId);
+                                if (o) setSelectedOpportunity(o);
+                            }
+                          : undefined,
+                      onNew: () => setShowCreateOpp(true),
+                      disabled: {
+                          edit: !pipelineSelectedId,
+                      } as const,
+                      labels: {
+                          list:
+                              viewMode === 'kanban'
+                                  ? 'Alternar para visão em tabela'
+                                  : 'Alternar para visão em pipeline (Kanban)',
+                          edit: pipelineSelectedId
+                              ? 'Abrir detalhes da oportunidade selecionada'
+                              : 'Selecione uma oportunidade na tabela ou um card no Kanban',
+                      },
+                  },
+        [
+            effectiveSubTab,
+            viewMode,
+            filterPanelOpen,
+            filterStage,
+            filterSearch,
+            pipelineSelectedId,
+            opportunities,
+        ]
+    );
+
+    useRegisterGestaoModuleActions(() => gestaoPipeline, [gestaoPipeline]);
+
     return (
         <div>
             {!forceSubTab && (
@@ -431,9 +552,10 @@ const CommercialTab: React.FC<{ forceSubTab?: CommercialSubTab }> = ({ forceSubT
             ) : (
         <>
             <div className="flex justify-between items-center mb-6">
-                <h2 className="text-lg font-bold text-tower-700">Pipeline de Oportunidades</h2>
-                <div className="flex gap-2">
+                <h2 className="text-lg font-bold text-tower-700 dark:text-tower-200">Pipeline de Oportunidades</h2>
+                <div className="flex flex-wrap gap-2">
                     <button
+                        type="button"
                         onClick={async () => {
                             try {
                                 const name = prompt('Nome da nova coluna:');
@@ -449,11 +571,48 @@ const CommercialTab: React.FC<{ forceSubTab?: CommercialSubTab }> = ({ forceSubT
                     >
                         + Nova Coluna
                     </button>
-                    <button onClick={loadData} className="px-4 py-2 text-sm text-tower-600 font-medium hover:bg-tower-100 rounded-lg">
+                    <button type="button" onClick={loadData} className="px-4 py-2 text-sm text-tower-600 font-medium hover:bg-tower-100 rounded-lg dark:text-tower-300 dark:hover:bg-tower-800">
                         ↻ Atualizar
                     </button>
                 </div>
             </div>
+
+            {filterPanelOpen && (
+                <div className="mb-4 rounded-2xl border border-tower-200 bg-white p-4 dark:border-tower-600 dark:bg-tower-800">
+                    <div className="flex flex-wrap gap-4">
+                        <div>
+                            <label className="mb-1 block text-xs font-bold text-tower-600 dark:text-tower-400" htmlFor="opp-stage">
+                                Estágio
+                            </label>
+                            <select
+                                id="opp-stage"
+                                value={filterStage}
+                                onChange={(e) => setFilterStage(e.target.value)}
+                                className="rounded-lg border border-tower-200 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-900 dark:text-tower-100"
+                            >
+                                <option value="">Todos</option>
+                                {Array.from(new Set(opportunities.map((o) => o.stage))).map((s) => (
+                                    <option key={s} value={s}>
+                                        {s}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="min-w-[200px] flex-1">
+                            <label className="mb-1 block text-xs font-bold text-tower-600 dark:text-tower-400" htmlFor="opp-q">
+                                Busca (conta, rota, mercadoria)
+                            </label>
+                            <input
+                                id="opp-q"
+                                type="search"
+                                value={filterSearch}
+                                onChange={(e) => setFilterSearch(e.target.value)}
+                                className="w-full rounded-lg border border-tower-200 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-900 dark:text-tower-100"
+                            />
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {error && (
                 <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl">
@@ -467,6 +626,7 @@ const CommercialTab: React.FC<{ forceSubTab?: CommercialSubTab }> = ({ forceSubT
                 </div>
             )}
 
+            {viewMode === 'kanban' ? (
             <DndContext
                 sensors={sensors}
                 collisionDetection={closestCorners}
@@ -482,8 +642,11 @@ const CommercialTab: React.FC<{ forceSubTab?: CommercialSubTab }> = ({ forceSubT
                             <SortableDroppableColumn
                                 key={column.id}
                                 column={column}
-                                opportunities={opportunities}
-                                onCardClick={setSelectedOpportunity}
+                                opportunities={filteredOpportunities}
+                                onCardClick={(opp) => {
+                                    setPipelineSelectedId(opp.id);
+                                    setSelectedOpportunity(opp);
+                                }}
                                 onConvert={handleConvertToDemand}
                                 converting={converting}
                             />
@@ -499,6 +662,125 @@ const CommercialTab: React.FC<{ forceSubTab?: CommercialSubTab }> = ({ forceSubT
                     ) : null}
                 </DragOverlay>
             </DndContext>
+            ) : (
+                <div className="overflow-x-auto rounded-xl border border-tower-200 bg-white dark:border-tower-600 dark:bg-tower-800">
+                    <table className="w-full min-w-[640px] text-left text-sm">
+                        <thead className="border-b border-tower-200 bg-tower-50 dark:border-tower-600 dark:bg-tower-900">
+                            <tr>
+                                <th className="px-3 py-2 font-semibold text-tower-800 dark:text-tower-200">Estágio</th>
+                                <th className="px-3 py-2 font-semibold text-tower-800 dark:text-tower-200">Data</th>
+                                <th className="px-3 py-2 font-semibold text-tower-800 dark:text-tower-200">Conta</th>
+                                <th className="px-3 py-2 font-semibold text-tower-800 dark:text-tower-200">Rota</th>
+                                <th className="px-3 py-2 font-semibold text-tower-800 dark:text-tower-200">Mercadoria</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {filteredOpportunities.map((o) => (
+                                <tr
+                                    key={o.id}
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={() => setPipelineSelectedId(o.id)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                            e.preventDefault();
+                                            setPipelineSelectedId(o.id);
+                                        }
+                                    }}
+                                    className={`cursor-pointer border-b border-tower-100 hover:bg-tower-50 dark:border-tower-700 dark:hover:bg-tower-700/50 ${
+                                        pipelineSelectedId === o.id ? 'bg-brand-50 dark:bg-brand-950/40' : ''
+                                    }`}
+                                >
+                                    <td className="px-3 py-2 text-tower-800 dark:text-tower-200">{o.stage}</td>
+                                    <td className="px-3 py-2 text-tower-600 dark:text-tower-400">
+                                        {new Date(o.createdAt).toLocaleDateString('pt-BR')}
+                                    </td>
+                                    <td className="px-3 py-2 text-tower-800 dark:text-tower-200">
+                                        {(o as any).account?.name ?? (o as any).account?.companies?.[0]?.legalName ?? '—'}
+                                    </td>
+                                    <td className="px-3 py-2 text-tower-700 dark:text-tower-300">
+                                        {(o.origin || '—') + ' → ' + (o.destination || '—')}
+                                    </td>
+                                    <td className="px-3 py-2 text-tower-600 dark:text-tower-400">{o.commodity ?? '—'}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            {showCreateOpp && (
+                <div
+                    className="fixed inset-0 z-[60] flex items-center justify-center bg-tower-950/70 p-4 backdrop-blur-sm"
+                    onClick={() => setShowCreateOpp(false)}
+                    role="presentation"
+                >
+                    <div
+                        className="w-full max-w-md rounded-2xl border border-tower-200 bg-white p-6 shadow-xl dark:border-tower-600 dark:bg-tower-900"
+                        onClick={(e) => e.stopPropagation()}
+                        role="dialog"
+                        aria-modal
+                    >
+                        <h3 className="mb-3 text-lg font-bold text-tower-900 dark:text-tower-50">Nova oportunidade</h3>
+                        <p className="mb-4 text-xs text-tower-600 dark:text-tower-400">
+                            Informe o UUID da conta (account). Origem e destino são opcionais.
+                        </p>
+                        <div className="space-y-3">
+                            <div>
+                                <label className="mb-1 block text-xs font-semibold" htmlFor="opp-acc">
+                                    accountId (UUID)
+                                </label>
+                                <input
+                                    id="opp-acc"
+                                    className="w-full rounded-lg border border-tower-200 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100"
+                                    value={createAccountId}
+                                    onChange={(e) => setCreateAccountId(e.target.value)}
+                                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                                />
+                            </div>
+                            <div>
+                                <label className="mb-1 block text-xs font-semibold" htmlFor="opp-orig">
+                                    Origem
+                                </label>
+                                <input
+                                    id="opp-orig"
+                                    className="w-full rounded-lg border border-tower-200 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100"
+                                    value={createOrigin}
+                                    onChange={(e) => setCreateOrigin(e.target.value)}
+                                />
+                            </div>
+                            <div>
+                                <label className="mb-1 block text-xs font-semibold" htmlFor="opp-dest">
+                                    Destino
+                                </label>
+                                <input
+                                    id="opp-dest"
+                                    className="w-full rounded-lg border border-tower-200 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100"
+                                    value={createDestination}
+                                    onChange={(e) => setCreateDestination(e.target.value)}
+                                />
+                            </div>
+                        </div>
+                        <div className="mt-4 flex gap-2">
+                            <button
+                                type="button"
+                                className="flex-1 rounded-xl border border-tower-200 py-2 text-sm dark:border-tower-600"
+                                onClick={() => setShowCreateOpp(false)}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                disabled={createSaving}
+                                className="flex-1 rounded-xl bg-brand-600 py-2 text-sm font-bold text-white disabled:opacity-50"
+                                onClick={() => void handleCreateOpportunity()}
+                            >
+                                {createSaving ? 'Salvando…' : 'Criar'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {selectedOpportunity && (
                 <OpportunityDetailsModal

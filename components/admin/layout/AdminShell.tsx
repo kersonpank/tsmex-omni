@@ -3,6 +3,7 @@ import type { BreadcrumbItem } from '../../ui/PageHeader';
 import PageHeader from '../../ui/PageHeader';
 import { useLayoutStore } from '../../../store/layoutStore';
 import type { AdminNavSection } from './adminNavModel';
+import GestaoActionBar from './GestaoActionBar';
 
 export type { AdminNavSection } from './adminNavModel';
 
@@ -13,6 +14,8 @@ interface AdminShellProps {
   pageSubtitle: string;
   breadcrumbs: BreadcrumbItem[];
   navSections: AdminNavSection[];
+  /** Barra Listagem / Filtro / Editar / Novo (Torre de controle) */
+  showGestaoActionBar?: boolean;
   children: React.ReactNode;
 }
 
@@ -69,6 +72,7 @@ const AdminShell: React.FC<AdminShellProps> = ({
   pageSubtitle,
   breadcrumbs,
   navSections,
+  showGestaoActionBar = false,
   children,
 }) => {
   const {
@@ -157,6 +161,8 @@ const AdminShell: React.FC<AdminShellProps> = ({
           </div>
 
           <PageHeader title={pageTitle} description={pageSubtitle} breadcrumbs={breadcrumbs} />
+
+          {showGestaoActionBar ? <GestaoActionBar /> : null}
 
           <div className="admin-panel-animate" role="tabpanel">
             {children}

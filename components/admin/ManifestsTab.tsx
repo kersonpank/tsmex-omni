@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useAuthStore } from '../../store/authStore';
 import { manifestsApi, vehicleTypesApi, linksApi, demandsApi, hubsApi } from '../../lib/api';
 import type { Manifest, VehicleType, Link, Demand, Hub } from '../../types/index';
 import type { StatusTone } from '../../lib/demandStatusUi';
@@ -7,6 +8,7 @@ import InlineNotice from '../ui/InlineNotice';
 import LoadingPanel from '../ui/LoadingPanel';
 import StatusBadge from '../ui/StatusBadge';
 import { CityAutocomplete } from '../ui/CityAutocomplete';
+import { useRegisterGestaoModuleActions } from './layout/GestaoModuleActionsContext';
 
 const statusLabels: Record<string, string> = {
   DRAFT: 'Rascunho',
@@ -28,6 +30,8 @@ const manifestTone: Record<string, StatusTone> = {
 };
 
 const ManifestsTab: React.FC = () => {
+  const { user } = useAuthStore();
+  const isHub = user?.roles?.includes('HUB') ?? false;
   const [manifests, setManifests] = useState<Manifest[]>([]);
   const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
   const [links, setLinks] = useState<Link[]>([]);
@@ -48,6 +52,10 @@ const ManifestsTab: React.FC = () => {
   const [assignLinkId, setAssignLinkId] = useState('');
   const [fiscalBusyId, setFiscalBusyId] = useState<string | null>(null);
   const [selectedDemandId, setSelectedDemandId] = useState('');
+  const [gestaoFilterOpen, setGestaoFilterOpen] = useState(false);
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterQ, setFilterQ] = useState('');
+  const [selectedManifestId, setSelectedManifestId] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -206,18 +214,101 @@ const ManifestsTab: React.FC = () => {
   const canShowFiscalActions = (status: string) =>
     ['PENDING_ACCEPT', 'ACCEPTED', 'IN_PROGRESS'].includes(status);
 
+  const filteredManifests = useMemo(() => {
+    let list = manifests;
+    if (filterStatus) list = list.filter((m) => m.status === filterStatus);
+    const q = filterQ.trim().toLowerCase();
+    if (q) {
+      list = list.filter((m) => {
+        const o = `${m.origin ?? ''} ${m.destination ?? ''} ${m.id}`.toLowerCase();
+        return o.includes(q);
+      });
+    }
+    return list;
+  }, [manifests, filterStatus, filterQ]);
+
+  const manifestGestao = useMemo(
+    () => ({
+      listActive: !showCreate && !gestaoFilterOpen,
+      filterOpen: gestaoFilterOpen,
+      filterCount: (filterStatus ? 1 : 0) + (filterQ.trim() ? 1 : 0),
+      pills: [
+        ...(filterStatus
+          ? [{ id: 'st', label: `Status: ${statusLabels[filterStatus] ?? filterStatus}`, onRemove: () => setFilterStatus('') }]
+          : []),
+        ...(filterQ.trim()
+          ? [{ id: 'q', label: `Busca: ${filterQ.trim()}`, onRemove: () => setFilterQ('') }]
+          : []),
+      ],
+      onList: () => {
+        setGestaoFilterOpen(false);
+        setShowCreate(false);
+        setShowAddDemand(null);
+        setShowAssign(null);
+        void load();
+        document.getElementById('manifests-lista')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      },
+      onFilterToggle: () => setGestaoFilterOpen((v) => !v),
+      onEdit: selectedManifestId
+        ? () => {
+            openAddDemand(selectedManifestId);
+          }
+        : undefined,
+      onNew: isHub ? undefined : () => setShowCreate(true),
+      disabled: { edit: !selectedManifestId, new: isHub } as const,
+      labels: {
+        edit: selectedManifestId ? 'Adicionar demanda à viagem selecionada' : 'Selecione uma viagem na lista',
+        new: isHub ? 'Novas viagens são criadas pela central.' : 'Nova viagem',
+      },
+    }),
+    [showCreate, gestaoFilterOpen, filterStatus, filterQ, selectedManifestId, isHub]
+  );
+
+  useRegisterGestaoModuleActions(() => manifestGestao, [manifestGestao]);
+
   return (
     <div>
       <div className="mb-6 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
         <p className="text-sm text-tower-600 dark:text-tower-400">Consolide demandas, atribua motorista e acompanhe o ciclo da viagem.</p>
-        <button
-          type="button"
-          onClick={() => setShowCreate(true)}
-          className="admin-focus rounded-xl bg-brand-600 px-4 py-2 text-sm font-bold text-white hover:bg-brand-500"
-        >
-          + Nova viagem
-        </button>
       </div>
+
+      {gestaoFilterOpen && (
+        <div className="mb-4 rounded-xl border border-tower-200 bg-white p-4 dark:border-tower-600 dark:bg-tower-800">
+          <div className="flex flex-wrap gap-4">
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-tower-600 dark:text-tower-400" htmlFor="man-st">
+                Status
+              </label>
+              <select
+                id="man-st"
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="rounded-lg border border-tower-200 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-900 dark:text-tower-100"
+              >
+                <option value="">Todos</option>
+                {Object.keys(statusLabels).map((k) => (
+                  <option key={k} value={k}>
+                    {statusLabels[k]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="min-w-[200px] flex-1">
+              <label className="mb-1 block text-xs font-semibold text-tower-600 dark:text-tower-400" htmlFor="man-q">
+                Busca
+              </label>
+              <input
+                id="man-q"
+                type="search"
+                value={filterQ}
+                onChange={(e) => setFilterQ(e.target.value)}
+                className="w-full rounded-lg border border-tower-200 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-900 dark:text-tower-100"
+                placeholder="Origem, destino ou ID…"
+              />
+            </div>
+          </div>
+        </div>
+      )}
       {error && (
         <div className="mb-4">
           <InlineNotice variant="error" message={error} onDismiss={() => setError(null)} />
@@ -338,10 +429,26 @@ const ManifestsTab: React.FC = () => {
         <LoadingPanel label="Carregando viagens…" />
       ) : manifests.length === 0 ? (
         <EmptyState title="Nenhuma viagem" description="Crie uma nova viagem para começar a consolidar demandas." />
+      ) : filteredManifests.length === 0 ? (
+        <EmptyState title="Nenhuma viagem neste filtro" description="Ajuste os filtros ou limpe a busca." />
       ) : (
-        <div className="space-y-4">
-          {manifests.map((m) => (
-            <div key={m.id} className="rounded-xl border border-tower-200 bg-white/95 p-5 shadow-sm dark:border-tower-700 dark:bg-tower-900/80">
+        <div id="manifests-lista" className="space-y-4">
+          {filteredManifests.map((m) => (
+            <div
+              key={m.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => setSelectedManifestId(m.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setSelectedManifestId(m.id);
+                }
+              }}
+              className={`cursor-pointer rounded-xl border border-tower-200 bg-white/95 p-5 shadow-sm transition-shadow dark:border-tower-700 dark:bg-tower-900/80 ${
+                selectedManifestId === m.id ? 'ring-2 ring-brand-500 ring-offset-2 dark:ring-offset-tower-900' : ''
+              }`}
+            >
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-mono-ids text-[10px] font-bold text-tower-400">#{m.id.slice(0, 8)}</span>
@@ -355,25 +462,54 @@ const ManifestsTab: React.FC = () => {
                 <div className="flex gap-2">
                   {m.status === 'DRAFT' && (
                     <>
-                      <button type="button" onClick={() => openAddDemand(m.id)} className="px-3 py-1.5 text-sm bg-tower-100 text-tower-700 rounded-lg hover:bg-tower-200">+ Demanda</button>
-                      <button type="button" onClick={() => { setShowAssign(m.id); setAssignLinkId(m.linkId || ''); }} className="px-3 py-1.5 text-sm bg-tower-100 text-tower-700 rounded-lg hover:bg-tower-200">Atribuir motorista</button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openAddDemand(m.id);
+                        }}
+                        className="px-3 py-1.5 text-sm bg-tower-100 text-tower-700 rounded-lg hover:bg-tower-200"
+                      >
+                        + Demanda
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowAssign(m.id);
+                          setAssignLinkId(m.linkId || '');
+                        }}
+                        className="px-3 py-1.5 text-sm bg-tower-100 text-tower-700 rounded-lg hover:bg-tower-200"
+                      >
+                        Atribuir motorista
+                      </button>
                       {m.demands && m.demands.length > 0 && (
-                        <button type="button" onClick={() => handleOffer(m.id)} className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm text-white hover:bg-brand-700">Enviar oferta</button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOffer(m.id);
+                          }}
+                          className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm text-white hover:bg-brand-700"
+                        >
+                          Enviar oferta
+                        </button>
                       )}
                     </>
                   )}
                   {(m.status === 'PENDING_ACCEPT' || m.status === 'ACCEPTED') && (
                     <button
                       type="button"
-                      onClick={async () => {
+                      onClick={async (e) => {
+                        e.stopPropagation();
                         setError(null);
                         try {
                           await manifestsApi.start(m.id);
                           setSuccess('Viagem iniciada.');
                           load();
                           setTimeout(() => setSuccess(null), 3000);
-                        } catch (e: any) {
-                          setError(e.response?.data?.error || e.message || 'Erro ao iniciar viagem');
+                        } catch (err: any) {
+                          setError(err.response?.data?.error || err.message || 'Erro ao iniciar viagem');
                         }
                       }}
                       className="px-3 py-1.5 text-sm rounded-lg bg-brand-600 text-white hover:bg-brand-500 dark:hover:bg-brand-400"
@@ -384,15 +520,16 @@ const ManifestsTab: React.FC = () => {
                   {m.status === 'IN_PROGRESS' && (
                     <button
                       type="button"
-                      onClick={async () => {
+                      onClick={async (e) => {
+                        e.stopPropagation();
                         setError(null);
                         try {
                           await manifestsApi.complete(m.id);
                           setSuccess('Viagem concluída.');
                           load();
                           setTimeout(() => setSuccess(null), 3000);
-                        } catch (e: any) {
-                          setError(e.response?.data?.error || e.message || 'Erro ao concluir viagem');
+                        } catch (err: any) {
+                          setError(err.response?.data?.error || err.message || 'Erro ao concluir viagem');
                         }
                       }}
                       className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm text-white hover:bg-brand-700"
@@ -405,7 +542,10 @@ const ManifestsTab: React.FC = () => {
                       <button
                         type="button"
                         disabled={fiscalBusyId === m.id}
-                        onClick={() => handleEmitMdfe(m.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEmitMdfe(m.id);
+                        }}
                         className="rounded-lg border border-tower-300 bg-white px-3 py-1.5 text-sm text-tower-800 hover:bg-tower-50 disabled:opacity-50 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100 dark:hover:bg-tower-700"
                         title="Requer credenciais ACBr e CT-es autorizados vinculados à viagem"
                       >
@@ -414,7 +554,10 @@ const ManifestsTab: React.FC = () => {
                       <button
                         type="button"
                         disabled={fiscalBusyId === m.id}
-                        onClick={() => handleCiotPlaceholder(m.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCiotPlaceholder(m.id);
+                        }}
                         className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100 dark:hover:bg-amber-900/50"
                         title="Placeholder até integração ANTEF / compliance"
                       >
@@ -432,7 +575,16 @@ const ManifestsTab: React.FC = () => {
                       <li key={d.id} className="flex items-center justify-between text-sm">
                         <span>{d.origin} → {d.destination} · {d.commodity} · {d.weight}kg</span>
                         {m.status === 'DRAFT' && (
-                          <button type="button" onClick={() => handleRemoveDemand(m.id, d.id)} className="text-red-600 hover:underline">Remover</button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemoveDemand(m.id, d.id);
+                            }}
+                            className="text-red-600 hover:underline"
+                          >
+                            Remover
+                          </button>
                         )}
                       </li>
                     ))}

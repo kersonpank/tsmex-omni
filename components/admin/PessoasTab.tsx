@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRegisterGestaoModuleActions } from './layout/GestaoModuleActionsContext';
 import { useSearchParams } from 'react-router-dom';
 import { personsApi, vehicleTypesApi, hubsApi, locationsApi } from '../../lib/api';
 import type { Person, PersonDocumentType, CreatePersonRequest } from '../../types/index';
@@ -52,8 +53,10 @@ const PessoasTab: React.FC = () => {
   const [formSaving, setFormSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [gestaoFilterOpen, setGestaoFilterOpen] = useState(false);
+  const [gestaoSelectedPersonId, setGestaoSelectedPersonId] = useState<string | null>(null);
 
-  const loadPersons = async () => {
+  const loadPersons = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -70,7 +73,7 @@ const PessoasTab: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filterDocumentType, filterName, filterHasClient, filterHasLink]);
 
   const handleSync = async () => {
     try {
@@ -86,8 +89,8 @@ const PessoasTab: React.FC = () => {
   };
 
   useEffect(() => {
-    loadPersons();
-  }, [filterDocumentType, filterHasClient, filterHasLink]);
+    void loadPersons();
+  }, [loadPersons]);
 
   useEffect(() => {
     vehicleTypesApi.list().then(res => setVehicleTypes(res.data)).catch(() => {});
@@ -95,15 +98,16 @@ const PessoasTab: React.FC = () => {
 
   useEffect(() => {
     if (!filterName) {
-      loadPersons();
+      void loadPersons();
     }
-  }, [filterName]);
+  }, [filterName, loadPersons]);
 
   const handleSearch = () => {
     loadPersons();
   };
 
-  const openDetail = async (id: string) => {
+  const openDetail = useCallback(async (id: string) => {
+    setGestaoSelectedPersonId(id);
     setSelectedPersonId(id);
     setDetailLoading(true);
     setSelectedPerson(null);
@@ -113,14 +117,16 @@ const PessoasTab: React.FC = () => {
     } catch (err: any) {
       console.error('Erro ao carregar detalhe:', err);
       setSelectedPersonId(null);
+      setGestaoSelectedPersonId(null);
     } finally {
       setDetailLoading(false);
     }
-  };
+  }, []);
 
   const closeDetail = () => {
     setSelectedPersonId(null);
     setSelectedPerson(null);
+    setGestaoSelectedPersonId(null);
   };
 
   useEffect(() => {
@@ -144,6 +150,76 @@ const PessoasTab: React.FC = () => {
     setOpenEditFromQuery(false);
   }, [openEditFromQuery, selectedPerson]);
 
+  const pessoasGestao = useMemo(() => {
+    const filterCount =
+      (filterDocumentType ? 1 : 0) +
+      (filterName.trim() ? 1 : 0) +
+      (filterHasClient ? 1 : 0) +
+      (filterHasLink ? 1 : 0);
+    const pills = [
+      ...(filterDocumentType
+        ? [{ id: 'dt', label: `Tipo: ${filterDocumentType}`, onRemove: () => setFilterDocumentType('') }]
+        : []),
+      ...(filterName.trim()
+        ? [{ id: 'nm', label: `Nome: ${filterName.trim()}`, onRemove: () => setFilterName('') }]
+        : []),
+      ...(filterHasClient
+        ? [
+            {
+              id: 'cl',
+              label: `Cliente: ${filterHasClient === 'true' ? 'sim' : 'não'}`,
+              onRemove: () => setFilterHasClient(''),
+            },
+          ]
+        : []),
+      ...(filterHasLink
+        ? [
+            {
+              id: 'lk',
+              label: `Motorista: ${filterHasLink === 'true' ? 'sim' : 'não'}`,
+              onRemove: () => setFilterHasLink(''),
+            },
+          ]
+        : []),
+    ];
+    return {
+      listActive: !gestaoFilterOpen,
+      filterOpen: gestaoFilterOpen,
+      filterCount,
+      pills,
+      onList: () => {
+        setGestaoFilterOpen(false);
+        void loadPersons();
+        document.getElementById('pessoas-tabela')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      },
+      onFilterToggle: () => setGestaoFilterOpen((v) => !v),
+      onEdit: gestaoSelectedPersonId
+        ? async () => {
+            await openDetail(gestaoSelectedPersonId);
+            setShowEditModal(true);
+          }
+        : undefined,
+      onNew: () => setShowCreateModal(true),
+      disabled: { edit: !gestaoSelectedPersonId } as const,
+      labels: {
+        edit: gestaoSelectedPersonId
+          ? 'Abrir edição da pessoa selecionada na tabela'
+          : 'Selecione uma linha na tabela (clique na linha)',
+      },
+    };
+  }, [
+    gestaoFilterOpen,
+    filterDocumentType,
+    filterName,
+    filterHasClient,
+    filterHasLink,
+    gestaoSelectedPersonId,
+    openDetail,
+    loadPersons,
+  ]);
+
+  useRegisterGestaoModuleActions(() => pessoasGestao, [pessoasGestao]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -153,77 +229,71 @@ const PessoasTab: React.FC = () => {
             type="button"
             onClick={handleSync}
             disabled={syncing}
-            className="px-4 py-2 bg-tower-100 text-tower-700 rounded-lg text-sm font-medium hover:bg-tower-200 disabled:opacity-50"
+            className="px-4 py-2 bg-tower-100 text-tower-700 rounded-lg text-sm font-medium hover:bg-tower-200 disabled:opacity-50 dark:bg-tower-800 dark:text-tower-200 dark:hover:bg-tower-700"
           >
             {syncing ? 'Sincronizando...' : 'Sincronizar pessoas'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowCreateModal(true)}
-            className="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700"
-          >
-            Nova Pessoa
           </button>
         </div>
       </div>
 
-      {/* Filtros */}
-      <div className="bg-white dark:bg-tower-900 border border-tower-200 dark:border-tower-700 rounded-xl p-4 flex flex-wrap gap-3 items-end">
-        <div>
-          <label className="block text-xs font-medium text-tower-500 dark:text-tower-300 mb-1">Tipo</label>
-          <select
-            value={filterDocumentType}
-            onChange={e => setFilterDocumentType(e.target.value as 'CPF' | 'CNPJ' | '')}
-            className="border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
+      {gestaoFilterOpen && (
+        <div className="flex flex-wrap items-end gap-3 rounded-xl border border-tower-200 bg-white p-4 dark:border-tower-700 dark:bg-tower-900">
+          <div>
+            <label className="block text-xs font-medium text-tower-500 dark:text-tower-300 mb-1">Tipo</label>
+            <select
+              value={filterDocumentType}
+              onChange={(e) => setFilterDocumentType(e.target.value as 'CPF' | 'CNPJ' | '')}
+              className="border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
+            >
+              <option value="">Todos</option>
+              <option value="CPF">CPF</option>
+              <option value="CNPJ">CNPJ</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-tower-500 dark:text-tower-300 mb-1">Nome / Documento</label>
+            <input
+              type="text"
+              value={filterName}
+              onChange={(e) => setFilterName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              placeholder="Buscar..."
+              className="border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 text-sm w-48 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-tower-500 dark:text-tower-300 mb-1">Cliente</label>
+            <select
+              value={filterHasClient}
+              onChange={(e) => setFilterHasClient(e.target.value as 'true' | 'false' | '')}
+              className="border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
+            >
+              <option value="">Todos</option>
+              <option value="true">Sim</option>
+              <option value="false">Não</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-tower-500 dark:text-tower-300 mb-1">Motorista</label>
+            <select
+              value={filterHasLink}
+              onChange={(e) => setFilterHasLink(e.target.value as 'true' | 'false' | '')}
+              className="border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
+            >
+              <option value="">Todos</option>
+              <option value="true">Sim</option>
+              <option value="false">Não</option>
+            </select>
+          </div>
+          <button
+            type="button"
+            onClick={handleSearch}
+            className="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700"
           >
-            <option value="">Todos</option>
-            <option value="CPF">CPF</option>
-            <option value="CNPJ">CNPJ</option>
-          </select>
+            Buscar
+          </button>
         </div>
-        <div>
-          <label className="block text-xs font-medium text-tower-500 dark:text-tower-300 mb-1">Nome / Documento</label>
-          <input
-            type="text"
-            value={filterName}
-            onChange={e => setFilterName(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleSearch()}
-            placeholder="Buscar..."
-            className="border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 text-sm w-48 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-tower-500 dark:text-tower-300 mb-1">Cliente</label>
-          <select
-            value={filterHasClient}
-            onChange={e => setFilterHasClient(e.target.value as 'true' | 'false' | '')}
-            className="border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
-          >
-            <option value="">Todos</option>
-            <option value="true">Sim</option>
-            <option value="false">Não</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-tower-500 dark:text-tower-300 mb-1">Motorista</label>
-          <select
-            value={filterHasLink}
-            onChange={e => setFilterHasLink(e.target.value as 'true' | 'false' | '')}
-            className="border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
-          >
-            <option value="">Todos</option>
-            <option value="true">Sim</option>
-            <option value="false">Não</option>
-          </select>
-        </div>
-        <button
-          type="button"
-          onClick={handleSearch}
-          className="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700"
-        >
-          Buscar
-        </button>
-      </div>
+      )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-700 text-sm">
@@ -236,7 +306,7 @@ const PessoasTab: React.FC = () => {
           <div className="w-10 h-10 border-4 border-brand-600 border-t-transparent rounded-full animate-spin" />
         </div>
       ) : (
-        <div className="bg-white dark:bg-tower-900 border border-tower-200 dark:border-tower-700 rounded-xl overflow-hidden">
+        <div id="pessoas-tabela" className="bg-white dark:bg-tower-900 border border-tower-200 dark:border-tower-700 rounded-xl overflow-hidden">
           {persons.length === 0 ? (
             <div className="p-12 text-center text-tower-500">
               <p className="mb-4">Nenhuma pessoa encontrada.</p>
@@ -264,7 +334,11 @@ const PessoasTab: React.FC = () => {
                 </thead>
                 <tbody className="divide-y divide-tower-200">
                   {persons.map(p => (
-                    <tr key={p.id} className="hover:bg-tower-50">
+                    <tr
+                      key={p.id}
+                      className={`cursor-pointer hover:bg-tower-50 dark:hover:bg-tower-800/80 ${gestaoSelectedPersonId === p.id ? 'ring-2 ring-inset ring-brand-400 dark:ring-brand-500' : ''}`}
+                      onClick={() => setGestaoSelectedPersonId(p.id)}
+                    >
                       <td className="px-4 py-3 text-sm font-mono text-tower-700">
                         {formatDocument(p.document, p.documentType)}
                       </td>
@@ -296,7 +370,10 @@ const PessoasTab: React.FC = () => {
                       <td className="px-4 py-3 text-right">
                         <button
                           type="button"
-                          onClick={() => openDetail(p.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void openDetail(p.id);
+                          }}
                           className="text-brand-600 hover:text-brand-800 text-sm font-medium"
                         >
                           Ver

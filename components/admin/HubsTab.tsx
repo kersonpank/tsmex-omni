@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRegisterGestaoModuleActions } from './layout/GestaoModuleActionsContext';
 import { hubsApi, locationsApi, usersApi, personsApi } from '../../lib/api';
 import type { Hub, Person } from '../../types/index';
 import { CityAutocomplete } from '../ui/CityAutocomplete';
@@ -108,8 +109,11 @@ const HubsTab: React.FC = () => {
     active: true,
     personId: '',
   });
+  const [gestaoFilterOpen, setGestaoFilterOpen] = useState(false);
+  const [hubNameFilter, setHubNameFilter] = useState('');
+  const [selectedHubId, setSelectedHubId] = useState<string | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -121,9 +125,11 @@ const HubsTab: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   useEffect(() => {
     if (showForm) {
@@ -132,7 +138,7 @@ const HubsTab: React.FC = () => {
     }
   }, [showForm]);
 
-  const openNew = () => {
+  const openNew = useCallback(() => {
     setEditingId(null);
     setForm({
       name: '',
@@ -148,7 +154,8 @@ const HubsTab: React.FC = () => {
       personId: '',
     });
     setShowForm(true);
-  };
+    setGestaoFilterOpen(false);
+  }, []);
 
   const copyCadastroLink = (hubId: string) => {
     const url = getHubCadastroUrl(hubId);
@@ -187,7 +194,7 @@ const HubsTab: React.FC = () => {
     }
   };
 
-  const openEdit = (hub: Hub) => {
+  const openEdit = useCallback((hub: Hub) => {
     setEditingId(hub.id);
     setForm({
       name: hub.name,
@@ -203,7 +210,53 @@ const HubsTab: React.FC = () => {
       personId: hub.personId ?? '',
     });
     setShowForm(true);
-  };
+    setGestaoFilterOpen(false);
+  }, []);
+
+  const filteredHubs = useMemo(() => {
+    const q = hubNameFilter.trim().toLowerCase();
+    if (!q) return hubs;
+    return hubs.filter(
+      (h) =>
+        h.name.toLowerCase().includes(q) ||
+        h.code.toLowerCase().includes(q) ||
+        `${h.city} ${h.state}`.toLowerCase().includes(q)
+    );
+  }, [hubs, hubNameFilter]);
+
+  const hubsGestao = useMemo(
+    () => ({
+      listActive: !showForm && !gestaoFilterOpen,
+      filterOpen: gestaoFilterOpen,
+      filterCount: hubNameFilter.trim() ? 1 : 0,
+      pills: hubNameFilter.trim()
+        ? [{ id: 'hn', label: `Busca: ${hubNameFilter.trim()}`, onRemove: () => setHubNameFilter('') }]
+        : [],
+      onList: () => {
+        setGestaoFilterOpen(false);
+        setShowForm(false);
+        setEditingId(null);
+        void load();
+        document.getElementById('hubs-tabela')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      },
+      onFilterToggle: () => setGestaoFilterOpen((v) => !v),
+      onEdit:
+        selectedHubId && hubs.some((h) => h.id === selectedHubId)
+          ? () => {
+              const h = hubs.find((x) => x.id === selectedHubId);
+              if (h) openEdit(h);
+            }
+          : undefined,
+      onNew: openNew,
+      disabled: { edit: !selectedHubId } as const,
+      labels: {
+        edit: selectedHubId ? 'Editar hub selecionado' : 'Selecione um hub na tabela',
+      },
+    }),
+    [showForm, gestaoFilterOpen, hubNameFilter, selectedHubId, hubs, openNew, openEdit, load]
+  );
+
+  useRegisterGestaoModuleActions(() => hubsGestao, [hubsGestao]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -241,16 +294,24 @@ const HubsTab: React.FC = () => {
 
   return (
     <div>
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-        <h2 className="text-lg font-bold text-tower-700">Hubs (depósitos / filiais)</h2>
-        <button
-          type="button"
-          onClick={openNew}
-          className="px-4 py-2 text-sm bg-brand-600 text-white font-bold rounded-lg hover:bg-brand-700"
-        >
-          + Novo Hub
-        </button>
+      <div className="mb-6">
+        <h2 className="text-lg font-bold text-tower-700 dark:text-tower-200">Hubs (depósitos / filiais)</h2>
       </div>
+      {gestaoFilterOpen && (
+        <div className="mb-4 rounded-xl border border-tower-200 bg-white p-4 dark:border-tower-600 dark:bg-tower-800">
+          <label className="mb-1 block text-xs font-semibold text-tower-600 dark:text-tower-400" htmlFor="hub-q">
+            Buscar hub
+          </label>
+          <input
+            id="hub-q"
+            type="search"
+            value={hubNameFilter}
+            onChange={(e) => setHubNameFilter(e.target.value)}
+            placeholder="Nome, código ou cidade"
+            className="max-w-md rounded-lg border border-tower-200 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-900 dark:text-tower-100"
+          />
+        </div>
+      )}
       {error && (
         <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>
       )}
@@ -332,9 +393,15 @@ const HubsTab: React.FC = () => {
       {loading ? (
         <div className="py-12 text-center text-tower-500">Carregando...</div>
       ) : hubs.length === 0 ? (
-        <div className="bg-white border-2 border-dashed border-tower-200 rounded-xl p-12 text-center text-tower-500">Nenhum hub cadastrado. Clique em Novo Hub.</div>
+        <div className="bg-white border-2 border-dashed border-tower-200 rounded-xl p-12 text-center text-tower-500 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-400">
+          Nenhum hub cadastrado. Use a ação Novo na barra acima.
+        </div>
+      ) : filteredHubs.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-tower-300 bg-tower-50/80 p-8 text-center text-sm text-tower-600 dark:border-tower-600 dark:bg-tower-900/40 dark:text-tower-400">
+          Nenhum hub corresponde à busca. Ajuste o filtro ou limpe a busca na barra de ações.
+        </div>
       ) : (
-        <div className="bg-white border border-tower-200 rounded-xl overflow-hidden">
+        <div id="hubs-tabela" className="overflow-hidden rounded-xl border border-tower-200 bg-white dark:border-tower-600 dark:bg-tower-800">
           <table className="w-full">
             <thead className="bg-tower-50 border-b border-tower-200">
               <tr>
@@ -348,10 +415,13 @@ const HubsTab: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {hubs.map(hub => (
+              {filteredHubs.map(hub => (
                 <React.Fragment key={hub.id}>
-                  <tr className="border-b border-tower-100 hover:bg-tower-50">
-                    <td className="py-3 px-4 font-medium text-tower-900">{hub.name}</td>
+                  <tr
+                    className={`cursor-pointer border-b border-tower-100 hover:bg-tower-50 dark:border-tower-700 dark:hover:bg-tower-800/80 ${selectedHubId === hub.id ? 'ring-2 ring-inset ring-brand-400 dark:ring-brand-500' : ''}`}
+                    onClick={() => setSelectedHubId(hub.id)}
+                  >
+                    <td className="py-3 px-4 font-medium text-tower-900 dark:text-tower-100">{hub.name}</td>
                     <td className="py-3 px-4 text-tower-600">{hub.code}</td>
                     <td className="py-3 px-4 text-tower-600">{hub.person?.document ?? '—'}</td>
                     <td className="py-3 px-4 text-tower-600">{hub.city} / {hub.state}</td>
@@ -364,7 +434,10 @@ const HubsTab: React.FC = () => {
                       {hub.active && (
                         <button
                           type="button"
-                          onClick={() => copyCadastroLink(hub.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            copyCadastroLink(hub.id);
+                          }}
                           className="text-xs text-brand-600 hover:text-brand-800 font-medium"
                           title="Copiar link para cadastro de usuários"
                         >
@@ -376,12 +449,15 @@ const HubsTab: React.FC = () => {
                       <div className="flex gap-2 justify-end">
                       <button
                         type="button"
-                        onClick={() => toggleHubUsers(hub.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleHubUsers(hub.id);
+                        }}
                         className="text-amber-600 hover:text-amber-800 text-sm font-medium"
                       >
                         {expandedHubUsers === hub.id ? '▲ Usuários' : '▼ Usuários'}
                       </button>
-                      <button type="button" onClick={() => openEdit(hub)} className="text-brand-600 hover:text-brand-800 text-sm font-medium">Editar</button>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); openEdit(hub); }} className="text-brand-600 hover:text-brand-800 text-sm font-medium">Editar</button>
                       </div>
                     </td>
                   </tr>

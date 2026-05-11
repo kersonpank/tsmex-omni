@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useRegisterGestaoModuleActions } from './layout/GestaoModuleActionsContext';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { ordersApi, hubsApi } from '../../lib/api';
 import type { StatusTone } from '../../lib/demandStatusUi';
@@ -134,6 +135,7 @@ const PedidosTab: React.FC = () => {
   });
   const [searchDraft, setSearchDraft] = useState(filters.q);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [toolbarSelOrderId, setToolbarSelOrderId] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
   const [sortBy, setSortBy] = useState<SortKey>('updatedAt');
@@ -295,6 +297,44 @@ const PedidosTab: React.FC = () => {
     return sortDir === 'asc' ? '↑' : '↓';
   };
 
+  const pedidosGestao = useMemo(
+    () => ({
+      listActive: !showAdvancedFilters,
+      filterOpen: showAdvancedFilters,
+      filterCount: activeFilterChips.length,
+      pills: activeFilterChips.map((c) => ({
+        id: String(c.key),
+        label: c.label,
+        onRemove: () => {
+          setFilter(c.key, defaultFilters[c.key]);
+        },
+      })),
+      onList: () => {
+        setShowAdvancedFilters(false);
+        void load();
+        document.getElementById('pedidos-tabela-topo')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      },
+      onFilterToggle: () => setShowAdvancedFilters((v) => !v),
+      onEdit: toolbarSelOrderId
+        ? () =>
+            navigate(`/orders/${toolbarSelOrderId}`, {
+              state: { fromPedidos: true, backSearch: window.location.hash },
+            })
+        : undefined,
+      disabled: {
+        edit: !toolbarSelOrderId,
+        new: true,
+      } as const,
+      labels: {
+        new: 'Novo pedido: use Entrada ou fluxos de demanda.',
+        edit: toolbarSelOrderId ? 'Abrir pedido selecionado na tabela' : 'Clique em uma linha da tabela para selecionar o pedido',
+      },
+    }),
+    [showAdvancedFilters, activeFilterChips, toolbarSelOrderId, navigate]
+  );
+
+  useRegisterGestaoModuleActions(() => pedidosGestao, [pedidosGestao]);
+
   return (
     <div>
       <div className="mb-6 rounded-2xl border border-tower-200 bg-white p-4 dark:border-tower-700 dark:bg-tower-900/40">
@@ -407,7 +447,7 @@ const PedidosTab: React.FC = () => {
       ) : orders.length === 0 ? (
         <EmptyState title="Nenhum pedido" description="Não há pedidos com os filtros atuais." />
       ) : (
-        <DataTable>
+        <DataTable id="pedidos-tabela-topo">
           <thead className="border-b border-tower-200 bg-tower-50/90 dark:border-tower-700 dark:bg-tower-800/80">
             <tr>
               <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300"><button type="button" onClick={() => handleSortClick('nfNumber')} className="admin-focus inline-flex items-center gap-1">Pedido/NF <span>{sortIndicator('nfNumber')}</span></button></th>
@@ -435,8 +475,13 @@ const PedidosTab: React.FC = () => {
               return (
                 <tr
                   key={o.id}
-                  className="cursor-pointer hover:bg-tower-50/80 dark:hover:bg-tower-800/40"
-                  onClick={() => navigate(`/orders/${o.id}`, { state: { fromPedidos: true, backSearch: window.location.hash } })}
+                  className={`cursor-pointer hover:bg-tower-50/80 dark:hover:bg-tower-800/40 ${
+                    toolbarSelOrderId === o.id ? 'bg-brand-50/80 dark:bg-brand-950/25' : ''
+                  }`}
+                  onClick={() => {
+                    setToolbarSelOrderId(o.id);
+                    navigate(`/orders/${o.id}`, { state: { fromPedidos: true, backSearch: window.location.hash } });
+                  }}
                 >
                   <td className="px-4 py-3 font-mono-ids text-sm font-medium text-tower-900 dark:text-tower-100">
                     <div className="flex flex-col">

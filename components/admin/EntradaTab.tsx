@@ -1,4 +1,4 @@
-import React, { useState, useEffect, lazy, Suspense } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, lazy, Suspense } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   ordersApi,
@@ -17,6 +17,7 @@ const QRCodeScanner = lazy(() => import('../ui/QRCodeScanner'));
 import { OrderColetaForm } from './OrderColetaForm';
 import { OrderFreightCalculationSection } from './OrderFreightCalculationSection';
 import type { Person, Hub, PricingRoute } from '../../types/index';
+import { useRegisterGestaoModuleActions } from './layout/GestaoModuleActionsContext';
 
 type FreightTerm = 'CIF' | 'FOB' | 'REDESPACHO';
 const isFreightTerm = (v: FreightTerm | null): v is FreightTerm => v !== null;
@@ -36,8 +37,14 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
   const { user } = useAuthStore();
   const isHub = user?.roles?.includes('HUB') ?? false;
   const hubId = (user?.profile as { hub?: { hubId?: string } })?.hub?.hubId ?? (user as any)?.hubId;
+  const hubPermissions = (user?.profile as { hub?: { permissions?: string[] } })?.hub?.permissions ?? [];
+  const hubCanEntrada =
+    !isHub || hubPermissions.length === 0 || hubPermissions.includes('entrada');
 
   const [orders, setOrders] = useState<any[]>([]);
+  const [ordersFilterQ, setOrdersFilterQ] = useState('');
+  const [gestaoFilterOpen, setGestaoFilterOpen] = useState(false);
+  const [listSelectedOrderId, setListSelectedOrderId] = useState<string | null>(null);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [order, setOrder] = useState<any | null>(null);
@@ -215,7 +222,7 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
     }
   }, [peopleForm.destinatario?.id, peopleForm.destinatario?.city, peopleForm.destinatario?.state]);
 
-  const handleNovoPedido = () => {
+  const handleNovoPedido = useCallback(() => {
     setSelectedOrderId(null);
     setIsCreatingNew(true);
     setOrder(null);
@@ -238,8 +245,76 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
       routeId: '',
       hubId: isHub ? hubId ?? '' : '',
     });
-    setSectionsExpanded({ ...sectionsExpanded, pessoas: true });
-  };
+    setSectionsExpanded((prev) => ({ ...prev, pessoas: true }));
+    setGestaoFilterOpen(false);
+    setListSelectedOrderId(null);
+  }, [hubId, isHub]);
+
+  const filteredOrders = useMemo(() => {
+    const q = ordersFilterQ.trim().toLowerCase();
+    if (!q) return orders;
+    return orders.filter((o) => {
+      const id = (o.id ?? '').toLowerCase();
+      const orig = `${o.origemPrestacao ?? ''} ${o.demand?.origin ?? ''}`.toLowerCase();
+      const dest = `${o.fimPrestacao ?? ''} ${o.demand?.destination ?? ''}`.toLowerCase();
+      return id.includes(q) || orig.includes(q) || dest.includes(q);
+    });
+  }, [orders, ordersFilterQ]);
+
+  const entradaGestao = useMemo(
+    () => ({
+      listActive: !selectedOrderId && !isCreatingNew && !gestaoFilterOpen,
+      filterOpen: gestaoFilterOpen,
+      filterCount: ordersFilterQ.trim() ? 1 : 0,
+      pills: ordersFilterQ.trim()
+        ? [{ id: 'q', label: `Busca: ${ordersFilterQ.trim()}`, onRemove: () => setOrdersFilterQ('') }]
+        : [],
+      onList: () => {
+        setGestaoFilterOpen(false);
+        setSelectedOrderId(null);
+        setIsCreatingNew(false);
+        setListSelectedOrderId(null);
+        void loadOrders();
+        document.getElementById('entrada-pedidos-lista')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      },
+      onFilterToggle: () => setGestaoFilterOpen((v) => !v),
+      onEdit:
+        listSelectedOrderId && !selectedOrderId && !isCreatingNew
+          ? () => setSelectedOrderId(listSelectedOrderId)
+          : selectedOrderId
+            ? () => document.getElementById('entrada-detalhe-topo')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            : undefined,
+      onNew: hubCanEntrada ? handleNovoPedido : undefined,
+      disabled: {
+        edit: !listSelectedOrderId && !selectedOrderId,
+        new: isHub && !hubCanEntrada,
+      } as const,
+      labels: {
+        edit: listSelectedOrderId
+          ? 'Abrir pedido selecionado na lista'
+          : selectedOrderId
+            ? 'Rolar para o início do pedido aberto'
+            : 'Na lista, selecione um pedido para abrir',
+        new:
+          isHub && !hubCanEntrada
+            ? 'Sem permissão de Entrada neste hub — peça ajuste ao administrador.'
+            : 'Novo recebimento / pedido de entrada',
+      },
+    }),
+    [
+      selectedOrderId,
+      isCreatingNew,
+      gestaoFilterOpen,
+      ordersFilterQ,
+      listSelectedOrderId,
+      handleNovoPedido,
+      loadOrders,
+      hubCanEntrada,
+      isHub,
+    ]
+  );
+
+  useRegisterGestaoModuleActions(() => entradaGestao, [entradaGestao]);
 
   const handlePrescanQR = async (rawScan: string) => {
     setShowPrescanQR(false);
@@ -517,15 +592,34 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
       {error && <div className="mobile-enter p-4 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-300 text-sm">{error}</div>}
       {success && <div className="mobile-enter p-4 bg-brand-50 dark:bg-brand-900/30 border border-brand-200 dark:border-brand-800 rounded-xl text-brand-700 dark:text-brand-300 text-sm">{success}</div>}
 
+      {gestaoFilterOpen && !selectedOrderId && !isCreatingNew && (
+        <div className="rounded-xl border border-tower-200 bg-white p-4 dark:border-tower-600 dark:bg-tower-800">
+          <label className="mb-1 block text-xs font-bold uppercase text-tower-600 dark:text-tower-400" htmlFor="entrada-order-q">
+            Filtrar pedidos na lista
+          </label>
+          <input
+            id="entrada-order-q"
+            type="search"
+            value={ordersFilterQ}
+            onChange={(e) => setOrdersFilterQ(e.target.value)}
+            placeholder="ID, origem ou destino…"
+            className="admin-focus w-full max-w-md rounded-lg border border-tower-200 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-900 dark:text-tower-100"
+          />
+        </div>
+      )}
+
       {!selectedOrderId && !isCreatingNew ? (
         loading ? (
           <div className="py-12 text-center text-tower-500 dark:text-tower-400">Carregando pedidos...</div>
-        ) : orders.length === 0 ? (
+        ) : filteredOrders.length === 0 ? (
           <div className="bg-white dark:bg-tower-800 border-2 border-dashed border-tower-200 dark:border-tower-700 rounded-xl p-12 text-center text-tower-500 dark:text-tower-400">
             Nenhum pedido. Clique em &quot;+ Novo Pedido&quot; para criar.
           </div>
         ) : (
-          <div className="bg-white dark:bg-tower-800 border border-tower-200 dark:border-tower-700 rounded-xl overflow-hidden">
+          <div
+            id="entrada-pedidos-lista"
+            className="bg-white dark:bg-tower-800 border border-tower-200 dark:border-tower-700 rounded-xl overflow-hidden"
+          >
             <table className="w-full">
               <thead className="bg-tower-50 dark:bg-tower-700">
                 <tr>
@@ -536,8 +630,22 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
                 </tr>
               </thead>
               <tbody>
-                {orders.map((o) => (
-                  <tr key={o.id} className="border-b border-tower-100 dark:border-tower-700 hover:bg-tower-50 dark:hover:bg-tower-700/50">
+                {filteredOrders.map((o) => (
+                  <tr
+                    key={o.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setListSelectedOrderId(o.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setListSelectedOrderId(o.id);
+                      }
+                    }}
+                    className={`cursor-pointer border-b border-tower-100 dark:border-tower-700 hover:bg-tower-50 dark:hover:bg-tower-700/50 ${
+                      listSelectedOrderId === o.id ? 'bg-brand-50/90 dark:bg-brand-950/30' : ''
+                    }`}
+                  >
                     <td className="py-3 px-4 font-mono text-sm text-tower-900 dark:text-tower-200">{o.id.slice(0, 8)}</td>
                     <td className="py-3 px-4 text-tower-900 dark:text-tower-200">
                       {(o.origemPrestacao || o.demand?.origin) ?? '-'} → {(o.fimPrestacao || o.demand?.destination) ?? '-'}
@@ -550,7 +658,10 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
                     <td className="py-3 px-4 text-right">
                       <button
                         type="button"
-                        onClick={() => setSelectedOrderId(o.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedOrderId(o.id);
+                        }}
                         className="text-brand-600 dark:text-brand-400 hover:text-brand-800 dark:hover:text-brand-300 text-sm font-medium"
                       >
                         Abrir
@@ -563,7 +674,7 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
           </div>
         )
       ) : (
-        <div className="space-y-4">
+        <div id="entrada-detalhe-topo" className="space-y-4">
           {orderLoading ? (
             <div className="py-12 text-center text-tower-500 dark:text-tower-400">Carregando...</div>
           ) : (

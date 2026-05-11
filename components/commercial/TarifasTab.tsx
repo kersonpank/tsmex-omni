@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { pricingApi, clientsApi } from '../../lib/api';
+import { useRegisterGestaoModuleActions } from '../admin/layout/GestaoModuleActionsContext';
 import type {
   PricingTable,
   PricingRoute,
@@ -47,6 +48,8 @@ const TarifasTab: React.FC = () => {
   const [success, setSuccess] = useState<string | null>(null);
   const [filterRouteId, setFilterRouteId] = useState<string>('');
   const [filterType, setFilterType] = useState<string>('');
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
+  const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -113,7 +116,11 @@ const TarifasTab: React.FC = () => {
     loadTables();
   }, [filterRouteId, filterType]);
 
-  const openNew = () => {
+  const scrollToTables = useCallback(() => {
+    document.getElementById('tarifas-tabelas')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
+  const openNew = useCallback(() => {
     setEditingId(null);
     setForm({
       description: '',
@@ -140,9 +147,10 @@ const TarifasTab: React.FC = () => {
       priority: 0,
     });
     setShowForm(true);
-  };
+    setFilterPanelOpen(false);
+  }, []);
 
-  const openEdit = async (id: string) => {
+  const openEdit = useCallback(async (id: string) => {
     try {
       const res = await pricingApi.getTableById(id);
       const t = res.data;
@@ -180,10 +188,11 @@ const TarifasTab: React.FC = () => {
       });
       setEditingId(id);
       setShowForm(true);
+      setFilterPanelOpen(false);
     } catch (err: any) {
       setError(err?.response?.data?.error || 'Erro ao carregar divisão');
     }
-  };
+  }, []);
 
   const addRange = () => {
     setForm((f) => ({
@@ -274,48 +283,117 @@ const TarifasTab: React.FC = () => {
     }
   };
 
+  const filterCount = (filterRouteId ? 1 : 0) + (filterType ? 1 : 0);
+
+  const gestaoConfig = useMemo(
+    () => ({
+      listActive: !showForm && !filterPanelOpen,
+      filterOpen: filterPanelOpen,
+      filterCount,
+      pills: [
+        ...(filterRouteId
+          ? [
+              {
+                id: 'route',
+                label: `Rota: ${routes.find((r) => r.id === filterRouteId)?.name ?? filterRouteId}`,
+                onRemove: () => setFilterRouteId(''),
+              },
+            ]
+          : []),
+        ...(filterType
+          ? [
+              {
+                id: 'type',
+                label: `Tipo: ${filterType === 'GENERAL' ? 'Geral' : 'Especial'}`,
+                onRemove: () => setFilterType(''),
+              },
+            ]
+          : []),
+      ],
+      onList: () => {
+        setFilterPanelOpen(false);
+        setShowForm(false);
+        setEditingId(null);
+        scrollToTables();
+        void loadTables();
+      },
+      onFilterToggle: () => setFilterPanelOpen((o) => !o),
+      onEdit: selectedRowId ? () => void openEdit(selectedRowId) : undefined,
+      onNew: openNew,
+      disabled: {
+        edit: !selectedRowId,
+      } as const,
+      labels: {
+        edit: selectedRowId ? 'Editar divisão selecionada' : 'Selecione uma linha na tabela para editar',
+      },
+    }),
+    [
+      showForm,
+      filterPanelOpen,
+      filterCount,
+      filterRouteId,
+      filterType,
+      routes,
+      selectedRowId,
+      scrollToTables,
+      openNew,
+      openEdit,
+    ]
+  );
+
+  useRegisterGestaoModuleActions(() => gestaoConfig, [gestaoConfig]);
+
   return (
     <div>
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-lg font-bold text-tower-800 dark:text-tower-200">Tabelas de preço (Tarifas)</h2>
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={filterRouteId}
-            onChange={(e) => setFilterRouteId(e.target.value)}
-            className="px-3 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-sm text-tower-900 dark:bg-tower-800 dark:text-tower-100"
-          >
-            <option value="">Todas as rotas</option>
-            {routes.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </select>
-          <select
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value)}
-            className="px-3 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-sm text-tower-900 dark:bg-tower-800 dark:text-tower-100"
-          >
-            <option value="">Todos os tipos</option>
-            <option value="GENERAL">Geral</option>
-            <option value="SPECIAL">Especial</option>
-          </select>
+        <p className="text-sm text-tower-600 dark:text-tower-400">Use a barra acima para filtros, nova divisão e listagem.</p>
+      </div>
+
+      {filterPanelOpen && (
+        <div className="mb-4 flex flex-wrap items-end gap-3 rounded-2xl border border-tower-200 bg-white p-4 dark:border-tower-600 dark:bg-tower-800">
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-tower-600 dark:text-tower-400" htmlFor="tar-filter-route">
+              Rota
+            </label>
+            <select
+              id="tar-filter-route"
+              value={filterRouteId}
+              onChange={(e) => setFilterRouteId(e.target.value)}
+              className="px-3 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-sm text-tower-900 dark:bg-tower-900 dark:text-tower-100"
+            >
+              <option value="">Todas as rotas</option>
+              {routes.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-tower-600 dark:text-tower-400" htmlFor="tar-filter-type">
+              Tipo
+            </label>
+            <select
+              id="tar-filter-type"
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value)}
+              className="px-3 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-sm text-tower-900 dark:bg-tower-900 dark:text-tower-100"
+            >
+              <option value="">Todos os tipos</option>
+              <option value="GENERAL">Geral</option>
+              <option value="SPECIAL">Especial</option>
+            </select>
+          </div>
           <button
             type="button"
-            onClick={openNew}
-            className="px-4 py-2 text-sm bg-brand-600 text-white font-bold rounded-lg hover:bg-brand-500 dark:hover:bg-brand-400"
+            onClick={() => void loadTables()}
+            className="rounded-xl border border-tower-200 px-4 py-2 text-sm font-semibold text-tower-800 hover:bg-tower-50 dark:border-tower-600 dark:text-tower-200 dark:hover:bg-tower-700"
           >
-            + Nova divisão
-          </button>
-          <button
-            type="button"
-            onClick={loadTables}
-            className="px-4 py-2 text-sm text-tower-700 dark:text-tower-300 font-medium hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg"
-          >
-            Atualizar
+            Aplicar / atualizar
           </button>
         </div>
-      </div>
+      )}
 
       {error && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-800/80 dark:bg-red-950/40 dark:text-red-200">
@@ -745,7 +823,18 @@ const TarifasTab: React.FC = () => {
                 {tables.map((t) => (
                   <tr
                     key={t.id}
-                    className={`border-b border-tower-100 dark:border-tower-800 hover:bg-tower-50 dark:hover:bg-tower-800/40 ${!t.active ? 'bg-tower-50 opacity-75 dark:bg-tower-800/50' : ''}`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setSelectedRowId(t.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelectedRowId(t.id);
+                      }
+                    }}
+                    className={`cursor-pointer border-b border-tower-100 dark:border-tower-800 hover:bg-tower-50 dark:hover:bg-tower-800/40 ${!t.active ? 'bg-tower-50 opacity-75 dark:bg-tower-800/50' : ''} ${
+                      selectedRowId === t.id ? 'bg-brand-50/90 dark:bg-brand-950/30' : ''
+                    }`}
                   >
                     <td className="py-3 px-4 text-tower-900 dark:text-tower-100 max-w-xs truncate" title={t.description}>
                       {t.description}
@@ -775,7 +864,10 @@ const TarifasTab: React.FC = () => {
                     <td className="py-3 px-4 text-right">
                       <button
                         type="button"
-                        onClick={() => openEdit(t.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void openEdit(t.id);
+                        }}
                         className="mr-3 font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300"
                       >
                         Editar
@@ -783,7 +875,10 @@ const TarifasTab: React.FC = () => {
                       {t.active && (
                         <button
                           type="button"
-                          onClick={() => handleDeactivate(t.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeactivate(t.id);
+                          }}
                           className="text-red-600 hover:text-red-800 font-medium"
                         >
                           Desativar

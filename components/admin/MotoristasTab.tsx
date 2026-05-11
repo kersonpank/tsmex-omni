@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useRegisterGestaoModuleActions } from './layout/GestaoModuleActionsContext';
 import { linksApi, vehicleTypesApi } from '../../lib/api';
 import type { Link, VehicleType } from '../../types/index';
 
@@ -16,6 +17,8 @@ const MotoristasTab: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [approveVehicleTypeId, setApproveVehicleTypeId] = useState<Record<string, string>>({});
+  const [gestaoFilterOpen, setGestaoFilterOpen] = useState(false);
+  const [filterApproval, setFilterApproval] = useState<string>('');
 
   const load = async () => {
     setLoading(true);
@@ -34,6 +37,42 @@ const MotoristasTab: React.FC = () => {
   };
 
   useEffect(() => { load(); }, []);
+
+  const filteredLinks = useMemo(() => {
+    if (!filterApproval) return links;
+    return links.filter((l) => l.approvalStatus === filterApproval);
+  }, [links, filterApproval]);
+
+  const motoristasGestao = useMemo(
+    () => ({
+      listActive: !gestaoFilterOpen,
+      filterOpen: gestaoFilterOpen,
+      filterCount: filterApproval ? 1 : 0,
+      pills: filterApproval
+        ? [
+            {
+              id: 'ap',
+              label: `Status: ${statusLabels[filterApproval] ?? filterApproval}`,
+              onRemove: () => setFilterApproval(''),
+            },
+          ]
+        : [],
+      onList: () => {
+        setGestaoFilterOpen(false);
+        void load();
+        document.getElementById('motoristas-tabela')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      },
+      onFilterToggle: () => setGestaoFilterOpen((v) => !v),
+      disabled: { edit: true, new: true } as const,
+      labels: {
+        edit: 'Aprovação e recusa permanecem nos botões de cada linha.',
+        new: 'Novo motorista: fluxo de cadastro de link (fora desta lista).',
+      },
+    }),
+    [gestaoFilterOpen, filterApproval]
+  );
+
+  useRegisterGestaoModuleActions(() => motoristasGestao, [motoristasGestao]);
 
   const handleApprove = async (id: string, link: Link) => {
     const vehicleTypeId = approveVehicleTypeId[id] ?? link.vehicleTypeId;
@@ -68,10 +107,29 @@ const MotoristasTab: React.FC = () => {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-lg font-bold text-tower-700">Motoristas (Links)</h2>
-        <button type="button" onClick={load} className="px-4 py-2 text-sm text-tower-600 hover:bg-tower-100 rounded-lg">Atualizar</button>
+      <div className="mb-6 flex items-center justify-between">
+        <h2 className="text-lg font-bold text-tower-700 dark:text-tower-200">Motoristas (Links)</h2>
       </div>
+      {gestaoFilterOpen && (
+        <div className="mb-4 rounded-xl border border-tower-200 bg-white p-4 dark:border-tower-600 dark:bg-tower-800">
+          <label className="mb-1 block text-xs font-semibold text-tower-600 dark:text-tower-400" htmlFor="mot-ap">
+            Status de aprovação
+          </label>
+          <select
+            id="mot-ap"
+            value={filterApproval}
+            onChange={(e) => setFilterApproval(e.target.value)}
+            className="rounded-lg border border-tower-200 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-900 dark:text-tower-100"
+          >
+            <option value="">Todos</option>
+            {Object.keys(statusLabels).map((k) => (
+              <option key={k} value={k}>
+                {statusLabels[k as keyof typeof statusLabels]}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       {error && (
         <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>
       )}
@@ -79,8 +137,10 @@ const MotoristasTab: React.FC = () => {
         <div className="py-12 text-center text-tower-500">Carregando...</div>
       ) : links.length === 0 ? (
         <div className="bg-white border-2 border-dashed border-tower-200 rounded-xl p-12 text-center text-tower-500">Nenhum motorista cadastrado.</div>
+      ) : filteredLinks.length === 0 ? (
+        <div className="bg-white border-2 border-dashed border-tower-200 rounded-xl p-12 text-center text-tower-500">Nenhum motorista nesta visão.</div>
       ) : (
-        <div className="bg-white border border-tower-200 rounded-xl overflow-hidden">
+        <div id="motoristas-tabela" className="bg-white border border-tower-200 rounded-xl overflow-hidden dark:border-tower-600 dark:bg-tower-800">
           <table className="w-full">
             <thead className="bg-tower-50 border-b border-tower-200">
               <tr>
@@ -93,7 +153,7 @@ const MotoristasTab: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {links.map(link => (
+              {filteredLinks.map(link => (
                 <tr key={link.id} className="border-b border-tower-100 hover:bg-tower-50">
                   <td className="py-3 px-4 font-medium text-tower-900">{link.name}</td>
                   <td className="py-3 px-4 text-tower-600">{link.document}</td>

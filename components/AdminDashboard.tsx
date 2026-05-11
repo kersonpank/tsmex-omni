@@ -19,6 +19,11 @@ import FaturasTab from './admin/FaturasTab';
 import EntradaTab from './admin/EntradaTab';
 import TarifasTab from './commercial/TarifasTab';
 import AdminShell from './admin/layout/AdminShell';
+import {
+  GestaoModuleActionsProvider,
+  useRegisterGestaoModuleActions,
+  type ModuleActionConfig,
+} from './admin/layout/GestaoModuleActionsContext';
 import { buildAdminNavSections } from './admin/layout/adminNavModel';
 import {
   adminStateToSearchParams,
@@ -38,6 +43,12 @@ import SistemaConfiguracoesLayout from './admin/SistemaConfiguracoesLayout';
 import IdentidadeVisualTab from './admin/IdentidadeVisualTab';
 
 const PAGE_SIZE = 15;
+
+/** Registra ações da visão Demandas dentro do provider (hooks não podem ficar fora dele). */
+function RegisterDemandsGestaoActions({ config }: { config: ModuleActionConfig | null }) {
+  useRegisterGestaoModuleActions(() => config, [config]);
+  return null;
+}
 
 const AdminDashboard: React.FC = () => {
   const { user } = useAuthStore();
@@ -107,6 +118,8 @@ const AdminDashboard: React.FC = () => {
   const [textQ, setTextQ] = useState('');
   const [page, setPage] = useState(0);
   const [notice, setNotice] = useState<{ variant: 'error' | 'success' | 'info'; message: string } | null>(null);
+  const [demandasGestaoFilterOpen, setDemandasGestaoFilterOpen] = useState(false);
+  const [demandasGestaoSelectedId, setDemandasGestaoSelectedId] = useState<string | null>(null);
 
   const {
     data: operationsSummary,
@@ -181,6 +194,7 @@ const AdminDashboard: React.FC = () => {
       await demandsApi.quote(selectedDemand.id, { price: parseFloat(quotePrice) });
       setSelectedDemand(null);
       setQuotePrice('');
+      setDemandasGestaoSelectedId(null);
       setNotice({ variant: 'success', message: 'Cotação enviada com sucesso.' });
       await loadDemands();
       void refreshOperationsSummary();
@@ -227,6 +241,97 @@ const AdminDashboard: React.FC = () => {
 
   const listLoading = isDemandsView && loading;
   const listError = isDemandsView && error;
+
+  const intentFilterLabels: Record<string, string> = {
+    QUOTE_ONLY: 'Cotação',
+    COLLECT: 'Coleta',
+    DROP_AT_HUB: 'Entrega no hub',
+  };
+
+  const demandsGestaoConfig = useMemo(() => {
+    if (!isDemandsView) return null;
+    const selectedRow = displayedDemands.find((d) => d.id === demandasGestaoSelectedId);
+    const canQuoteFromBar = Boolean(!isHub && selectedRow && selectedRow.status === 'PENDING');
+    const filterCount =
+      (apiStatus ? 1 : 0) + (intentType ? 1 : 0) + (destFilter.trim() ? 1 : 0) + (textQ.trim() ? 1 : 0);
+    const pills = [
+      ...(apiStatus
+        ? [
+            {
+              id: 'api-st',
+              label: `Status: ${demandStatusLabels[apiStatus as DemandStatus] ?? apiStatus}`,
+              onRemove: () => setApiStatus(''),
+            },
+          ]
+        : []),
+      ...(intentType
+        ? [
+            {
+              id: 'int',
+              label: `Intenção: ${intentFilterLabels[intentType] ?? intentType}`,
+              onRemove: () => setIntentType(''),
+            },
+          ]
+        : []),
+      ...(destFilter.trim()
+        ? [{ id: 'dest', label: `Destino: ${destFilter.trim()}`, onRemove: () => setDestFilter('') }]
+        : []),
+      ...(textQ.trim()
+        ? [{ id: 'tx', label: `Texto: ${textQ.trim()}`, onRemove: () => setTextQ('') }]
+        : []),
+    ];
+    return {
+      listActive: !demandasGestaoFilterOpen && !selectedDemand,
+      filterOpen: demandasGestaoFilterOpen,
+      filterCount,
+      pills,
+      hidden: isHub ? ({ new: true } as const) : undefined,
+      onList: () => {
+        setDemandasGestaoFilterOpen(false);
+        setSelectedDemand(null);
+        setQuotePrice('');
+        setPage(0);
+        void loadDemands();
+        document.getElementById('demandas-lista')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      },
+      onFilterToggle: () => setDemandasGestaoFilterOpen((v) => !v),
+      onEdit: canQuoteFromBar
+        ? () => {
+            if (selectedRow) setSelectedDemand(selectedRow);
+          }
+        : undefined,
+      onNew: !isHub
+        ? () => {
+            window.location.hash = '#/chat/demo';
+          }
+        : undefined,
+      disabled: {
+        edit: !canQuoteFromBar,
+      } as const,
+      labels: {
+        edit: canQuoteFromBar
+          ? 'Cotar demanda selecionada (pendente)'
+          : demandasGestaoSelectedId
+            ? isHub
+              ? 'No hub, use os botões do card (avançar status, tracking).'
+              : 'Só demandas pendentes podem ser cotadas pela barra; use Cotar no card.'
+            : 'Selecione uma demanda na lista (clique no card).',
+        new: 'Abrir chat para nova solicitação',
+      },
+    };
+  }, [
+    isDemandsView,
+    displayedDemands,
+    demandasGestaoSelectedId,
+    demandasGestaoFilterOpen,
+    selectedDemand,
+    apiStatus,
+    intentType,
+    destFilter,
+    textQ,
+    isHub,
+    loadDemands,
+  ]);
 
   const statusOptions: { value: string; label: string }[] = [
     { value: '', label: 'Todos (API)' },
@@ -295,68 +400,72 @@ const AdminDashboard: React.FC = () => {
           {listError ? <ErrorPanel message={error!} onRetry={() => void loadDemands()} /> : null}
           {!listLoading && !listError && (
             <>
-              <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
-                <div className="flex flex-1 flex-wrap gap-2">
-                  <label className="sr-only" htmlFor="adm-status">
-                    Status na API
-                  </label>
-                  <select
-                    id="adm-status"
-                    value={apiStatus}
-                    onChange={(e) => setApiStatus(e.target.value)}
-                    className="admin-focus rounded-xl border border-tower-200 bg-white px-3 py-2 text-sm text-tower-900 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100"
-                  >
-                    {statusOptions.map((o) => (
-                      <option key={o.value || 'all'} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                  <label className="sr-only" htmlFor="adm-intent">
-                    Intenção na API
-                  </label>
-                  <select
-                    id="adm-intent"
-                    value={intentType}
-                    onChange={(e) => setIntentType(e.target.value as '' | 'QUOTE_ONLY' | 'COLLECT' | 'DROP_AT_HUB')}
-                    className="admin-focus min-w-[140px] rounded-xl border border-tower-200 bg-white px-3 py-2 text-sm text-tower-900 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100"
-                  >
-                    <option value="">Todas intenções</option>
-                    <option value="QUOTE_ONLY">Cotação</option>
-                    <option value="COLLECT">Coleta</option>
-                    <option value="DROP_AT_HUB">Entrega no hub</option>
-                  </select>
-                  <input
-                    type="search"
-                    placeholder="Destino (contém, API)"
-                    value={destFilter}
-                    onChange={(e) => setDestFilter(e.target.value)}
-                    className="admin-focus min-w-[160px] flex-1 rounded-xl border border-tower-200 bg-white px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100"
-                  />
-                  <input
-                    type="search"
-                    placeholder="Filtrar nesta página (origem, NF, cliente…)"
-                    value={textQ}
-                    onChange={(e) => setTextQ(e.target.value)}
-                    className="admin-focus min-w-[200px] flex-1 rounded-xl border border-tower-200 bg-white px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100"
-                  />
+              {demandasGestaoFilterOpen && (
+                <div className="mb-4 rounded-2xl border border-tower-200 bg-white p-4 dark:border-tower-600 dark:bg-tower-800">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
+                    <div className="flex flex-1 flex-wrap gap-2">
+                      <label className="sr-only" htmlFor="adm-status">
+                        Status na API
+                      </label>
+                      <select
+                        id="adm-status"
+                        value={apiStatus}
+                        onChange={(e) => setApiStatus(e.target.value)}
+                        className="admin-focus rounded-xl border border-tower-200 bg-white px-3 py-2 text-sm text-tower-900 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100"
+                      >
+                        {statusOptions.map((o) => (
+                          <option key={o.value || 'all'} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                      <label className="sr-only" htmlFor="adm-intent">
+                        Intenção na API
+                      </label>
+                      <select
+                        id="adm-intent"
+                        value={intentType}
+                        onChange={(e) => setIntentType(e.target.value as '' | 'QUOTE_ONLY' | 'COLLECT' | 'DROP_AT_HUB')}
+                        className="admin-focus min-w-[140px] rounded-xl border border-tower-200 bg-white px-3 py-2 text-sm text-tower-900 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100"
+                      >
+                        <option value="">Todas intenções</option>
+                        <option value="QUOTE_ONLY">Cotação</option>
+                        <option value="COLLECT">Coleta</option>
+                        <option value="DROP_AT_HUB">Entrega no hub</option>
+                      </select>
+                      <input
+                        type="search"
+                        placeholder="Destino (contém, API)"
+                        value={destFilter}
+                        onChange={(e) => setDestFilter(e.target.value)}
+                        className="admin-focus min-w-[160px] flex-1 rounded-xl border border-tower-200 bg-white px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100"
+                      />
+                      <input
+                        type="search"
+                        placeholder="Filtrar nesta página (origem, NF, cliente…)"
+                        value={textQ}
+                        onChange={(e) => setTextQ(e.target.value)}
+                        className="admin-focus min-w-[200px] flex-1 rounded-xl border border-tower-200 bg-white px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void loadDemands()}
+                      className="admin-focus rounded-xl border border-tower-200 px-4 py-2 text-sm font-semibold text-tower-700 hover:bg-tower-100 dark:border-tower-600 dark:text-tower-200 dark:hover:bg-tower-800"
+                    >
+                      Atualizar
+                    </button>
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => void loadDemands()}
-                  className="admin-focus rounded-xl border border-tower-200 px-4 py-2 text-sm font-semibold text-tower-700 hover:bg-tower-100 dark:border-tower-600 dark:text-tower-200 dark:hover:bg-tower-800"
-                >
-                  Atualizar
-                </button>
-              </div>
+              )}
 
               <p className="mb-3 text-xs text-tower-700 dark:text-tower-300">
-                <strong>Topo</strong> = visão geral (totais da API). <strong>Lista abaixo</strong> = filtros: status, intenção, destino, paginação {PAGE_SIZE}/página, total na API:{' '}
+                <strong>Topo</strong> = visão geral (totais da API). <strong>Lista abaixo</strong> = filtros (ícone na barra), paginação {PAGE_SIZE}/página, total na API:{' '}
                 {totalDemands}. Refino de texto aplica-se só à página.
               </p>
 
               <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-                <div className="space-y-4 lg:col-span-2">
+                <div id="demandas-lista" className="space-y-4 lg:col-span-2">
                   <div className="mb-2 flex items-center justify-between">
                     <h2 className="text-xs font-bold uppercase tracking-wider text-tower-700 dark:text-tower-300">Monitor de demandas</h2>
                   </div>
@@ -378,9 +487,18 @@ const AdminDashboard: React.FC = () => {
                     displayedDemands.map((demand) => (
                       <article
                         key={demand.id}
-                        className={`rounded-2xl border border-tower-200 bg-white/95 p-5 shadow-sm transition hover:shadow-md dark:border-tower-700 dark:bg-tower-900/80 ${
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setDemandasGestaoSelectedId(demand.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setDemandasGestaoSelectedId(demand.id);
+                          }
+                        }}
+                        className={`cursor-pointer rounded-2xl border border-tower-200 bg-white/95 p-5 shadow-sm transition hover:shadow-md dark:border-tower-700 dark:bg-tower-900/80 ${
                           demand.riskClass === 'A' ? 'border-l-4 border-l-red-500' : ''
-                        }`}
+                        } ${demandasGestaoSelectedId === demand.id ? 'ring-2 ring-brand-400 ring-offset-2 ring-offset-white dark:ring-brand-500 dark:ring-offset-tower-900' : ''}`}
                       >
                         <div className="flex flex-col justify-between gap-4 md:flex-row">
                           <div className="min-w-0 flex-grow">
@@ -420,7 +538,11 @@ const AdminDashboard: React.FC = () => {
                             {!isHub && demand.status === 'PENDING' && (
                               <button
                                 type="button"
-                                onClick={() => setSelectedDemand(demand)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDemandasGestaoSelectedId(demand.id);
+                                  setSelectedDemand(demand);
+                                }}
                                 className="admin-focus rounded-xl bg-brand-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-brand-500"
                               >
                                 Cotar
@@ -429,7 +551,10 @@ const AdminDashboard: React.FC = () => {
                             {demand.status !== 'PENDING' && demand.status !== 'DELIVERED' && demand.status !== 'CANCELLED' && (
                               <button
                                 type="button"
-                                onClick={() => void advanceStatus(demand)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void advanceStatus(demand);
+                                }}
                                 className="admin-focus rounded-xl border border-tower-200 bg-tower-50 px-4 py-2 text-sm font-bold text-tower-800 hover:bg-tower-100 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100 dark:hover:bg-tower-700"
                               >
                                 Avançar status
@@ -437,6 +562,7 @@ const AdminDashboard: React.FC = () => {
                             )}
                             <RouterLink
                               to={`/tracking/${demand.id}`}
+                              onClick={(e) => e.stopPropagation()}
                               className="admin-focus px-4 py-2 text-center text-sm font-medium text-tower-700 hover:text-brand-600 dark:text-tower-300"
                             >
                               Ver tracking
@@ -577,6 +703,7 @@ const AdminDashboard: React.FC = () => {
                     onClick={() => {
                       setSelectedDemand(null);
                       setQuotePrice('');
+                      setDemandasGestaoSelectedId(null);
                     }}
                     className="admin-focus flex-1 rounded-2xl py-3 text-sm font-bold text-tower-600 dark:text-tower-300"
                   >
@@ -599,17 +726,23 @@ const AdminDashboard: React.FC = () => {
     </>
   );
 
+  const showGestaoActionBar = navState.category !== 'general';
+
   return (
-    <AdminShell
-      isHub={isHub}
-      hubContextLine={hubContextLine}
-      pageTitle={pageTitle}
-      pageSubtitle={pageSubtitle}
-      breadcrumbs={breadcrumbs}
-      navSections={navSections}
-    >
-      {mainPanel}
-    </AdminShell>
+    <GestaoModuleActionsProvider>
+      {isDemandsView ? <RegisterDemandsGestaoActions config={demandsGestaoConfig} /> : null}
+      <AdminShell
+        isHub={isHub}
+        hubContextLine={hubContextLine}
+        pageTitle={pageTitle}
+        pageSubtitle={pageSubtitle}
+        breadcrumbs={breadcrumbs}
+        navSections={navSections}
+        showGestaoActionBar={showGestaoActionBar}
+      >
+        {mainPanel}
+      </AdminShell>
+    </GestaoModuleActionsProvider>
   );
 };
 

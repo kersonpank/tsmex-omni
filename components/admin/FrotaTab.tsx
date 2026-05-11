@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRegisterGestaoModuleActions } from './layout/GestaoModuleActionsContext';
 import { vehicleTypesApi } from '../../lib/api';
 import type { VehicleType } from '../../types/index';
 
@@ -9,6 +10,10 @@ const FrotaTab: React.FC = () => {
   const [success, setSuccess] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [gestaoFilterOpen, setGestaoFilterOpen] = useState(false);
+  const [filterActive, setFilterActive] = useState<'all' | 'active' | 'inactive'>('all');
+  const [selectedVtId, setSelectedVtId] = useState<string | null>(null);
+
   const [form, setForm] = useState({
     name: '',
     code: '',
@@ -36,7 +41,7 @@ const FrotaTab: React.FC = () => {
 
   useEffect(() => { load(); }, []);
 
-  const openNew = () => {
+  const openNew = useCallback(() => {
     setEditingId(null);
     setForm({
       name: '',
@@ -49,7 +54,8 @@ const FrotaTab: React.FC = () => {
       active: true,
     });
     setShowForm(true);
-  };
+    setGestaoFilterOpen(false);
+  }, []);
 
   const openEdit = (vt: VehicleType) => {
     setEditingId(vt.id);
@@ -64,7 +70,54 @@ const FrotaTab: React.FC = () => {
       active: vt.active,
     });
     setShowForm(true);
+    setGestaoFilterOpen(false);
   };
+
+  const filteredList = useMemo(() => {
+    if (filterActive === 'all') return list;
+    if (filterActive === 'active') return list.filter((v) => v.active);
+    return list.filter((v) => !v.active);
+  }, [list, filterActive]);
+
+  const frotaGestao = useMemo(
+    () => ({
+      listActive: !showForm && !gestaoFilterOpen,
+      filterOpen: gestaoFilterOpen,
+      filterCount: filterActive === 'all' ? 0 : 1,
+      pills:
+        filterActive === 'all'
+          ? []
+          : [
+              {
+                id: 'act',
+                label: filterActive === 'active' ? 'Somente ativos' : 'Somente inativos',
+                onRemove: () => setFilterActive('all'),
+              },
+            ],
+      onList: () => {
+        setGestaoFilterOpen(false);
+        setShowForm(false);
+        setEditingId(null);
+        void load();
+        document.getElementById('frota-tabela')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      },
+      onFilterToggle: () => setGestaoFilterOpen((v) => !v),
+      onEdit: selectedVtId
+        ? () => {
+            const vt = list.find((x) => x.id === selectedVtId);
+            if (vt) openEdit(vt);
+          }
+        : undefined,
+      onNew: openNew,
+      disabled: { edit: !selectedVtId } as const,
+      labels: {
+        edit: selectedVtId ? 'Editar tipo selecionado' : 'Selecione uma linha na tabela',
+      },
+    }),
+    [showForm, gestaoFilterOpen, filterActive, selectedVtId, list, openNew]
+  );
+
+  useRegisterGestaoModuleActions(() => frotaGestao, [frotaGestao]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,16 +158,26 @@ const FrotaTab: React.FC = () => {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-lg font-bold text-tower-700">Tipos de veículo</h2>
-        <button
-          type="button"
-          onClick={openNew}
-          className="px-4 py-2 text-sm bg-brand-600 text-white font-bold rounded-lg hover:bg-brand-700"
-        >
-          + Novo tipo
-        </button>
+      <div className="mb-6">
+        <h2 className="text-lg font-bold text-tower-700 dark:text-tower-200">Tipos de veículo</h2>
       </div>
+      {gestaoFilterOpen && (
+        <div className="mb-4 rounded-xl border border-tower-200 bg-white p-4 dark:border-tower-600 dark:bg-tower-800">
+          <label className="mb-1 block text-xs font-semibold text-tower-600 dark:text-tower-400" htmlFor="frota-act">
+            Situação
+          </label>
+          <select
+            id="frota-act"
+            value={filterActive}
+            onChange={(e) => setFilterActive(e.target.value as 'all' | 'active' | 'inactive')}
+            className="rounded-lg border border-tower-200 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-900 dark:text-tower-100"
+          >
+            <option value="all">Todos</option>
+            <option value="active">Ativos</option>
+            <option value="inactive">Inativos</option>
+          </select>
+        </div>
+      )}
       {error && (
         <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>
       )}
@@ -230,8 +293,10 @@ const FrotaTab: React.FC = () => {
         <div className="bg-white border-2 border-dashed border-tower-200 rounded-xl p-12 text-center text-tower-500">
           Nenhum tipo de veículo cadastrado.
         </div>
+      ) : filteredList.length === 0 ? (
+        <div className="rounded-xl border-2 border-dashed border-tower-200 p-12 text-center text-tower-500">Nenhum tipo neste filtro.</div>
       ) : (
-        <div className="bg-white border border-tower-200 rounded-xl overflow-hidden">
+        <div id="frota-tabela" className="bg-white border border-tower-200 rounded-xl overflow-hidden dark:border-tower-600 dark:bg-tower-800">
           <table className="w-full">
             <thead className="bg-tower-50 border-b border-tower-200">
               <tr>
@@ -244,8 +309,22 @@ const FrotaTab: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {list.map((vt) => (
-                <tr key={vt.id} className="border-b border-tower-100 hover:bg-tower-50">
+              {filteredList.map((vt) => (
+                <tr
+                  key={vt.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setSelectedVtId(vt.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setSelectedVtId(vt.id);
+                    }
+                  }}
+                  className={`cursor-pointer border-b border-tower-100 hover:bg-tower-50 dark:border-tower-700 dark:hover:bg-tower-700/40 ${
+                    selectedVtId === vt.id ? 'bg-brand-50/90 dark:bg-brand-950/30' : ''
+                  }`}
+                >
                   <td className="py-3 px-4 font-medium text-tower-900">{vt.name} <span className="text-tower-500 text-sm">({vt.code})</span></td>
                   <td className="py-3 px-4 text-tower-600">{vt.maxWeight} kg</td>
                   <td className="py-3 px-4 text-tower-600">{vt.maxVolume} m³</td>
@@ -256,9 +335,27 @@ const FrotaTab: React.FC = () => {
                     </span>
                   </td>
                   <td className="py-3 px-4 text-right">
-                    <button type="button" onClick={() => openEdit(vt)} className="text-brand-600 hover:underline text-sm mr-2">Editar</button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openEdit(vt);
+                      }}
+                      className="text-brand-600 hover:underline text-sm mr-2"
+                    >
+                      Editar
+                    </button>
                     {vt.active && (
-                      <button type="button" onClick={() => handleDeactivate(vt.id)} className="text-tower-500 hover:underline text-sm">Desativar</button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeactivate(vt.id);
+                        }}
+                        className="text-tower-500 hover:underline text-sm"
+                      >
+                        Desativar
+                      </button>
                     )}
                   </td>
                 </tr>

@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRegisterGestaoModuleActions } from './layout/GestaoModuleActionsContext';
 import { invoicesApi } from '../../lib/api';
 
 const statusLabels: Record<string, string> = {
@@ -14,8 +15,9 @@ const FaturasTab: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [markingPaid, setMarkingPaid] = useState<string | null>(null);
+  const [gestaoFilterOpen, setGestaoFilterOpen] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -30,30 +32,68 @@ const FaturasTab: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [statusFilter]);
 
-  useEffect(() => { load(); }, [statusFilter]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const fatGestao = useMemo(
+    () => ({
+      listActive: !gestaoFilterOpen,
+      filterOpen: gestaoFilterOpen,
+      filterCount: statusFilter ? 1 : 0,
+      pills: statusFilter
+        ? [
+            {
+              id: 'st',
+              label: `Status: ${statusLabels[statusFilter] ?? statusFilter}`,
+              onRemove: () => setStatusFilter(''),
+            },
+          ]
+        : [],
+      onList: () => {
+        setGestaoFilterOpen(false);
+        void load();
+        document.getElementById('faturas-tabela')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      },
+      onFilterToggle: () => setGestaoFilterOpen((v) => !v),
+      disabled: { edit: true, new: true } as const,
+      labels: {
+        edit: 'Edição de fatura: use ações na linha (ex.: marcar paga).',
+        new: 'Novas faturas são geradas pelo sistema de faturamento.',
+      },
+    }),
+    [gestaoFilterOpen, statusFilter, load]
+  );
+
+  useRegisterGestaoModuleActions(() => fatGestao, [fatGestao]);
 
   return (
     <div>
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-        <h2 className="text-lg font-bold text-tower-700">Notas / Faturamento</h2>
-        <div className="flex gap-2 items-center">
+      <div className="mb-6">
+        <h2 className="text-lg font-bold text-tower-700 dark:text-tower-200">Notas / Faturamento</h2>
+      </div>
+      {gestaoFilterOpen && (
+        <div className="mb-4 rounded-xl border border-tower-200 bg-white p-4 dark:border-tower-600 dark:bg-tower-800">
+          <label className="mb-1 block text-xs font-semibold text-tower-600 dark:text-tower-400" htmlFor="fat-st">
+            Status
+          </label>
           <select
+            id="fat-st"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
+            className="border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100"
           >
             <option value="">Todos os status</option>
             {Object.entries(statusLabels).map(([k, v]) => (
-              <option key={k} value={k}>{v}</option>
+              <option key={k} value={k}>
+                {v}
+              </option>
             ))}
           </select>
-          <button type="button" onClick={load} className="px-4 py-2 text-sm text-tower-600 hover:bg-tower-100 rounded-lg">
-            Atualizar
-          </button>
         </div>
-      </div>
+      )}
       {error && (
         <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>
       )}
@@ -64,7 +104,7 @@ const FaturasTab: React.FC = () => {
           Nenhuma fatura encontrada.
         </div>
       ) : (
-        <div className="bg-white border border-tower-200 rounded-xl overflow-hidden">
+        <div id="faturas-tabela" className="bg-white border border-tower-200 rounded-xl overflow-hidden dark:border-tower-600 dark:bg-tower-800">
           <table className="w-full">
             <thead className="bg-tower-50 border-b border-tower-200">
               <tr>

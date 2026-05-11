@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { pricingApi } from '../../lib/api';
 import type { PricingRoute } from '../../types/index';
+import { useRegisterGestaoModuleActions } from '../admin/layout/GestaoModuleActionsContext';
 
 type RouteWithCount = PricingRoute & { _count?: { tables: number } };
 
@@ -13,6 +14,8 @@ const TransportTab: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [nameFilter, setNameFilter] = useState('');
+  const [gestaoFilterOpen, setGestaoFilterOpen] = useState(false);
+  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: '',
     originCode: '',
@@ -21,7 +24,7 @@ const TransportTab: React.FC = () => {
     destName: '',
   });
 
-  const loadRoutes = async () => {
+  const loadRoutes = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -33,19 +36,20 @@ const TransportTab: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    loadRoutes();
   }, [includeInactive]);
 
-  const openNew = () => {
+  useEffect(() => {
+    void loadRoutes();
+  }, [loadRoutes]);
+
+  const openNew = useCallback(() => {
     setEditingId(null);
     setForm({ name: '', originCode: '', originName: '', destCode: '', destName: '' });
     setShowForm(true);
-  };
+    setGestaoFilterOpen(false);
+  }, []);
 
-  const openEdit = async (id: string) => {
+  const openEdit = useCallback(async (id: string) => {
     try {
       const res = await pricingApi.getRouteById(id);
       const r = res.data;
@@ -63,7 +67,7 @@ const TransportTab: React.FC = () => {
     } catch (err: any) {
       setError(err?.response?.data?.error || 'Erro ao carregar rota');
     }
-  };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -106,42 +110,81 @@ const TransportTab: React.FC = () => {
     (r) => !nameFilter.trim() || r.name.toLowerCase().includes(nameFilter.toLowerCase())
   );
 
+  const transportGestao = useMemo(
+    () => ({
+      listActive: !showForm && !gestaoFilterOpen,
+      filterOpen: gestaoFilterOpen,
+      filterCount: (nameFilter.trim() ? 1 : 0) + (includeInactive ? 1 : 0),
+      pills: [
+        ...(nameFilter.trim()
+          ? [{ id: 'nm', label: `Nome: ${nameFilter.trim()}`, onRemove: () => setNameFilter('') }]
+          : []),
+        ...(includeInactive
+          ? [{ id: 'in', label: 'Inativas visíveis', onRemove: () => setIncludeInactive(false) }]
+          : []),
+      ],
+      onList: () => {
+        setGestaoFilterOpen(false);
+        setShowForm(false);
+        setEditingId(null);
+        void loadRoutes();
+        document.getElementById('transport-rotas-tabela')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      },
+      onFilterToggle: () => setGestaoFilterOpen((v) => !v),
+      onEdit: selectedRouteId ? () => void openEdit(selectedRouteId) : undefined,
+      onNew: openNew,
+      disabled: { edit: !selectedRouteId } as const,
+      labels: {
+        edit: selectedRouteId ? 'Editar rota selecionada na tabela' : 'Selecione uma linha na tabela para editar',
+      },
+    }),
+    [
+      showForm,
+      gestaoFilterOpen,
+      nameFilter,
+      includeInactive,
+      selectedRouteId,
+      openNew,
+      openEdit,
+      loadRoutes,
+    ]
+  );
+
+  useRegisterGestaoModuleActions(() => transportGestao, [transportGestao]);
+
   return (
     <div>
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-        <h2 className="text-lg font-bold text-tower-700">Rotas</h2>
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            type="text"
-            placeholder="Filtrar por nome"
-            value={nameFilter}
-            onChange={(e) => setNameFilter(e.target.value)}
-            className="px-3 py-2 border border-tower-200 rounded-lg text-sm w-40"
-          />
-          <label className="flex items-center gap-2 text-sm text-tower-600">
-            <input
-              type="checkbox"
-              checked={includeInactive}
-              onChange={(e) => setIncludeInactive(e.target.checked)}
-            />
-            Mostrar inativas
-          </label>
-          <button
-            type="button"
-            onClick={openNew}
-            className="px-4 py-2 text-sm bg-brand-600 text-white font-bold rounded-lg hover:bg-brand-700"
-          >
-            + Nova rota
-          </button>
-          <button
-            type="button"
-            onClick={loadRoutes}
-            className="px-4 py-2 text-sm text-tower-600 font-medium hover:bg-tower-100 rounded-lg"
-          >
-            Atualizar
-          </button>
-        </div>
+      <div className="mb-6">
+        <h2 className="text-lg font-bold text-tower-700 dark:text-tower-200">Rotas</h2>
       </div>
+      {gestaoFilterOpen && (
+        <div className="mb-4 rounded-xl border border-tower-200 bg-white p-4 dark:border-tower-600 dark:bg-tower-800">
+          <div className="flex flex-wrap items-end gap-4">
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-tower-600 dark:text-tower-400" htmlFor="rt-nm">
+                Filtrar por nome
+              </label>
+              <input
+                id="rt-nm"
+                type="text"
+                placeholder="Nome da rota"
+                value={nameFilter}
+                onChange={(e) => setNameFilter(e.target.value)}
+                className="w-48 rounded-lg border border-tower-200 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-900 dark:text-tower-100"
+              />
+            </div>
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-tower-600 dark:text-tower-300">
+              <input
+                type="checkbox"
+                checked={includeInactive}
+                onChange={(e) => setIncludeInactive(e.target.checked)}
+                className="rounded"
+              />
+              Mostrar inativas
+            </label>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
@@ -232,7 +275,7 @@ const TransportTab: React.FC = () => {
           Nenhuma rota encontrada. Crie uma rota para vincular às tarifas.
         </div>
       ) : (
-        <div className="bg-white border border-tower-200 rounded-xl overflow-hidden">
+        <div id="transport-rotas-tabela" className="overflow-hidden rounded-xl border border-tower-200 bg-white dark:border-tower-600 dark:bg-tower-800">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -249,7 +292,16 @@ const TransportTab: React.FC = () => {
                 {filteredRoutes.map((r) => (
                   <tr
                     key={r.id}
-                    className={`border-b border-tower-100 hover:bg-tower-50 ${!r.active ? 'bg-tower-50 opacity-75' : ''}`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setSelectedRouteId(r.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelectedRouteId(r.id);
+                      }
+                    }}
+                    className={`cursor-pointer border-b border-tower-100 hover:bg-tower-50 ${!r.active ? 'bg-tower-50 opacity-75' : ''} ${selectedRouteId === r.id ? 'ring-2 ring-inset ring-brand-400 dark:ring-brand-500' : ''}`}
                   >
                     <td className="py-3 px-4 text-tower-800">{r.name}</td>
                     <td className="py-3 px-4 text-tower-600">{r.originName}</td>
@@ -267,16 +319,22 @@ const TransportTab: React.FC = () => {
                     <td className="py-3 px-4 text-right">
                       <button
                         type="button"
-                        onClick={() => openEdit(r.id)}
-                        className="text-brand-600 hover:text-brand-800 font-medium mr-3"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void openEdit(r.id);
+                        }}
+                        className="mr-3 font-medium text-brand-600 hover:text-brand-800"
                       >
                         Editar
                       </button>
                       {r.active && (
                         <button
                           type="button"
-                          onClick={() => handleDeactivate(r.id)}
-                          className="text-red-600 hover:text-red-800 font-medium"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleDeactivate(r.id);
+                          }}
+                          className="font-medium text-red-600 hover:text-red-800"
                         >
                           Desativar
                         </button>
