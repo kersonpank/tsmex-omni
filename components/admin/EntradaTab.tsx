@@ -681,10 +681,10 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
             <>
               {/* PRÉ-SCAN QR NF-e */}
               {isCreatingNew && (
-                <div className={`rounded-xl border-2 p-5 ${
+                <div className={`rounded-xl border p-5 shadow-[0_1px_2px_rgb(15_23_42/0.04)] dark:shadow-none ${
                   nfPrescan
-                    ? 'bg-brand-50 dark:bg-brand-900/20 border-brand-300 dark:border-brand-700'
-                    : 'bg-brand-50 dark:bg-brand-900/20 border-dashed border-brand-300 dark:border-brand-700'
+                    ? 'border-brand-200 bg-gradient-to-b from-brand-50 to-[var(--app-surface-muted)] dark:border-brand-700 dark:from-brand-900/30 dark:to-brand-950/40'
+                    : 'border-dashed border-brand-200 bg-gradient-to-b from-brand-50/90 to-white dark:border-brand-700 dark:from-brand-900/25 dark:to-brand-950/30'
                 }`}>
                   {!nfPrescan ? (
                     <div className="space-y-3">
@@ -737,7 +737,7 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
                               handlePrescanQR(prescanChaveInput);
                             }
                           }}
-                          className="flex-1 px-3 py-2 rounded-lg border border-brand-200 dark:border-brand-700 bg-white dark:bg-tower-700 text-sm text-tower-900 dark:text-white placeholder-tower-400 focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+                          className="flex-1 rounded-lg border border-tower-300 bg-white px-3 py-2 text-sm text-tower-900 placeholder:text-tower-500 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30 dark:border-brand-700 dark:bg-tower-700 dark:text-white dark:placeholder:text-tower-400"
                           disabled={nfeLookupLoading}
                         />
                         <button
@@ -749,7 +749,7 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
                           {nfeLookupLoading ? '...' : 'Buscar'}
                         </button>
                       </div>
-                      <p className="text-xs text-brand-500 dark:text-brand-400">
+                      <p className="text-xs text-tower-600 dark:text-brand-400">
                         {prescanChaveInput.length} de 44 dígitos
                         {prescanChaveInput.length === 44 && <span className="text-brand-600 dark:text-brand-400 ml-2">✓ pronto</span>}
                       </p>
@@ -767,7 +767,7 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
                           <strong>NF {nfPrescan.numero}</strong>
                           {nfPrescan.emitenteRazaoSocial && <> — {nfPrescan.emitenteRazaoSocial}</>}
                         </p>
-                        <p className="text-xs font-mono text-tower-400 dark:text-tower-500 truncate">{nfPrescan.chave}</p>
+                        <p className="truncate font-mono text-xs text-tower-600 dark:text-tower-500">{nfPrescan.chave}</p>
                         {peopleForm.remetente ? (
                           prescanAutoCreatedPerson?.id === peopleForm.remetente.id ? (
                             <p className="text-xs text-brand-600 dark:text-brand-400">
@@ -787,7 +787,7 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
                       <button
                         type="button"
                         onClick={() => { setNfPrescan(null); setPrescanError(null); setPrescanChaveInput(''); }}
-                        className="text-xs text-tower-400 hover:text-tower-600 underline whitespace-nowrap"
+                        className="whitespace-nowrap text-xs text-tower-600 underline hover:text-tower-800 dark:text-tower-400 dark:hover:text-tower-200"
                       >
                         Remover
                       </button>
@@ -798,16 +798,16 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
 
               <Section title="PESSOAS" expanded={sectionsExpanded.pessoas} onToggle={() => toggleSection('pessoas')}>
                 <form onSubmit={handleGravarPessoas} className="space-y-6">
-                  <div className="rounded-xl border border-brand-500/25 bg-brand-500/5 p-6 dark:bg-brand-900/20">
-                    <h4 className="font-display text-sm font-semibold uppercase tracking-[0.14em] text-tower-700 dark:text-tower-200">Quem paga o frete</h4>
+                  <div className="rounded-xl border border-tower-200 bg-[var(--app-surface-muted)] p-6 dark:border-brand-500/20 dark:bg-brand-900/20">
+                    <h4 className="font-display text-sm font-semibold uppercase tracking-[0.14em] text-tower-800 dark:text-tower-200">Quem paga o frete</h4>
                     <div className="mt-4 grid gap-3">
                       {(['CIF', 'FOB', 'REDESPACHO'] as const).map((ft) => (
                         <label
                           key={ft}
-                          className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
+                          className={`flex cursor-pointer items-start gap-3 rounded-xl border-2 p-4 transition-colors duration-200 ${
                             peopleForm.freightTerm === ft
-                              ? 'border-brand-500 bg-brand-500/10'
-                              : 'border-tower-300 bg-white hover:border-brand-400 dark:border-tower-600 dark:bg-tower-800 dark:hover:border-brand-500'
+                              ? 'border-brand-500 bg-brand-50 ring-1 ring-brand-500/20 dark:bg-brand-900/35 dark:ring-brand-500/25'
+                              : 'border-tower-200 bg-white hover:border-tower-300 dark:border-tower-600 dark:bg-tower-800 dark:hover:border-brand-500/40'
                           }`}
                         >
                           <input
@@ -836,7 +836,7 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
                           />
                           <span className="space-y-1">
                             <span className="block text-sm font-semibold text-tower-800 dark:text-tower-100">{ft === 'REDESPACHO' ? 'Outro' : ft}</span>
-                            <span className="block text-xs text-tower-500 dark:text-tower-300">
+                            <span className="block text-xs text-tower-600 dark:text-tower-300">
                               {ft === 'CIF' && 'O remetente paga o frete.'}
                               {ft === 'FOB' && 'O destinatário paga o frete.'}
                               {ft === 'REDESPACHO' && 'O consignatário (redespacho) paga o frete.'}

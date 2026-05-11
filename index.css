@@ -57,18 +57,27 @@
 }
 
 :root {
+  /* Stitch-like light: off-white page, white cards, bordas legíveis */
+  --app-page-bg: #f8f9fb;
+  --app-surface: #ffffff;
+  --app-surface-muted: #f2f4fa;
+  --app-border-strong: var(--color-tower-300);
   --app-nav-bg: #ffffff;
   --app-nav-border: var(--color-tower-200);
   --app-accent: var(--color-brand-500);
   --app-accent-hover: var(--color-brand-600);
   --app-surface-elevated: #ffffff;
-  --app-text-muted: var(--color-tower-500);
+  --app-text-muted: var(--color-tower-600);
   --app-fg-muted: var(--color-tower-600);
   --app-fg-subtle: var(--color-tower-700);
   --app-border: var(--color-tower-200);
 }
 
 .dark:root {
+  --app-page-bg: var(--color-brand-950);
+  --app-surface: #16183f;
+  --app-surface-muted: #1a1c4d;
+  --app-border-strong: color-mix(in srgb, var(--color-tower-400) 45%, transparent);
   --app-nav-bg: var(--color-brand-950);
   --app-nav-border: color-mix(in srgb, var(--color-brand-500) 28%, transparent);
   --app-accent: #8b92d9;
@@ -82,10 +91,12 @@
 
 @layer base {
   html {
-    @apply font-sans text-tower-900 bg-tower-50 antialiased;
+    @apply font-sans text-tower-900 antialiased;
+    background-color: var(--app-page-bg);
   }
   html.dark {
-    @apply bg-brand-950 text-tower-100;
+    @apply text-tower-100;
+    background-color: var(--app-page-bg);
   }
 }
 
@@ -100,7 +111,7 @@
 
 /* Casca admin — brilho azul suave (sem verde) */
 .admin-shell-bg {
-  background-color: var(--color-tower-50);
+  background-color: var(--app-page-bg);
   background-image:
     radial-gradient(ellipse 120% 85% at 50% -25%, rgb(46 49 146 / 0.09), transparent 55%),
     radial-gradient(ellipse 90% 55% at 100% 40%, rgb(46 49 146 / 0.05), transparent 48%);
@@ -198,23 +209,32 @@
 }
 
 .tone-warning {
-  @apply border border-brand-yellow-500/25 bg-brand-yellow-500/15 text-brand-yellow-500;
+  @apply border border-amber-500/35 bg-amber-500/12 font-medium text-amber-950 dark:border-brand-yellow-500/25 dark:bg-brand-yellow-500/15 dark:font-normal dark:text-brand-yellow-400;
 }
 
 .tone-info {
-  @apply border border-brand-500/25 bg-brand-500/15 text-brand-500 dark:text-brand-300;
+  @apply border border-brand-500/30 bg-brand-500/12 font-medium text-brand-800 dark:border-brand-500/25 dark:bg-brand-500/15 dark:font-normal dark:text-brand-300;
 }
 
 .tone-success {
-  @apply border border-emerald-500/25 bg-emerald-500/15 text-emerald-600 dark:text-emerald-300;
+  @apply border border-emerald-500/30 bg-emerald-500/12 font-medium text-emerald-900 dark:border-emerald-500/25 dark:bg-emerald-500/15 dark:font-normal dark:text-emerald-300;
 }
 
 .tone-danger {
-  @apply border border-brand-red-500/25 bg-brand-red-500/15 text-brand-red-600 dark:text-brand-red-400;
+  @apply border border-brand-red-500/30 bg-brand-red-500/12 font-medium text-brand-red-700 dark:border-brand-red-500/25 dark:bg-brand-red-500/15 dark:font-normal dark:text-brand-red-400;
 }
 
 .tone-neutral {
-  @apply border border-tower-500/25 bg-tower-500/15 text-tower-600 dark:text-tower-300;
+  @apply border border-tower-400/30 bg-tower-500/10 font-medium text-tower-800 dark:border-tower-500/25 dark:bg-tower-500/15 dark:font-normal dark:text-tower-300;
+}
+
+/* Superfície de card reutilizável (light: sombra leve; dark: borda) */
+.card-surface {
+  @apply rounded-xl border border-tower-200 bg-white shadow-[0_1px_2px_rgb(15_23_42/0.06)];
+}
+
+.dark .card-surface {
+  @apply border-tower-700 bg-tower-900 shadow-none;
 }
 
 @media (prefers-reduced-motion: reduce) {

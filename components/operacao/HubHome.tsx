@@ -6,6 +6,7 @@ import type { Link, Manifest, OrderStatus, VehicleType } from '../../types/index
 import EntradaTab from '../admin/EntradaTab';
 import ThemeToggle from '../ui/ThemeToggle';
 import BottomNav, { type BottomNavItem } from './BottomNav';
+import { HubNavIconHome, HubNavIconManifest, HubNavIconOrders, HubNavIconPlus } from './hubNavIcons';
 
 type Tab = 'inicio' | 'entrada' | 'pedidos' | 'manifestos';
 
@@ -130,7 +131,7 @@ const ManifestModal: React.FC<{
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="mobile-enter relative max-h-[90vh] overflow-y-auto rounded-t-2xl border border-tower-200 bg-white dark:border-tower-700 dark:bg-tower-900">
+      <div className="mobile-enter relative max-h-[90vh] overflow-y-auto rounded-t-2xl border border-tower-200 bg-[var(--app-surface)] dark:border-tower-700 dark:bg-tower-900">
         <div className="flex items-center justify-between border-b border-tower-200 px-4 py-3 dark:border-tower-700">
           <h2 className="font-display text-base font-semibold text-tower-900 dark:text-white">Criar manifesto ({selectedOrders.length})</h2>
           <button type="button" onClick={onClose} className="rounded-lg p-2 text-tower-500 hover:bg-tower-100 dark:hover:bg-tower-800" aria-label="Fechar modal">
@@ -288,15 +289,15 @@ const HubHome: React.FC = () => {
   };
 
   const navItems: BottomNavItem[] = [
-    { key: 'inicio', label: 'Início', icon: <span>⌂</span>, badge: pedidosSemManifesto.length },
-    { key: 'entrada', label: 'Entrada', icon: <span>＋</span> },
-    { key: 'pedidos', label: 'Pedidos', icon: <span>☰</span> },
-    { key: 'manifestos', label: 'Manifestos', icon: <span>⬈</span>, badge: manifestosAtivos.length },
+    { key: 'inicio', label: 'Início', icon: <HubNavIconHome />, badge: pedidosSemManifesto.length },
+    { key: 'entrada', label: 'Entrada', icon: <HubNavIconPlus /> },
+    { key: 'pedidos', label: 'Pedidos', icon: <HubNavIconOrders /> },
+    { key: 'manifestos', label: 'Manifestos', icon: <HubNavIconManifest />, badge: manifestosAtivos.length },
   ];
 
   return (
-    <div className="min-h-screen bg-tower-100 pb-24 dark:bg-brand-950">
-      <header className="sticky top-0 z-30 border-b border-tower-200 bg-white/90 backdrop-blur dark:border-tower-700 dark:bg-brand-950/90">
+    <div className="min-h-screen bg-[var(--app-page-bg)] pb-24">
+      <header className="sticky top-0 z-30 border-b border-tower-200 bg-[var(--app-nav-bg)] shadow-[0_1px_0_rgb(15_23_42/0.04)] dark:border-tower-700 dark:bg-brand-950 dark:shadow-none">
         <div className="flex items-center justify-between px-4 py-3 safe-area-top">
           <div className="flex items-center gap-2">
             <span className="rounded-full border border-brand-500/30 bg-brand-500/10 px-2 py-1 font-display text-[10px] font-semibold uppercase tracking-[0.14em] text-brand-700 dark:text-brand-300">TSM EX</span>
@@ -323,12 +324,12 @@ const HubHome: React.FC = () => {
             <button type="button" onClick={() => void load()} className="rounded-lg px-2 py-1 text-xs font-semibold underline">Tentar novamente</button>
           </div>
         )}
-        {loading && <div className="py-16 text-center text-sm text-tower-500 dark:text-tower-300">Carregando...</div>}
+        {loading && <div className="py-16 text-center text-sm text-tower-600 dark:text-tower-300">Carregando...</div>}
 
         {!loading && tab === 'inicio' && (
           <section className="space-y-4">
-            <div className="rounded-2xl border border-brand-500/20 bg-white p-4 shadow-sm dark:bg-brand-900/40">
-              <p className="font-display text-[10px] uppercase tracking-[0.14em] text-tower-500 dark:text-tower-300">Cenário agora</p>
+            <div className="card-surface border-brand-500/25 p-4 dark:border-brand-500/20 dark:bg-brand-900/40">
+              <p className="font-display text-[10px] uppercase tracking-[0.14em] text-tower-600 dark:text-tower-300">Cenário agora</p>
               <button type="button" className="mt-2 w-full text-left" onClick={() => { setTab('pedidos'); setQuery(''); }}>
                 <p className="font-display text-sm text-tower-700 dark:text-tower-200">A consolidar (sem manifesto)</p>
                 <p className="font-display text-4xl font-bold tabular-nums text-brand-600 dark:text-brand-300">{kpi.aConsolidar}</p>
@@ -341,12 +342,12 @@ const HubHome: React.FC = () => {
             </div>
 
             <div className="space-y-3">
-              <p className="font-display text-[10px] uppercase tracking-[0.14em] text-tower-500 dark:text-tower-300">Demandas recentes</p>
+              <p className="font-display text-[10px] uppercase tracking-[0.14em] text-tower-600 dark:text-tower-300">Demandas recentes</p>
               {Object.entries(recentDemandsGrouped).map(([label, list]) => (
                 <div key={label} className="space-y-2">
-                  <p className="font-display text-[10px] uppercase tracking-[0.14em] text-tower-500 dark:text-tower-400">{label}</p>
+                  <p className="font-display text-[10px] uppercase tracking-[0.14em] text-tower-600 dark:text-tower-400">{label}</p>
                   {list.map((order) => (
-                    <button key={order.id} type="button" onClick={() => (window.location.hash = `#/orders/${order.id}`)} className="w-full cursor-pointer rounded-xl border border-tower-200 bg-white p-3 text-left dark:border-tower-700 dark:bg-tower-900">
+                    <button key={order.id} type="button" onClick={() => (window.location.hash = `#/orders/${order.id}`)} className="card-surface w-full cursor-pointer p-3 text-left transition-colors duration-200 hover:bg-[var(--app-surface-muted)] dark:hover:bg-tower-800">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-mono-ids text-xs text-tower-600 dark:text-tower-300">{shortId(order.id)}</span>
                         <span className={`rounded-full px-2 py-1 text-[11px] font-medium ${toneClassMap[orderStatusTones[order.status] ?? 'neutral']}`}>
@@ -376,21 +377,21 @@ const HubHome: React.FC = () => {
         {!loading && tab === 'pedidos' && (
           <section className="space-y-3">
             <div className="flex items-center gap-2">
-              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Pesquisar pedidos..." className="h-11 w-full rounded-xl border border-tower-300 bg-white px-3 text-sm dark:border-tower-600 dark:bg-tower-900" />
+              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Pesquisar pedidos..." className="h-11 w-full rounded-xl border border-tower-300 bg-white px-3 text-sm text-tower-900 placeholder:text-tower-500 ring-brand-500/30 focus:border-brand-500 focus:outline-none focus:ring-2 dark:border-tower-600 dark:bg-tower-900 dark:text-tower-100 dark:placeholder:text-tower-400" />
               <button type="button" onClick={() => setTab('entrada')} className="h-11 min-w-11 rounded-xl bg-brand-600 px-3 text-sm font-semibold text-white">+ Nova entrada</button>
             </div>
-            {filteredOrders.length === 0 && <div className="rounded-xl border border-dashed border-tower-300 p-6 text-center text-sm text-tower-500 dark:border-tower-600 dark:text-tower-300">Nenhum pedido encontrado.</div>}
+            {filteredOrders.length === 0 && <div className="rounded-xl border border-dashed border-tower-300 p-6 text-center text-sm text-tower-600 dark:border-tower-600 dark:text-tower-300">Nenhum pedido encontrado.</div>}
             {filteredOrders.map((order) => (
-              <button key={order.id} type="button" onClick={() => (window.location.hash = `#/orders/${order.id}`)} className="w-full cursor-pointer rounded-xl border border-tower-200 bg-white p-4 text-left transition-colors hover:bg-tower-50 dark:border-tower-700 dark:bg-tower-900 dark:hover:bg-tower-800">
+              <button key={order.id} type="button" onClick={() => (window.location.hash = `#/orders/${order.id}`)} className="card-surface w-full cursor-pointer p-4 text-left transition-colors duration-200 hover:bg-[var(--app-surface-muted)] dark:hover:bg-tower-800">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="font-mono-ids text-xs text-tower-500 dark:text-tower-300">{shortId(order.id)}</p>
+                    <p className="font-mono-ids text-xs text-tower-600 dark:text-tower-300">{shortId(order.id)}</p>
                     <p className="mt-1 text-sm font-semibold text-tower-800 dark:text-tower-100">{order.demand?.origin ?? 'Origem'} → {order.demand?.destination ?? 'Destino'}</p>
-                    <p className="text-xs text-tower-500 dark:text-tower-400">NF {order.nfNumber ?? order.demand?.nfNumber ?? '—'}</p>
+                    <p className="text-xs text-tower-600 dark:text-tower-400">NF {order.nfNumber ?? order.demand?.nfNumber ?? '—'}</p>
                   </div>
                   <span className={`rounded-full px-2 py-1 text-[11px] font-medium ${toneClassMap[orderStatusTones[order.status] ?? 'neutral']}`}>{orderStatusLabels[order.status] ?? order.status}</span>
                 </div>
-                <div className="mt-3 flex items-center justify-between text-xs text-tower-500 dark:text-tower-400">
+                <div className="mt-3 flex items-center justify-between text-xs text-tower-600 dark:text-tower-400">
                   <label className="cursor-pointer font-medium text-brand-600 hover:underline dark:text-brand-300">
                     {attachmentUploadingOrderId === order.id ? 'Enviando...' : 'Anexar evidência'}
                     <input
@@ -417,13 +418,13 @@ const HubHome: React.FC = () => {
 
         {!loading && tab === 'manifestos' && (
           <section className="space-y-3">
-            {manifestosAtivos.length === 0 && <div className="rounded-xl border border-dashed border-tower-300 p-6 text-center text-sm text-tower-500 dark:border-tower-600 dark:text-tower-300">Nenhum manifesto ativo.</div>}
+            {manifestosAtivos.length === 0 && <div className="rounded-xl border border-dashed border-tower-300 p-6 text-center text-sm text-tower-600 dark:border-tower-600 dark:text-tower-300">Nenhum manifesto ativo.</div>}
             {manifestos.map((m) => (
-              <div key={m.id} className="rounded-xl border border-tower-200 bg-white p-4 dark:border-tower-700 dark:bg-tower-900">
+              <div key={m.id} className="card-surface p-4">
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="text-sm font-semibold text-tower-800 dark:text-tower-100">{m.link?.name ?? 'Sem motorista'}</p>
-                    <p className="text-xs text-tower-500 dark:text-tower-400">{m.origin} → {m.destination}</p>
+                    <p className="text-xs text-tower-600 dark:text-tower-400">{m.origin} → {m.destination}</p>
                   </div>
                   <span className={`rounded-full px-2 py-1 text-[11px] font-medium ${toneClassMap[MANIFEST_STATUS_TONE[m.status] ?? 'neutral']}`}>{MANIFEST_STATUS_LABEL[m.status] ?? m.status}</span>
                 </div>
@@ -450,7 +451,7 @@ const HubHome: React.FC = () => {
       {showProfileSheet && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end">
           <button type="button" className="absolute inset-0 bg-black/50" onClick={() => setShowProfileSheet(false)} aria-label="Fechar perfil" />
-          <div className="mobile-enter relative rounded-t-2xl border border-tower-200 bg-white p-4 dark:border-tower-700 dark:bg-tower-900">
+          <div className="mobile-enter relative rounded-t-2xl border border-tower-200 bg-[var(--app-surface)] p-4 dark:border-tower-700 dark:bg-tower-900">
             <p className="font-display text-sm font-semibold text-tower-900 dark:text-white">Perfil</p>
             <p className="mt-1 text-xs text-tower-600 dark:text-tower-300">{user?.email}</p>
             <div className="mt-3 flex items-center justify-between rounded-xl border border-tower-200 p-2 dark:border-tower-700">
@@ -468,8 +469,8 @@ const HubHome: React.FC = () => {
 };
 
 const KpiInline: React.FC<{ label: string; value: number }> = ({ label, value }) => (
-  <div className="min-h-[64px] rounded-lg border border-tower-200 px-2 py-2 text-center dark:border-tower-700">
-    <p className="text-[11px] text-tower-500 dark:text-tower-400">{label}</p>
+  <div className="min-h-[64px] rounded-lg border border-tower-200 bg-[var(--app-surface-muted)] px-2 py-2 text-center transition-colors duration-200 dark:border-tower-700 dark:bg-tower-800/80">
+    <p className="text-[11px] text-tower-600 dark:text-tower-400">{label}</p>
     <p className="font-display text-xl font-semibold tabular-nums text-tower-800 dark:text-tower-100">{value}</p>
   </div>
 );
