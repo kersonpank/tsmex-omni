@@ -1,13 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { ordersEntradaApi, locationsApi } from '../../lib/api';
+import {
+  allVolumeRowsComplete,
+  cmNumberToFormString,
+  dimRowsFromCmStrings,
+  volumeCmStringsToStored,
+} from '../../lib/volumeDimensions';
 import { CityAutocomplete } from '../ui/CityAutocomplete';
 import { maskPhone } from '../../lib/formatters';
 
 interface Volume {
   qty: number;
-  altura: number;
-  largura: number;
-  comprimento: number;
+  alturaCm: string;
+  larguraCm: string;
+  comprimentoCm: string;
 }
 
 interface SenderContact {
@@ -55,7 +61,7 @@ const emptyForm = (): OrderColetaFormData => ({
   addressState: '',
   addressReferencePoint: '',
   commodity: '',
-  volumesList: [{ qty: 1, altura: 0, largura: 0, comprimento: 0 }],
+  volumesList: [{ qty: 1, alturaCm: '', larguraCm: '', comprimentoCm: '' }],
   weight: '',
   nfValue: '',
   needsHelper: false,
@@ -114,11 +120,11 @@ function formFromCollectionData(cd: any): Partial<OrderColetaFormData> {
     try {
       const dims = typeof cd.dimensions === 'string' ? JSON.parse(cd.dimensions) : cd.dimensions;
       if (Array.isArray(dims) && dims.length > 0) {
-        updates.volumesList = dims.map((d: any) => ({
+        updates.volumesList = dims.map((d: { qty?: number; altura?: number; largura?: number; comprimento?: number }) => ({
           qty: d.qty || 1,
-          altura: d.altura || 0,
-          largura: d.largura || 0,
-          comprimento: d.comprimento || 0,
+          alturaCm: cmNumberToFormString(Number(d.altura) || 0),
+          larguraCm: cmNumberToFormString(Number(d.largura) || 0),
+          comprimentoCm: cmNumberToFormString(Number(d.comprimento) || 0),
         }));
       }
     } catch {
@@ -154,12 +160,10 @@ function formToCollectionData(form: OrderColetaFormData): Record<string, unknown
     needsHelper: form.needsHelper,
     needsLoading: form.needsLoading,
     dimensions: JSON.stringify(
-      form.volumesList.map((v) => ({
-        qty: v.qty,
-        altura: v.altura,
-        largura: v.largura,
-        comprimento: v.comprimento,
-      }))
+      form.volumesList.map((v) => {
+        const s = volumeCmStringsToStored(v);
+        return s ?? { qty: v.qty || 0, altura: 0, largura: 0, comprimento: 0 };
+      }),
     ),
     volumes: form.volumesList.reduce((sum, v) => sum + (v.qty || 0), 0),
   };
@@ -239,6 +243,10 @@ export const OrderColetaForm: React.FC<OrderColetaFormProps> = ({ orderId, order
     const invalidContact = form.senderContacts.find((c) => !c.name.trim() || !c.phone.trim());
     if (invalidContact) {
       setError('Todos os contatos devem ter nome e telefone preenchidos.');
+      return;
+    }
+    if (!allVolumeRowsComplete(dimRowsFromCmStrings(form.volumesList))) {
+      setError('Informe quantidade e medidas em cm (> 0) em cada volume.');
       return;
     }
 
@@ -520,43 +528,40 @@ export const OrderColetaForm: React.FC<OrderColetaFormProps> = ({ orderId, order
                 className="w-16 p-2 border border-tower-200 rounded-lg text-sm"
               />
               <input
-                type="number"
-                min={0.1}
-                step={0.1}
+                type="text"
+                inputMode="decimal"
                 placeholder="Alt (cm)"
-                value={vol.altura || ''}
+                value={vol.alturaCm}
                 onChange={(e) => {
                   const newList = [...form.volumesList];
-                  newList[volIdx] = { ...vol, altura: parseFloat(e.target.value) || 0 };
+                  newList[volIdx] = { ...vol, alturaCm: e.target.value };
                   update({ volumesList: newList });
                 }}
-                className="w-20 p-2 border border-tower-200 rounded-lg text-sm"
+                className="w-24 p-2 border border-tower-200 rounded-lg text-sm"
               />
               <input
-                type="number"
-                min={0.1}
-                step={0.1}
+                type="text"
+                inputMode="decimal"
                 placeholder="Larg (cm)"
-                value={vol.largura || ''}
+                value={vol.larguraCm}
                 onChange={(e) => {
                   const newList = [...form.volumesList];
-                  newList[volIdx] = { ...vol, largura: parseFloat(e.target.value) || 0 };
+                  newList[volIdx] = { ...vol, larguraCm: e.target.value };
                   update({ volumesList: newList });
                 }}
-                className="w-20 p-2 border border-tower-200 rounded-lg text-sm"
+                className="w-24 p-2 border border-tower-200 rounded-lg text-sm"
               />
               <input
-                type="number"
-                min={0.1}
-                step={0.1}
+                type="text"
+                inputMode="decimal"
                 placeholder="Comp (cm)"
-                value={vol.comprimento || ''}
+                value={vol.comprimentoCm}
                 onChange={(e) => {
                   const newList = [...form.volumesList];
-                  newList[volIdx] = { ...vol, comprimento: parseFloat(e.target.value) || 0 };
+                  newList[volIdx] = { ...vol, comprimentoCm: e.target.value };
                   update({ volumesList: newList });
                 }}
-                className="w-20 p-2 border border-tower-200 rounded-lg text-sm"
+                className="w-24 p-2 border border-tower-200 rounded-lg text-sm"
               />
               {form.volumesList.length > 1 && (
                 <button
@@ -579,7 +584,7 @@ export const OrderColetaForm: React.FC<OrderColetaFormProps> = ({ orderId, order
               update({
                 volumesList: [
                   ...form.volumesList,
-                  { qty: 1, altura: 0, largura: 0, comprimento: 0 },
+                  { qty: 1, alturaCm: '', larguraCm: '', comprimentoCm: '' },
                 ],
               })
             }

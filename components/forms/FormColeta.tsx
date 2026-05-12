@@ -6,12 +6,18 @@ import ImportCNPJModal from '../client/ImportCNPJModal';
 import AddCPFModal from '../client/AddCPFModal';
 import { CityAutocomplete } from '../ui/CityAutocomplete';
 import { maskPhone, maskCNPJOrCPF, digitsOnly, isCNPJ, isCPF } from '../../lib/formatters';
+import {
+  allVolumeRowsComplete,
+  cmNumberToFormString,
+  dimRowsFromCmStrings,
+  volumeCmStringsToStored,
+} from '../../lib/volumeDimensions';
 
 interface Volume {
   qty: number;
-  altura: number;
-  largura: number;
-  comprimento: number;
+  alturaCm: string;
+  larguraCm: string;
+  comprimentoCm: string;
 }
 
 interface SenderContact {
@@ -69,7 +75,7 @@ const emptyForm = (): FormColetaData => ({
   addressState: '',
   addressReferencePoint: '',
   commodity: '',
-  volumesList: [{ qty: 1, altura: 0, largura: 0, comprimento: 0 }],
+  volumesList: [{ qty: 1, alturaCm: '', larguraCm: '', comprimentoCm: '' }],
   weight: '',
   nfValue: '',
   needsHelper: false,
@@ -198,23 +204,23 @@ export default function FormColeta() {
         try {
           const dims = JSON.parse(opp.dimensions);
           if (Array.isArray(dims) && dims.length > 0) {
-            updates.volumesList = dims.map((d: any) => ({
+            updates.volumesList = dims.map((d: { qty?: number; altura?: number; largura?: number; comprimento?: number }) => ({
               qty: d.qty || 1,
-              altura: d.altura || 0,
-              largura: d.largura || 0,
-              comprimento: d.comprimento || 0,
+              alturaCm: cmNumberToFormString(Number(d.altura) || 0),
+              larguraCm: cmNumberToFormString(Number(d.largura) || 0),
+              comprimentoCm: cmNumberToFormString(Number(d.comprimento) || 0),
             }));
             prefilled.add('volumesList');
           }
         } catch {
           // Se não conseguir parsear, usar volumes se disponível
           if (opp.volumes) {
-            updates.volumesList = [{ qty: opp.volumes, altura: 0, largura: 0, comprimento: 0 }];
+            updates.volumesList = [{ qty: opp.volumes, alturaCm: '', larguraCm: '', comprimentoCm: '' }];
             prefilled.add('volumesList');
           }
         }
       } else if (opp.volumes) {
-        updates.volumesList = [{ qty: opp.volumes, altura: 0, largura: 0, comprimento: 0 }];
+        updates.volumesList = [{ qty: opp.volumes, alturaCm: '', larguraCm: '', comprimentoCm: '' }];
         prefilled.add('volumesList');
       }
 
@@ -275,11 +281,11 @@ export default function FormColeta() {
           try {
             const dims = JSON.parse(cd.dimensions);
             if (Array.isArray(dims)) {
-              updates.volumesList = dims.map((d: any) => ({
+              updates.volumesList = dims.map((d: { qty?: number; altura?: number; largura?: number; comprimento?: number }) => ({
                 qty: d.qty || 1,
-                altura: d.altura || 0,
-                largura: d.largura || 0,
-                comprimento: d.comprimento || 0,
+                alturaCm: cmNumberToFormString(Number(d.altura) || 0),
+                larguraCm: cmNumberToFormString(Number(d.largura) || 0),
+                comprimentoCm: cmNumberToFormString(Number(d.comprimento) || 0),
               }));
               prefilled.add('volumesList');
             }
@@ -456,7 +462,7 @@ export default function FormColeta() {
     if (!form.commodity.trim()) return 'Mercadoria é obrigatória.';
     const totalVolumes = form.volumesList.reduce((sum, v) => sum + (v.qty || 0), 0);
     if (totalVolumes < 1) return 'Quantidade de volumes inválida.';
-    const hasInvalidDims = form.volumesList.some(v => !v.qty || v.qty < 1 || !v.altura || v.altura <= 0 || !v.largura || v.largura <= 0 || !v.comprimento || v.comprimento <= 0);
+    const hasInvalidDims = !allVolumeRowsComplete(dimRowsFromCmStrings(form.volumesList));
     if (hasInvalidDims) return 'Todas as dimensões dos volumes são obrigatórias e devem ser maiores que zero.';
     const w = parseFloat(form.weight);
     if (isNaN(w) || w <= 0) return 'Peso obrigatório.';
@@ -508,12 +514,12 @@ export default function FormColeta() {
       },
       commodity: form.commodity.trim(),
       volumes: form.volumesList.reduce((sum, v) => sum + (v.qty || 0), 0),
-      dimensions: JSON.stringify(form.volumesList.map(v => ({
-        qty: v.qty,
-        altura: v.altura,
-        largura: v.largura,
-        comprimento: v.comprimento,
-      }))),
+      dimensions: JSON.stringify(
+        form.volumesList.map((v) => {
+          const s = volumeCmStringsToStored(v);
+          return s ?? { qty: v.qty || 0, altura: 0, largura: 0, comprimento: 0 };
+        }),
+      ),
       weight: parseFloat(form.weight),
       nfValue: parseFloat(form.nfValue),
       needsHelper: form.needsHelper,
@@ -1056,13 +1062,12 @@ export default function FormColeta() {
                   <div>
                     <label className="block text-xs text-tower-500 mb-1">Altura (cm)</label>
                     <input
-                      type="number"
-                      min="0.1"
-                      step="0.1"
-                      value={vol.altura || ''}
+                      type="text"
+                      inputMode="decimal"
+                      value={vol.alturaCm}
                       onChange={e => {
                         const newList = [...form.volumesList];
-                        newList[volIdx] = { ...vol, altura: parseFloat(e.target.value) || 0 };
+                        newList[volIdx] = { ...vol, alturaCm: e.target.value };
                         update({ volumesList: newList });
                       }}
                       className="w-full p-2 bg-white border border-tower-200 rounded-lg"
@@ -1071,13 +1076,12 @@ export default function FormColeta() {
                   <div>
                     <label className="block text-xs text-tower-500 mb-1">Largura (cm)</label>
                     <input
-                      type="number"
-                      min="0.1"
-                      step="0.1"
-                      value={vol.largura || ''}
+                      type="text"
+                      inputMode="decimal"
+                      value={vol.larguraCm}
                       onChange={e => {
                         const newList = [...form.volumesList];
-                        newList[volIdx] = { ...vol, largura: parseFloat(e.target.value) || 0 };
+                        newList[volIdx] = { ...vol, larguraCm: e.target.value };
                         update({ volumesList: newList });
                       }}
                       className="w-full p-2 bg-white border border-tower-200 rounded-lg"
@@ -1086,13 +1090,12 @@ export default function FormColeta() {
                   <div>
                     <label className="block text-xs text-tower-500 mb-1">Compr. (cm)</label>
                     <input
-                      type="number"
-                      min="0.1"
-                      step="0.1"
-                      value={vol.comprimento || ''}
+                      type="text"
+                      inputMode="decimal"
+                      value={vol.comprimentoCm}
                       onChange={e => {
                         const newList = [...form.volumesList];
-                        newList[volIdx] = { ...vol, comprimento: parseFloat(e.target.value) || 0 };
+                        newList[volIdx] = { ...vol, comprimentoCm: e.target.value };
                         update({ volumesList: newList });
                       }}
                       className="w-full p-2 bg-white border border-tower-200 rounded-lg"
@@ -1105,7 +1108,7 @@ export default function FormColeta() {
               type="button"
               onClick={() => {
                 update({
-                  volumesList: [...form.volumesList, { qty: 1, altura: 0, largura: 0, comprimento: 0 }],
+                  volumesList: [...form.volumesList, { qty: 1, alturaCm: '', larguraCm: '', comprimentoCm: '' }],
                 });
               }}
               className="w-full py-2 px-4 bg-tower-100 hover:bg-tower-200 text-tower-700 rounded-xl text-sm font-medium transition-colors"

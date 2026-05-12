@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ordersFreightApi, ordersApi, hubsApi, pricingApi, clientsApi, fiscalEmittersApi } from '../../lib/api';
+import { ordersFreightApi, ordersApi, hubsApi, pricingApi, clientsApi, fiscalEmittersApi, formatApiError } from '../../lib/api';
 import DactePrintPreview from './DactePrintPreview';
 import type {
   OrderFreightCalculation,
@@ -779,6 +779,14 @@ function CtePreflightChecklist({
       : 'Obrigatório';
   const missing = new Set(preflight?.missingFields ?? []);
   const hasIssues = Boolean(inlineError || !preflight || !preflight.canEmit);
+  const providerDecision = preflight?.providerDecision;
+  const providerDecisionLabel: Record<NonNullable<CtePreflightResult['providerDecision']>['reason'], string> = {
+    forced_by_env: 'Vai chamar ACBr: forçado por FISCAL_CTE_PROVIDER/FISCAL_PROVIDER.',
+    emitter_provider_acbr: 'Vai chamar ACBr: emitente configurado como ACBr API.',
+    missing_credentials: 'Não chama ACBr: credenciais OAuth não chegaram no container API.',
+    provider_simulated: 'Vai simular: emitente simulado e nenhum env força ACBr.',
+    preflight_failed: 'Não chama ACBr ainda: preflight fiscal pendente.',
+  };
 
   return (
     <div className={`mt-3 rounded-lg border p-3 text-sm ${
@@ -806,6 +814,18 @@ function CtePreflightChecklist({
           {missing.has('cst') && <span className="block text-xs text-amber-700 dark:text-amber-300">Selecione um CST.</span>}
         </div>
       </div>
+      {providerDecision && (
+        <div className={`mt-2 rounded-md border px-2 py-1.5 text-xs ${
+          providerDecision.willUseAcbrHttp
+            ? 'border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950/30 dark:text-green-200'
+            : providerDecision.acbrRequired
+              ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200'
+              : 'border-tower-200 bg-tower-50 text-tower-700 dark:border-tower-700 dark:bg-tower-950/30 dark:text-tower-200'
+        }`}>
+          <span className="font-semibold">Provider efetivo: </span>
+          {providerDecisionLabel[providerDecision.reason]}
+        </div>
+      )}
       {(inlineError || (preflight?.issues.length ?? 0) > 0) && (
         <div className="mt-2 text-xs text-amber-800 dark:text-amber-200 space-y-1">
           {inlineError && <p>{inlineError}</p>}
@@ -1113,8 +1133,8 @@ function OrderFreightForm({
         }
       }
       onSaved();
-    } catch (e: any) {
-      setErr(e.response?.data?.error ?? e.response?.data?.message ?? e.message ?? 'Erro ao salvar');
+    } catch (e: unknown) {
+      setErr(formatApiError(e));
     } finally {
       setSaving(false);
     }

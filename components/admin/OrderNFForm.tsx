@@ -1,9 +1,16 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
-import { ordersEntradaApi, nfSpeciesApi } from '../../lib/api';
+import { ordersEntradaApi, nfSpeciesApi, formatApiError } from '../../lib/api';
 import { maskDateDDMMYYYY, parseDateDDMMYYYY, formatDateToDDMMYYYY } from '../../lib/formatters';
 import { parseNFeChave55 } from '../../lib/nfeChaveParser';
 import type { NfSpecies } from '../../types/index';
 import { useNfeLookup } from '../../hooks/useNfeLookup';
+import {
+  allVolumeRowsComplete,
+  cmNumberToFormString,
+  dimRowsFromCmStrings,
+  normalizeDecimalInput,
+  totalCubedM3FromRows,
+} from '../../lib/volumeDimensions';
 
 const QRCodeScanner = lazy(() => import('../ui/QRCodeScanner'));
 
@@ -23,9 +30,14 @@ export interface OrderInvoiceItem {
 
 interface VolumeItem {
   qty: number;
-  altura: number;
-  largura: number;
-  comprimento: number;
+  /** Medidas em cm como texto (permite digitar `1,25` ou `1.` sem colapsar). */
+  alturaCm: string;
+  larguraCm: string;
+  comprimentoCm: string;
+}
+
+function defaultVolumeRow(): VolumeItem {
+  return { qty: 1, alturaCm: '', larguraCm: '', comprimentoCm: '' };
 }
 
 interface OrderNFFormProps {
@@ -45,16 +57,16 @@ function prefillFromCollectionData(cd: unknown): { form: Partial<{ weight: numbe
   if (c.weight != null) form.weight = Number(c.weight) || 0;
   if (c.nfValue != null) form.value = Number(c.nfValue) || 0;
   if (c.commodity && typeof c.commodity === 'string') form.nature = c.commodity;
-  let volumesList: VolumeItem[] = [{ qty: 1, altura: 0, largura: 0, comprimento: 0 }];
+  let volumesList: VolumeItem[] = [defaultVolumeRow()];
   if (c.dimensions) {
     try {
       const dims = typeof c.dimensions === 'string' ? JSON.parse(c.dimensions) : c.dimensions;
       if (Array.isArray(dims) && dims.length > 0) {
-        volumesList = dims.map((d: any) => ({
+        volumesList = dims.map((d: { qty?: number; altura?: number; largura?: number; comprimento?: number }) => ({
           qty: d.qty || 1,
-          altura: d.altura || 0,
-          largura: d.largura || 0,
-          comprimento: d.comprimento || 0,
+          alturaCm: cmNumberToFormString(Number(d.altura) || 0),
+          larguraCm: cmNumberToFormString(Number(d.largura) || 0),
+          comprimentoCm: cmNumberToFormString(Number(d.comprimento) || 0),
         }));
       }
     } catch {
@@ -62,18 +74,6 @@ function prefillFromCollectionData(cd: unknown): { form: Partial<{ weight: numbe
     }
   }
   return { form, volumesList };
-}
-
-function calcCubFromVolumes(volumesList: VolumeItem[]): number {
-  let total = 0;
-  for (const v of volumesList) {
-    const q = v.qty || 0;
-    const a = v.altura || 0;
-    const l = v.largura || 0;
-    const c = v.comprimento || 0;
-    total += (q * a * l * c) / 1_000_000;
-  }
-  return Math.round(total * 1000) / 1000;
 }
 
 const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, disabled, collectionData, prescanNfe }) => {
@@ -91,7 +91,7 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
     cubedVolumeManual: '',
     value: 0,
   });
-  const [volumesList, setVolumesList] = useState<VolumeItem[]>([{ qty: 1, altura: 0, largura: 0, comprimento: 0 }]);
+  const [volumesList, setVolumesList] = useState<VolumeItem[]>([defaultVolumeRow()]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showQRScanner, setShowQRScanner] = useState(false);
@@ -106,7 +106,15 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
   useEffect(() => {
     if (editingInvoice || !collectionData) return;
     const { form: formUpdates, volumesList: volList } = prefillFromCollectionData(collectionData);
-    if (Object.keys(formUpdates).length > 0 || (volList.length > 0 && (volList.length > 1 || volList[0]?.qty !== 1 || volList[0]?.altura || volList[0]?.largura || volList[0]?.comprimento))) {
+    if (
+      Object.keys(formUpdates).length > 0
+      || (volList.length > 0
+        && (volList.length > 1
+          || volList[0]?.qty !== 1
+          || (volList[0]?.alturaCm ?? '').trim()
+          || (volList[0]?.larguraCm ?? '').trim()
+          || (volList[0]?.comprimentoCm ?? '').trim()))
+    ) {
       setForm(f => ({ ...f, ...formUpdates }));
       setVolumesList(volList);
     }
@@ -146,9 +154,9 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
     }
   }, [form.nfKey, tab]);
 
-  const cubCalculated = calcCubFromVolumes(volumesList);
-  const cubToUse = form.cubedVolumeManual !== ''
-    ? parseFloat(form.cubedVolumeManual) || 0
+  const cubCalculated = totalCubedM3FromRows(dimRowsFromCmStrings(volumesList));
+  const cubToUse = form.cubedVolumeManual.trim() !== ''
+    ? Number.parseFloat(normalizeDecimalInput(form.cubedVolumeManual)) || 0
     : cubCalculated;
 
   const totalVolumes = volumesList.reduce((s, v) => s + (v.qty || 0), 0);
@@ -170,7 +178,7 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
     });
     setSpeciesOther(!spec && !!inv.species);
     const vol = Math.max(1, Math.round(inv.volumes || 0));
-    setVolumesList([{ qty: vol, altura: 0, largura: 0, comprimento: 0 }]);
+    setVolumesList([{ qty: vol, alturaCm: '', larguraCm: '', comprimentoCm: '' }]);
   };
 
   const handleEdit = (inv: OrderInvoiceItem) => {
@@ -181,7 +189,7 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
   const cancelEdit = () => {
     setEditingInvoice(null);
     setForm({ nfKey: '', nfNumber: '', emissionDate: '', nature: '', speciesId: '', speciesOtherText: '', weight: 0, cubedVolumeManual: '', value: 0 });
-    setVolumesList([{ qty: 1, altura: 0, largura: 0, comprimento: 0 }]);
+    setVolumesList([defaultVolumeRow()]);
     setSpeciesOther(false);
     setShowForm(invoices.length > 0);
   };
@@ -200,6 +208,11 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
       nfNumber = form.nfNumber.trim() || (form.nfKey ? form.nfKey.slice(-8) : '');
       if (!nfNumber) {
         setError('Informe o número da NF ou a chave NF-e.');
+        return;
+      }
+      const manualCub = form.cubedVolumeManual.trim() !== '';
+      if (!manualCub && !allVolumeRowsComplete(dimRowsFromCmStrings(volumesList))) {
+        setError('Informe medidas completas em cm (altura, largura e comprimento > 0) em cada volume ou preencha Cub (m³) manualmente.');
         return;
       }
     }
@@ -225,12 +238,12 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
         await ordersEntradaApi.addInvoice(orderId, payload);
       }
       setForm({ nfKey: '', nfNumber: '', emissionDate: '', nature: '', speciesId: '', speciesOtherText: '', weight: 0, cubedVolumeManual: '', value: 0 });
-      setVolumesList([{ qty: 1, altura: 0, largura: 0, comprimento: 0 }]);
+      setVolumesList([defaultVolumeRow()]);
       setSpeciesOther(false);
       setShowForm(false);
       onAdded();
-    } catch (err: any) {
-      setError(err.response?.data?.error || err.message || 'Erro ao gravar nota');
+    } catch (err: unknown) {
+      setError(formatApiError(err));
     } finally {
       setSaving(false);
     }
@@ -399,7 +412,7 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
                   const v = parseInt(e.target.value, 10) || 1;
                   const nl = [...volumesList];
                   if (nl.length) nl[0] = { ...nl[0], qty: v };
-                  else nl.push({ qty: v, altura: 0, largura: 0, comprimento: 0 });
+                  else nl.push({ qty: v, alturaCm: '', larguraCm: '', comprimentoCm: '' });
                   setVolumesList(nl);
                 }}
                 className="w-full px-3 py-2.5 rounded-lg border border-tower-300 dark:border-tower-600 bg-white dark:bg-tower-700 text-tower-900 dark:text-white text-sm"
@@ -490,40 +503,40 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
                 className="w-16 p-2 border border-tower-200 dark:border-tower-600 rounded-lg text-sm bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
               />
               <input
-                type="number"
-                min={0}
+                type="text"
+                inputMode="decimal"
                 placeholder="Alt (cm)"
-                value={vol.altura || ''}
+                value={vol.alturaCm}
                 onChange={e => {
                   const nl = [...volumesList];
-                  nl[idx] = { ...vol, altura: parseFloat(e.target.value) || 0 };
+                  nl[idx] = { ...vol, alturaCm: e.target.value };
                   setVolumesList(nl);
                 }}
-                className="w-20 p-2 border border-tower-200 dark:border-tower-600 rounded-lg text-sm bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
+                className="w-24 p-2 border border-tower-200 dark:border-tower-600 rounded-lg text-sm bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
               />
               <input
-                type="number"
-                min={0}
+                type="text"
+                inputMode="decimal"
                 placeholder="Larg (cm)"
-                value={vol.largura || ''}
+                value={vol.larguraCm}
                 onChange={e => {
                   const nl = [...volumesList];
-                  nl[idx] = { ...vol, largura: parseFloat(e.target.value) || 0 };
+                  nl[idx] = { ...vol, larguraCm: e.target.value };
                   setVolumesList(nl);
                 }}
-                className="w-20 p-2 border border-tower-200 dark:border-tower-600 rounded-lg text-sm bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
+                className="w-24 p-2 border border-tower-200 dark:border-tower-600 rounded-lg text-sm bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
               />
               <input
-                type="number"
-                min={0}
+                type="text"
+                inputMode="decimal"
                 placeholder="Comp (cm)"
-                value={vol.comprimento || ''}
+                value={vol.comprimentoCm}
                 onChange={e => {
                   const nl = [...volumesList];
-                  nl[idx] = { ...vol, comprimento: parseFloat(e.target.value) || 0 };
+                  nl[idx] = { ...vol, comprimentoCm: e.target.value };
                   setVolumesList(nl);
                 }}
-                className="w-20 p-2 border border-tower-200 dark:border-tower-600 rounded-lg text-sm bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
+                className="w-24 p-2 border border-tower-200 dark:border-tower-600 rounded-lg text-sm bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
               />
               {volumesList.length > 1 && (
                 <button
@@ -538,7 +551,7 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
           ))}
           <button
             type="button"
-            onClick={() => setVolumesList([...volumesList, { qty: 1, altura: 0, largura: 0, comprimento: 0 }])}
+            onClick={() => setVolumesList([...volumesList, defaultVolumeRow()])}
             className="text-sm text-brand-600 dark:text-brand-400 font-medium hover:underline mt-1"
           >
             + Adicionar volume
@@ -555,7 +568,7 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
                 const v = parseInt(e.target.value, 10) || 0;
                 const nl = [...volumesList];
                 if (nl.length) nl[0] = { ...nl[0], qty: v };
-                else nl.push({ qty: v, altura: 0, largura: 0, comprimento: 0 });
+                else nl.push({ qty: v, alturaCm: '', larguraCm: '', comprimentoCm: '' });
                 setVolumesList(nl);
               }}
               className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100"
@@ -574,15 +587,17 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
           <div>
             <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Cub (m³)</label>
             <input
-              type="number"
-              step="0.001"
-              value={form.cubedVolumeManual !== '' ? form.cubedVolumeManual : (cubCalculated || '')}
+              type="text"
+              inputMode="decimal"
+              value={form.cubedVolumeManual !== '' ? form.cubedVolumeManual : (cubCalculated > 0 ? String(Number(cubCalculated.toFixed(9))) : '')}
               onChange={e => setForm(f => ({ ...f, cubedVolumeManual: e.target.value }))}
-              placeholder="Auto ou manual"
+              placeholder="Auto a partir do cm ou manual"
               className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
             />
             {cubCalculated > 0 && form.cubedVolumeManual === '' && (
-              <p className="text-xs text-tower-500 dark:text-tower-400 mt-0.5">Calculado: {cubCalculated.toFixed(3)} m³</p>
+              <p className="text-xs text-tower-500 dark:text-tower-400 mt-0.5">
+                Calculado a partir das medidas em cm: {new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 9 }).format(cubCalculated)} m³
+              </p>
             )}
           </div>
           <div>

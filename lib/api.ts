@@ -20,6 +20,7 @@ import type {
     PricingCalculateResponse,
     OrderFreightCalculation,
     CtePreflightResult,
+    FiscalAcbrDiagnostics,
     FiscalEmitter,
     FiscalEmitterReadiness,
     ApiResponse,
@@ -30,9 +31,8 @@ import type {
     OrderListItem,
 } from '../types/index';
 
-// Em produção, o nginx faz proxy de /api → backend (URL relativa)
-// Em desenvolvimento local, conecta direto ao backend na porta 3002
-const API_URL = import.meta.env.DEV ? 'http://localhost:3002/api' : '/api';
+// URL relativa: em dev o Vite faz proxy de `/api` → backend (vite.config); em produção o nginx repassa `/api`.
+const API_URL = '/api';
 
 /** Evita JSON.parse em corpo HTML (ex.: 502 do nginx) que dispara "Unexpected token '<'". */
 function parseApiResponseBody(data: unknown): unknown {
@@ -60,6 +60,26 @@ export const api = axios.create({
     timeout: 30000, // 30 segundos de timeout
     transformResponse: [parseApiResponseBody],
 });
+
+/** Mensagem legível para UI: distingue falha de rede/CORS de erro HTTP com corpo JSON. */
+export function formatApiError(error: unknown): string {
+    if (axios.isAxiosError(error)) {
+        if (error.code === 'ECONNABORTED') {
+            return 'Tempo esgotado ao contatar a API. Verifique se o servidor está respondendo.';
+        }
+        if (!error.response) {
+            return 'Não foi possível contatar a API (rede, CORS ou servidor parado). Em desenvolvimento: suba o backend (ex. porta 3002), use o front pelo Vite (porta 3000) e confira CORS_ORIGIN no servidor.';
+        }
+        const data = error.response.data as { error?: string; message?: string } | undefined;
+        if (data && typeof data === 'object') {
+            if (typeof data.error === 'string') return data.error;
+            if (typeof data.message === 'string') return data.message;
+        }
+        return error.message || 'Erro na requisição';
+    }
+    if (error instanceof Error) return error.message;
+    return String(error);
+}
 
 // Interceptor para log de erros (inclui corpo da resposta para diagnóstico)
 api.interceptors.response.use(
@@ -157,6 +177,11 @@ export const fiscalEmittersApi = {
 
     readiness: async (id: string) => {
         const response = await api.get<ApiResponse<FiscalEmitterReadiness>>(`/fiscal-emitters/${id}/readiness`);
+        return response.data;
+    },
+
+    acbrDiagnostics: async () => {
+        const response = await api.get<ApiResponse<FiscalAcbrDiagnostics>>('/fiscal-emitters/acbr-diagnostics');
         return response.data;
     },
 };
