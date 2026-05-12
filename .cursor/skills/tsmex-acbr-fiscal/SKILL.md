@@ -1,6 +1,6 @@
 ---
 name: tsmex-acbr-fiscal
-description: Guia integrações ACBR API no TSM EX OMNI. Use quando trabalhar com CT-e, DC-e, MDF-e, NF-e, distribuição DF-e/NF-e, emitente fiscal, certificado A1, homologação, SEFAZ, CFOP, CST, XML, DACTE, DAMDFE ou provider ACBR.
+description: Guia integrações ACBR API no TSM EX OMNI. Use quando trabalhar com CT-e, DC-e, MDF-e, NF-e, distribuição DF-e/NF-e, emitente fiscal, certificado A1, homologação, SEFAZ, CFOP, CST, XML, DACTE, DAMDFE ou provider ACBR. Para fluxo ponta a ponta homologação, console ACBr vazio e checklist env/runtime, usar também a skill `tsmex-acbr-api-definitivo`.
 ---
 
 # TSM EX ACBR Fiscal
@@ -23,6 +23,7 @@ description: Guia integrações ACBR API no TSM EX OMNI. Use quando trabalhar co
 
 ## ACBR API
 
+- Fluxo operacional homologação, diagnóstico “sem requisição no console” e prompt de contexto: skill **`tsmex-acbr-api-definitivo`** (`.cursor/skills/tsmex-acbr-api-definitivo/SKILL.md`).
 - Autenticação: OAuth2 `client_credentials` no backend, nunca no frontend.
 - Base homologação: `https://hom.acbr.api.br`.
 - Base produção: `https://prod.acbr.api.br`.

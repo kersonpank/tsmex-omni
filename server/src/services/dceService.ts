@@ -137,6 +137,11 @@ async function emitDceViaAcbr(input: CteEmissionInput, referencia: string): Prom
     }
     for (let i = 0; i < 20; i++) {
         if (i > 0) await new Promise((r) => setTimeout(r, 1500));
+        try {
+            await acbrFetchJson(`/dce/${id}/sincronizar`, { method: 'POST', scopes: ['empresa', 'dce'], apiEnvironment: apiEnv });
+        } catch {
+            /* opcional: alinhar ao fluxo CT-e */
+        }
         const doc = await acbrFetchJson<Record<string, unknown>>(`/dce/${id}`, { method: 'GET', scopes: ['empresa', 'dce'], apiEnvironment: apiEnv });
         const st = String(doc.status ?? '').toLowerCase();
         const auth = (doc.autorizacao ?? {}) as Record<string, unknown>;

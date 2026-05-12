@@ -14,6 +14,7 @@ import {
 import { getObjectDownloadUrl } from '../lib/objectStorage.js';
 import { isAcbrCredentialsConfigured } from '../services/acbr/acbrConfig.js';
 import { putAcbrEmpresaCertificado, syncFiscalEmitterToAcbr } from '../services/acbr/acbrEmpresa.js';
+import { buildAcbrRuntimeDiagnostics } from '../services/acbr/acbrDiagnostics.js';
 import { getCteCfopOption, getCteCstRule } from '../services/fiscal/cteTaxRules.js';
 
 const router = Router();
@@ -175,6 +176,10 @@ router.get('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest
     } catch (error) {
         next(error);
     }
+});
+
+router.get('/acbr-diagnostics', authenticate, authorize('ADMIN'), (_req: AuthRequest, res: Response) => {
+    res.json({ success: true, data: buildAcbrRuntimeDiagnostics() });
 });
 
 /** Link assinado (curta duração) para baixar o PFX — só ADMIN; use auditoria nos logs de acesso. */

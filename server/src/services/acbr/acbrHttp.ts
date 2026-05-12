@@ -31,6 +31,15 @@ export async function acbrFetchJson<T = unknown>(path: string, init: AcbrRequest
     }
     if (!res.ok) {
         const msg = typeof json === 'object' && json && 'message' in json ? String((json as { message: unknown }).message) : text;
+        console.warn(
+            JSON.stringify({
+                level: 'warn',
+                source: 'acbrHttp',
+                path,
+                httpStatus: res.status,
+                messagePreview: msg.slice(0, 200),
+            }),
+        );
         throw new Error(`ACBr ${path} HTTP ${res.status}: ${msg.slice(0, 800)}`);
     }
     return json as T;

@@ -130,6 +130,22 @@ export interface FiscalEmitterReadiness {
     issues: string[];
 }
 
+export interface FiscalAcbrDiagnostics {
+    acbrClientIdConfigured: boolean;
+    acbrClientSecretConfigured: boolean;
+    acbrCredentialsConfigured: boolean;
+    fiscalCteProvider: string;
+    fiscalProvider: string;
+    fiscalSecretKeyConfigured: boolean;
+    acbrHttpForcedByEnv: boolean;
+    willUseAcbrHttpWithSimulatedEmitter: boolean;
+    simulatedEmitterAcbrDecisionReason: string;
+    s3Configured: boolean;
+    nodeEnv: string;
+    effectiveAcbrBaseUrlHomologacao: string;
+    effectiveAcbrBaseUrlProducao: string;
+}
+
 export interface FiscalEmitter {
     id: string;
     personId: string;
@@ -185,6 +201,12 @@ export interface CtePreflightResult {
     missingFields: string[];
     environment: FiscalEnvironment | null;
     provider: FiscalProvider | string | null;
+    providerDecision: {
+        willUseAcbrHttp: boolean;
+        acbrRequired: boolean;
+        reason: 'forced_by_env' | 'emitter_provider_acbr' | 'missing_credentials' | 'provider_simulated' | 'preflight_failed';
+        credentialsConfigured: boolean;
+    };
     tax: {
         cfop: CteTaxOption | null;
         cst: CteTaxRule | null;

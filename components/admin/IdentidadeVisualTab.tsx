@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { fiscalEmittersApi, hubsApi, personsApi, uploadApi } from '../../lib/api';
 import { useAuthStore } from '../../store/authStore';
-import type { FiscalEmitter, FiscalProvider, FiscalTaxRegime, Hub, Person } from '../../types/index';
+import type { FiscalAcbrDiagnostics, FiscalEmitter, FiscalProvider, FiscalTaxRegime, Hub, Person } from '../../types/index';
 import { CTE_CFOP_SELECT_OPTIONS, CTE_CST_SELECT_OPTIONS, cfopOptionSelectText } from '../../lib/cteTaxCatalog';
 import { Toggle } from '../ui/toggle-1';
 
@@ -137,6 +137,7 @@ const IdentidadeVisualTab: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [certificateDownloadBusy, setCertificateDownloadBusy] = useState(false);
+  const [acbrDiagnostics, setAcbrDiagnostics] = useState<FiscalAcbrDiagnostics | null>(null);
 
   const selectedPerson = useMemo(
     () => persons.find((p) => p.id === form.personId),
@@ -151,22 +152,24 @@ const IdentidadeVisualTab: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const [emittersRes, personsRes, hubsRes] = await Promise.all([
+      const [emittersRes, personsRes, hubsRes, acbrDiagnosticsRes] = await Promise.all([
         fiscalEmittersApi.list(),
         personsApi.list({ documentType: 'CNPJ' }),
         hubsApi.list(),
+        isAdmin ? fiscalEmittersApi.acbrDiagnostics().catch(() => null) : Promise.resolve(null),
       ]);
       const emitterList = emittersRes.data ?? [];
       setEmitters(emitterList);
       setPersons(personsRes.data ?? []);
       setHubs(hubsRes.data ?? []);
+      setAcbrDiagnostics(acbrDiagnosticsRes?.data ?? null);
       setSelectedEmitterId((current) => current ?? emitterList[0]?.id ?? null);
     } catch (e: any) {
       setError(e.response?.data?.error ?? e.message ?? 'Erro ao carregar emitentes');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
     void load();
@@ -469,12 +472,51 @@ const IdentidadeVisualTab: React.FC = () => {
 
             <section className="rounded-xl border border-tower-200 bg-white/90 p-5 dark:border-tower-700 dark:bg-tower-900/50">
               <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-tower-500">Checklist fiscal</h3>
+              {isAdmin && (
+                <div className="mb-3 grid gap-2 rounded-lg border border-tower-100 bg-tower-50/80 p-3 text-xs dark:border-tower-700 dark:bg-tower-950/30 sm:grid-cols-3">
+                  <div>
+                    <span className="block font-semibold text-tower-700 dark:text-tower-200">Credenciais ACBr na API</span>
+                    <span className={acbrDiagnostics?.acbrCredentialsConfigured ? 'text-green-700 dark:text-green-300' : 'text-amber-700 dark:text-amber-300'}>
+                      {acbrDiagnostics ? (acbrDiagnostics.acbrCredentialsConfigured ? 'Detectadas' : 'Ausentes') : 'Não verificado'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block font-semibold text-tower-700 dark:text-tower-200">Forçar ACBr</span>
+                    <span className={acbrDiagnostics?.fiscalCteProvider === 'acbr' || acbrDiagnostics?.fiscalProvider === 'acbr' ? 'text-green-700 dark:text-green-300' : 'text-tower-500 dark:text-tower-400'}>
+                      {acbrDiagnostics?.fiscalCteProvider === 'acbr' || acbrDiagnostics?.fiscalProvider === 'acbr' ? 'Ativo' : 'Inativo'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block font-semibold text-tower-700 dark:text-tower-200">S3/MinIO certificados</span>
+                    <span className={acbrDiagnostics?.s3Configured ? 'text-green-700 dark:text-green-300' : 'text-amber-700 dark:text-amber-300'}>
+                      {acbrDiagnostics ? (acbrDiagnostics.s3Configured ? 'Configurado' : 'Ausente') : 'Não verificado'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block font-semibold text-tower-700 dark:text-tower-200">Chave fiscal (FISCAL_SECRET_KEY)</span>
+                    <span className={acbrDiagnostics?.fiscalSecretKeyConfigured ? 'text-green-700 dark:text-green-300' : 'text-amber-700 dark:text-amber-300'}>
+                      {acbrDiagnostics ? (acbrDiagnostics.fiscalSecretKeyConfigured ? 'Configurada' : 'Ausente') : 'Não verificado'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block font-semibold text-tower-700 dark:text-tower-200">HTTP ACBr com emitente simulado</span>
+                    <span className={acbrDiagnostics?.willUseAcbrHttpWithSimulatedEmitter ? 'text-green-700 dark:text-green-300' : 'text-tower-500 dark:text-tower-400'}>
+                      {acbrDiagnostics ? (acbrDiagnostics.willUseAcbrHttpWithSimulatedEmitter ? 'Sim' : 'Não') : 'Não verificado'}
+                    </span>
+                  </div>
+                </div>
+              )}
               {(selectedEmitter.readiness?.issues ?? []).length === 0 ? (
                 <p className="text-sm text-green-700 dark:text-green-300">Emitente pronto para minuta e homologação.</p>
               ) : (
                 <ul className="list-disc space-y-1 pl-5 text-sm text-amber-700 dark:text-amber-300">
                   {(selectedEmitter.readiness?.issues ?? []).map((issue) => <li key={issue}>{issue}</li>)}
                 </ul>
+              )}
+              {selectedEmitter.provider === 'ACBR' && selectedEmitter.providerStatus !== 'READY' && (
+                <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                  Emitente ACBr ainda não está READY: salve o emitente e envie o certificado A1 depois de confirmar as credenciais no container API.
+                </p>
               )}
             </section>
           </div>
