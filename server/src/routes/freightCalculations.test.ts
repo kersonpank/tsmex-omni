@@ -42,6 +42,12 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
         calcUpdate: prisma.orderFreightCalculation.update,
         hubFindUnique: prisma.hub.findUnique,
     };
+    const envSnapshot = {
+        ACBR_CLIENT_ID: process.env.ACBR_CLIENT_ID,
+        ACBR_CLIENT_SECRET: process.env.ACBR_CLIENT_SECRET,
+        FISCAL_CTE_PROVIDER: process.env.FISCAL_CTE_PROVIDER,
+        FISCAL_PROVIDER: process.env.FISCAL_PROVIDER,
+    };
 
     const mockOrder = {
         id: orderId,
@@ -207,6 +213,10 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
         process.env.S3_ACCESS_KEY = process.env.S3_ACCESS_KEY ?? 'test';
         process.env.S3_SECRET_KEY = process.env.S3_SECRET_KEY ?? 'test';
         process.env.S3_BUCKET = process.env.S3_BUCKET ?? 'tsm-ex-test';
+        process.env.ACBR_CLIENT_ID = 'client-id';
+        process.env.ACBR_CLIENT_SECRET = 'client-secret';
+        delete process.env.FISCAL_CTE_PROVIDER;
+        delete process.env.FISCAL_PROVIDER;
         const { ordersRouter } = await import('./orders.js');
 
         prisma.user.findUnique = ((async () => ({
@@ -268,6 +278,13 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
         prisma.orderFreightCalculation.updateMany = original.calcUpdateMany;
         prisma.orderFreightCalculation.update = original.calcUpdate;
         prisma.hub.findUnique = original.hubFindUnique;
+        for (const [key, value] of Object.entries(envSnapshot)) {
+            if (value === undefined) {
+                delete process.env[key];
+            } else {
+                process.env[key] = value;
+            }
+        }
     });
 
     it('GET /cte-preflight retorna resultado válido quando cálculo está pronto', async () => {

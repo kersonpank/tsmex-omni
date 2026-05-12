@@ -25,9 +25,70 @@ export function isAcbrCredentialsConfigured(): boolean {
     return Boolean(process.env.ACBR_CLIENT_ID?.trim() && process.env.ACBR_CLIENT_SECRET?.trim());
 }
 
+export type AcbrProviderDecisionReason =
+    | 'forced_by_env'
+    | 'emitter_provider_acbr'
+    | 'missing_credentials'
+    | 'provider_simulated';
+
+export interface AcbrProviderDecision {
+    willUseAcbrHttp: boolean;
+    acbrRequired: boolean;
+    reason: AcbrProviderDecisionReason;
+    credentialsConfigured: boolean;
+}
+
+function isAcbrEnvForced(): boolean {
+    return process.env.FISCAL_CTE_PROVIDER?.trim().toLowerCase() === 'acbr'
+        || process.env.FISCAL_PROVIDER?.trim().toLowerCase() === 'acbr';
+}
+
+function isEmitterAcbr(fiscalEmitterProvider?: string | null): boolean {
+    return fiscalEmitterProvider?.trim().toUpperCase() === 'ACBR';
+}
+
+export function getAcbrProviderDecision(fiscalEmitterProvider?: string | null): AcbrProviderDecision {
+    const forced = isAcbrEnvForced();
+    const emitterAcbr = isEmitterAcbr(fiscalEmitterProvider);
+    const acbrRequired = forced || emitterAcbr;
+    const credentialsConfigured = isAcbrCredentialsConfigured();
+
+    if (acbrRequired && !credentialsConfigured) {
+        return {
+            willUseAcbrHttp: false,
+            acbrRequired,
+            reason: 'missing_credentials',
+            credentialsConfigured,
+        };
+    }
+
+    if (forced) {
+        return {
+            willUseAcbrHttp: true,
+            acbrRequired,
+            reason: 'forced_by_env',
+            credentialsConfigured,
+        };
+    }
+
+    if (emitterAcbr) {
+        return {
+            willUseAcbrHttp: true,
+            acbrRequired,
+            reason: 'emitter_provider_acbr',
+            credentialsConfigured,
+        };
+    }
+
+    return {
+        willUseAcbrHttp: false,
+        acbrRequired,
+        reason: 'provider_simulated',
+        credentialsConfigured,
+    };
+}
+
 /** Usa ACBr quando credenciais existem e (env força ou emitente ACBR). */
 export function shouldUseAcbrHttp(fiscalEmitterProvider?: string | null): boolean {
-    if (!isAcbrCredentialsConfigured()) return false;
-    if (process.env.FISCAL_CTE_PROVIDER === 'acbr' || process.env.FISCAL_PROVIDER === 'acbr') return true;
-    return fiscalEmitterProvider === 'ACBR';
+    return getAcbrProviderDecision(fiscalEmitterProvider).willUseAcbrHttp;
 }

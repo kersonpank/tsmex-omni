@@ -81,10 +81,31 @@ const completeInput: CteEmissionInput = {
 };
 
 describe('buildCtePreflightResult', () => {
+    function withAcbrCredentials<T>(fn: () => T): T {
+        const env = {
+            ACBR_CLIENT_ID: process.env.ACBR_CLIENT_ID,
+            ACBR_CLIENT_SECRET: process.env.ACBR_CLIENT_SECRET,
+            FISCAL_CTE_PROVIDER: process.env.FISCAL_CTE_PROVIDER,
+            FISCAL_PROVIDER: process.env.FISCAL_PROVIDER,
+        };
+        process.env.ACBR_CLIENT_ID = 'client-id';
+        process.env.ACBR_CLIENT_SECRET = 'client-secret';
+        delete process.env.FISCAL_CTE_PROVIDER;
+        delete process.env.FISCAL_PROVIDER;
+        try {
+            return fn();
+        } finally {
+            for (const [key, value] of Object.entries(env)) {
+                if (value === undefined) delete process.env[key];
+                else process.env[key] = value;
+            }
+        }
+    }
+
     it('aprova CT-e pronto sem alterar estado fiscal', () => {
-        const result = buildCtePreflightResult(completeInput, {
+        const result = withAcbrCredentials(() => buildCtePreflightResult(completeInput, {
             provider: 'ACBR',
-        });
+        }));
 
         assert.equal(result.ok, true);
         assert.equal(result.canEmit, true);
@@ -94,6 +115,38 @@ describe('buildCtePreflightResult', () => {
         assert.deepEqual(result.missingFields, []);
         assert.equal(result.tax.cfop?.code, '6352');
         assert.equal(result.tax.cst?.code, '00');
+        assert.equal(result.providerDecision.willUseAcbrHttp, true);
+        assert.equal(result.providerDecision.reason, 'emitter_provider_acbr');
+    });
+
+    it('bloqueia emitente ACBr pronto quando credenciais OAuth não chegam na API', () => {
+        const env = {
+            ACBR_CLIENT_ID: process.env.ACBR_CLIENT_ID,
+            ACBR_CLIENT_SECRET: process.env.ACBR_CLIENT_SECRET,
+            FISCAL_CTE_PROVIDER: process.env.FISCAL_CTE_PROVIDER,
+            FISCAL_PROVIDER: process.env.FISCAL_PROVIDER,
+        };
+        delete process.env.ACBR_CLIENT_ID;
+        delete process.env.ACBR_CLIENT_SECRET;
+        delete process.env.FISCAL_CTE_PROVIDER;
+        delete process.env.FISCAL_PROVIDER;
+
+        const result = buildCtePreflightResult(completeInput, {
+            provider: 'ACBR',
+        });
+
+        try {
+            assert.equal(result.ok, false);
+            assert.equal(result.canEmit, false);
+            assert.equal(result.providerDecision.willUseAcbrHttp, false);
+            assert.equal(result.providerDecision.reason, 'missing_credentials');
+            assert.ok(result.issues.some((issue) => issue.includes('ACBR_CLIENT_ID')));
+        } finally {
+            for (const [key, value] of Object.entries(env)) {
+                if (value === undefined) delete process.env[key];
+                else process.env[key] = value;
+            }
+        }
     });
 
     it('lista pendências de preenchimento e CST inválido antes do envio', () => {

@@ -6,6 +6,7 @@ import {
     validateCteReadiness,
     type CteEmissionInput,
 } from './cteService.js';
+import { buildCtePreflightResult } from './fiscal/ctePreflight.js';
 
 const completeInput: CteEmissionInput = {
     calc: {
@@ -127,6 +128,16 @@ describe('validateCteReadiness', () => {
 });
 
 describe('authorizeCteWithProvider', () => {
+    function restoreAcbrEnv(snapshot: Record<string, string | undefined>): void {
+        for (const [key, value] of Object.entries(snapshot)) {
+            if (value === undefined) {
+                delete process.env[key];
+            } else {
+                process.env[key] = value;
+            }
+        }
+    }
+
     it('provider simulado autoriza com chave, protocolo, XML e PDF', async () => {
         const result = await authorizeCteWithProvider(completeInput, { mode: 'simulate-authorized' });
 
@@ -144,5 +155,125 @@ describe('authorizeCteWithProvider', () => {
         assert.equal(result.accessKey, undefined);
         assert.equal(result.protocol, undefined);
         assert.equal(result.rejectionReason, 'Rejeição simulada do provedor fiscal.');
+    });
+
+    it('rejeita em vez de simular quando emitente ACBR está sem credenciais OAuth', async () => {
+        const env = {
+            ACBR_CLIENT_ID: process.env.ACBR_CLIENT_ID,
+            ACBR_CLIENT_SECRET: process.env.ACBR_CLIENT_SECRET,
+            FISCAL_CTE_PROVIDER: process.env.FISCAL_CTE_PROVIDER,
+            FISCAL_PROVIDER: process.env.FISCAL_PROVIDER,
+        };
+        delete process.env.ACBR_CLIENT_ID;
+        delete process.env.ACBR_CLIENT_SECRET;
+        delete process.env.FISCAL_CTE_PROVIDER;
+        delete process.env.FISCAL_PROVIDER;
+
+        try {
+            const result = await authorizeCteWithProvider(completeInput, {
+                mode: 'simulate-authorized',
+                fiscalEmitterProvider: 'ACBR',
+            });
+
+            assert.equal(result.status, 'REJECTED');
+            assert.equal(result.rawResponse.provider, 'acbr');
+            assert.equal(result.rejectionCode, 'ACBR_CONFIG');
+            assert.match(result.rejectionReason ?? '', /ACBR_CLIENT_ID.*ACBR_CLIENT_SECRET/);
+            assert.equal(result.protocol, undefined);
+        } finally {
+            restoreAcbrEnv(env);
+        }
+    });
+
+    it('rejeita em vez de simular quando env força ACBr mas credenciais OAuth faltam', async () => {
+        const env = {
+            ACBR_CLIENT_ID: process.env.ACBR_CLIENT_ID,
+            ACBR_CLIENT_SECRET: process.env.ACBR_CLIENT_SECRET,
+            FISCAL_CTE_PROVIDER: process.env.FISCAL_CTE_PROVIDER,
+            FISCAL_PROVIDER: process.env.FISCAL_PROVIDER,
+        };
+        delete process.env.ACBR_CLIENT_ID;
+        delete process.env.ACBR_CLIENT_SECRET;
+        process.env.FISCAL_CTE_PROVIDER = 'acbr';
+        delete process.env.FISCAL_PROVIDER;
+
+        try {
+            const result = await authorizeCteWithProvider(completeInput, {
+                mode: 'simulate-authorized',
+                fiscalEmitterProvider: 'SIMULATED',
+            });
+
+            assert.equal(result.status, 'REJECTED');
+            assert.equal(result.rawResponse.provider, 'acbr');
+            assert.equal(result.rejectionCode, 'ACBR_CONFIG');
+            assert.equal(result.protocol, undefined);
+        } finally {
+            restoreAcbrEnv(env);
+        }
+    });
+});
+
+describe('buildCtePreflightResult', () => {
+    function restoreAcbrEnv(snapshot: Record<string, string | undefined>): void {
+        for (const [key, value] of Object.entries(snapshot)) {
+            if (value === undefined) {
+                delete process.env[key];
+            } else {
+                process.env[key] = value;
+            }
+        }
+    }
+
+    it('explica que emitente ACBR não irá chamar ACBr quando faltam credenciais', () => {
+        const env = {
+            ACBR_CLIENT_ID: process.env.ACBR_CLIENT_ID,
+            ACBR_CLIENT_SECRET: process.env.ACBR_CLIENT_SECRET,
+            FISCAL_CTE_PROVIDER: process.env.FISCAL_CTE_PROVIDER,
+            FISCAL_PROVIDER: process.env.FISCAL_PROVIDER,
+        };
+        delete process.env.ACBR_CLIENT_ID;
+        delete process.env.ACBR_CLIENT_SECRET;
+        delete process.env.FISCAL_CTE_PROVIDER;
+        delete process.env.FISCAL_PROVIDER;
+
+        try {
+            const result = buildCtePreflightResult(completeInput, {
+                environment: 'HOMOLOGACAO',
+                provider: 'ACBR',
+            });
+
+            assert.equal(result.providerDecision.willUseAcbrHttp, false);
+            assert.equal(result.providerDecision.reason, 'missing_credentials');
+            assert.equal(result.canEmit, false);
+            assert.ok(result.issues.some((issue) => issue.includes('ACBR_CLIENT_ID')));
+        } finally {
+            restoreAcbrEnv(env);
+        }
+    });
+
+    it('marca ACBr real quando credenciais existem e env força provider', () => {
+        const env = {
+            ACBR_CLIENT_ID: process.env.ACBR_CLIENT_ID,
+            ACBR_CLIENT_SECRET: process.env.ACBR_CLIENT_SECRET,
+            FISCAL_CTE_PROVIDER: process.env.FISCAL_CTE_PROVIDER,
+            FISCAL_PROVIDER: process.env.FISCAL_PROVIDER,
+        };
+        process.env.ACBR_CLIENT_ID = 'client-id';
+        process.env.ACBR_CLIENT_SECRET = 'client-secret';
+        process.env.FISCAL_CTE_PROVIDER = 'acbr';
+        delete process.env.FISCAL_PROVIDER;
+
+        try {
+            const result = buildCtePreflightResult(completeInput, {
+                environment: 'HOMOLOGACAO',
+                provider: 'SIMULATED',
+            });
+
+            assert.equal(result.providerDecision.willUseAcbrHttp, true);
+            assert.equal(result.providerDecision.reason, 'forced_by_env');
+            assert.equal(result.canEmit, true);
+        } finally {
+            restoreAcbrEnv(env);
+        }
     });
 });

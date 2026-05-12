@@ -24,8 +24,8 @@ const publicBaseUrl = normalizeUrlEnv(process.env.S3_PUBLIC_BASE_URL ?? process.
 const signedUrlPublicHost = normalizeUrlEnv(process.env.S3_SIGNED_URL_PUBLIC_HOST) ?? publicBaseUrl ?? null;
 const isProduction = (process.env.NODE_ENV ?? '').toLowerCase() === 'production';
 
-if (!endpoint || !accessKeyId || !secretAccessKey) {
-    throw new Error('Missing MinIO/S3 env vars. Configure endpoint, access key and secret key.');
+export function isObjectStorageConfigured(): boolean {
+    return Boolean(endpoint && accessKeyId && secretAccessKey);
 }
 
 function isPrivateIpv4(hostname: string): boolean {
@@ -89,16 +89,26 @@ function rewriteSignedUrlToPublicHost(url: string): string {
     }
 }
 
-if (isProduction) {
+if (isProduction && endpoint) {
     assertProductionSafeEndpoint(endpoint);
 }
 
-const s3Client = new S3Client({
-    endpoint,
-    region,
-    forcePathStyle,
-    credentials: { accessKeyId, secretAccessKey },
-});
+let s3Client: S3Client | null = null;
+
+function getS3Client(): S3Client {
+    if (!endpoint || !accessKeyId || !secretAccessKey) {
+        throw new Error('Missing MinIO/S3 env vars. Configure endpoint, access key and secret key.');
+    }
+    if (!s3Client) {
+        s3Client = new S3Client({
+            endpoint,
+            region,
+            forcePathStyle,
+            credentials: { accessKeyId, secretAccessKey },
+        });
+    }
+    return s3Client;
+}
 
 function sanitizeFileName(fileName: string): string {
     return fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -144,7 +154,9 @@ export async function uploadBase64Object(params: {
     const storageKey = buildStorageKey(params.keyPrefix, params.fileName);
     const checksum = crypto.createHash('sha256').update(buffer).digest('hex');
 
-    await s3Client.send(
+    const client = getS3Client();
+
+    await client.send(
         new PutObjectCommand({
             Bucket: bucket,
             Key: storageKey,
@@ -154,7 +166,7 @@ export async function uploadBase64Object(params: {
     );
 
     const signedUrl = await getSignedUrl(
-        s3Client,
+        client,
         new GetObjectCommand({ Bucket: bucket, Key: storageKey }),
         { expiresIn: 60 * 60 }
     );
@@ -170,7 +182,7 @@ export async function uploadBase64Object(params: {
 }
 
 export async function deleteObjectByKey(storageKey: string): Promise<void> {
-    await s3Client.send(
+    await getS3Client().send(
         new DeleteObjectCommand({
             Bucket: bucket,
             Key: storageKey,
@@ -180,7 +192,7 @@ export async function deleteObjectByKey(storageKey: string): Promise<void> {
 
 export async function getObjectDownloadUrl(storageKey: string, expiresInSeconds = 3600): Promise<string> {
     const signedUrl = await getSignedUrl(
-        s3Client,
+        getS3Client(),
         new GetObjectCommand({ Bucket: bucket, Key: storageKey }),
         { expiresIn: expiresInSeconds }
     );
@@ -189,10 +201,11 @@ export async function getObjectDownloadUrl(storageKey: string, expiresInSeconds 
 
 export async function ensureBucketExists(): Promise<void> {
     try {
-        await s3Client.send(new HeadBucketCommand({ Bucket: bucket }));
+        const client = getS3Client();
+        await client.send(new HeadBucketCommand({ Bucket: bucket }));
     } catch (err: any) {
         if (err.name === 'NotFound' || err.$metadata?.httpStatusCode === 404 || err.name === 'NoSuchBucket') {
-            await s3Client.send(new CreateBucketCommand({ Bucket: bucket }));
+            await getS3Client().send(new CreateBucketCommand({ Bucket: bucket }));
             console.log(`S3 bucket "${bucket}" criado.`);
         } else {
             throw err;
