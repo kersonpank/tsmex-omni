@@ -1,10 +1,10 @@
 import { buildCtePayload } from './freightEmission.js';
 import type { CteEmissionInput, CtePerson, CteProviderOptions, CteProviderResult } from './cteService.js';
+import { getAcbrProviderDecision } from './acbr/acbrConfig.js';
 
 function nullStr(v: string | null | undefined): string | null {
     return v === undefined || v === null ? null : v;
 }
-import { shouldUseAcbrHttp } from './acbr/acbrConfig.js';
 import { resolveIbgeMunicipio, ufToCuf } from './acbr/acbrIbge.js';
 import { acbrFetchJson } from './acbr/acbrHttp.js';
 
@@ -187,8 +187,22 @@ export async function authorizeDceWithProvider(input: CteEmissionInput, options:
             rawResponse: { provider: 'simulation' },
         };
     }
-    const useAcbr = shouldUseAcbrHttp(options.fiscalEmitterProvider ?? null);
-    if (useAcbr) {
+
+    const acbrDecision = getAcbrProviderDecision(options.fiscalEmitterProvider ?? null);
+    if (acbrDecision.acbrRequired && !acbrDecision.credentialsConfigured) {
+        return {
+            status: 'REJECTED',
+            rejectionCode: 'ACBR_CONFIG',
+            rejectionReason: 'ACBr exigido, mas ACBR_CLIENT_ID e ACBR_CLIENT_SECRET não foram detectados no container da API.',
+            rawResponse: {
+                provider: 'acbr',
+                reason: acbrDecision.reason,
+                credentialsConfigured: acbrDecision.credentialsConfigured,
+            },
+        };
+    }
+
+    if (acbrDecision.willUseAcbrHttp && (options.mode ?? 'simulate-authorized') === 'simulate-authorized') {
         try {
             return await emitDceViaAcbr(input, input.calc.id);
         } catch (e) {
