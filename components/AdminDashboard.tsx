@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
-import { Link as RouterLink, useSearchParams } from 'react-router-dom';
+import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
 import { demandsApi } from '../lib/api';
 import { demandStatusLabels, demandStatusTones } from '../lib/demandStatusUi';
 import { useAuthStore } from '../store/authStore';
@@ -63,37 +63,37 @@ const AdminDashboard: React.FC = () => {
     [isHub, hubPermissions]
   );
 
-  const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const navState = useMemo(
-    () => parseAdminSearchParams(searchParams, isHub, hasPermission),
-    [searchParams, isHub, hasPermission]
+    () => parseAdminSearchParams(new URLSearchParams(location.search), isHub, hasPermission),
+    [location.search, isHub, hasPermission]
   );
 
-  /** URL da barra pode ter `sub` inválido para HUB; parse cai no fallback mas query não — alinha com replace. */
+  /** URL da barra pode ter `sub` inválido para HUB; parse cai no fallback mas query não — alinha com `navigate` (mesmo escritor que `setNavState`). */
   useLayoutEffect(() => {
-    const current = new URLSearchParams(searchParams.toString());
+    if (location.pathname !== '/gestao') return;
+    const current = new URLSearchParams(location.search);
     const canonical = canonicalSearchParamsForGestao(current, isHub, hasPermission);
     if (gestaoSearchParamsSignature(current) !== gestaoSearchParamsSignature(canonical)) {
-      setSearchParams(canonical, { replace: true });
+      const q = canonical.toString();
+      navigate({ pathname: '/gestao', search: q ? `?${q}` : '' }, { replace: true });
     }
-  }, [searchParams, isHub, hasPermission, setSearchParams]);
+  }, [location.pathname, location.search, isHub, hasPermission, navigate]);
 
   const setNavState = useCallback(
     (patch: Partial<AdminNavState>) => {
-      setSearchParams(
-        (prev) => {
-          const current = parseAdminSearchParams(prev, isHub, hasPermission);
-          let next: AdminNavState = { ...current, ...patch };
-          if (next.category !== 'transport' || next.transportSubTab !== 'entrada') {
-            next = { ...next, entradaOrderId: null };
-          }
-          return adminStateToSearchParams(next, isHub);
-        },
-        { replace: true }
-      );
+      const current = parseAdminSearchParams(new URLSearchParams(location.search), isHub, hasPermission);
+      let next: AdminNavState = { ...current, ...patch };
+      if (next.category !== 'transport' || next.transportSubTab !== 'entrada') {
+        next = { ...next, entradaOrderId: null };
+      }
+      const sp = adminStateToSearchParams(next, isHub);
+      const q = sp.toString();
+      navigate({ pathname: '/gestao', search: q ? `?${q}` : '' }, { replace: true });
     },
-    [isHub, hasPermission, setSearchParams]
+    [isHub, hasPermission, location.search, navigate]
   );
 
   const hubContextLine = useMemo(() => {
