@@ -97,6 +97,34 @@ export function parseAdminSearchParams(
   return out;
 }
 
+/**
+ * Depois de `{ ...current, ...patch }`: remove `entradaOrderId` fora de Entrada e repõe sub-áreas
+ * não serializadas na URL (ex.: `transportSubTab` ainda `entrada` em memória ao mudar para Comercial).
+ */
+export function normalizeGestaoNavAfterMerge(state: AdminNavState, isHub: boolean): AdminNavState {
+  if (isHub) {
+    let s = { ...state };
+    if (s.transportSubTab !== 'entrada') {
+      s = { ...s, entradaOrderId: null };
+    }
+    return s;
+  }
+  let s = { ...state };
+  if (s.category !== 'transport' || s.transportSubTab !== 'entrada') {
+    s = { ...s, entradaOrderId: null };
+  }
+  if (s.category !== 'transport') {
+    s = { ...s, transportSubTab: 'demands' };
+  }
+  if (s.category !== 'commercial') {
+    s = { ...s, commercialSubTab: 'cotacoes' };
+  }
+  if (s.category !== 'general') {
+    s = { ...s, generalSubTab: 'settings' };
+  }
+  return s;
+}
+
 function appendEntradaOrderQuery(sp: URLSearchParams, state: AdminNavState, isHub: boolean) {
   const onEntrada =
     (isHub && state.transportSubTab === 'entrada') ||

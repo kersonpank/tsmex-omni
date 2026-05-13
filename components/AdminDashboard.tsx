@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
 import { demandsApi } from '../lib/api';
 import { demandStatusLabels, demandStatusTones } from '../lib/demandStatusUi';
@@ -31,6 +31,7 @@ import {
   gestaoSearchParamsSignature,
   getAdminBreadcrumbs,
   getAdminPageTitle,
+  normalizeGestaoNavAfterMerge,
   parseAdminSearchParams,
   type AdminNavState,
 } from './admin/layout/adminQuery';
@@ -65,35 +66,37 @@ const AdminDashboard: React.FC = () => {
 
   const location = useLocation();
   const navigate = useNavigate();
+  const gestaoSearchRef = useRef(location.search);
+  gestaoSearchRef.current = location.search;
 
   const navState = useMemo(
     () => parseAdminSearchParams(new URLSearchParams(location.search), isHub, hasPermission),
     [location.search, isHub, hasPermission]
   );
 
-  /** URL da barra pode ter `sub` inválido para HUB; parse cai no fallback mas query não — alinha com `navigate` (mesmo escritor que `setNavState`). */
-  useLayoutEffect(() => {
+  /**
+   * URL da barra pode ter `sub` inválido para HUB; parse cai no fallback mas query não — alinha com replace.
+   * `useEffect` (não layout) evita disputar com o unmount/teias da aba Entrada no mesmo tick que `navigate`.
+   */
+  useEffect(() => {
     if (location.pathname !== '/gestao') return;
     const current = new URLSearchParams(location.search);
     const canonical = canonicalSearchParamsForGestao(current, isHub, hasPermission);
     if (gestaoSearchParamsSignature(current) !== gestaoSearchParamsSignature(canonical)) {
       const q = canonical.toString();
-      navigate({ pathname: '/gestao', search: q ? `?${q}` : '' }, { replace: true });
+      void navigate(q ? `/gestao?${q}` : '/gestao', { replace: true });
     }
   }, [location.pathname, location.search, isHub, hasPermission, navigate]);
 
   const setNavState = useCallback(
     (patch: Partial<AdminNavState>) => {
-      const current = parseAdminSearchParams(new URLSearchParams(location.search), isHub, hasPermission);
-      let next: AdminNavState = { ...current, ...patch };
-      if (next.category !== 'transport' || next.transportSubTab !== 'entrada') {
-        next = { ...next, entradaOrderId: null };
-      }
+      const current = parseAdminSearchParams(new URLSearchParams(gestaoSearchRef.current), isHub, hasPermission);
+      const next = normalizeGestaoNavAfterMerge({ ...current, ...patch }, isHub);
       const sp = adminStateToSearchParams(next, isHub);
       const q = sp.toString();
-      navigate({ pathname: '/gestao', search: q ? `?${q}` : '' }, { replace: true });
+      void navigate(q ? `/gestao?${q}` : '/gestao', { replace: true });
     },
-    [isHub, hasPermission, location.search, navigate]
+    [isHub, hasPermission, navigate]
   );
 
   const hubContextLine = useMemo(() => {

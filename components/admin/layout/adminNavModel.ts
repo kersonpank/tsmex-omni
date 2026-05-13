@@ -1,4 +1,9 @@
-import { adminStateToSearchParams, parseAdminSearchParams, type AdminNavState } from './adminQuery';
+import {
+  adminStateToSearchParams,
+  normalizeGestaoNavAfterMerge,
+  parseAdminSearchParams,
+  type AdminNavState,
+} from './adminQuery';
 
 export interface AdminNavSection {
   title: string;
@@ -125,7 +130,8 @@ export function navigateToNavState(
   isHub: boolean,
   navigate: (to: string) => void
 ) {
-  const next = mergeNavState(current, patch);
+  const next = normalizeGestaoNavAfterMerge(mergeNavState(current, patch), isHub);
   const sp = adminStateToSearchParams(next, isHub);
-  navigate(`/gestao?${sp.toString()}`);
+  const q = sp.toString();
+  navigate(q ? `/gestao?${q}` : '/gestao', { replace: true });
 }

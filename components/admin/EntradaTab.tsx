@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState, lazy, Suspense } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import {
   ordersApi,
   ordersEntradaApi,
@@ -33,7 +33,7 @@ const fileToBase64 = (file: File): Promise<string> =>
   });
 
 const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false }) => {
-  const [searchParams] = useSearchParams();
+  const location = useLocation();
   const { user } = useAuthStore();
   const isHub = user?.roles?.includes('HUB') ?? false;
   const hubId = (user?.profile as { hub?: { hubId?: string } })?.hub?.hubId ?? (user as any)?.hubId;
@@ -176,14 +176,15 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
 
   useEffect(() => {
     if (loading) return;
-    const sub = searchParams.get('sub');
+    const sp = new URLSearchParams(location.search);
+    const sub = sp.get('sub');
     if (sub !== 'entrada') return;
-    if (!isHub && searchParams.get('cat') !== 'transport') return;
-    const raw = searchParams.get('orderId');
+    if (!isHub && sp.get('cat') !== 'transport') return;
+    const raw = sp.get('orderId');
     if (!raw || !UUID_REGEX.test(raw)) return;
     setSelectedOrderId(raw);
     setIsCreatingNew(false);
-  }, [loading, searchParams, isHub]);
+  }, [loading, location.search, isHub]);
 
   useEffect(() => {
     hubsApi.list().then((r: any) => setHubs((r?.data ?? r) || [])).catch(() => setHubs([]));
