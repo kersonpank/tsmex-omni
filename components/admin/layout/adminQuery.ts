@@ -108,6 +108,24 @@ function appendEntradaOrderQuery(sp: URLSearchParams, state: AdminNavState, isHu
   }
 }
 
+/** Ordena chaves para comparar query da barra com a query canónica do parse. */
+export function gestaoSearchParamsSignature(sp: URLSearchParams): string {
+  return [...sp.entries()]
+    .sort((a, b) => (a[0] === b[0] ? a[1].localeCompare(b[1]) : a[0].localeCompare(b[0])))
+    .map(([k, v]) => `${k}=${v}`)
+    .join('&');
+}
+
+/** Estado derivado da URL + query que o router deve usar (alinha `sub` inválido em HUB, etc.). */
+export function canonicalSearchParamsForGestao(
+  search: URLSearchParams,
+  isHub: boolean,
+  hasPermission: (p: string) => boolean
+): URLSearchParams {
+  const state = parseAdminSearchParams(search, isHub, hasPermission);
+  return adminStateToSearchParams(state, isHub);
+}
+
 export function adminStateToSearchParams(state: AdminNavState, isHub: boolean): URLSearchParams {
   const sp = new URLSearchParams();
   if (isHub) {

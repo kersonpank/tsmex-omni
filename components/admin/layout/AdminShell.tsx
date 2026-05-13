@@ -16,6 +16,8 @@ interface AdminShellProps {
   navSections: AdminNavSection[];
   /** Barra Listagem / Filtro / Editar / Novo (Torre de controle) */
   showGestaoActionBar?: boolean;
+  /** Troca de aba: força remount do painel para evitar resíduo visual entre módulos. */
+  gestaoPanelKey?: string;
   children: React.ReactNode;
 }
 
@@ -73,6 +75,7 @@ const AdminShell: React.FC<AdminShellProps> = ({
   breadcrumbs,
   navSections,
   showGestaoActionBar = false,
+  gestaoPanelKey,
   children,
 }) => {
   const {
@@ -164,7 +167,7 @@ const AdminShell: React.FC<AdminShellProps> = ({
 
           {showGestaoActionBar ? <GestaoActionBar /> : null}
 
-          <div className="admin-panel-animate" role="tabpanel">
+          <div className="admin-panel-animate" role="tabpanel" key={gestaoPanelKey ?? 'gestao-panel'}>
             {children}
           </div>
         </div>

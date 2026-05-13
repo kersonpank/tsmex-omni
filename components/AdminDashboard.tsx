@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { demandsApi } from '../lib/api';
 import { demandStatusLabels, demandStatusTones } from '../lib/demandStatusUi';
@@ -27,6 +27,8 @@ import {
 import { buildAdminNavSections } from './admin/layout/adminNavModel';
 import {
   adminStateToSearchParams,
+  canonicalSearchParamsForGestao,
+  gestaoSearchParamsSignature,
   getAdminBreadcrumbs,
   getAdminPageTitle,
   parseAdminSearchParams,
@@ -67,6 +69,15 @@ const AdminDashboard: React.FC = () => {
     () => parseAdminSearchParams(searchParams, isHub, hasPermission),
     [searchParams, isHub, hasPermission]
   );
+
+  /** URL da barra pode ter `sub` inválido para HUB; parse cai no fallback mas query não — alinha com replace. */
+  useLayoutEffect(() => {
+    const current = new URLSearchParams(searchParams.toString());
+    const canonical = canonicalSearchParamsForGestao(current, isHub, hasPermission);
+    if (gestaoSearchParamsSignature(current) !== gestaoSearchParamsSignature(canonical)) {
+      setSearchParams(canonical, { replace: true });
+    }
+  }, [searchParams, isHub, hasPermission, setSearchParams]);
 
   const setNavState = useCallback(
     (patch: Partial<AdminNavState>) => {
@@ -728,6 +739,18 @@ const AdminDashboard: React.FC = () => {
 
   const showGestaoActionBar = navState.category !== 'general';
 
+  const gestaoPanelKey = useMemo(
+    () =>
+      [
+        navState.category,
+        navState.transportSubTab,
+        navState.commercialSubTab,
+        navState.generalSubTab,
+        navState.entradaOrderId ?? '',
+      ].join('|'),
+    [navState]
+  );
+
   return (
     <GestaoModuleActionsProvider>
       {isDemandsView ? <RegisterDemandsGestaoActions config={demandsGestaoConfig} /> : null}
@@ -739,6 +762,7 @@ const AdminDashboard: React.FC = () => {
         breadcrumbs={breadcrumbs}
         navSections={navSections}
         showGestaoActionBar={showGestaoActionBar}
+        gestaoPanelKey={gestaoPanelKey}
       >
         {mainPanel}
       </AdminShell>
