@@ -14,6 +14,7 @@
         "db:push": "prisma db push",
         "db:studio": "prisma studio",
         "db:seed": "tsx prisma/seed.ts",
+        "db:seed:e2e-manifest": "tsx prisma/seed-manifest-e2e.ts",
         "db:migrate-persons": "tsx prisma/migrate-persons.ts"
     },
     "dependencies": {

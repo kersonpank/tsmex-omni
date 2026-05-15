@@ -1,0 +1,252 @@
+/**
+ * Fluxo TRANSFER SP-GRU → IMP-MA (12 asserts do PR001) via manifestLifecycle + mocks Prisma.
+ */
+import assert from 'node:assert/strict';
+import type { ManifestStatus } from '@prisma/client';
+import { afterEach, beforeEach, describe, it } from 'node:test';
+import prisma from '../lib/prisma.js';
+import {
+    addDemandToManifest,
+    completeManifest,
+    startManifest,
+} from '../services/manifestLifecycle.js';
+
+describe('manifests lifecycle TRANSFER E2E (mocked)', () => {
+    const hubSpGru = 'hub-sp-gru-id';
+    const hubImpMa = 'hub-imp-ma-id';
+    const manifestId = 'mf-transfer-e2e';
+    const demandIds = ['dem-e2e-1', 'dem-e2e-2'];
+    const orderIds = ['ord-e2e-1', 'ord-e2e-2'];
+    const vehicleTypeId = 'vt-truck';
+
+    const store = {
+        manifest: {
+            id: manifestId,
+            status: 'ACCEPTED' as ManifestStatus,
+            tripType: 'TRANSFER' as const,
+            origin: 'Guarulhos, SP',
+            destination: 'Imperatriz, MA',
+            hubId: hubSpGru,
+            destHubId: hubImpMa,
+            linkId: 'link-e2e',
+            totalWeight: 0,
+            totalVolume: 0,
+            totalValue: 0,
+            vehicleTypeId,
+            demands: [] as Array<{ id: string; weight: number; volume: number; nfValue: number; cubedWeight: number | null }>,
+        },
+        demands: new Map(
+            demandIds.map((id, i) => [
+                id,
+                {
+                    id,
+                    manifestId: null as string | null,
+                    weight: 100 + i * 10,
+                    volume: 1,
+                    nfValue: 500,
+                    cubedWeight: null,
+                    status: 'APPROVED',
+                },
+            ])
+        ),
+        orders: new Map(
+            orderIds.map((id, i) => [
+                id,
+                {
+                    id,
+                    demandId: demandIds[i],
+                    manifestId: null as string | null,
+                    status: 'PENDING',
+                    currentHubId: null as string | null,
+                    enteredAtHubAt: null as Date | null,
+                },
+            ])
+        ),
+        demandEvents: [] as Array<{ demandId: string; status: string }>,
+        orderHistories: [] as Array<{ orderId: string; eventType: string }>,
+        linkDeliveryCount: 0,
+    };
+
+    const vehicleType = { maxWeight: 20000, maxVolume: 100, maxValue: 2_000_000 };
+
+    const original = {
+        manifestFindUnique: prisma.manifest.findUnique.bind(prisma.manifest),
+        demandFindUnique: prisma.demand.findUnique.bind(prisma.demand),
+        demandFindFirst: prisma.demand.findFirst.bind(prisma.demand),
+        orderFindFirst: prisma.order.findFirst.bind(prisma.order),
+        orderFindMany: prisma.order.findMany.bind(prisma.order),
+        transaction: prisma.$transaction.bind(prisma),
+        linkUpdate: prisma.link.update.bind(prisma.link),
+    };
+
+    function buildTx() {
+        return {
+            demand: {
+                update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+                    const d = store.demands.get(where.id);
+                    if (d) Object.assign(d, data);
+                    return d;
+                },
+            },
+            order: {
+                update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+                    for (const o of store.orders.values()) {
+                        if (o.id === where.id) Object.assign(o, data);
+                    }
+                    return store.orders.get(where.id);
+                },
+                updateMany: async ({ where, data }: { where: { demandId: string }; data: Record<string, unknown> }) => {
+                    for (const o of store.orders.values()) {
+                        if (o.demandId === where.demandId) Object.assign(o, data);
+                    }
+                    return { count: 1 };
+                },
+            },
+            manifest: {
+                update: async ({ data }: { data: Record<string, unknown> }) => {
+                    Object.assign(store.manifest, data);
+                    return store.manifest;
+                },
+            },
+            demandEvent: {
+                create: async ({ data }: { data: { demandId: string; status: string } }) => {
+                    store.demandEvents.push(data);
+                    return data;
+                },
+            },
+            orderHistory: {
+                create: async ({ data }: { data: { orderId: string; eventType: string } }) => {
+                    store.orderHistories.push(data);
+                    return data;
+                },
+            },
+        };
+    }
+
+    function installPrismaMocks() {
+        prisma.manifest.findUnique = (async () => ({
+            ...store.manifest,
+            vehicleType,
+            destHub: { id: hubImpMa, code: 'IMP-MA' },
+            demands: [...store.demands.values()].filter((d) => d.manifestId === manifestId),
+        })) as unknown as typeof prisma.manifest.findUnique;
+
+        prisma.demand.findUnique = (async (args: { where: { id: string } }) => {
+            const d = store.demands.get(args.where.id);
+            if (!d) return null;
+            const order = [...store.orders.values()].find((o) => o.demandId === d.id);
+            return { ...d, order: order ? { id: order.id } : null };
+        }) as unknown as typeof prisma.demand.findUnique;
+
+        prisma.demand.findFirst = (async () => null) as unknown as typeof prisma.demand.findFirst;
+        prisma.order.findFirst = (async () => null) as unknown as typeof prisma.order.findFirst;
+
+        prisma.order.findMany = (async (args: { where?: { manifestId?: string } }) => {
+            if (!args.where?.manifestId) return [];
+            return [...store.orders.values()].filter((o) => o.manifestId === args.where!.manifestId);
+        }) as unknown as typeof prisma.order.findMany;
+
+        prisma.$transaction = (async (fn: unknown) => {
+            if (typeof fn === 'function') return fn(buildTx());
+            throw new Error('batch tx not used');
+        }) as unknown as typeof prisma.$transaction;
+
+        prisma.link.update = (async (args: { data: { deliveryCount?: { increment: number } } }) => {
+            if (args.data.deliveryCount?.increment) {
+                store.linkDeliveryCount += args.data.deliveryCount.increment;
+            }
+            return { id: 'link-e2e', deliveryCount: store.linkDeliveryCount };
+        }) as unknown as typeof prisma.link.update;
+    }
+
+    function restorePrismaMocks() {
+        prisma.manifest.findUnique = original.manifestFindUnique;
+        prisma.demand.findUnique = original.demandFindUnique;
+        prisma.demand.findFirst = original.demandFindFirst;
+        prisma.order.findFirst = original.orderFindFirst;
+        prisma.order.findMany = original.orderFindMany;
+        prisma.$transaction = original.transaction;
+        prisma.link.update = original.linkUpdate;
+    }
+
+    beforeEach(() => installPrismaMocks());
+    afterEach(() => restorePrismaMocks());
+
+    it('TRANSFER flow: create context, add 2 demands, start, complete — 12 checks', async () => {
+        store.manifest.status = 'DRAFT';
+        store.manifest.demands = [];
+        store.demandEvents = [];
+        store.orderHistories = [];
+        store.linkDeliveryCount = 0;
+
+        // 1–2: manifesto TRANSFER SP-GRU → IMP-MA (contexto)
+        assert.equal(store.manifest.tripType, 'TRANSFER');
+        assert.equal(store.manifest.destHubId, hubImpMa);
+        assert.equal(store.manifest.hubId, hubSpGru);
+
+        // 3–4: adicionar 2 demands com orders
+        for (const demandId of demandIds) {
+            store.manifest.status = 'DRAFT';
+            prisma.manifest.findUnique = (async () => ({
+                ...store.manifest,
+                vehicleType,
+                destHub: { id: hubImpMa, code: 'IMP-MA' },
+                demands: [],
+            })) as unknown as typeof prisma.manifest.findUnique;
+            await addDemandToManifest(manifestId, demandId);
+            const d = store.demands.get(demandId)!;
+            const o = [...store.orders.values()].find((x) => x.demandId === demandId)!;
+            assert.equal(d.manifestId, manifestId);
+            assert.equal(o.manifestId, manifestId);
+            store.manifest.demands.push({
+                id: demandId,
+                weight: d.weight,
+                volume: d.volume,
+                nfValue: d.nfValue,
+                cubedWeight: d.cubedWeight,
+            });
+            store.manifest.totalWeight += d.weight;
+            store.manifest.totalVolume += d.volume;
+            store.manifest.totalValue += d.nfValue;
+        }
+
+        // 5–6: iniciar
+        store.manifest.status = 'ACCEPTED';
+        prisma.manifest.findUnique = (async () => ({
+            ...store.manifest,
+            vehicleType,
+            destHub: { id: hubImpMa, code: 'IMP-MA' },
+            demands: store.manifest.demands,
+        })) as unknown as typeof prisma.manifest.findUnique;
+
+        await startManifest(manifestId);
+        for (const demandId of demandIds) {
+            assert.equal(store.demands.get(demandId)!.status, 'IN_TRANSIT');
+        }
+        for (const orderId of orderIds) {
+            assert.equal(store.orders.get(orderId)!.status, 'IN_TRANSIT');
+        }
+
+        // 7–11: concluir
+        store.manifest.status = 'IN_PROGRESS';
+        await completeManifest(manifestId);
+
+        assert.equal(store.manifest.status, 'COMPLETED');
+        for (const demandId of demandIds) {
+            const d = store.demands.get(demandId)!;
+            assert.equal(d.status, 'AT_HUB');
+            assert.notEqual(d.status, 'DELIVERED');
+        }
+        for (const orderId of orderIds) {
+            const o = store.orders.get(orderId)!;
+            assert.equal(o.status, 'AT_HUB');
+            assert.notEqual(o.status, 'DELIVERED');
+            assert.equal(o.currentHubId, hubImpMa);
+        }
+
+        // 12: eventos
+        assert.ok(store.demandEvents.length >= 2);
+        assert.ok(store.orderHistories.length >= 2);
+        assert.equal(store.linkDeliveryCount, 0);
+    });
+});

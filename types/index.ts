@@ -31,6 +31,8 @@ export type ManifestStatus =
     | 'COMPLETED'
     | 'CANCELLED';
 
+export type ManifestTripType = 'TRANSFER' | 'DELIVERY' | 'REGIONAL_DISTRIBUTION';
+
 export type LinkApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
 
 export type FreightUnit = 'RS_KG' | 'PERCENT' | 'RS_M3' | 'RS_UNIT';
@@ -408,6 +410,9 @@ export interface Demand {
 
 export interface Manifest {
     id: string;
+    tripType?: ManifestTripType;
+    destHubId?: string;
+    destHub?: Hub;
     linkId?: string;
     link?: Link;
     hubId?: string;
@@ -608,9 +613,11 @@ export interface CreateManifestRequest {
     vehicleTypeId: string;
     origin: string;
     destination: string;
+    tripType?: 'TRANSFER' | 'DELIVERY';
     demandIds: string[];
     linkId?: string;
     hubId?: string;
+    destHubId?: string;
 }
 
 export interface PricingCalculateRequest {

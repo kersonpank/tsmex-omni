@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAuthStore } from '../../store/authStore';
 import { manifestsApi, vehicleTypesApi, linksApi, demandsApi, hubsApi } from '../../lib/api';
-import type { Manifest, VehicleType, Link, Demand, Hub } from '../../types/index';
+import type { Manifest, ManifestTripType, VehicleType, Link, Demand, Hub } from '../../types/index';
 import type { StatusTone } from '../../lib/demandStatusUi';
 import EmptyState from '../ui/EmptyState';
 import InlineNotice from '../ui/InlineNotice';
@@ -17,6 +17,12 @@ const statusLabels: Record<string, string> = {
   IN_PROGRESS: 'Em andamento',
   COMPLETED: 'Concluído',
   REJECTED: 'Recusado',
+};
+
+const tripTypeLabels: Record<ManifestTripType, string> = {
+  TRANSFER: 'Transferência hub',
+  DELIVERY: 'Entrega final',
+  REGIONAL_DISTRIBUTION: 'Distribuição regional',
 };
 
 const manifestTone: Record<string, StatusTone> = {
@@ -48,6 +54,8 @@ const ManifestsTab: React.FC = () => {
     origin: '',
     destination: '',
     hubId: '',
+    tripType: 'TRANSFER' as 'TRANSFER' | 'DELIVERY',
+    destHubId: '',
   });
   const [assignLinkId, setAssignLinkId] = useState('');
   const [fiscalBusyId, setFiscalBusyId] = useState<string | null>(null);
@@ -101,18 +109,37 @@ const ManifestsTab: React.FC = () => {
       setError('Preencha tipo de veículo, origem e destino.');
       return;
     }
+    if (createForm.tripType === 'TRANSFER') {
+      if (!createForm.destHubId) {
+        setError('Selecione o hub destino para transferência entre hubs.');
+        return;
+      }
+      if (createForm.hubId && createForm.destHubId === createForm.hubId) {
+        setError('Hub destino não pode ser igual ao hub de origem.');
+        return;
+      }
+    }
     setError(null);
     try {
       await manifestsApi.create({
         vehicleTypeId: createForm.vehicleTypeId,
         origin: createForm.origin,
         destination: createForm.destination,
+        tripType: createForm.tripType,
         hubId: createForm.hubId || undefined,
+        destHubId: createForm.tripType === 'TRANSFER' ? createForm.destHubId : undefined,
         demandIds: [],
       });
       setSuccess('Viagem criada.');
       setShowCreate(false);
-      setCreateForm({ vehicleTypeId: '', origin: '', destination: '', hubId: '' });
+      setCreateForm({
+        vehicleTypeId: '',
+        origin: '',
+        destination: '',
+        hubId: '',
+        tripType: 'TRANSFER',
+        destHubId: '',
+      });
       load();
       setTimeout(() => setSuccess(null), 3000);
     } catch (e: any) {
@@ -325,6 +352,43 @@ const ManifestsTab: React.FC = () => {
           <h3 className="text-base font-bold text-tower-800 mb-4">Nova viagem</h3>
           <form onSubmit={handleCreate} className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
+              <label className="block text-sm font-medium text-tower-700 mb-1">Tipo de viagem</label>
+              <select
+                value={createForm.tripType}
+                onChange={(e) =>
+                  setCreateForm((f) => ({
+                    ...f,
+                    tripType: e.target.value as 'TRANSFER' | 'DELIVERY',
+                    destHubId: e.target.value === 'DELIVERY' ? '' : f.destHubId,
+                  }))
+                }
+                className="w-full px-3 py-2 border border-tower-200 rounded-lg"
+              >
+                <option value="TRANSFER">Transferência entre hubs</option>
+                <option value="DELIVERY">Entrega final</option>
+              </select>
+            </div>
+            {createForm.tripType === 'TRANSFER' && (
+              <div>
+                <label className="block text-sm font-medium text-tower-700 mb-1">Hub destino</label>
+                <select
+                  value={createForm.destHubId}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, destHubId: e.target.value }))}
+                  className="w-full px-3 py-2 border border-tower-200 rounded-lg"
+                  required
+                >
+                  <option value="">Selecione</option>
+                  {hubs
+                    .filter((h) => h.id !== createForm.hubId)
+                    .map((h) => (
+                      <option key={h.id} value={h.id}>
+                        {h.name} ({h.code})
+                      </option>
+                    ))}
+                </select>
+              </div>
+            )}
+            <div>
               <label className="block text-sm font-medium text-tower-700 mb-1">Tipo de veículo</label>
               <select
                 value={createForm.vehicleTypeId}
@@ -339,7 +403,7 @@ const ManifestsTab: React.FC = () => {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-tower-700 mb-1">Hub (opcional)</label>
+              <label className="block text-sm font-medium text-tower-700 mb-1">Hub origem (opcional)</label>
               <select
                 value={createForm.hubId}
                 onChange={(e) => setCreateForm((f) => ({ ...f, hubId: e.target.value }))}
@@ -452,6 +516,12 @@ const ManifestsTab: React.FC = () => {
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-mono-ids text-[10px] font-bold text-tower-400">#{m.id.slice(0, 8)}</span>
+                  {m.tripType && (
+                    <StatusBadge
+                      label={tripTypeLabels[m.tripType] ?? m.tripType}
+                      tone={m.tripType === 'DELIVERY' ? 'success' : 'info'}
+                    />
+                  )}
                   <StatusBadge label={statusLabels[m.status] ?? m.status} tone={manifestTone[m.status] ?? 'neutral'} />
                   <span className="font-bold text-tower-900 dark:text-tower-50">
                     {m.origin} → {m.destination}

@@ -465,6 +465,7 @@ router.patch('/:id/status', authenticate, async (req: AuthRequest, res: Response
                         data: {
                             demandId: id,
                             opportunityId: matchingOpportunity?.id || null,
+                            manifestId: updatedDemand.manifestId ?? undefined,
                             nfNumber: updatedDemand.nfNumber,
                             status: status === 'AT_HUB' ? 'AT_HUB' : 'PENDING',
                             enteredAtHubAt: status === 'AT_HUB' ? new Date() : null,

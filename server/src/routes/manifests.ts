@@ -6,20 +6,46 @@ import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { isAcbrCredentialsConfigured } from '../services/acbr/acbrConfig.js';
 import { emitMdfeViaAcbr } from '../services/acbr/acbrMdfeEmit.js';
 import { buildCiotPlaceholder } from '../services/ciotService.js';
+import {
+    addDemandToManifest,
+    completeManifest,
+    OPERATIONAL_TRIP_TYPES,
+    removeDemandFromManifest,
+    startManifest,
+    validateCreateManifestInput,
+} from '../services/manifestLifecycle.js';
 
 const router = Router();
 
+const operationalTripTypeSchema = z.enum(OPERATIONAL_TRIP_TYPES);
+
 // Validation schemas
-const manifestSchema = z.object({
-    vehicleTypeId: z.string().uuid('Invalid vehicle type ID'),
-    origin: z.string().min(1, 'Origin is required'),
-    destination: z.string().min(1, 'Destination is required'),
-    hubId: z.string().uuid().optional(),
-    stops: z.array(z.object({
-        city: z.string(),
-        order: z.number(),
-    })).optional(),
-});
+const manifestSchema = z
+    .object({
+        vehicleTypeId: z.string().uuid('Invalid vehicle type ID'),
+        origin: z.string().min(1, 'Origin is required'),
+        destination: z.string().min(1, 'Destination is required'),
+        tripType: operationalTripTypeSchema.default('TRANSFER'),
+        hubId: z.string().uuid().optional(),
+        destHubId: z.string().uuid().optional(),
+        stops: z
+            .array(
+                z.object({
+                    city: z.string(),
+                    order: z.number(),
+                })
+            )
+            .optional(),
+    })
+    .superRefine((data, ctx) => {
+        if (data.tripType === 'TRANSFER' && !data.destHubId) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'destHubId é obrigatório para viagens do tipo TRANSFER',
+                path: ['destHubId'],
+            });
+        }
+    });
 
 // GET /api/manifests - List manifests
 router.get('/', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -54,6 +80,9 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
                 hub: {
                     select: { name: true, code: true }
                 },
+                destHub: {
+                    select: { name: true, code: true }
+                },
                 demands: {
                     select: { id: true, origin: true, destination: true, commodity: true, weight: true }
                 },
@@ -84,6 +113,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
                 vehicleType: true,
                 link: true,
                 hub: true,
+                destHub: true,
                 demands: {
                     include: {
                         client: {
@@ -133,25 +163,29 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response, next: Nex
             throw new AppError('Hub user can only create manifests for their own hub', 403);
         }
 
-        // Get vehicle type to set initial capacity
-        const vehicleType = await prisma.vehicleType.findUnique({
-            where: { id: data.vehicleTypeId }
+        await validateCreateManifestInput({
+            vehicleTypeId: data.vehicleTypeId,
+            origin: data.origin,
+            destination: data.destination,
+            tripType: data.tripType,
+            hubId: effectiveHubId ?? undefined,
+            destHubId: data.destHubId,
+            stops: data.stops,
         });
-
-        if (!vehicleType) {
-            throw new AppError('Vehicle type not found', 404);
-        }
 
         const manifest = await prisma.manifest.create({
             data: {
                 vehicleTypeId: data.vehicleTypeId,
                 origin: data.origin,
                 destination: data.destination,
+                tripType: data.tripType,
                 hubId: effectiveHubId ?? undefined,
+                destHubId: data.tripType === 'TRANSFER' ? data.destHubId : undefined,
                 stops: data.stops ? data.stops : undefined,
             },
             include: {
                 vehicleType: true,
+                destHub: { select: { id: true, code: true, name: true } },
             }
         });
 
@@ -180,94 +214,23 @@ router.post('/:id/demands', authenticate, async (req: AuthRequest, res: Response
             throw new AppError('Demand ID is required', 400);
         }
 
-        // Get manifest with vehicle type
-        const manifest = await prisma.manifest.findUnique({
-            where: { id: id },
-            include: { vehicleType: true, demands: true }
+        const manifestCheck = await prisma.manifest.findUnique({
+            where: { id },
+            select: { hubId: true },
         });
-
-        if (!manifest) {
+        if (!manifestCheck) {
             throw new AppError('Manifest not found', 404);
         }
-
-        if (req.user!.roles.includes('HUB') && manifest.hubId !== req.user!.hubId) {
+        if (req.user!.roles.includes('HUB') && manifestCheck.hubId !== req.user!.hubId) {
             throw new AppError('Not authorized to modify this manifest', 403);
         }
 
-        if (manifest.status !== 'DRAFT') {
-            throw new AppError('Cannot modify manifest in current status', 400);
-        }
-
-        // Get demand
-        const demand = await prisma.demand.findUnique({
-            where: { id: demandId }
-        });
-
-        if (!demand) {
-            throw new AppError('Demand not found', 404);
-        }
-
-        if (demand.manifestId) {
-            throw new AppError('Demand is already assigned to a manifest', 400);
-        }
-
-        // Check capacity
-        const effectiveWeight = Math.max(demand.weight, demand.cubedWeight || 0);
-        const newTotalWeight = manifest.totalWeight + effectiveWeight;
-        const newTotalVolume = manifest.totalVolume + demand.volume;
-        const newTotalValue = manifest.totalValue + demand.nfValue;
-
-        if (newTotalWeight > manifest.vehicleType.maxWeight) {
-            throw new AppError(`Exceeds weight capacity: ${newTotalWeight}kg / ${manifest.vehicleType.maxWeight}kg`, 400);
-        }
-
-        if (newTotalVolume > manifest.vehicleType.maxVolume) {
-            throw new AppError(`Exceeds volume capacity: ${newTotalVolume}m³ / ${manifest.vehicleType.maxVolume}m³`, 400);
-        }
-
-        if (newTotalValue > manifest.vehicleType.maxValue) {
-            throw new AppError(`Exceeds value limit: R$ ${newTotalValue} / R$ ${manifest.vehicleType.maxValue}`, 400);
-        }
-
-        // Update demand and manifest
-        await prisma.$transaction([
-            prisma.demand.update({
-                where: { id: demandId },
-                data: { manifestId: id, status: 'ASSIGNED' }
-            }),
-            prisma.manifest.update({
-                where: { id },
-                data: {
-                    totalWeight: newTotalWeight,
-                    totalVolume: newTotalVolume,
-                    totalValue: newTotalValue,
-                }
-            }),
-            prisma.demandEvent.create({
-                data: {
-                    demandId,
-                    status: 'ASSIGNED',
-                    description: `Alocada ao manifesto #${id.slice(0, 8)}`,
-                }
-            })
-        ]);
-
-        const updated = await prisma.manifest.findUnique({
-            where: { id },
-            include: {
-                vehicleType: true,
-                demands: true,
-            }
-        });
+        const { manifest, utilization } = await addDemandToManifest(id, demandId);
 
         res.json({
             success: true,
-            data: updated,
-            utilization: {
-                weight: (newTotalWeight / manifest.vehicleType.maxWeight * 100).toFixed(1) + '%',
-                volume: (newTotalVolume / manifest.vehicleType.maxVolume * 100).toFixed(1) + '%',
-                value: (newTotalValue / manifest.vehicleType.maxValue * 100).toFixed(1) + '%',
-            }
+            data: manifest,
+            utilization,
         });
     } catch (error) {
         next(error);
@@ -280,43 +243,15 @@ router.delete('/:id/demands/:demandId', authenticate, authorize('ADMIN'), async 
         const id = req.params.id as string;
         const demandId = req.params.demandId as string;
 
-        const manifest = await prisma.manifest.findUnique({
-            where: { id: id },
-            include: { vehicleType: true }
+        const manifestCheck = await prisma.manifest.findUnique({
+            where: { id },
+            select: { hubId: true },
         });
-
-        if (!manifest) {
+        if (!manifestCheck) {
             throw new AppError('Manifest not found', 404);
         }
 
-        if (manifest.status !== 'DRAFT') {
-            throw new AppError('Cannot modify manifest in current status', 400);
-        }
-
-        const demand = await prisma.demand.findUnique({
-            where: { id: demandId }
-        });
-
-        if (!demand || demand.manifestId !== id) {
-            throw new AppError('Demand not found in this manifest', 404);
-        }
-
-        const effectiveWeight = Math.max(demand.weight, demand.cubedWeight || 0);
-
-        await prisma.$transaction([
-            prisma.demand.update({
-                where: { id: demandId },
-                data: { manifestId: null, status: 'APPROVED' }
-            }),
-            prisma.manifest.update({
-                where: { id },
-                data: {
-                    totalWeight: manifest.totalWeight - effectiveWeight,
-                    totalVolume: manifest.totalVolume - demand.volume,
-                    totalValue: manifest.totalValue - demand.nfValue,
-                }
-            })
-        ]);
+        await removeDemandFromManifest(id, demandId);
 
         res.json({
             success: true,
@@ -462,40 +397,7 @@ router.patch('/:id/start', authenticate, authorize('LINK'), async (req: AuthRequ
     try {
         const id = req.params.id as string;
 
-        const manifest = await prisma.manifest.findUnique({
-            where: { id: id },
-            include: { demands: true, vehicleType: true }
-        });
-
-        if (!manifest || manifest.status !== 'ACCEPTED') {
-            throw new AppError('Manifest not found or not in accepted status', 400);
-        }
-
-        await prisma.$transaction([
-            prisma.manifest.update({
-                where: { id: id },
-                data: {
-                    status: 'IN_PROGRESS',
-                    startedAt: new Date(),
-                },
-            }),
-            ...manifest.demands.map(d =>
-                prisma.demand.update({
-                    where: { id: d.id },
-                    data: { status: 'IN_TRANSIT' }
-                })
-            ),
-            ...manifest.demands.map(d =>
-                prisma.demandEvent.create({
-                    data: {
-                        demandId: d.id,
-                        status: 'IN_TRANSIT',
-                        description: 'Carga saiu para entrega',
-                        location: manifest.origin,
-                    }
-                })
-            )
-        ]);
+        await startManifest(id);
 
         res.json({
             success: true,
@@ -511,50 +413,7 @@ router.patch('/:id/complete', authenticate, authorize('LINK', 'ADMIN'), async (r
     try {
         const id = req.params.id as string;
 
-        const manifest = await prisma.manifest.findUnique({
-            where: { id: id },
-            include: { demands: true, vehicleType: true }
-        });
-
-        if (!manifest || manifest.status !== 'IN_PROGRESS') {
-            throw new AppError('Manifest not found or not in progress', 400);
-        }
-
-        await prisma.$transaction([
-            prisma.manifest.update({
-                where: { id: id },
-                data: {
-                    status: 'COMPLETED',
-                    completedAt: new Date(),
-                },
-            }),
-            ...manifest.demands.map(d =>
-                prisma.demand.update({
-                    where: { id: d.id },
-                    data: { status: 'DELIVERED' }
-                })
-            ),
-            ...manifest.demands.map(d =>
-                prisma.demandEvent.create({
-                    data: {
-                        demandId: d.id,
-                        status: 'DELIVERED',
-                        description: 'Carga entregue ao destinatário',
-                        location: manifest.destination,
-                    }
-                })
-            )
-        ]);
-
-        // Update link score
-        if (manifest.linkId) {
-            await prisma.link.update({
-                where: { id: manifest.linkId },
-                data: {
-                    deliveryCount: { increment: manifest.demands.length },
-                }
-            });
-        }
+        await completeManifest(id);
 
         res.json({
             success: true,

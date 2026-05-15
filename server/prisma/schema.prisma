@@ -279,8 +279,9 @@ model Hub {
   simplesNacional  Boolean? // Regime fiscal (impacta ICMS)
 
   // Relationships
-  manifests           Manifest[]
-  ordersAtHub         Order[] // Orders com status AT_HUB neste hub (currentHubId)
+  manifests            Manifest[]
+  manifestsDestination Manifest[] @relation("ManifestDestHub")
+  ordersAtHub            Order[] // Orders com status AT_HUB neste hub (currentHubId)
   users               User[] // Usuários que operam este hub (role HUB)
   freightCalculations OrderFreightCalculation[]
   fiscalEmitters      FiscalEmitter[]
@@ -629,8 +630,19 @@ model DemandEvent {
 // MANIFESTS
 // ========================================
 
+enum ManifestTripType {
+  TRANSFER
+  DELIVERY
+  REGIONAL_DISTRIBUTION // reservado — sem comportamento operacional no PR001
+}
+
 model Manifest {
   id String @id @default(uuid())
+
+  // Trip classification
+  tripType  ManifestTripType @default(TRANSFER)
+  destHubId String?
+  destHub   Hub?             @relation("ManifestDestHub", fields: [destHubId], references: [id], onDelete: SetNull)
 
   // Assignment
   linkId String?
