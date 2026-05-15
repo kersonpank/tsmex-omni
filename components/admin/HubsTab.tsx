@@ -8,6 +8,7 @@ import { Select } from '../ui/Select';
 import { Checkbox } from '../ui/Checkbox';
 import { FormField } from '../ui/FormField';
 import { maskPhone } from '../../lib/formatters';
+import { DocumentInput } from '../ui/DocumentInput';
 
 const HUB_PERM_OPTIONS = [
   { id: 'entrada', label: 'Entrada' },
@@ -20,10 +21,12 @@ function HubUsersRow({
   users,
   loading,
   onUpdatePermissions,
+  onAddOperator,
 }: {
   users: any[];
   loading: boolean;
   onUpdatePermissions: (userId: string, permissions: string[]) => Promise<void>;
+  onAddOperator: () => void;
 }) {
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editPerms, setEditPerms] = useState<string[]>([]);
@@ -43,12 +46,26 @@ function HubUsersRow({
     setEditPerms((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   };
 
-  if (loading) return <div className="text-sm text-tower-500 py-2">Carregando usuários...</div>;
-  if (users.length === 0) return <div className="text-sm text-tower-500 py-2">Nenhum usuário neste hub.</div>;
+  if (loading) return <div className="text-sm text-tower-500 py-2">Carregando operadores...</div>;
 
   return (
     <div className="space-y-3">
-      <span className="text-xs font-semibold text-tower-500 uppercase">Operadores do hub</span>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-xs font-semibold text-tower-500 uppercase">Operadores do hub (login)</span>
+        <button
+          type="button"
+          onClick={onAddOperator}
+          className="px-2 py-1 text-xs font-medium bg-amber-600 text-white rounded-lg hover:bg-amber-700"
+        >
+          + Adicionar operador
+        </button>
+      </div>
+      {users.length === 0 && (
+        <p className="text-sm text-tower-500">
+          Nenhum operador com login neste depósito. Use <strong>Adicionar operador</strong> ou copie o{' '}
+          <strong>link de cadastro</strong> na tabela acima.
+        </p>
+      )}
       {users.map((u) => (
         <div key={u.id} className="flex flex-wrap items-center gap-3 py-2 border-b border-tower-200 last:border-0">
           <span className="font-medium text-tower-800">{u.email}</span>
@@ -79,6 +96,139 @@ function HubUsersRow({
   );
 }
 
+function AddHubOperatorModal({
+  hubId,
+  hubLabel,
+  onClose,
+  onSuccess,
+}: {
+  hubId: string;
+  hubLabel: string;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [document, setDocument] = useState('');
+  const [legalName, setLegalName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [permissions, setPermissions] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const togglePermission = (id: string) => {
+    setPermissions((prev) => (prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErr(null);
+    setSaving(true);
+    try {
+      await hubsApi.addUser(hubId, {
+        document,
+        legalName: legalName.trim(),
+        email,
+        password,
+        permissions,
+      });
+      onSuccess();
+    } catch (error: any) {
+      setErr(error.response?.data?.error || error.message || 'Erro ao adicionar operador');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50"
+      onClick={onClose}
+      role="dialog"
+    >
+      <div
+        className="bg-white dark:bg-tower-900 rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-lg font-bold text-tower-900 dark:text-tower-100 mb-1">Adicionar operador de Hub</h3>
+        <p className="text-sm text-tower-600 mb-4">Depósito: {hubLabel}</p>
+        {err && <p className="text-red-600 text-sm mb-4">{err}</p>}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">CPF ou CNPJ</label>
+            <DocumentInput
+              value={document}
+              onChange={setDocument}
+              onImport={(data) => {
+                if (data.legalName) setLegalName(data.legalName);
+              }}
+              placeholder="Somente números"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Nome / razão social</label>
+            <input
+              type="text"
+              value={legalName}
+              onChange={(e) => setLegalName(e.target.value)}
+              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Permissões</label>
+            <div className="space-y-2 mt-1">
+              {HUB_PERM_OPTIONS.map((p) => (
+                <label key={p.id} className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={permissions.includes(p.id)}
+                    onChange={() => togglePermission(p.id)}
+                    className="rounded"
+                  />
+                  <span className="text-sm text-tower-700 dark:text-tower-200">{p.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">E-mail (login)</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Senha</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100"
+              required
+              minLength={6}
+            />
+          </div>
+          <div className="flex gap-2 justify-end pt-2">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 hover:bg-tower-100 rounded-lg">
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50"
+            >
+              {saving ? 'Salvando...' : 'Adicionar'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function getHubCadastroUrl(hubId: string): string {
   if (typeof window === 'undefined') return '';
   const base = `${window.location.origin}${window.location.pathname || '/'}`;
@@ -95,6 +245,7 @@ const HubsTab: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedHubUsers, setExpandedHubUsers] = useState<string | null>(null);
   const [hubUsers, setHubUsers] = useState<Record<string, any[]>>({});
+  const [addOperatorHubId, setAddOperatorHubId] = useState<string | null>(null);
   const [personsCnpj, setPersonsCnpj] = useState<Person[]>([]);
   const [form, setForm] = useState({
     name: '',
@@ -224,6 +375,8 @@ const HubsTab: React.FC = () => {
     );
   }, [hubs, hubNameFilter]);
 
+  const addOperatorHub = addOperatorHubId ? hubs.find((h) => h.id === addOperatorHubId) : null;
+
   const hubsGestao = useMemo(
     () => ({
       listActive: !showForm && !gestaoFilterOpen,
@@ -296,6 +449,10 @@ const HubsTab: React.FC = () => {
     <div>
       <div className="mb-6">
         <h2 className="text-lg font-bold text-tower-700 dark:text-tower-200">Hubs (depósitos / filiais)</h2>
+        <p className="mt-2 text-sm text-tower-600 dark:text-tower-400 max-w-3xl">
+          <strong>1.</strong> Crie o depósito (Novo). <strong>2.</strong> Opcional: vincule o CNPJ emissor para CT-e/Minuta.
+          <strong> 3.</strong> Cadastre operadores com login em ▼ Operadores ou pelo link de cadastro.
+        </p>
       </div>
       {gestaoFilterOpen && (
         <div className="mb-4 rounded-xl border border-tower-200 bg-white p-4 dark:border-tower-600 dark:bg-tower-800">
@@ -367,10 +524,14 @@ const HubsTab: React.FC = () => {
                 <Input id="hub-phone" type="tel" value={maskPhone(form.phone)} onChange={e => setForm(f => ({ ...f, phone: e.target.value.replace(/\D/g, '') }))} placeholder="(11) 99999-9999" maxLength={15} />
               </FormField>
             </div>
-            <FormField label="E-mail" htmlFor="hub-email">
+            <FormField label="E-mail de contato" htmlFor="hub-email">
               <Input id="hub-email" type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
             </FormField>
-            <FormField label="Pessoa jurídica (CNPJ)" htmlFor="hub-person" hint="Vinculada para emissão de CT-e/Minuta">
+            <FormField
+              label="CNPJ emissor (CT-e / Minuta)"
+              htmlFor="hub-person"
+              hint="Razão social que emite documentos fiscais neste depósito — não é o login do operador"
+            >
               <Select
                 id="hub-person"
                 value={form.personId}
@@ -407,7 +568,7 @@ const HubsTab: React.FC = () => {
               <tr>
                 <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700">Nome</th>
                 <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700">Código</th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700">CNPJ</th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700">CNPJ emissor</th>
                 <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700">Cidade / Estado</th>
                 <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700">Status</th>
                 <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700">Link de cadastro</th>
@@ -439,7 +600,7 @@ const HubsTab: React.FC = () => {
                             copyCadastroLink(hub.id);
                           }}
                           className="text-xs text-brand-600 hover:text-brand-800 font-medium"
-                          title="Copiar link para cadastro de usuários"
+                          title="Operador cria a própria conta; o Hub já deve existir"
                         >
                           {copiedId === hub.id ? '✓ Copiado!' : '📋 Copiar link'}
                         </button>
@@ -455,7 +616,7 @@ const HubsTab: React.FC = () => {
                         }}
                         className="text-amber-600 hover:text-amber-800 text-sm font-medium"
                       >
-                        {expandedHubUsers === hub.id ? '▲ Usuários' : '▼ Usuários'}
+                        {expandedHubUsers === hub.id ? '▲ Operadores' : '▼ Operadores'}
                       </button>
                       <button type="button" onClick={(e) => { e.stopPropagation(); openEdit(hub); }} className="text-brand-600 hover:text-brand-800 text-sm font-medium">Editar</button>
                       </div>
@@ -468,6 +629,7 @@ const HubsTab: React.FC = () => {
                           users={hubUsers[hub.id] ?? []}
                           loading={!hubUsers[hub.id] && expandedHubUsers === hub.id}
                           onUpdatePermissions={handleUpdatePermissions}
+                          onAddOperator={() => setAddOperatorHubId(hub.id)}
                         />
                       </td>
                     </tr>
@@ -478,8 +640,22 @@ const HubsTab: React.FC = () => {
           </table>
         </div>
       )}
+      {addOperatorHub && (
+        <AddHubOperatorModal
+          hubId={addOperatorHub.id}
+          hubLabel={`${addOperatorHub.name} (${addOperatorHub.code})`}
+          onClose={() => setAddOperatorHubId(null)}
+          onSuccess={() => {
+            const hubId = addOperatorHub.id;
+            setAddOperatorHubId(null);
+            setExpandedHubUsers(hubId);
+            void loadHubUsers(hubId);
+          }}
+        />
+      )}
     </div>
   );
 };
 
 export default HubsTab;
+

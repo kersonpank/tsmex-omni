@@ -380,6 +380,23 @@ export const hubsApi = {
         const response = await api.post<ApiResponse<{ id: string; email: string; hubId: string; message: string }>>(`/hubs/${hubId}/register`, data);
         return response.data;
     },
+
+    addUser: async (
+        hubId: string,
+        data: {
+            document: string;
+            legalName: string;
+            email: string;
+            password: string;
+            permissions?: string[];
+        }
+    ) => {
+        const response = await api.post<ApiResponse<{ id: string; email: string; hubId: string; personId: string; permissions: string[] }>>(
+            `/hubs/${hubId}/users`,
+            data
+        );
+        return response.data;
+    },
 };
 
 // ========== LINKS API ==========

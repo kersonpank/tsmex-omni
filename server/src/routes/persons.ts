@@ -301,7 +301,16 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
                 },
                 hubs: { select: { id: true, name: true, code: true } },
                 users: req.user!.roles.includes('ADMIN')
-                    ? { select: { id: true, email: true, roles: true, active: true } }
+                    ? {
+                          select: {
+                              id: true,
+                              email: true,
+                              roles: true,
+                              active: true,
+                              hubId: true,
+                              hub: { select: { id: true, name: true, code: true } },
+                          },
+                      }
                     : false,
             },
         });

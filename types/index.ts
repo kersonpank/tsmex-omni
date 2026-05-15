@@ -238,6 +238,14 @@ export interface Person {
     clients?: Array<{ id: string; companyName: string; document: string }>;
     links?: Array<{ id: string; name: string; document: string }>;
     hubs?: Array<{ id: string; name: string; code: string }>;
+    users?: Array<{
+        id: string;
+        email: string;
+        roles: UserRole[];
+        active: boolean;
+        hubId?: string | null;
+        hub?: { id: string; name: string; code: string } | null;
+    }>;
     _count?: { clients: number; links: number; users: number };
 }
 

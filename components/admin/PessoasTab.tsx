@@ -12,7 +12,7 @@ const ROLES = [
   { key: 'cliente', label: 'Cliente', hasRelation: (p: Person) => p.clients && p.clients.length > 0 },
   { key: 'motorista', label: 'Motorista', hasRelation: (p: Person) => p.links && p.links.length > 0 },
   { key: 'agente_cobranca', label: 'Agente de Cobrança', hasRelation: () => false },
-  { key: 'empresa_filial', label: 'Empresa / Filial', hasRelation: (p: Person) => ((p as any).hubs?.length ?? 0) > 0 },
+  { key: 'empresa_filial', label: 'Emissor de Hub', hasRelation: (p: Person) => (p.hubs?.length ?? 0) > 0 },
   { key: 'funcionario', label: 'Funcionário', hasRelation: () => false },
   { key: 'usuario_sistema', label: 'Usuário do Sistema', hasRelation: () => false },
   { key: 'vendedor', label: 'Vendedor', hasRelation: () => false },
@@ -505,11 +505,11 @@ const PessoasTab: React.FC = () => {
                         {' '}(ID: {(selectedPerson.links as { id: string }[])[0]?.id?.slice(0, 8)})
                       </p>
                     )}
-                    {((selectedPerson as any).hubs?.length ?? 0) > 0 && (
+                    {(selectedPerson.hubs?.length ?? 0) > 0 && (
                       <div className="mt-2">
-                        <p className="text-sm font-medium text-tower-700">Emissor dos Hubs</p>
+                        <p className="text-sm font-medium text-tower-700">Emissor fiscal (CNPJ nos Hubs)</p>
                         <ul className="mt-1 space-y-1">
-                          {((selectedPerson as any).hubs as { id: string; name: string; code: string }[]).map(h => (
+                          {(selectedPerson.hubs ?? []).map(h => (
                             <li key={h.id} className="flex items-center justify-between text-sm text-tower-600">
                               <span>{h.name} ({h.code})</span>
                               <button
@@ -529,6 +529,24 @@ const PessoasTab: React.FC = () => {
                               </button>
                             </li>
                           ))}
+                        </ul>
+                      </div>
+                    )}
+                    {((selectedPerson.users ?? []).filter((u) => u.roles?.includes('HUB')).length > 0) && (
+                      <div className="mt-2">
+                        <p className="text-sm font-medium text-tower-700">Logins de operador de Hub</p>
+                        <ul className="mt-1 space-y-1">
+                          {(selectedPerson.users ?? [])
+                            .filter((u) => u.roles?.includes('HUB'))
+                            .map((u) => (
+                              <li key={u.id} className="text-sm text-tower-600">
+                                {u.email}
+                                {u.hub ? ` — ${u.hub.name} (${u.hub.code})` : ''}
+                                {!u.active && (
+                                  <span className="ml-1 text-xs text-amber-600">(inativo)</span>
+                                )}
+                              </li>
+                            ))}
                         </ul>
                       </div>
                     )}
@@ -564,7 +582,7 @@ const PessoasTab: React.FC = () => {
                       onClick={() => setShowAddHubModal(true)}
                       className="px-3 py-1.5 bg-amber-100 text-amber-700 rounded-lg text-sm font-medium hover:bg-amber-200"
                     >
-                      Adicionar operador de Hub
+                      Criar login de operador de Hub
                     </button>
                     {selectedPerson.documentType === 'CNPJ' && (
                       <button
@@ -572,7 +590,7 @@ const PessoasTab: React.FC = () => {
                         onClick={() => setShowLinkAsEmitterModal(true)}
                         className="px-3 py-1.5 bg-brand-100 text-brand-700 rounded-lg text-sm font-medium hover:bg-brand-200"
                       >
-                        + Empresa / Filial
+                        Vincular como emissor de Hub (CNPJ)
                       </button>
                     )}
                   </div>
@@ -647,11 +665,20 @@ const PessoasTab: React.FC = () => {
       )}
 
       {/* Modal Adicionar como operador de Hub */}
-      {showAddHubModal && selectedPersonId && (
+      {showAddHubModal && selectedPersonId && selectedPerson && (
         <AddHubModal
           personId={selectedPersonId}
+          personDocumentType={selectedPerson.documentType}
           onClose={() => setShowAddHubModal(false)}
           onSuccess={() => { setShowAddHubModal(false); if (selectedPersonId) openDetail(selectedPersonId); loadPersons(); }}
+          onNeedHub={() => {
+            setShowAddHubModal(false);
+            if (selectedPerson.documentType === 'CNPJ') {
+              setShowLinkAsEmitterModal(true);
+            } else {
+              setError('Crie um depósito em Gestão → Transporte → Hubs (ação Novo) antes de cadastrar o operador.');
+            }
+          }}
         />
       )}
 
@@ -967,12 +994,16 @@ const HUB_PERMISSIONS = [
 
 function AddHubModal({
   personId,
+  personDocumentType,
   onClose,
   onSuccess,
+  onNeedHub,
 }: {
   personId: string;
+  personDocumentType: PersonDocumentType;
   onClose: () => void;
   onSuccess: () => void;
+  onNeedHub: () => void;
 }) {
   const [hubs, setHubs] = useState<Hub[]>([]);
   const [hubId, setHubId] = useState('');
@@ -1007,11 +1038,33 @@ function AddHubModal({
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50" onClick={onClose} role="dialog">
       <div className="bg-white dark:bg-tower-900 rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <h3 className="text-lg font-bold text-tower-900 dark:text-tower-100 mb-4">Adicionar como operador de Hub</h3>
+        <h3 className="text-lg font-bold text-tower-900 dark:text-tower-100 mb-2">Criar login de operador de Hub</h3>
+        <p className="text-sm text-tower-600 dark:text-tower-400 mb-4">
+          Acesso ao sistema para operar um depósito. Isso é diferente do CNPJ emissor (CT-e/Minuta).
+        </p>
         {err && <p className="text-red-600 text-sm mb-4">{err}</p>}
+        {hubs.length === 0 ? (
+          <div className="space-y-4">
+            <p className="text-sm text-tower-600">
+              Nenhum depósito cadastrado. Crie um Hub antes de vincular um operador.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 hover:bg-tower-100 rounded-lg">
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={onNeedHub}
+                className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700"
+              >
+                {personDocumentType === 'CNPJ' ? 'Criar Hub agora' : 'Entendi'}
+              </button>
+            </div>
+          </div>
+        ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Hub</label>
+            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Depósito (Hub)</label>
             <select value={hubId} onChange={e => setHubId(e.target.value)} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" required>
               <option value="">Selecione o hub</option>
               {hubs.map(h => (
@@ -1048,6 +1101,7 @@ function AddHubModal({
             <button type="submit" disabled={saving} className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50">{saving ? 'Salvando...' : 'Adicionar'}</button>
           </div>
         </form>
+        )}
       </div>
     </div>
   );
@@ -1137,8 +1191,10 @@ function LinkPersonAsEmitterModal({
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50" onClick={onClose} role="dialog">
       <div className="bg-white dark:bg-tower-900 rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <h3 className="text-lg font-bold text-tower-900 dark:text-tower-100 mb-2">Vincular como emissor de Hub</h3>
-        <p className="text-sm text-tower-600 mb-4">Esta pessoa (CNPJ) será usada como emissor para CT-e/Minuta.</p>
+        <h3 className="text-lg font-bold text-tower-900 dark:text-tower-100 mb-2">Vincular como emissor de Hub (CNPJ)</h3>
+        <p className="text-sm text-tower-600 mb-4">
+          Define a razão social que emite CT-e/Minuta neste depósito. Não cria login de operador.
+        </p>
         {err && <p className="text-red-600 text-sm mb-4">{err}</p>}
         <div className="flex gap-2 mb-4">
           <button
