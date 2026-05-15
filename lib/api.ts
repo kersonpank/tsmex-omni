@@ -5,6 +5,7 @@ import type {
     CreateDemandRequest,
     CreateIntakeDemandRequest,
     CreateIntakeFromNfeKeyRequest,
+    ConfirmIntakeArrivalRequest,
     QuoteDemandRequest,
     UpdateStatusRequest,
     Manifest,
@@ -271,6 +272,8 @@ export const intakeDemandsApi = {
     list: async (params?: {
         status?: string;
         expectedHubId?: string;
+        q?: string;
+        onlyUnassignedHub?: boolean;
         limit?: number;
         offset?: number;
     }) => {
@@ -290,6 +293,21 @@ export const intakeDemandsApi = {
 
     createFromNfeKey: async (data: CreateIntakeFromNfeKeyRequest) => {
         const response = await api.post<ApiResponse<Demand>>('/intake/demands/from-nfe-key', data);
+        return response.data;
+    },
+
+    lookupByNfeKey: async (chave: string) => {
+        const response = await api.post<ApiResponse<{ matches: Demand[] }>>('/intake/demands/lookup-by-key', {
+            chave,
+        });
+        return response.data;
+    },
+
+    confirmArrival: async (id: string, body: ConfirmIntakeArrivalRequest) => {
+        const response = await api.post<ApiResponse<{ demand: Demand; order: unknown }>>(
+            `/intake/demands/${id}/confirm-arrival`,
+            body,
+        );
         return response.data;
     },
 };

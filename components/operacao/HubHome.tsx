@@ -1,14 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { linksApi, manifestsApi, ordersApi, vehicleTypesApi } from '../../lib/api';
+import { linksApi, manifestsApi, ordersApi, intakeDemandsApi, vehicleTypesApi } from '../../lib/api';
 import { demandStatusLabels, demandStatusTones, orderStatusLabels, orderStatusTones, type StatusTone } from '../../lib/demandStatusUi';
 import { useAuthStore } from '../../store/authStore';
 import type { Link, Manifest, OrderStatus, VehicleType } from '../../types/index';
 import EntradaTab from '../admin/EntradaTab';
 import ThemeToggle from '../ui/ThemeToggle';
 import BottomNav, { type BottomNavItem } from './BottomNav';
-import { HubNavIconHome, HubNavIconManifest, HubNavIconOrders, HubNavIconPlus } from './hubNavIcons';
+import HubAwaitingArrivalTab from './HubAwaitingArrivalTab';
+import { HubNavIconHome, HubNavIconInbox, HubNavIconManifest, HubNavIconOrders, HubNavIconPlus } from './hubNavIcons';
 
-type Tab = 'inicio' | 'entrada' | 'pedidos' | 'manifestos';
+type Tab = 'inicio' | 'recebimento' | 'entrada' | 'pedidos' | 'manifestos';
 
 interface Order {
   id: string;
@@ -201,6 +202,7 @@ const HubHome: React.FC = () => {
   const [showModal, setShowModal] = useState(false);
   const [showProfileSheet, setShowProfileSheet] = useState(false);
   const [attachmentUploadingOrderId, setAttachmentUploadingOrderId] = useState<string | null>(null);
+  const [awaitingRecebimentoCount, setAwaitingRecebimentoCount] = useState(0);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query.trim().toLowerCase()), 200);
@@ -211,16 +213,22 @@ const HubHome: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const [ordersRes, manifestsRes, linksRes, vtRes] = await Promise.all([
+      const [ordersRes, manifestsRes, linksRes, vtRes, intakeCountRes] = await Promise.all([
         ordersApi.list({ limit: 200 }),
         manifestsApi.list({}),
         linksApi.list({ approvalStatus: 'APPROVED' }),
         vehicleTypesApi.list(),
+        intakeDemandsApi.list({ status: 'AWAITING_ARRIVAL', limit: 1, offset: 0 }).catch(() => null),
       ]);
       setOrders(extractArray(ordersRes));
       setManifestos(extractArray(manifestsRes));
       setLinks(extractArray(linksRes));
       setVehicleTypes(extractArray(vtRes));
+      if (intakeCountRes && typeof intakeCountRes === 'object' && 'pagination' in intakeCountRes) {
+        setAwaitingRecebimentoCount((intakeCountRes as { pagination?: { total?: number } }).pagination?.total ?? 0);
+      } else {
+        setAwaitingRecebimentoCount(0);
+      }
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Erro ao carregar dados');
     } finally {
@@ -290,6 +298,7 @@ const HubHome: React.FC = () => {
 
   const navItems: BottomNavItem[] = [
     { key: 'inicio', label: 'Início', icon: <HubNavIconHome />, badge: pedidosSemManifesto.length },
+    { key: 'recebimento', label: 'Receber', icon: <HubNavIconInbox />, badge: awaitingRecebimentoCount > 0 ? awaitingRecebimentoCount : undefined },
     { key: 'entrada', label: 'Entrada', icon: <HubNavIconPlus /> },
     { key: 'pedidos', label: 'Pedidos', icon: <HubNavIconOrders /> },
     { key: 'manifestos', label: 'Manifestos', icon: <HubNavIconManifest />, badge: manifestosAtivos.length },
@@ -326,6 +335,13 @@ const HubHome: React.FC = () => {
         )}
         {loading && <div className="py-16 text-center text-sm text-tower-600 dark:text-tower-300">Carregando...</div>}
 
+        {!loading && tab === 'recebimento' && (
+          <HubAwaitingArrivalTab
+            onGoEntrada={() => setTab('entrada')}
+            onConfirmed={() => void load()}
+          />
+        )}
+
         {!loading && tab === 'inicio' && (
           <section className="space-y-4">
             <div className="card-surface border-brand-500/25 p-4 dark:border-brand-500/20 dark:bg-brand-900/40">
@@ -334,16 +350,20 @@ const HubHome: React.FC = () => {
                 <p className="font-display text-sm text-tower-700 dark:text-tower-200">A consolidar (sem manifesto)</p>
                 <p className="font-display text-4xl font-bold tabular-nums text-brand-600 dark:text-brand-300">{kpi.aConsolidar}</p>
               </button>
-              <div className="mt-3 grid grid-cols-3 gap-2 border-t border-tower-200 pt-3 dark:border-tower-700">
+              <div className="mt-3 grid grid-cols-2 gap-2 border-t border-tower-200 pt-3 sm:grid-cols-4 dark:border-tower-700">
                 <KpiInline label="Aguardam cotação" value={kpi.aguardamCotacao} />
                 <KpiInline label="Em trânsito" value={kpi.emTransito} />
                 <KpiInline label="No hub" value={kpi.noHub} />
+                <button type="button" onClick={() => setTab('recebimento')} className="min-h-[64px] rounded-lg border border-brand-500/30 bg-brand-500/5 px-2 py-2 text-center transition-colors hover:bg-brand-500/10 dark:border-brand-400/30 dark:bg-brand-900/40">
+                  <p className="text-[11px] text-tower-600 dark:text-tower-400">Aguardando chegada</p>
+                  <p className="font-display text-xl font-semibold tabular-nums text-brand-600 dark:text-brand-300">{awaitingRecebimentoCount}</p>
+                </button>
               </div>
             </div>
 
             <div className="space-y-3">
               <p className="font-display text-[10px] uppercase tracking-[0.14em] text-tower-600 dark:text-tower-300">Demandas recentes</p>
-              {Object.entries(recentDemandsGrouped).map(([label, list]) => (
+              {(Object.entries(recentDemandsGrouped) as [string, Order[]][]).map(([label, list]) => (
                 <div key={label} className="space-y-2">
                   <p className="font-display text-[10px] uppercase tracking-[0.14em] text-tower-600 dark:text-tower-400">{label}</p>
                   {list.map((order) => (

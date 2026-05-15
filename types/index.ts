@@ -637,6 +637,12 @@ export interface CreateIntakeFromNfeKeyRequest {
     rawInputData?: Record<string, unknown>;
 }
 
+export interface ConfirmIntakeArrivalRequest {
+    destinatarioPersonId: string;
+    remetentePersonId?: string;
+    freightTerm?: 'CIF' | 'FOB' | 'REDESPACHO';
+}
+
 export interface CreateDemandRequest {
     nfNumber: string;
     nfValue: number;

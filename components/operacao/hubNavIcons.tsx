@@ -31,3 +31,13 @@ export const HubNavIconManifest: React.FC<{ className?: string }> = ({ className
     <circle cx="17.5" cy="18.5" r="1.75" />
   </svg>
 );
+
+/** Recebimento / fila aguardando chegada (Hub PR003) */
+export const HubNavIconInbox: React.FC<{ className?: string }> = ({ className }) => (
+  <svg className={`${iconClass} ${className ?? ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M22 12h-6l-2-3H10L8 12H2" />
+    <path d="M3.51 5.5 8 10h8l4.49-4.5A2 2 0 0 0 19.78 3H4.22a2 2 0 0 0-1.71 2.5Z" />
+    <rect x="2" y="12" width="20" height="9" rx="2" />
+    <path d="M12 16h.01" />
+  </svg>
+);

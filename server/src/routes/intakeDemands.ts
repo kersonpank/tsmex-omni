@@ -1,6 +1,6 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import type { Prisma } from '@prisma/client';
+import type { DemandStatus, Prisma } from '@prisma/client';
 import prisma from '../lib/prisma.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -8,6 +8,9 @@ import {
     createIntakeDemand,
     createIntakeDemandFromNfeKey,
 } from '../services/intake/createIntakeDemand.js';
+import { confirmIntakeArrival } from '../services/intake/confirmIntakeArrival.js';
+import { buildIntakeDemandSearchWhere } from '../services/intake/intakeListQuery.js';
+import { extractChaveFromInput } from '../lib/nfeChaveIntake.js';
 import { INTAKE_SOURCE_TYPES, isIntakeSource } from '../services/intake/intakeDemandPolicy.js';
 
 const router = Router();
@@ -53,6 +56,16 @@ const fromNfeKeySchema = z.object({
     rawInputData: z.record(z.unknown()).optional(),
 });
 
+const lookupByKeySchema = z.object({
+    chave: z.string().min(8),
+});
+
+const confirmArrivalSchema = z.object({
+    destinatarioPersonId: z.string().uuid(),
+    remetentePersonId: z.string().uuid().optional(),
+    freightTerm: z.enum(['CIF', 'FOB', 'REDESPACHO']).optional(),
+});
+
 function resolveExpectedHubId(req: AuthRequest, bodyHubId?: string): string | null {
     if (req.user!.roles.includes('HUB')) {
         if (!req.user!.hubId) {
@@ -66,29 +79,89 @@ function resolveExpectedHubId(req: AuthRequest, bodyHubId?: string): string | nu
     return bodyHubId ?? null;
 }
 
-function intakeListWhere(req: AuthRequest, query: { expectedHubId?: string; status?: string }) {
-    const status = query.status ?? 'AWAITING_ARRIVAL';
-    const where: Record<string, unknown> = {
-        status,
-        sourceType: { in: INTAKE_SOURCE_TYPES },
-    };
+function requireResolvedHubId(expectedHubId: string | null): string {
+    if (!expectedHubId) {
+        throw new AppError('Informe o hub de recebimento esperado (expectedHubId).', 400);
+    }
+    return expectedHubId;
+}
+
+function buildIntakeListWhere(
+    req: AuthRequest,
+    query: {
+        expectedHubId?: string;
+        status?: string;
+        q?: string;
+        onlyUnassignedHub?: string;
+    },
+): Prisma.DemandWhereInput {
+    const status = (query.status ?? 'AWAITING_ARRIVAL') as DemandStatus;
+    const parts: Prisma.DemandWhereInput[] = [
+        { status },
+        { sourceType: { in: INTAKE_SOURCE_TYPES } },
+    ];
 
     if (req.user!.roles.includes('HUB')) {
         if (!req.user!.hubId) {
             throw new AppError('Hub user has no hub assigned', 403);
         }
-        where.expectedHubId = req.user!.hubId;
-    } else if (query.expectedHubId) {
-        where.expectedHubId = query.expectedHubId;
+        parts.push({ expectedHubId: req.user!.hubId });
+    } else {
+        const onlyUn =
+            query.onlyUnassignedHub === '1' ||
+            query.onlyUnassignedHub === 'true';
+        if (onlyUn) {
+            parts.push({ expectedHubId: null });
+        } else if (query.expectedHubId) {
+            parts.push({ expectedHubId: query.expectedHubId });
+        }
     }
 
-    return where;
+    const search = buildIntakeDemandSearchWhere(query.q);
+    if (search && Object.keys(search).length > 0) {
+        parts.push(search);
+    }
+
+    return { AND: parts };
+}
+
+function buildLookupWhere(req: AuthRequest, chave: string): Prisma.DemandWhereInput {
+    const digits = extractChaveFromInput(chave).replace(/\D/g, '');
+    const keyClause: Prisma.DemandWhereInput =
+        digits.length === 44
+            ? { documentKey: digits }
+            : {
+                  documentKey: {
+                      contains: digits.length >= 8 ? digits : chave.trim(),
+                      mode: 'insensitive',
+                  },
+              };
+
+    const parts: Prisma.DemandWhereInput[] = [
+        { status: 'AWAITING_ARRIVAL' },
+        { sourceType: { in: INTAKE_SOURCE_TYPES } },
+        { order: { is: null } },
+        keyClause,
+    ];
+
+    if (req.user!.roles.includes('HUB')) {
+        if (!req.user!.hubId) {
+            throw new AppError('Hub user has no hub assigned', 403);
+        }
+        parts.push({ expectedHubId: req.user!.hubId });
+    }
+
+    return { AND: parts };
 }
 
 async function assertCanViewIntakeDemand(req: AuthRequest, demandId: string) {
     const demand = await prisma.demand.findUnique({
         where: { id: demandId },
-        include: { order: true, client: { select: { companyName: true } }, events: { orderBy: { createdAt: 'desc' }, take: 20 } },
+        include: {
+            order: true,
+            client: { select: { companyName: true, document: true, personId: true } },
+            events: { orderBy: { createdAt: 'desc' }, take: 20 },
+        },
     });
     if (!demand) throw new AppError('Demand not found', 404);
     if (!isIntakeSource(demand.sourceType)) {
@@ -102,11 +175,65 @@ async function assertCanViewIntakeDemand(req: AuthRequest, demandId: string) {
     return demand;
 }
 
+// POST /api/intake/demands/lookup-by-key
+router.post('/demands/lookup-by-key', async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const { chave } = lookupByKeySchema.parse(req.body);
+        const where = buildLookupWhere(req, chave);
+        const matches = await prisma.demand.findMany({
+            where,
+            include: {
+                client: { select: { companyName: true, document: true } },
+                order: { select: { id: true } },
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 20,
+        });
+        res.json({ success: true, data: { matches } });
+    } catch (e) {
+        if (e instanceof z.ZodError) return next(new AppError(e.errors[0]?.message ?? 'Payload inválido', 400));
+        next(e);
+    }
+});
+
+// POST /api/intake/demands/:id/confirm-arrival
+router.post(
+    '/demands/:id/confirm-arrival',
+    async (req: AuthRequest, res: Response, next: NextFunction) => {
+        try {
+            const id = req.params.id as string;
+            const body = confirmArrivalSchema.parse(req.body);
+            const result = await confirmIntakeArrival({
+                demandId: id,
+                actingRoles: req.user!.roles,
+                actingHubId: req.user!.hubId,
+                remetentePersonId: body.remetentePersonId,
+                destinatarioPersonId: body.destinatarioPersonId,
+                freightTerm: body.freightTerm,
+            });
+            const fullOrder = await prisma.order.findUnique({
+                where: { id: result.order.id },
+                include: {
+                    demand: { include: { client: { select: { id: true, companyName: true } } } },
+                    currentHub: { select: { id: true, name: true, code: true } },
+                },
+            });
+            res.status(201).json({
+                success: true,
+                data: { demand: result.demand, order: fullOrder },
+            });
+        } catch (e) {
+            if (e instanceof z.ZodError) return next(new AppError(e.errors[0]?.message ?? 'Payload inválido', 400));
+            next(e);
+        }
+    },
+);
+
 // POST /api/intake/demands
 router.post('/demands', async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const data = createIntakeSchema.parse(req.body);
-        const expectedHubId = resolveExpectedHubId(req, data.expectedHubId);
+        const expectedHubId = requireResolvedHubId(resolveExpectedHubId(req, data.expectedHubId));
 
         const documentType =
             data.documentType ??
@@ -147,7 +274,7 @@ router.post('/demands', async (req: AuthRequest, res: Response, next: NextFuncti
 router.post('/demands/from-nfe-key', async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const data = fromNfeKeySchema.parse(req.body);
-        const expectedHubId = resolveExpectedHubId(req, data.expectedHubId);
+        const expectedHubId = requireResolvedHubId(resolveExpectedHubId(req, data.expectedHubId));
 
         const { demand, lookup } = await createIntakeDemandFromNfeKey({
             chave: data.chave,
@@ -169,17 +296,26 @@ router.post('/demands/from-nfe-key', async (req: AuthRequest, res: Response, nex
 // GET /api/intake/demands
 router.get('/demands', async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const { expectedHubId, status, limit = '50', offset = '0' } = req.query;
-        const where = intakeListWhere(req, {
+        const { expectedHubId, status, q, onlyUnassignedHub, limit = '50', offset = '0' } = req.query;
+        if (
+            (onlyUnassignedHub === '1' || onlyUnassignedHub === 'true') &&
+            req.user!.roles.includes('HUB')
+        ) {
+            throw new AppError('Not authorized', 403);
+        }
+
+        const where = buildIntakeListWhere(req, {
             expectedHubId: expectedHubId as string | undefined,
             status: status as string | undefined,
+            q: q as string | undefined,
+            onlyUnassignedHub: onlyUnassignedHub as string | undefined,
         });
 
         const [demands, total] = await Promise.all([
             prisma.demand.findMany({
                 where,
                 include: {
-                    client: { select: { companyName: true } },
+                    client: { select: { companyName: true, document: true } },
                     order: { select: { id: true } },
                 },
                 orderBy: { createdAt: 'desc' },

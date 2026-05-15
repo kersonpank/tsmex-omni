@@ -1,6 +1,6 @@
 /**
- * Smoke PR002 — Entrada universal (intake Demand).
- * Pré-requisitos: migrate deploy, seed (inclui hub.spgru + pessoas entrada), API rodando.
+ * Smoke PR002 + PR003 — Intake universal + recebimento Hub (lookup + confirm-arrival).
+ * Pré-requisitos: migrate deploy, seed (hub.spgru + pessoas entrada), API rodando.
  *
  * Uso:
  *   BASE_URL=http://localhost:3002/api node scripts/smoke-pr002-intake.mjs
@@ -142,6 +142,7 @@ async function main() {
         body: {
             sourceType: 'DECLARATION',
             clientId,
+            expectedHubId: hubSp.id,
             declarationData: { description: 'Roupas usadas', value: 250 },
             origin: 'Curitiba, PR',
             destination: 'Florianópolis, SC',
@@ -163,7 +164,7 @@ async function main() {
 
     r = await req('POST', '/intake/demands/from-nfe-key', {
         token: adminTok,
-        body: { chave: chave44, clientId },
+        body: { chave: chave44, clientId, expectedHubId: hubSp.id },
     });
     log(`POST from-nfe-key HTTP ${r.status}`);
     if (r.status !== 201) fail(`from-nfe-key ${JSON.stringify(r.json)}`);
@@ -175,9 +176,8 @@ async function main() {
 
     r = await req('POST', '/intake/demands/from-nfe-key', {
         token: adminTok,
-        body: { chave: chave44, clientId },
+        body: { chave: chave44, clientId, expectedHubId: hubSp.id },
     });
-    log(`POST from-nfe-key (2ª) HTTP ${r.status} id=${r.json?.data?.id}`);
     if (r.status !== 201) fail('segunda chave');
     if (r.json?.data?.id !== dNfe.id) fail('idempotência: mesmo demand id');
 
@@ -263,7 +263,42 @@ async function main() {
     log(`pending count=${pending.length} awaiting=${bad.length}`);
     if (bad.length > 0) fail('pending não deve listar AWAITING_ARRIVAL');
 
-    log('\n✅ Smoke PR002 intake concluído com sucesso.\n');
+    // 13 PR003 — lookup-by-key (Hub) + confirm-arrival → Order + AT_HUB
+    section(13, 'PR003: POST lookup-by-key (HUB) + confirm-arrival');
+    r = await req('POST', '/intake/demands/lookup-by-key', {
+        token: hubTok,
+        body: { chave: chave44 },
+    });
+    log(`lookup-by-key HTTP ${r.status}`);
+    if (r.status !== 200) fail(`lookup-by-key ${JSON.stringify(r.json)}`);
+    const matches = r.json?.data?.matches || [];
+    const ids = matches.map((m) => m.id);
+    if (!ids.includes(dNfe.id)) fail('lookup deve retornar demanda NF-e do hub SP-GRU');
+
+    r = await req('POST', `/intake/demands/${dNfe.id}/confirm-arrival`, {
+        token: hubTok,
+        body: {
+            destinatarioPersonId: dest.id,
+            remetentePersonId: remet.id,
+            freightTerm: 'CIF',
+        },
+    });
+    log(`confirm-arrival HTTP ${r.status}`);
+    if (r.status !== 201) fail(`confirm-arrival ${JSON.stringify(r.json)}`);
+    const ordConfirm = r.json?.data?.order;
+    if (!ordConfirm?.id) fail('confirm-arrival: order na resposta');
+    if (r.json?.data?.demand?.status !== 'AT_HUB') fail('confirm-arrival: demand AT_HUB');
+
+    r = await req('GET', `/intake/demands/${dNfe.id}`, { token: hubTok });
+    if (r.status !== 200) fail('GET intake após confirm');
+    if (r.json?.data?.status !== 'AT_HUB') fail('pós-confirm: status AT_HUB');
+    if (r.json?.data?.order == null) fail('pós-confirm: order vinculada');
+
+    r = await req('GET', '/intake/demands?status=AWAITING_ARRIVAL', { token: hubTok });
+    const stillAwaiting = (r.json?.data || []).map((d) => d.id);
+    if (stillAwaiting.includes(dNfe.id)) fail('demanda confirmada não deve permanecer na fila AWAITING_ARRIVAL');
+
+    log('\n✅ Smoke PR002 + PR003 (intake + recebimento hub) concluído com sucesso.\n');
 }
 
 main().catch((e) => {
