@@ -3,6 +3,8 @@ import type {
     NfSpecies,
     Demand,
     CreateDemandRequest,
+    CreateIntakeDemandRequest,
+    CreateIntakeFromNfeKeyRequest,
     QuoteDemandRequest,
     UpdateStatusRequest,
     Manifest,
@@ -259,6 +261,35 @@ export const demandsApi = {
 
     getEvents: async (id: string) => {
         const response = await api.get<ApiResponse<Demand['events']>>(`/demands/${id}/events`);
+        return response.data;
+    },
+};
+
+// ========== INTAKE DEMANDS API (PR002) ==========
+
+export const intakeDemandsApi = {
+    list: async (params?: {
+        status?: string;
+        expectedHubId?: string;
+        limit?: number;
+        offset?: number;
+    }) => {
+        const response = await api.get<PaginatedResponse<Demand>>('/intake/demands', { params });
+        return response.data;
+    },
+
+    getById: async (id: string) => {
+        const response = await api.get<ApiResponse<Demand>>(`/intake/demands/${id}`);
+        return response.data;
+    },
+
+    create: async (data: CreateIntakeDemandRequest) => {
+        const response = await api.post<ApiResponse<Demand>>('/intake/demands', data);
+        return response.data;
+    },
+
+    createFromNfeKey: async (data: CreateIntakeFromNfeKeyRequest) => {
+        const response = await api.post<ApiResponse<Demand>>('/intake/demands/from-nfe-key', data);
         return response.data;
     },
 };

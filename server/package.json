@@ -15,7 +15,8 @@
         "db:studio": "prisma studio",
         "db:seed": "tsx prisma/seed.ts",
         "db:seed:e2e-manifest": "tsx prisma/seed-manifest-e2e.ts",
-        "db:migrate-persons": "tsx prisma/migrate-persons.ts"
+        "db:migrate-persons": "tsx prisma/migrate-persons.ts",
+        "smoke:pr002-intake": "node scripts/smoke-pr002-intake.mjs"
     },
     "dependencies": {
         "@aws-sdk/client-s3": "^3.1032.0",

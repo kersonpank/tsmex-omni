@@ -5,6 +5,7 @@ import type { OrderStatus } from '../types/index';
 export type StatusTone = 'neutral' | 'info' | 'warning' | 'success' | 'danger';
 
 export const demandStatusLabels: Record<DemandStatus, string> = {
+  AWAITING_ARRIVAL: 'Aguardando chegada',
   PENDING: 'Pendente',
   QUOTED: 'Cotado',
   APPROVED: 'Aprovado',
@@ -18,6 +19,7 @@ export const demandStatusLabels: Record<DemandStatus, string> = {
 };
 
 export const demandStatusTones: Record<DemandStatus, StatusTone> = {
+  AWAITING_ARRIVAL: 'info',
   PENDING: 'warning',
   QUOTED: 'info',
   APPROVED: 'neutral',

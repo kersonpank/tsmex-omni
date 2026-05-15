@@ -7,9 +7,27 @@ export type UserRole = 'ADMIN' | 'CLIENT' | 'LINK' | 'HUB';
 
 export type DemandIntent = 'QUOTE_ONLY' | 'COLLECT' | 'DROP_AT_HUB';
 
-export type DemandSource = 'CHAT' | 'FORM' | 'BATCH' | 'API';
+export type DemandSource =
+    | 'CHAT'
+    | 'FORM'
+    | 'BATCH'
+    | 'API'
+    | 'DFE_ACBR'
+    | 'NFE_KEY'
+    | 'MANUAL_HUB'
+    | 'DECLARATION';
+
+export type DemandDocumentType =
+    | 'NFE'
+    | 'DECLARATION'
+    | 'CTE'
+    | 'MANUAL_REFERENCE'
+    | 'NO_DOCUMENT_YET';
+
+export type IntakeCompleteness = 'MINIMAL' | 'INCOMPLETE' | 'COMPLETE';
 
 export type DemandStatus =
+    | 'AWAITING_ARRIVAL'
     | 'PENDING'
     | 'QUOTED'
     | 'APPROVED'
@@ -404,6 +422,15 @@ export interface Demand {
     manifest?: Manifest;
     events?: DemandEvent[];
     sourceType: DemandSource;
+    documentType?: DemandDocumentType | null;
+    documentKey?: string | null;
+    externalReference?: string | null;
+    expectedHubId?: string | null;
+    intakeCompleteness?: IntakeCompleteness;
+    missingFields?: string[];
+    declarationData?: Record<string, unknown> | null;
+    rawInputData?: Record<string, unknown> | null;
+    order?: { id: string } | null;
     createdAt: string;
     updatedAt: string;
 }
@@ -581,6 +608,34 @@ export interface Opportunity {
 }
 
 // ========== API REQUEST/RESPONSE TYPES ==========
+
+export interface CreateIntakeDemandRequest {
+    sourceType: 'MANUAL_HUB' | 'DECLARATION';
+    clientId: string;
+    expectedHubId?: string;
+    externalReference?: string;
+    documentType?: DemandDocumentType;
+    documentKey?: string;
+    nfNumber?: string;
+    nfValue?: number;
+    origin?: string;
+    destination?: string;
+    commodity?: string;
+    weight?: number;
+    volume?: number;
+    units?: number;
+    riskClass?: RiskClass;
+    intentType?: DemandIntent;
+    declarationData?: Record<string, unknown>;
+    rawInputData?: Record<string, unknown>;
+}
+
+export interface CreateIntakeFromNfeKeyRequest {
+    chave: string;
+    clientId: string;
+    expectedHubId?: string;
+    rawInputData?: Record<string, unknown>;
+}
 
 export interface CreateDemandRequest {
     nfNumber: string;

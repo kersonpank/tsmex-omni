@@ -215,6 +215,13 @@ PORT=3002
 CORS_ORIGIN=http://localhost:3000
 ```
 
+### Checklist ACBr (sandbox/homologação em Docker ou Portainer)
+
+1. Definir **`ACBR_CLIENT_ID`** e **`ACBR_CLIENT_SECRET`** no ambiente da stack da API (ou `.env` do host antes do `docker compose up`): o `docker-compose.yml` já repassa com `${VAR:-}` — nunca commitar segredos reais.
+2. No cadastro do **emitente fiscal**, usar ambiente **HOMOLOGACAO** para usar o host **`https://hom.acbr.api.br`**; produção usa **`https://prod.acbr.api.br`** (ver `server/src/services/acbr/acbrConfig.ts`).
+3. Se o emitente estiver como **SIMULATED** mas você quiser ainda assim falar com a API ACBr, defina **`FISCAL_CTE_PROVIDER=acbr`** (ou `FISCAL_PROVIDER=acbr`) na API, desde que as credenciais OAuth2 estejam configuradas.
+4. Emissão com certificado A1 e armazenamento exige também **`FISCAL_SECRET_KEY`** e variáveis **S3_** (`server/.env.example`).
+
 ### Frontend (`.env.local`)
 ```env
 GEMINI_API_KEY=<chave gemini para chat frontend>

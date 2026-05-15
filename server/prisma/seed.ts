@@ -382,6 +382,38 @@ async function main() {
     });
     console.log(`   ✅ Client user created: ${clientUser.email} with Account`);
 
+    // Pessoas para smoke / POST /api/orders/entrada (pagador CIF = remetente com Client)
+    const remetDoc = '12345678000190';
+    const destDoc = '98765432000199';
+    const remetPerson = await prisma.person.upsert({
+        where: { document: remetDoc },
+        update: {},
+        create: {
+            documentType: 'CNPJ',
+            document: remetDoc,
+            legalName: 'Empresa Exemplo LTDA',
+            tradeName: 'Exemplo',
+            city: 'São Paulo',
+            state: 'SP',
+        },
+    });
+    await prisma.person.upsert({
+        where: { document: destDoc },
+        update: {},
+        create: {
+            documentType: 'CNPJ',
+            document: destDoc,
+            legalName: 'Destinatário Smoke LTDA',
+            city: 'Rio de Janeiro',
+            state: 'RJ',
+        },
+    });
+    await prisma.client.update({
+        where: { userId: clientUser.id },
+        data: { personId: remetPerson.id },
+    });
+    console.log('   ✅ Pessoas remetente/destinatário (entrada manual / smoke PR002)');
+
     // Create sample link
     console.log('🚛 Creating sample link...');
     const truckType = vehicleTypes.find(v => v.code === 'TRUCK');
@@ -414,6 +446,29 @@ async function main() {
         });
         console.log(`   ✅ Link user created: ${linkUser.email}`);
     }
+
+    // Operador HUB (SP-GRU) — intake / smoke PR002
+    const spHub = hubs.find((h) => h.code === 'SP-GRU');
+    if (!spHub) {
+        throw new Error('Seed: HUB SP-GRU não encontrado');
+    }
+    const hubPassword = await bcrypt.hash('hub123', 10);
+    await prisma.user.upsert({
+        where: { email: 'hub.spgru@tsmex.com' },
+        update: {
+            password: hubPassword,
+            roles: ['HUB'],
+            hubId: spHub.id,
+            active: true,
+        },
+        create: {
+            email: 'hub.spgru@tsmex.com',
+            password: hubPassword,
+            roles: ['HUB'],
+            hubId: spHub.id,
+        },
+    });
+    console.log('   ✅ Hub operator: hub.spgru@tsmex.com → SP-GRU');
 
     // Create LLM providers (pre-configured)
     console.log('🤖 Creating LLM providers...');
@@ -503,6 +558,7 @@ async function main() {
     console.log('   Admin: admin@tsmex.com / admin123');
     console.log('   Client: cliente@exemplo.com / cliente123');
     console.log('   Link: motorista@exemplo.com / link123');
+    console.log('   Hub: hub.spgru@tsmex.com / hub123');
 }
 
 // Seed states and cities from IBGE API

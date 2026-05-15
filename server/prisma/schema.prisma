@@ -282,6 +282,7 @@ model Hub {
   manifests            Manifest[]
   manifestsDestination Manifest[] @relation("ManifestDestHub")
   ordersAtHub            Order[] // Orders com status AT_HUB neste hub (currentHubId)
+  expectedDemands        Demand[] @relation("DemandExpectedHub")
   users               User[] // Usuários que operam este hub (role HUB)
   freightCalculations OrderFreightCalculation[]
   fiscalEmitters      FiscalEmitter[]
@@ -569,7 +570,18 @@ model Demand {
   attachments DemandAttachment[]
 
   // Metadata
-  sourceType DemandSource // CHAT, FORM, BATCH, API
+  sourceType DemandSource // CHAT, FORM, BATCH, API, intake sources, etc.
+
+  // Intake / pré-entrada universal (PR002+)
+  documentType       DemandDocumentType?
+  documentKey          String?
+  externalReference    String?
+  expectedHubId        String?
+  expectedHub          Hub?              @relation("DemandExpectedHub", fields: [expectedHubId], references: [id], onDelete: SetNull)
+  intakeCompleteness   CompletenessLevel @default(INCOMPLETE)
+  missingFields        String[]          @default([])
+  declarationData      Json?
+  rawInputData         Json?
 
   // Order relationship
   order Order?
@@ -579,6 +591,10 @@ model Demand {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@unique([sourceType, externalReference])
+  @@index([expectedHubId])
+  @@index([status, expectedHubId])
 }
 
 enum DemandIntent {
@@ -592,9 +608,22 @@ enum DemandSource {
   FORM // Via form
   BATCH // Batch upload
   API // B2B integration
+  DFE_ACBR // Distribuição NF-e ACBr (PR003)
+  NFE_KEY // Chave NF escaneada/digitada
+  MANUAL_HUB // Entrada manual no Hub
+  DECLARATION // Declaração de conteúdo
+}
+
+enum DemandDocumentType {
+  NFE
+  DECLARATION
+  CTE
+  MANUAL_REFERENCE
+  NO_DOCUMENT_YET
 }
 
 enum DemandStatus {
+  AWAITING_ARRIVAL // Pré-entrada: aguardando chegada física no Hub
   PENDING // Awaiting quote
   QUOTED // Quoted
   APPROVED // Client approved

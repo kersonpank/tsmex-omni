@@ -3,6 +3,10 @@ import { z } from 'zod';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
+import {
+    blocksAutoOrderOnStatusPatch,
+    INTAKE_AUTO_ORDER_BLOCKED_MESSAGE,
+} from '../services/intake/intakeDemandPolicy.js';
 
 const router = Router();
 
@@ -122,7 +126,7 @@ router.get('/pending', authenticate, authorize('ADMIN'), async (req: AuthRequest
 
         const demands = await prisma.demand.findMany({
             where: {
-                status: { in: ['PENDING', 'QUOTED', 'APPROVED'] },
+                status: { in: ['PENDING', 'QUOTED', 'APPROVED'] }, // AWAITING_ARRIVAL excluded (intake pré-malha)
                 manifestId: null,
                 ...(destination ? { destination: { contains: destination as string, mode: 'insensitive' } } : {}),
             },
@@ -424,6 +428,16 @@ router.patch('/:id/status', authenticate, async (req: AuthRequest, res: Response
             }
         }
 
+        if (
+            blocksAutoOrderOnStatusPatch(
+                existingDemand.sourceType,
+                status,
+                Boolean(existingDemand.order),
+            )
+        ) {
+            throw new AppError(INTAKE_AUTO_ORDER_BLOCKED_MESSAGE, 403);
+        }
+
         const demand = await prisma.$transaction(async (tx) => {
             // Update demand
             const updatedDemand = await tx.demand.update({
@@ -445,7 +459,7 @@ router.patch('/:id/status', authenticate, async (req: AuthRequest, res: Response
                 }
             });
 
-            // Create Order automatically when demand is COLLECTED or AT_HUB
+            // Create Order automatically when demand is COLLECTED or AT_HUB (legado, não-intake)
             if ((status === 'COLLECTED' || status === 'AT_HUB') && !updatedDemand.order) {
                 // Check if order already exists
                 const existingOrder = await tx.order.findUnique({
