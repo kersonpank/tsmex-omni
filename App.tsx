@@ -18,12 +18,21 @@ import HubCadastro from './components/HubCadastro';
 import ThemeToggle from './components/ui/ThemeToggle';
 import OrderDetailPage from './components/admin/OrderDetailPage';
 import { useLayoutStore } from './store/layoutStore';
+import { getDefaultHomePath } from './lib/postLoginDefaultPath';
 
 const OperacaoRedirect: React.FC = () => {
   const { user, currentRole } = useAuthStore();
   const role = currentRole && user?.roles?.includes(currentRole) ? currentRole : user?.roles?.[0];
   if (role === 'LINK') return <Navigate to="/link" replace />;
+  if (role === 'HUB') return <Navigate to="/hub" replace />;
   return <Navigate to="/gestao" replace />;
+};
+
+/** Redireciona `/` autenticado conforme prioridade de papéis (ADMIN > HUB > LINK > CLIENT). */
+const AuthenticatedHomeRedirect: React.FC = () => {
+  const { isAuthenticated, user } = useAuthStore();
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  return <Navigate to={getDefaultHomePath(user?.roles)} replace />;
 };
 
 const Navigation: React.FC = () => {
@@ -39,12 +48,15 @@ const Navigation: React.FC = () => {
     setMobileOpen(false);
     if (r === 'CLIENT') navigate('/client');
     else if (r === 'LINK') navigate('/link');
-    else if (r === 'ADMIN' || r === 'HUB') navigate('/gestao');
+    else if (r === 'HUB') navigate('/hub');
+    else if (r === 'ADMIN') navigate('/gestao');
+    else navigate('/gestao');
   };
   const [mobileOpen, setMobileOpen] = useState(false);
   const { toggleSidebarCollapsed, toggleSidebarDrawer } = useLayoutStore();
   const isLogin = location.pathname === '/login';
-  const canUseSystemMenu = isAuthenticated && (role === 'ADMIN' || role === 'HUB');
+  const canUseSystemMenu =
+    isAuthenticated && role === 'ADMIN' && shouldShowGlobalSystemMenu(location.pathname);
 
   useEffect(() => {
     setMobileOpen(false);
@@ -54,9 +66,14 @@ const Navigation: React.FC = () => {
 
   const navLinks = (
     <>
-      {(role === 'ADMIN' || role === 'HUB') && (
+      {role === 'ADMIN' && (
         <Link to="/gestao" className="admin-focus font-medium text-tower-600 transition hover:text-brand-600 dark:text-tower-300 dark:hover:text-brand-300" onClick={() => setMobileOpen(false)}>
-          {role === 'HUB' ? 'Operação' : 'Torre de Controle'}
+          Torre de Controle
+        </Link>
+      )}
+      {role === 'HUB' && (
+        <Link to="/hub" className="admin-focus font-medium text-tower-600 transition hover:text-brand-600 dark:text-tower-300 dark:hover:text-brand-300" onClick={() => setMobileOpen(false)}>
+          Operação Hub
         </Link>
       )}
       {role === 'CLIENT' && (
@@ -180,13 +197,22 @@ const Navigation: React.FC = () => {
         {isAuthenticated && mobileOpen && (
           <div className="space-y-1 border-t border-tower-200 py-4 dark:border-tower-700 md:hidden">
             <div className="flex flex-col gap-1">
-              {(role === 'ADMIN' || role === 'HUB') && (
+              {role === 'ADMIN' && (
                 <Link
                   to="/gestao"
                   className="admin-focus rounded-lg px-3 py-2 font-medium text-tower-800 hover:bg-tower-100 dark:text-tower-200 dark:hover:bg-tower-800"
                   onClick={() => setMobileOpen(false)}
                 >
-                  {role === 'HUB' ? 'Operação' : 'Torre de Controle'}
+                  Torre de Controle
+                </Link>
+              )}
+              {role === 'HUB' && (
+                <Link
+                  to="/hub"
+                  className="admin-focus rounded-lg px-3 py-2 font-medium text-tower-800 hover:bg-tower-100 dark:text-tower-200 dark:hover:bg-tower-800"
+                  onClick={() => setMobileOpen(false)}
+                >
+                  Operação Hub
                 </Link>
               )}
               {role === 'CLIENT' && (
@@ -273,9 +299,9 @@ const Navigation: React.FC = () => {
 const AppMain: React.FC = () => {
   const location = useLocation();
   const { sidebarCollapsed } = useLayoutStore();
-  const { isAuthenticated, user, currentRole } = useAuthStore();
+  const { user, currentRole } = useAuthStore();
   const role = currentRole && user?.roles?.includes(currentRole) ? currentRole : user?.roles?.[0];
-  const canSystem = role === 'ADMIN' || role === 'HUB';
+  const canSystem = role === 'ADMIN';
   const useGlobalPl = canSystem && shouldShowGlobalSystemMenu(location.pathname);
   const mainPl = useGlobalPl ? (sidebarCollapsed ? 'lg:pl-16' : 'lg:pl-72') : '';
 
@@ -288,7 +314,7 @@ const AppMain: React.FC = () => {
             <Route path="/onboarding" element={<CompanyOnboarding />} />
             <Route path="/app" element={<Navigate to="/gestao" replace />} />
             <Route path="/gestao" element={
-              <ProtectedRoute allowedRoles={['ADMIN', 'HUB']}>
+              <ProtectedRoute allowedRoles={['ADMIN']}>
                 <AdminDashboard />
               </ProtectedRoute>
             } />
@@ -327,19 +353,14 @@ const AppMain: React.FC = () => {
                 <OperacaoApp />
               </ProtectedRoute>
             } />
+            <Route path="/hub" element={
+              <ProtectedRoute allowedRoles={['HUB']}>
+                <OperacaoApp />
+              </ProtectedRoute>
+            } />
             <Route path="/operacao" element={<OperacaoRedirect />} />
             <Route path="/operacao/cadastro" element={<Navigate to="/link/cadastro" replace />} />
-            <Route path="/" element={
-              isAuthenticated ? (
-                role === 'CLIENT'
-                  ? <Navigate to="/client" replace />
-                  : role === 'LINK'
-                    ? <Navigate to="/link" replace />
-                    : (role === 'ADMIN' || role === 'HUB')
-                      ? <Navigate to="/gestao" replace />
-                      : <Navigate to="/gestao" replace />
-              ) : <Navigate to="/login" replace />
-            } />
+            <Route path="/" element={<AuthenticatedHomeRedirect />} />
         </Routes>
       </main>
     </>

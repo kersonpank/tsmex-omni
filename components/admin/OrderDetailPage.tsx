@@ -111,9 +111,12 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
 const OrderDetailPage: React.FC = () => {
   const location = useLocation();
   const { id } = useParams();
-  const { user } = useAuthStore();
+  const { user, currentRole } = useAuthStore();
+  const effectiveRole =
+    currentRole && user?.roles?.includes(currentRole) ? currentRole : user?.roles?.[0];
   const isHub = user?.roles?.includes('HUB') ?? false;
   const isAdmin = user?.roles?.includes('ADMIN') ?? false;
+  const hubOperacaoOnly = effectiveRole === 'HUB';
   const hubPermissions =
     (user?.profile as { hub?: { permissions?: string[] } })?.hub?.permissions ?? (user as { permissions?: string[] })?.permissions ?? [];
   const hasPermission = useCallback(
@@ -200,7 +203,10 @@ const OrderDetailPage: React.FC = () => {
     }
   }, [editMode, hasColetaData, canEditInEntrada]);
 
-  const backToPedidosPath = useMemo(() => '/gestao?cat=transport&sub=pedidos', []);
+  const backToPedidosPath = useMemo(
+    () => (hubOperacaoOnly ? '/hub' : '/gestao?cat=transport&sub=pedidos'),
+    [hubOperacaoOnly],
+  );
 
   const handleAddAttachment = async (file: File) => {
     if (!id) return;
@@ -255,7 +261,7 @@ const OrderDetailPage: React.FC = () => {
         </RouterLink>
         {canEditInEntrada ? (
           <RouterLink
-            to={gestaoEntradaOrderUrl(order.id, isHub)}
+            to={hubOperacaoOnly ? '/hub' : gestaoEntradaOrderUrl(order.id, isHub)}
             className="admin-focus rounded-lg border border-brand-300 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50 dark:border-brand-700 dark:text-brand-300 dark:hover:bg-brand-900/40"
           >
             Editar na Entrada

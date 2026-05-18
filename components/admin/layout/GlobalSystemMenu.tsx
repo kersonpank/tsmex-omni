@@ -6,7 +6,7 @@ import { buildAdminNavSections, getNavStateForSystemMenu, navigateToNavState } f
 import type { AdminNavState } from './adminQuery';
 import AdminNavRails from './AdminNavRails';
 
-const EXCLUDED = new Set(['/login', '/gestao', '/onboarding', '/unauthorized', '/link/cadastro', '/hub/cadastro', '/app']);
+const EXCLUDED = new Set(['/login', '/gestao', '/hub', '/onboarding', '/unauthorized', '/link/cadastro', '/hub/cadastro', '/app']);
 
 export function shouldShowGlobalSystemMenu(pathname: string): boolean {
   if (EXCLUDED.has(pathname)) return false;
@@ -18,7 +18,9 @@ const GlobalSystemMenu: React.FC = () => {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { user } = useAuthStore();
+  const { user, currentRole } = useAuthStore();
+  const effectiveRole =
+    currentRole && user?.roles?.includes(currentRole) ? currentRole : user?.roles?.[0];
   const isHub = user?.roles?.includes('HUB') ?? false;
   const isAdmin = user?.roles?.includes('ADMIN') ?? false;
   const hubPermissions =
@@ -52,7 +54,7 @@ const GlobalSystemMenu: React.FC = () => {
     [navState, isHub, hasPermission, onOrderDetail, navigate, setSidebarDrawerOpen]
   );
 
-  const show = (isAdmin || isHub) && shouldShowGlobalSystemMenu(location.pathname);
+  const show = effectiveRole === 'ADMIN' && shouldShowGlobalSystemMenu(location.pathname);
   if (!show) return null;
 
   return <AdminNavRails navSections={navSections} layout="global" showDesktopPanel />;

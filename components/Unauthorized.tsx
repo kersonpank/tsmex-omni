@@ -29,6 +29,14 @@ const Unauthorized: React.FC = () => {
               Ir à Torre de Controle
             </Link>
           )}
+          {user?.roles?.includes('HUB') && (
+            <Link
+              to="/hub"
+              className="rounded-xl bg-brand-600 px-5 py-2.5 font-medium text-white transition-colors hover:bg-brand-500 dark:hover:bg-brand-400"
+            >
+              Ir à Operação Hub
+            </Link>
+          )}
           <Link
             to="/"
             className="rounded-xl bg-tower-200 px-5 py-2.5 font-medium text-tower-800 transition-colors hover:bg-tower-300 dark:bg-tower-700 dark:text-tower-100 dark:hover:bg-tower-600"

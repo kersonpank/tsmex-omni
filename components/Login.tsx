@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { getDefaultHomePath } from '../lib/postLoginDefaultPath';
 import { useAuthStore } from '../store/authStore';
 import ThemeToggle from './ui/ThemeToggle';
 
@@ -17,19 +18,9 @@ const Login: React.FC = () => {
         setLoading(true);
 
         try {
-            const result = await login(email, password);
-            // Redirect based on role
-            const roles = result?.user?.roles ?? [];
-            const role = roles[0];
-            if (role === 'CLIENT') {
-                navigate('/client');
-            } else if (role === 'ADMIN' || role === 'HUB') {
-                navigate('/gestao');
-            } else if (role === 'LINK') {
-                navigate('/link');
-            } else {
-                navigate('/gestao');
-            }
+            await login(email, password);
+            const roles = useAuthStore.getState().user?.roles ?? [];
+            navigate(getDefaultHomePath(roles));
         } catch (err: any) {
             setError(err.message || 'Erro ao fazer login');
         } finally {
