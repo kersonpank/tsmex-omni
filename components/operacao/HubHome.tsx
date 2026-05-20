@@ -339,6 +339,9 @@ const HubHome: React.FC = () => {
           <HubAwaitingArrivalTab
             onGoEntrada={() => setTab('entrada')}
             onConfirmed={() => void load()}
+            onViewOrder={(orderId) => {
+              window.location.hash = `#/orders/${orderId}`;
+            }}
           />
         )}
 

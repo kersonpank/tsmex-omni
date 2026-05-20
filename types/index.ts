@@ -643,6 +643,41 @@ export interface ConfirmIntakeArrivalRequest {
     freightTerm?: 'CIF' | 'FOB' | 'REDESPACHO';
 }
 
+export type IntakeNfeKeyResolution =
+    | 'awaiting_arrival'
+    | 'already_received'
+    | 'wrong_hub'
+    | 'blocked'
+    | 'not_found'
+    | 'invalid_key';
+
+export interface IntakeDemandSummary {
+    id: string;
+    status: string;
+    nfNumber?: string | null;
+    documentKey?: string | null;
+    expectedHubId?: string | null;
+    client?: { id: string; companyName: string; document?: string | null };
+}
+
+export interface ResolveIntakeByNfeKeyResult {
+    resolution: IntakeNfeKeyResolution;
+    chaveNormalized: string;
+    message?: string;
+    cnpjEmit?: string;
+    orderId?: string;
+    demand?: IntakeDemandSummary;
+    demands?: IntakeDemandSummary[];
+}
+
+export type ResolveIntakeClientStatus = 'found' | 'not_found';
+
+export interface ResolveIntakeClientResult {
+    status: ResolveIntakeClientStatus;
+    document: string;
+    client?: { id: string; companyName: string; document: string };
+}
+
 export interface CreateDemandRequest {
     nfNumber: string;
     nfValue: number;

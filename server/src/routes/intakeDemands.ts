@@ -12,6 +12,8 @@ import { confirmIntakeArrival } from '../services/intake/confirmIntakeArrival.js
 import { buildIntakeDemandSearchWhere } from '../services/intake/intakeListQuery.js';
 import { extractChaveFromInput } from '../lib/nfeChaveIntake.js';
 import { INTAKE_SOURCE_TYPES, isIntakeSource } from '../services/intake/intakeDemandPolicy.js';
+import { resolveIntakeByNfeKey } from '../services/intake/resolveIntakeByNfeKey.js';
+import { resolveIntakeClientByDocument } from '../services/intake/resolveIntakeClientByDocument.js';
 
 const router = Router();
 
@@ -58,6 +60,14 @@ const fromNfeKeySchema = z.object({
 
 const lookupByKeySchema = z.object({
     chave: z.string().min(8),
+});
+
+const resolveByKeySchema = z.object({
+    chave: z.string().min(1),
+});
+
+const resolveClientSchema = z.object({
+    document: z.string().min(1),
 });
 
 const confirmArrivalSchema = z.object({
@@ -175,6 +185,37 @@ async function assertCanViewIntakeDemand(req: AuthRequest, demandId: string) {
     return demand;
 }
 
+// POST /api/intake/demands/resolve-by-key
+router.post('/demands/resolve-by-key', async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const { chave } = resolveByKeySchema.parse(req.body);
+        const data = await resolveIntakeByNfeKey({
+            chave,
+            actingRoles: req.user!.roles,
+            actingHubId: req.user!.hubId,
+        });
+        res.json({ success: true, data });
+    } catch (e) {
+        if (e instanceof z.ZodError) return next(new AppError(e.errors[0]?.message ?? 'Payload inválido', 400));
+        next(e);
+    }
+});
+
+// POST /api/intake/demands/resolve-client-by-document
+router.post(
+    '/demands/resolve-client-by-document',
+    async (req: AuthRequest, res: Response, next: NextFunction) => {
+        try {
+            const { document } = resolveClientSchema.parse(req.body);
+            const data = await resolveIntakeClientByDocument(document);
+            res.json({ success: true, data });
+        } catch (e) {
+            if (e instanceof z.ZodError) return next(new AppError(e.errors[0]?.message ?? 'Payload inválido', 400));
+            next(e);
+        }
+    },
+);
+
 // POST /api/intake/demands/lookup-by-key
 router.post('/demands/lookup-by-key', async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
@@ -266,6 +307,7 @@ router.post('/demands', async (req: AuthRequest, res: Response, next: NextFuncti
         if (e instanceof Error && e.message.includes('Chave NF-e')) {
             return next(new AppError(e.message, 400));
         }
+        if (e instanceof AppError) return next(e);
         next(e);
     }
 });
@@ -289,6 +331,7 @@ router.post('/demands/from-nfe-key', async (req: AuthRequest, res: Response, nex
         if (e instanceof Error && e.message.includes('Chave NF-e')) {
             return next(new AppError(e.message, 400));
         }
+        if (e instanceof AppError) return next(e);
         next(e);
     }
 });

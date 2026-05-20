@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import prisma from '../../lib/prisma.js';
+import { AppError } from '../../middleware/errorHandler.js';
 import { createIntakeDemand } from './createIntakeDemand.js';
 
 const CLIENT_ID = '550e8400-e29b-41d4-a716-446655440001';
 const HUB_ID = '550e8400-e29b-41d4-a716-446655440002';
-const CHAVE44 = `3526${'1'.repeat(40)}`;
+const CHAVE44 = '35260512345678000190550010000000012345678901';
 
 describe('createIntakeDemand', () => {
     const store = {
@@ -148,5 +149,34 @@ describe('createIntakeDemand', () => {
 
         assert.equal(first.id, second.id);
         assert.equal(store.demands.size, 1);
+    });
+
+    it('Demand terminal com mesma chave → 409 sem reabrir fila', async () => {
+        store.demands.set('dem-old', {
+            id: 'dem-old',
+            sourceType: 'NFE_KEY',
+            externalReference: CHAVE44,
+            status: 'DELIVERED',
+            order: { id: 'ord-1' },
+        });
+
+        await assert.rejects(
+            () =>
+                createIntakeDemand({
+                    sourceType: 'NFE_KEY',
+                    clientId: CLIENT_ID,
+                    expectedHubId: HUB_ID,
+                    documentType: 'NFE',
+                    documentKey: CHAVE44,
+                    nfNumber: '12345',
+                    nfValue: 10,
+                    origin: 'SP, SP',
+                    destination: 'A definir',
+                    commodity: 'A definir',
+                    weight: 1,
+                    volume: 0.001,
+                }),
+            (err: unknown) => err instanceof AppError && err.statusCode === 409,
+        );
     });
 });

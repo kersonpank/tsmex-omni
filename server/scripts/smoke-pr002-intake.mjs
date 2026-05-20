@@ -263,8 +263,31 @@ async function main() {
     log(`pending count=${pending.length} awaiting=${bad.length}`);
     if (bad.length > 0) fail('pending não deve listar AWAITING_ARRIVAL');
 
-    // 13 PR003 — lookup-by-key (Hub) + confirm-arrival → Order + AT_HUB
-    section(13, 'PR003: POST lookup-by-key (HUB) + confirm-arrival');
+    // 13 PR003 / PR003.2 — resolve-by-key + resolve-client (sem GET /clients)
+    section(13, 'PR003.2: resolve-by-key + resolve-client-by-document (HUB)');
+    r = await req('POST', '/intake/demands/resolve-by-key', {
+        token: hubTok,
+        body: { chave: chave44 },
+    });
+    log(`resolve-by-key HTTP ${r.status} resolution=${r.json?.data?.resolution}`);
+    if (r.status !== 200) fail(`resolve-by-key ${JSON.stringify(r.json)}`);
+    if (r.json?.data?.resolution !== 'awaiting_arrival') fail('resolve-by-key: awaiting_arrival antes do confirm');
+    const resolvedId = r.json?.data?.demand?.id || r.json?.data?.demands?.[0]?.id;
+    if (resolvedId !== dNfe.id) fail('resolve-by-key: demanda NF-e do hub');
+
+    r = await req('POST', '/intake/demands/resolve-client-by-document', {
+        token: hubTok,
+        body: { document: '12345678000190' },
+    });
+    if (r.status !== 200 || r.json?.data?.status !== 'found') fail('resolve-client: CNPJ seed');
+    if (!r.json?.data?.client?.id) fail('resolve-client: clientId ausente');
+
+    r = await req('POST', '/intake/demands/resolve-client-by-document', {
+        token: hubTok,
+        body: { document: '00000000000000' },
+    });
+    if (r.status !== 200 || r.json?.data?.status !== 'not_found') fail('resolve-client: CNPJ inexistente');
+
     r = await req('POST', '/intake/demands/lookup-by-key', {
         token: hubTok,
         body: { chave: chave44 },
@@ -298,7 +321,15 @@ async function main() {
     const stillAwaiting = (r.json?.data || []).map((d) => d.id);
     if (stillAwaiting.includes(dNfe.id)) fail('demanda confirmada não deve permanecer na fila AWAITING_ARRIVAL');
 
-    log('\n✅ Smoke PR002 + PR003 (intake + recebimento hub) concluído com sucesso.\n');
+    r = await req('POST', '/intake/demands/resolve-by-key', {
+        token: hubTok,
+        body: { chave: chave44 },
+    });
+    if (r.status !== 200) fail(`resolve-by-key pós-confirm ${JSON.stringify(r.json)}`);
+    if (r.json?.data?.resolution !== 'already_received') fail('resolve-by-key: already_received após confirm');
+    if (!r.json?.data?.orderId) fail('resolve-by-key: orderId em already_received');
+
+    log('\n✅ Smoke PR002 + PR003 + PR003.2 (intake + recebimento hub) concluído com sucesso.\n');
 }
 
 main().catch((e) => {

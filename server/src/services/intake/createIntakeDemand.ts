@@ -6,6 +6,7 @@ import type {
 } from '@prisma/client';
 import axios from 'axios';
 import prisma from '../../lib/prisma.js';
+import { AppError } from '../../middleware/errorHandler.js';
 import { parseChaveNfe, extractChaveFromInput, type NfeChaveParsed } from '../../lib/nfeChaveIntake.js';
 import {
     computeMissingFields,
@@ -154,6 +155,13 @@ export async function createIntakeDemand(input: CreateIntakeDemandInput): Promis
     };
 
     if (existing) {
+        const hasOrder = Boolean((existing as { order?: { id: string } | null }).order);
+        if (existing.status !== 'AWAITING_ARRIVAL' || hasOrder) {
+            throw new AppError(
+                'Esta chave NF-e já foi processada e não pode ser reaberta na fila de recebimento.',
+                409,
+            );
+        }
         return prisma.$transaction(async (tx) => {
             const updated = await tx.demand.update({
                 where: { id: existing.id },

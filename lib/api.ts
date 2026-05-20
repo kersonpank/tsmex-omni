@@ -6,6 +6,8 @@ import type {
     CreateIntakeDemandRequest,
     CreateIntakeFromNfeKeyRequest,
     ConfirmIntakeArrivalRequest,
+    ResolveIntakeByNfeKeyResult,
+    ResolveIntakeClientResult,
     QuoteDemandRequest,
     UpdateStatusRequest,
     Manifest,
@@ -300,6 +302,22 @@ export const intakeDemandsApi = {
         const response = await api.post<ApiResponse<{ matches: Demand[] }>>('/intake/demands/lookup-by-key', {
             chave,
         });
+        return response.data;
+    },
+
+    resolveByNfeKey: async (chave: string) => {
+        const response = await api.post<ApiResponse<ResolveIntakeByNfeKeyResult>>(
+            '/intake/demands/resolve-by-key',
+            { chave },
+        );
+        return response.data;
+    },
+
+    resolveClientByDocument: async (document: string) => {
+        const response = await api.post<ApiResponse<ResolveIntakeClientResult>>(
+            '/intake/demands/resolve-client-by-document',
+            { document },
+        );
         return response.data;
     },
 
