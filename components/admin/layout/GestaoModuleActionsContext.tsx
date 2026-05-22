@@ -74,10 +74,11 @@ export function useRegisterGestaoModuleActions(
   build: () => ModuleActionConfig | null,
   deps: React.DependencyList
 ): void {
-  const { setConfig } = useGestaoModuleActions();
+  const ctx = useOptionalGestaoModuleActions();
   useEffect(() => {
-    setConfig(build());
-    return () => setConfig(null);
+    if (!ctx) return;
+    ctx.setConfig(build());
+    return () => ctx.setConfig(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- deps controlam quando re-registrar
   }, deps);
 }

@@ -6,6 +6,7 @@ import GestaoActionBar from './GestaoActionBar';
 import {
   GestaoModuleActionsProvider,
   useGestaoModuleActions,
+  useRegisterGestaoModuleActions,
   type ModuleActionConfig,
 } from './GestaoModuleActionsContext';
 
@@ -17,6 +18,18 @@ function ActionBarHarness({ config }: { config: ModuleActionConfig }) {
   }, [config, setConfig]);
   return <GestaoActionBar />;
 }
+
+function RegisterOutsideProvider() {
+  useRegisterGestaoModuleActions(() => ({ onNew: vi.fn() }), []);
+  return <p>ok</p>;
+}
+
+describe('GestaoModuleActionsContext', () => {
+  it('useRegisterGestaoModuleActions fora do provider não lança', () => {
+    expect(() => render(<RegisterOutsideProvider />)).not.toThrow();
+    expect(screen.getByText('ok')).toBeInTheDocument();
+  });
+});
 
 describe('GestaoActionBar', () => {
   it('dispara onList ao clicar no botão de listagem', async () => {

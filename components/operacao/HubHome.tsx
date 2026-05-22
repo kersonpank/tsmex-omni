@@ -212,28 +212,69 @@ const HubHome: React.FC = () => {
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    try {
-      const [ordersRes, manifestsRes, linksRes, vtRes, intakeCountRes] = await Promise.all([
+    const apiErr = (e: unknown): string => {
+      if (e && typeof e === 'object' && 'response' in e) {
+        const res = (e as { response?: { data?: { error?: string } } }).response;
+        return res?.data?.error || 'Erro ao carregar dados';
+      }
+      return e instanceof Error ? e.message : 'Erro ao carregar dados';
+    };
+
+    const [ordersSettled, manifestsSettled, linksSettled, vtSettled, intakeSettled] =
+      await Promise.allSettled([
         ordersApi.list({ limit: 200 }),
         manifestsApi.list({}),
         linksApi.list({ approvalStatus: 'APPROVED' }),
         vehicleTypesApi.list(),
-        intakeDemandsApi.list({ status: 'AWAITING_ARRIVAL', limit: 1, offset: 0 }).catch(() => null),
+        intakeDemandsApi.list({ status: 'AWAITING_ARRIVAL', limit: 1, offset: 0 }),
       ]);
-      setOrders(extractArray(ordersRes));
-      setManifestos(extractArray(manifestsRes));
-      setLinks(extractArray(linksRes));
-      setVehicleTypes(extractArray(vtRes));
+
+    const criticalErrors: string[] = [];
+
+    if (ordersSettled.status === 'fulfilled') {
+      setOrders(extractArray(ordersSettled.value));
+    } else {
+      setOrders([]);
+      criticalErrors.push(apiErr(ordersSettled.reason));
+    }
+
+    if (manifestsSettled.status === 'fulfilled') {
+      setManifestos(extractArray(manifestsSettled.value));
+    } else {
+      setManifestos([]);
+      criticalErrors.push(apiErr(manifestsSettled.reason));
+    }
+
+    if (linksSettled.status === 'fulfilled') {
+      setLinks(extractArray(linksSettled.value));
+    } else {
+      setLinks([]);
+    }
+
+    if (vtSettled.status === 'fulfilled') {
+      setVehicleTypes(extractArray(vtSettled.value));
+    } else {
+      setVehicleTypes([]);
+    }
+
+    if (intakeSettled.status === 'fulfilled') {
+      const intakeCountRes = intakeSettled.value;
       if (intakeCountRes && typeof intakeCountRes === 'object' && 'pagination' in intakeCountRes) {
-        setAwaitingRecebimentoCount((intakeCountRes as { pagination?: { total?: number } }).pagination?.total ?? 0);
+        setAwaitingRecebimentoCount(
+          (intakeCountRes as { pagination?: { total?: number } }).pagination?.total ?? 0,
+        );
       } else {
         setAwaitingRecebimentoCount(0);
       }
-    } catch (e: any) {
-      setError(e.response?.data?.error || e.message || 'Erro ao carregar dados');
-    } finally {
-      setLoading(false);
+    } else {
+      setAwaitingRecebimentoCount(0);
     }
+
+    if (criticalErrors.length > 0) {
+      setError(criticalErrors[0]);
+    }
+
+    setLoading(false);
   }, []);
 
   useEffect(() => { void load(); }, [load]);

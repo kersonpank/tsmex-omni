@@ -6,28 +6,51 @@ import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 
 const router = Router();
 
-// GET /api/links - List all links (Admin only)
-router.get('/', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+// GET /api/links - List links (Admin: full; Hub: approved/active only for manifest assignment)
+router.get('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const { status, state } = req.query;
+        const { status, approvalStatus, state } = req.query;
+        const isHubOnly =
+            req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN');
+        const statusFilter = (approvalStatus ?? status) as string | undefined;
 
-        const links = await prisma.link.findMany({
-            where: {
-                ...(status ? { approvalStatus: status as any } : {}),
-                ...(state ? { coverageStates: { has: state as string } } : {}),
-            },
-            include: {
-                user: {
-                    select: { email: true, active: true }
-                },
-                vehicleType: true,
-                onboarding: true,
-                _count: {
-                    select: { manifests: true }
-                }
-            },
-            orderBy: { createdAt: 'desc' },
-        });
+        const where = {
+            ...(isHubOnly
+                ? { approvalStatus: 'APPROVED' as const, active: true }
+                : statusFilter
+                  ? { approvalStatus: statusFilter as 'PENDING' | 'APPROVED' | 'REJECTED' }
+                  : {}),
+            ...(state ? { coverageStates: { has: state as string } } : {}),
+        };
+
+        const links = isHubOnly
+            ? await prisma.link.findMany({
+                  where,
+                  select: {
+                      id: true,
+                      name: true,
+                      vehiclePlate: true,
+                      vehicleTypeId: true,
+                      approvalStatus: true,
+                      active: true,
+                      vehicleType: true,
+                  },
+                  orderBy: { createdAt: 'desc' },
+              })
+            : await prisma.link.findMany({
+                  where,
+                  include: {
+                      user: {
+                          select: { email: true, active: true },
+                      },
+                      vehicleType: true,
+                      onboarding: true,
+                      _count: {
+                          select: { manifests: true },
+                      },
+                  },
+                  orderBy: { createdAt: 'desc' },
+              });
 
         res.json({
             success: true,

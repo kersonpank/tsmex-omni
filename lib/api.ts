@@ -469,8 +469,15 @@ export const hubsApi = {
 // ========== LINKS API ==========
 
 export const linksApi = {
-    list: async (params?: { approvalStatus?: string }) => {
-        const response = await api.get<ApiResponse<Link[]>>('/links', { params });
+    list: async (params?: { approvalStatus?: string; status?: string }) => {
+        const query = params
+            ? {
+                  ...params,
+                  status: params.status ?? params.approvalStatus,
+                  approvalStatus: params.approvalStatus ?? params.status,
+              }
+            : undefined;
+        const response = await api.get<ApiResponse<Link[]>>('/links', { params: query });
         return response.data;
     },
 
