@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { HashRouter, Routes, Route, Navigate, Link, useLocation, useNavigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import GlobalSystemMenu, { shouldShowGlobalSystemMenu } from './components/admin/layout/GlobalSystemMenu';
 import AdminDashboard from './components/AdminDashboard';
 import ClientDashboard from './components/ClientDashboard';
@@ -11,14 +11,15 @@ import ProtectedRoute from './components/ProtectedRoute';
 import { useAuthStore } from './store/authStore';
 import FormCotacao from './components/forms/FormCotacao';
 import FormColeta from './components/forms/FormColeta';
-import Unauthorized from './components/Unauthorized';
+import WorkspacePicker from './components/WorkspacePicker';
+import RoleWorkspaceSwitcher from './components/RoleWorkspaceSwitcher';
 import OperacaoApp from './components/operacao/OperacaoApp';
 import OperacaoOnboarding from './components/operacao/OperacaoOnboarding';
 import HubCadastro from './components/HubCadastro';
 import ThemeToggle from './components/ui/ThemeToggle';
 import OrderDetailPage from './components/admin/OrderDetailPage';
 import { useLayoutStore } from './store/layoutStore';
-import { getDefaultHomePath } from './lib/postLoginDefaultPath';
+import { getDefaultHomePath, syncRoleForPath } from './lib/postLoginDefaultPath';
 
 const OperacaoRedirect: React.FC = () => {
   const { user, currentRole } = useAuthStore();
@@ -30,28 +31,24 @@ const OperacaoRedirect: React.FC = () => {
 
 /** Redireciona `/` autenticado conforme prioridade de papéis (ADMIN > HUB > LINK > CLIENT). */
 const AuthenticatedHomeRedirect: React.FC = () => {
-  const { isAuthenticated, user } = useAuthStore();
+  const { isAuthenticated, user, setCurrentRole } = useAuthStore();
+  const dest = getDefaultHomePath(user?.roles);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const synced = syncRoleForPath(dest, user?.roles);
+    if (synced) setCurrentRole(synced);
+  }, [isAuthenticated, dest, user?.roles, setCurrentRole]);
+
   if (!isAuthenticated) return <Navigate to="/login" replace />;
-  return <Navigate to={getDefaultHomePath(user?.roles)} replace />;
+  return <Navigate to={dest} replace />;
 };
 
 const Navigation: React.FC = () => {
   const location = useLocation();
-  const navigate = useNavigate();
-  const { user, logout, isAuthenticated, currentRole, setCurrentRole } = useAuthStore();
+  const { user, logout, isAuthenticated, currentRole } = useAuthStore();
   const role = currentRole && user?.roles?.includes(currentRole) ? currentRole : user?.roles?.[0];
-  const hasMultipleRoles = (user?.roles?.length ?? 0) > 1;
   const roleLabels: Record<string, string> = { ADMIN: 'Admin', CLIENT: 'Cliente', LINK: 'Link', HUB: 'Hub' };
-
-  const handleRoleSwitch = (r: string) => {
-    setCurrentRole(r as 'ADMIN' | 'CLIENT' | 'LINK' | 'HUB');
-    setMobileOpen(false);
-    if (r === 'CLIENT') navigate('/client');
-    else if (r === 'LINK') navigate('/link');
-    else if (r === 'HUB') navigate('/hub');
-    else if (r === 'ADMIN') navigate('/gestao');
-    else navigate('/gestao');
-  };
   const [mobileOpen, setMobileOpen] = useState(false);
   const { toggleSidebarCollapsed, toggleSidebarDrawer } = useLayoutStore();
   const isLogin = location.pathname === '/login';
@@ -135,28 +132,7 @@ const Navigation: React.FC = () => {
                 {navLinks}
                 <div className="flex items-center gap-4 border-l border-tower-200 pl-4 dark:border-tower-700">
                   <ThemeToggle />
-                  {hasMultipleRoles && (
-                    <div className="group relative">
-                      <button
-                        type="button"
-                        className="rounded-lg bg-brand-500/12 px-3 py-1.5 text-sm font-medium text-brand-800 hover:bg-brand-500/20 dark:text-brand-200 dark:hover:bg-brand-500/25"
-                      >
-                        Ver como {roleLabels[role ?? ''] ?? role}
-                      </button>
-                      <div className="invisible absolute right-0 z-50 mt-1 min-w-[140px] rounded-lg border border-tower-200 bg-white py-1 opacity-0 shadow-lg transition-all group-hover:visible group-hover:opacity-100 dark:border-tower-700 dark:bg-tower-900">
-                        {user?.roles?.map((r) => (
-                          <button
-                            key={r}
-                            type="button"
-                            onClick={() => handleRoleSwitch(r)}
-                            className={`block w-full px-4 py-2 text-left text-sm hover:bg-tower-50 dark:hover:bg-tower-800 ${r === role ? 'font-medium text-brand-700 dark:text-brand-300' : 'text-tower-700 dark:text-tower-300'}`}
-                          >
-                            {roleLabels[r] ?? r}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  <RoleWorkspaceSwitcher variant="desktop" />
                   <div className="text-sm">
                     <div className="font-medium text-tower-900 dark:text-tower-100">{user?.email}</div>
                     <div className="text-xs text-tower-500 dark:text-tower-400">{roleLabels[role ?? ''] ?? role ?? '—'}</div>
@@ -259,23 +235,7 @@ const Navigation: React.FC = () => {
                 </>
               )}
             </div>
-            {hasMultipleRoles && (
-              <div className="border-t border-tower-200 px-3 py-2 dark:border-tower-700">
-                <div className="mb-2 text-xs text-tower-500 dark:text-tower-400">Trocar painel</div>
-                <div className="flex flex-wrap gap-1">
-                  {user?.roles?.map((r) => (
-                    <button
-                      key={r}
-                      type="button"
-                      onClick={() => handleRoleSwitch(r)}
-                      className={`rounded-lg px-3 py-1.5 text-sm ${r === role ? 'bg-brand-500/18 font-medium text-brand-900 dark:bg-brand-500/25 dark:text-brand-100' : 'bg-tower-100 text-tower-600 dark:bg-tower-800 dark:text-tower-400'}`}
-                    >
-                      {roleLabels[r] ?? r}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+            <RoleWorkspaceSwitcher variant="mobile" onAfterSwitch={() => setMobileOpen(false)} />
             <div className="mt-4 border-t border-tower-200 px-3 pt-4 dark:border-tower-700">
               <div className="mb-2 text-sm text-tower-500 dark:text-tower-400">{user?.email}</div>
               <button
@@ -338,7 +298,8 @@ const AppMain: React.FC = () => {
                 <FormColeta />
               </ProtectedRoute>
             } />
-            <Route path="/unauthorized" element={<Unauthorized />} />
+            <Route path="/escolher-painel" element={<WorkspacePicker />} />
+            <Route path="/unauthorized" element={<Navigate to="/escolher-painel" replace />} />
             <Route path="/chat/:slug" element={<ChatWeb />} />
             <Route path="/tracking/:id" element={<TrackingView />} />
             <Route path="/orders/:id" element={

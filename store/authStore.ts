@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import type { UserRole } from '../lib/workspaceRoles';
 
-type UserRole = 'ADMIN' | 'CLIENT' | 'LINK' | 'HUB';
+export type { UserRole };
 
 interface User {
     id: string;
@@ -15,10 +16,11 @@ interface AuthState {
     token: string | null;
     isAuthenticated: boolean;
     currentRole: UserRole | null; // Papel ativo para navegação
-    login: (email: string, password: string) => Promise<void>;
+    login: (email: string, password: string) => Promise<{ token: string; user: User }>;
     logout: () => void;
     setUser: (user: User, token: string) => void;
     setCurrentRole: (role: UserRole) => void;
+    enterWorkspace: (role: UserRole) => void;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -36,6 +38,12 @@ export const useAuthStore = create<AuthState>()(
             },
 
             setCurrentRole: (role) => {
+                set({ currentRole: role });
+            },
+
+            enterWorkspace: (role) => {
+                const { user } = useAuthStore.getState();
+                if (!user?.roles?.includes(role)) return;
                 set({ currentRole: role });
             },
 

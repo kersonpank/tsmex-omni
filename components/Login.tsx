@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { getDefaultHomePath } from '../lib/postLoginDefaultPath';
+import { getDefaultHomePath, syncRoleForPath } from '../lib/postLoginDefaultPath';
 import { useAuthStore } from '../store/authStore';
 import ThemeToggle from './ui/ThemeToggle';
 
@@ -11,6 +11,7 @@ const Login: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
     const login = useAuthStore(state => state.login);
+    const setCurrentRole = useAuthStore(state => state.setCurrentRole);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -20,7 +21,10 @@ const Login: React.FC = () => {
         try {
             await login(email, password);
             const roles = useAuthStore.getState().user?.roles ?? [];
-            navigate(getDefaultHomePath(roles));
+            const dest = getDefaultHomePath(roles);
+            const synced = syncRoleForPath(dest, roles);
+            if (synced) setCurrentRole(synced);
+            navigate(dest);
         } catch (err: any) {
             setError(err.message || 'Erro ao fazer login');
         } finally {
