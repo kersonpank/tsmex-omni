@@ -18,6 +18,12 @@ import {
     inferAttachmentType,
     uploadBase64Object,
 } from '../lib/objectStorage.js';
+import {
+    assertHubCanAccessOrder,
+    buildHubOrderVisibilityWhere,
+    checkHubAccessIfHubRole,
+    hubOrderAccessSelect,
+} from '../lib/hubOrderAccess.js';
 
 const router = Router();
 
@@ -31,9 +37,7 @@ router.get('/:orderId/fiscal-doc-suggestion', authenticate, authorize('ADMIN', '
             include: { invoicesRel: true },
         });
         if (!order) throw new AppError('Order not found', 404);
-        if (req.user!.roles.includes('HUB') && (!req.user!.hubId || order.currentHubId !== req.user!.hubId)) {
-            throw new AppError('Not authorized', 403);
-        }
+        checkHubAccessIfHubRole(req, order);
         const hint = suggestFiscalDocType(order);
         const mode = getFiscalDocModeForFreight(order);
         res.json({
@@ -66,6 +70,7 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
     try {
         const {
             status,
+            statuses,
             accountId,
             limit = '50',
             offset = '0',
@@ -210,14 +215,25 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
             });
         }
 
-        // HUB users only see orders at their hub
+        // HUB: escopo alinhado à operação do CD (currentHub, expectedHub, manifesto)
         if (req.user!.roles.includes('HUB')) {
             if (!req.user!.hubId) {
                 throw new AppError('Hub user has no hub assigned', 403);
             }
-            where.currentHubId = req.user!.hubId;
-            if (status) where.status = status as any;
-            else where.status = 'AT_HUB'; // default: pedidos no hub
+            andFilters.push(buildHubOrderVisibilityWhere(req.user!.hubId));
+            const statusesParam = typeof statuses === 'string' ? statuses : undefined;
+            if (statusesParam) {
+                const statusList = statusesParam.split(',').map((s) => s.trim()).filter(Boolean);
+                if (statusList.length === 1) {
+                    where.status = statusList[0] as Prisma.OrderWhereInput['status'];
+                } else if (statusList.length > 1) {
+                    where.status = { in: statusList as Prisma.EnumOrderStatusFilter['in'] };
+                }
+            } else if (status) {
+                where.status = status as Prisma.OrderWhereInput['status'];
+            } else {
+                where.status = 'AT_HUB';
+            }
         }
         // LINK users see orders from their manifests
         else if (req.user!.roles.includes('LINK')) {
@@ -412,11 +428,8 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
             }
         }
 
-        // HUB user can only see orders at their hub
         if (req.user!.roles.includes('HUB')) {
-            if (!req.user!.hubId || order.currentHubId !== req.user!.hubId) {
-                throw new AppError('Not authorized', 403);
-            }
+            assertHubCanAccessOrder(req, order);
         }
 
         // LINK user can only see orders from their manifests
@@ -455,7 +468,7 @@ async function assertOrderAccess(req: AuthRequest, orderId: string) {
                     client: { select: { accountId: true } },
                 },
             },
-            manifest: { select: { linkId: true } },
+            manifest: { select: { linkId: true, hubId: true, destHubId: true } },
         },
     });
 
@@ -464,9 +477,7 @@ async function assertOrderAccess(req: AuthRequest, orderId: string) {
     }
 
     if (req.user!.roles.includes('HUB')) {
-        if (!req.user!.hubId || order.currentHubId !== req.user!.hubId) {
-            throw new AppError('Not authorized', 403);
-        }
+        assertHubCanAccessOrder(req, order);
     }
 
     if (req.user!.roles.includes('LINK')) {
@@ -720,12 +731,10 @@ router.patch('/:id/people', authenticate, authorize('ADMIN', 'HUB'), async (req:
         const body = sanitizePeopleBody(req.body as Record<string, unknown>);
         const data = orderPeopleSchema.parse(body);
 
-        const order = await prisma.order.findUnique({ where: { id } });
+        const order = await prisma.order.findUnique({ where: { id }, select: hubOrderAccessSelect });
         if (!order) throw new AppError('Order not found', 404);
 
-        if (req.user!.roles.includes('HUB') && (!req.user!.hubId || order.currentHubId !== req.user!.hubId)) {
-            throw new AppError('Not authorized to update this order', 403);
-        }
+        checkHubAccessIfHubRole(req, order);
 
         const updateData: Record<string, unknown> = {};
         if (data.freightTerm != null) updateData.freightTerm = data.freightTerm;
@@ -914,19 +923,19 @@ router.patch('/:id/status', authenticate, authorize('ADMIN', 'LINK', 'HUB'), asy
         const data = schema.parse(req.body);
 
         const order = await prisma.order.findUnique({
-            where: { id }
+            where: { id },
+            select: {
+                ...hubOrderAccessSelect,
+                demandId: true,
+                enteredAtHubAt: true,
+            },
         });
 
         if (!order) {
             throw new AppError('Order not found', 404);
         }
 
-        // HUB user can only update orders at their hub
-        if (req.user!.roles.includes('HUB')) {
-            if (!req.user!.hubId || order.currentHubId !== req.user!.hubId) {
-                throw new AppError('Not authorized to update this order', 403);
-            }
-        }
+        checkHubAccessIfHubRole(req, order);
 
         const newCurrentHubId = data.status === 'AT_HUB'
             ? (req.user!.roles.includes('HUB') ? req.user!.hubId! : (data.currentHubId ?? order.currentHubId))
@@ -1029,16 +1038,15 @@ router.post('/:id/history', authenticate, authorize('ADMIN', 'LINK', 'HUB'), asy
         const data = schema.parse(req.body);
 
         const order = await prisma.order.findUnique({
-            where: { id }
+            where: { id },
+            select: hubOrderAccessSelect,
         });
 
         if (!order) {
             throw new AppError('Order not found', 404);
         }
 
-        if (req.user!.roles.includes('HUB') && (!req.user!.hubId || order.currentHubId !== req.user!.hubId)) {
-            throw new AppError('Not authorized to add history to this order', 403);
-        }
+        checkHubAccessIfHubRole(req, order);
 
         const history = await prisma.orderHistory.create({
             data: {
@@ -1098,9 +1106,7 @@ router.post('/:id/invoices', authenticate, authorize('ADMIN', 'HUB'), async (req
         const order = await prisma.order.findUnique({ where: { id }, include: { invoicesRel: true } });
         if (!order) throw new AppError('Order not found', 404);
 
-        if (req.user!.roles.includes('HUB') && (!req.user!.hubId || order.currentHubId !== req.user!.hubId)) {
-            throw new AppError('Not authorized to add invoice to this order', 403);
-        }
+        checkHubAccessIfHubRole(req, order);
 
         const emissionDateStr = data.emissionDate ? parseEmissionDate(data.emissionDate) || data.emissionDate : null;
         const emissionDate = emissionDateStr
@@ -1146,9 +1152,7 @@ router.patch('/:id/invoices/:invoiceId', authenticate, authorize('ADMIN', 'HUB')
         const order = await prisma.order.findUnique({ where: { id: orderId }, include: { invoicesRel: true } });
         if (!order) throw new AppError('Order not found', 404);
 
-        if (req.user!.roles.includes('HUB') && (!req.user!.hubId || order.currentHubId !== req.user!.hubId)) {
-            throw new AppError('Not authorized to update invoice of this order', 403);
-        }
+        checkHubAccessIfHubRole(req, order);
 
         const existingInv = await prisma.orderInvoice.findFirst({
             where: { id: invoiceId, orderId },

@@ -1078,6 +1078,8 @@ export const ordersFreightApi = {
 export const ordersApi = {
     list: async (params?: {
         status?: string;
+        /** Vários status separados por vírgula (ex.: AT_HUB,IN_TRANSIT) — usado pelo Hub. */
+        statuses?: string;
         accountId?: string;
         hubId?: string;
         originState?: string;

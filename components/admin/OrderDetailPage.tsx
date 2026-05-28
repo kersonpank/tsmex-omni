@@ -143,18 +143,37 @@ const OrderDetailPage: React.FC = () => {
     if (!id) return;
     setLoading(true);
     setError(null);
-    try {
-      const [orderResponse, attachmentsResponse] = await Promise.all([
-        ordersApi.getById(id),
-        ordersApi.listAttachments(id),
-      ]);
-      setOrder((orderResponse as any)?.data ?? orderResponse);
-      setAttachments((attachmentsResponse as any)?.data ?? []);
-    } catch (e: any) {
-      setError(e.response?.data?.error ?? e.message ?? 'Erro ao carregar pedido');
-    } finally {
-      setLoading(false);
+    setAttachmentError(null);
+    const apiErr = (e: unknown): string => {
+      if (e && typeof e === 'object' && 'response' in e) {
+        const res = (e as { response?: { data?: { error?: string } } }).response;
+        return res?.data?.error ?? 'Erro ao carregar';
+      }
+      return e instanceof Error ? e.message : 'Erro ao carregar';
+    };
+
+    const [orderSettled, attachmentsSettled] = await Promise.allSettled([
+      ordersApi.getById(id),
+      ordersApi.listAttachments(id),
+    ]);
+
+    if (orderSettled.status === 'fulfilled') {
+      setOrder((orderSettled.value as any)?.data ?? orderSettled.value);
+    } else {
+      setOrder(null);
+      setError(apiErr(orderSettled.reason));
     }
+
+    if (attachmentsSettled.status === 'fulfilled') {
+      setAttachments((attachmentsSettled.value as any)?.data ?? []);
+    } else {
+      setAttachments([]);
+      if (orderSettled.status === 'fulfilled') {
+        setAttachmentError(apiErr(attachmentsSettled.reason));
+      }
+    }
+
+    setLoading(false);
   };
 
   useEffect(() => {
