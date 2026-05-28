@@ -19,10 +19,11 @@ import {
     uploadBase64Object,
 } from '../lib/objectStorage.js';
 import {
-    assertHubCanAccessOrder,
     buildHubOrderVisibilityWhere,
     checkHubAccessIfHubRole,
+    ensureHubOrderAccessById,
     hubOrderAccessSelect,
+    shouldApplyLinkOrderScope,
 } from '../lib/hubOrderAccess.js';
 import { parseOrderStatusWhereInput } from '../lib/orderStatusFilter.js';
 
@@ -420,11 +421,10 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
         }
 
         if (req.user!.roles.includes('HUB')) {
-            assertHubCanAccessOrder(req, order);
+            await ensureHubOrderAccessById(req, id);
         }
 
-        // LINK user can only see orders from their manifests
-        if (req.user!.roles.includes('LINK')) {
+        if (shouldApplyLinkOrderScope(req.user!.roles)) {
             const link = await prisma.link.findFirst({
                 where: { userId: req.user!.id },
             });
@@ -468,10 +468,10 @@ async function assertOrderAccess(req: AuthRequest, orderId: string) {
     }
 
     if (req.user!.roles.includes('HUB')) {
-        assertHubCanAccessOrder(req, order);
+        await ensureHubOrderAccessById(req, orderId);
     }
 
-    if (req.user!.roles.includes('LINK')) {
+    if (shouldApplyLinkOrderScope(req.user!.roles)) {
         const link = await prisma.link.findFirst({
             where: { userId: req.user!.id },
             select: { id: true },
