@@ -24,6 +24,7 @@ import {
     checkHubAccessIfHubRole,
     hubOrderAccessSelect,
 } from '../lib/hubOrderAccess.js';
+import { parseOrderStatusWhereInput } from '../lib/orderStatusFilter.js';
 
 const router = Router();
 
@@ -222,18 +223,8 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
             }
             andFilters.push(buildHubOrderVisibilityWhere(req.user!.hubId));
             const statusesParam = typeof statuses === 'string' ? statuses : undefined;
-            if (statusesParam) {
-                const statusList = statusesParam.split(',').map((s) => s.trim()).filter(Boolean);
-                if (statusList.length === 1) {
-                    where.status = statusList[0] as Prisma.OrderWhereInput['status'];
-                } else if (statusList.length > 1) {
-                    where.status = { in: statusList as Prisma.EnumOrderStatusFilter['in'] };
-                }
-            } else if (status) {
-                where.status = status as Prisma.OrderWhereInput['status'];
-            } else {
-                where.status = 'AT_HUB';
-            }
+            const singleStatus = typeof status === 'string' ? status : undefined;
+            where.status = parseOrderStatusWhereInput(statusesParam, singleStatus, 'AT_HUB');
         }
         // LINK users see orders from their manifests
         else if (req.user!.roles.includes('LINK')) {

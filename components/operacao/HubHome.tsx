@@ -222,7 +222,7 @@ const HubHome: React.FC = () => {
 
     const [ordersSettled, manifestsSettled, linksSettled, vtSettled, intakeSettled] =
       await Promise.allSettled([
-        ordersApi.list({ limit: 200, statuses: 'AT_HUB,IN_TRANSIT,ASSIGNED,COLLECTED,OUT_FOR_DELIVERY' }),
+        ordersApi.list({ limit: 200, statuses: 'AT_HUB,IN_TRANSIT,PENDING,OUT_FOR_DELIVERY' }),
         manifestsApi.list({}),
         linksApi.list({ approvalStatus: 'APPROVED' }),
         vehicleTypesApi.list(),
