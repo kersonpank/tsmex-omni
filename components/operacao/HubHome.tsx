@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { linksApi, manifestsApi, ordersApi, intakeDemandsApi, vehicleTypesApi } from '../../lib/api';
+import { linksApi, manifestsApi, ordersApi, intakeDemandsApi, vehicleTypesApi, hubsApi } from '../../lib/api';
 import { demandStatusLabels, demandStatusTones, orderStatusLabels, orderStatusTones, type StatusTone } from '../../lib/demandStatusUi';
 import { useAuthStore } from '../../store/authStore';
 import type { Link, Manifest, OrderStatus, VehicleType } from '../../types/index';
@@ -85,6 +85,8 @@ function extractArray(res: any): any[] {
   return [];
 }
 
+interface HubOption { id: string; name: string; code: string; }
+
 const ManifestModal: React.FC<{
   selectedOrders: Order[];
   links: Link[];
@@ -92,6 +94,9 @@ const ManifestModal: React.FC<{
   onClose: () => void;
   onCreated: () => void;
 }> = ({ selectedOrders, links, vehicleTypes, onClose, onCreated }) => {
+  const [tripType, setTripType] = useState<'TRANSFER' | 'DELIVERY'>('TRANSFER');
+  const [destHubId, setDestHubId] = useState('');
+  const [hubs, setHubs] = useState<HubOption[]>([]);
   const [linkId, setLinkId] = useState('');
   const [vehicleTypeId, setVehicleTypeId] = useState('');
   const [notes, setNotes] = useState('');
@@ -102,10 +107,18 @@ const ManifestModal: React.FC<{
   const origin = selectedOrders[0]?.demand?.origin ?? selectedOrders[0]?.origin ?? '';
   const destination = [...new Set(selectedOrders.map((o) => o.demand?.destination ?? o.destination ?? 'Sem destino'))].join(', ');
 
+  useEffect(() => {
+    hubsApi.list().then((r: any) => setHubs((r?.data ?? r) || [])).catch(() => setHubs([]));
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!linkId || !vehicleTypeId) {
       setError('Selecione motorista e tipo de veículo.');
+      return;
+    }
+    if (tripType === 'TRANSFER' && !destHubId) {
+      setError('Selecione o hub destino para transferência.');
       return;
     }
     setSaving(true);
@@ -116,8 +129,10 @@ const ManifestModal: React.FC<{
         vehicleTypeId,
         origin,
         destination,
+        tripType,
         demandIds,
         linkId,
+        ...(tripType === 'TRANSFER' ? { destHubId } : {}),
         ...(scheduledDate ? { scheduledDate } : {}),
         ...(notes.trim() ? { notes: notes.trim() } : {}),
       } as any);
@@ -152,10 +167,26 @@ const ManifestModal: React.FC<{
               <input value={origin} readOnly className="mt-1 w-full rounded-lg border border-tower-300 bg-tower-50 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800" />
             </label>
             <label className="text-xs text-tower-600 dark:text-tower-300">
-              Destino
+              Destino final
               <input value={destination} readOnly className="mt-1 w-full rounded-lg border border-tower-300 bg-tower-50 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800" />
             </label>
           </div>
+          <label className="block text-xs text-tower-600 dark:text-tower-300">
+            Tipo de viagem
+            <select value={tripType} onChange={(e) => { setTripType(e.target.value as 'TRANSFER' | 'DELIVERY'); setDestHubId(''); }} className="mt-1 w-full rounded-lg border border-tower-300 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800">
+              <option value="TRANSFER">Transferência (Hub → Hub)</option>
+              <option value="DELIVERY">Entrega final (Hub → Cliente)</option>
+            </select>
+          </label>
+          {tripType === 'TRANSFER' && (
+            <label className="block text-xs text-tower-600 dark:text-tower-300">
+              Hub destino
+              <select value={destHubId} onChange={(e) => setDestHubId(e.target.value)} className="mt-1 w-full rounded-lg border border-tower-300 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800" required>
+                <option value="">Selecione o hub destino</option>
+                {hubs.map((h) => <option key={h.id} value={h.id}>{h.name} ({h.code})</option>)}
+              </select>
+            </label>
+          )}
           <label className="block text-xs text-tower-600 dark:text-tower-300">
             Motorista
             <select value={linkId} onChange={(e) => setLinkId(e.target.value)} className="mt-1 w-full rounded-lg border border-tower-300 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800" required>

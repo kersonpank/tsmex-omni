@@ -1,5 +1,6 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
@@ -52,26 +53,27 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
     try {
         const { status, linkId, hubId } = req.query;
 
-        // Links can only see their own manifests
-        let linkFilter: Record<string, unknown> = linkId ? { linkId: linkId as string } : {};
-        let hubFilter: Record<string, unknown> = hubId ? { hubId: hubId as string } : {};
+        const andConditions: Prisma.ManifestWhereInput[] = [];
+
         if (req.user!.roles.includes('LINK')) {
-            const link = await prisma.link.findFirst({
-                where: { userId: req.user!.id }
-            });
+            const link = await prisma.link.findFirst({ where: { userId: req.user!.id } });
             if (!link) throw new AppError('Link profile not found', 404);
-            linkFilter = { linkId: link.id };
-        }
-        if (req.user!.roles.includes('HUB') && req.user!.hubId) {
-            hubFilter = { hubId: req.user!.hubId };
+            andConditions.push({ linkId: link.id });
+        } else if (linkId) {
+            andConditions.push({ linkId: linkId as string });
         }
 
+        // HUB sees manifests where it is origin OR destination
+        if (req.user!.roles.includes('HUB') && req.user!.hubId) {
+            andConditions.push({ OR: [{ hubId: req.user!.hubId }, { destHubId: req.user!.hubId }] });
+        } else if (hubId) {
+            andConditions.push({ hubId: hubId as string });
+        }
+
+        if (status) andConditions.push({ status: status as any });
+
         const manifests = await prisma.manifest.findMany({
-            where: {
-                ...linkFilter,
-                ...hubFilter,
-                ...(status ? { status: status as any } : {}),
-            },
+            where: andConditions.length > 0 ? { AND: andConditions } : {},
             include: {
                 vehicleType: true,
                 link: {
