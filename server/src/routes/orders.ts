@@ -582,6 +582,7 @@ router.post('/entrada', authenticate, authorize('ADMIN', 'HUB'), async (req: Aut
                     intentType: 'DROP_AT_HUB',
                     status: effectiveHubId ? 'AT_HUB' : 'PENDING',
                     sourceType: 'FORM',
+                    expectedHubId: effectiveHubId ?? null,
                 }
             });
 
