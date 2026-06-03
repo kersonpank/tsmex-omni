@@ -69,7 +69,10 @@ services:
     image: ghcr.io/${GITHUB_REPOSITORY}/tsmex-migrate:staging
     environment:
       DATABASE_URL: ${DATABASE_URL}
-      MIGRATE_MODE: push
+      # deploy: aplica migrações versionadas em ordem (normalização segura de enum etc).
+      # NUNCA usar `push` (db push --accept-data-loss) em staging/prod: faz diff automático,
+      # ignora as migrações versionadas e pode dropar dados / falhar em AlterEnum.
+      MIGRATE_MODE: deploy
       RUN_SEED: ${RUN_SEED:-false}
       RUN_MIGRATE_PERSONS: ${RUN_MIGRATE_PERSONS:-false}
     networks:
