@@ -278,6 +278,8 @@ model Hub {
   lastMinutaNumber Int      @default(0) // Ultimo numero Minuta emitido
   simplesNacional  Boolean? // Regime fiscal (impacta ICMS)
 
+  roles HubRole[]
+
   // Relationships
   manifests            Manifest[]
   manifestsDestination Manifest[] @relation("ManifestDestHub")
@@ -286,6 +288,7 @@ model Hub {
   users               User[] // Usuários que operam este hub (role HUB)
   freightCalculations OrderFreightCalculation[]
   fiscalEmitters      FiscalEmitter[]
+  commissionAgreements HubCommissionAgreement[]
 
   // Management
   canOrchestrate Boolean @default(false) // Can act as orchestrator
@@ -361,6 +364,7 @@ model Link {
 
   manifests  Manifest[]
   onboarding LinkOnboarding?
+  pricingAgreements LinkPricingAgreement[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -561,10 +565,6 @@ model Demand {
   quotedAt      DateTime?
   quotedTableId String?
 
-  // Manifest (when assigned)
-  manifestId String?
-  manifest   Manifest? @relation(fields: [manifestId], references: [id], onDelete: SetNull)
-
   // Events
   events      DemandEvent[]
   attachments DemandAttachment[]
@@ -627,12 +627,8 @@ enum DemandStatus {
   PENDING // Awaiting quote
   QUOTED // Quoted
   APPROVED // Client approved
-  ASSIGNED // In manifest
-  COLLECTED // Collected
-  IN_TRANSIT // In transit
-  AT_HUB // At HUB
-  OUT_FOR_DELIVERY // Out for delivery
-  DELIVERED // Delivered
+  CONVERTED // Virou pedido (fronteira da posse)
+  LOST
   CANCELLED // Cancelled
 }
 
@@ -696,8 +692,8 @@ model Manifest {
   // Status
   status ManifestStatus @default(DRAFT)
 
-  // Assigned demands
-  demands Demand[]
+  // Assigned legs
+  legs OrderLeg[]
 
   // Orders
   orders Order[]
@@ -875,20 +871,24 @@ model ManifestFiscalDocument {
 // ========================================
 
 model ConsolidationFeedback {
-  id      String @id @default(uuid())
-  adminId String
-  admin   Admin  @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  id          String   @id @default(uuid())
+  adminId     String?
+  admin       Admin?   @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  actorUserId String?
+  actorRole   UserRole?
 
   action FeedbackAction
 
   // Context
-  demandIds          String[]
+  orderIds           String[]
   suggestedManifests Json
   finalManifests     Json?
 
   // Metrics for learning
   utilizationBefore Float?
   utilizationAfter  Float?
+  marginBefore      Float?
+  marginAfter       Float?
 
   createdAt DateTime @default(now())
 }
@@ -1421,6 +1421,9 @@ model Order {
   createdAt      DateTime  @default(now()) // Quando foi criado (coletado/entrou no CD)
   enteredAtHubAt DateTime? // Quando entrou no HUB/CD
 
+  // Pernas de transporte (multi-perna)
+  legs OrderLeg[]
+
   // Histórico completo (todos os eventos desde Opportunity até entrega)
   history     OrderHistory[]
   attachments OrderAttachment[]
@@ -1735,4 +1738,86 @@ model PipelineColumn {
 
   @@index([order])
   @@index([stage])
+}
+
+// ========================================
+// FATIA 1 — LOGISTICS MULTI-LEG (OrderLeg)
+// ========================================
+
+model OrderLeg {
+  id          String     @id @default(uuid())
+  orderId     String
+  order       Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  manifestId  String
+  manifest    Manifest   @relation(fields: [manifestId], references: [id], onDelete: Cascade)
+  sequence    Int        // ordem na jornada (1, 2, 3...)
+  legType     LegType    // COLETA | TRANSFERENCIA | ENTREGA
+  executedBy  ExecutedBy // HUB | LINK
+  originHubId String?    // hub de origem da perna (null na coleta na ponta)
+  destHubId   String?    // hub de destino da perna (null na entrega final)
+  startedAt   DateTime?
+  completedAt DateTime?
+  allocatedCost Float?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@unique([orderId, manifestId])
+  @@index([orderId])
+  @@index([manifestId])
+}
+
+enum LegType {
+  COLETA
+  TRANSFERENCIA
+  ENTREGA
+}
+
+enum ExecutedBy {
+  HUB
+  LINK
+}
+
+enum HubRole {
+  RECEBIMENTO
+  COLETA
+  DISTRIBUICAO
+  TRIAGEM
+}
+
+model LinkPricingAgreement {
+  id              String       @id @default(uuid())
+  linkId          String
+  link            Link         @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  originCity      String
+  destinationCity String
+  vehicleTypeCode String       // Code referencing VehicleType
+  flatRate        Float
+  ratePerM3       Float?       // Opcional: adicional por metro cúbico
+  ratePerKg       Float?       // Opcional: adicional por kg
+  costMode        LinkCostMode @default(FLAT)
+  active          Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([linkId])
+  @@index([originCity, destinationCity])
+}
+
+model HubCommissionAgreement {
+  id                    String      @id @default(uuid())
+  hubId                 String
+  hub                   Hub         @relation(fields: [hubId], references: [id], onDelete: Cascade)
+  handlingFeePerOrder   Float       @default(0) // taxa de manuseio físico fixa por pedido
+  percentOfFreight      Float?      // comissão em % sobre o frete cobrado do cliente
+  active                Boolean     @default(true)
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+
+  @@index([hubId])
+}
+
+enum LinkCostMode {
+  FLAT
+  PER_M3
+  PER_KG
 }
