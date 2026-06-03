@@ -7,14 +7,38 @@ import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { isAcbrCredentialsConfigured } from '../services/acbr/acbrConfig.js';
 import { emitMdfeViaAcbr } from '../services/acbr/acbrMdfeEmit.js';
 import { buildCiotPlaceholder } from '../services/ciotService.js';
+import { getManifestMargin } from '../services/pricingService.js';
 import {
-    addDemandToManifest,
+    addOrderToManifest,
     completeManifest,
     OPERATIONAL_TRIP_TYPES,
-    removeDemandFromManifest,
+    removeOrderFromManifest,
     startManifest,
     validateCreateManifestInput,
 } from '../services/manifestLifecycle.js';
+
+function mapManifestLegsToDemands(manifest: any) {
+    if (!manifest) return null;
+    const demands = (manifest.legs || []).map((leg: any) => {
+        if (!leg.order || !leg.order.demand) return null;
+        return {
+            ...leg.order.demand,
+            client: leg.order.demand.client,
+            order: {
+                id: leg.order.id,
+                status: leg.order.status
+            }
+        };
+    }).filter(Boolean);
+
+    const demandsCount = demands.length;
+    const { legs, _count, ...rest } = manifest;
+    return {
+        ...rest,
+        demands,
+        _count: _count ? { ..._count, demands: demandsCount } : undefined
+    };
+}
 
 const router = Router();
 
@@ -85,19 +109,38 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
                 destHub: {
                     select: { name: true, code: true }
                 },
-                demands: {
-                    select: { id: true, origin: true, destination: true, commodity: true, weight: true }
+                legs: {
+                    include: {
+                        order: {
+                            include: {
+                                demand: {
+                                    select: { id: true, origin: true, destination: true, commodity: true, weight: true, volume: true, nfValue: true, status: true }
+                                }
+                            }
+                        }
+                    }
                 },
                 _count: {
-                    select: { demands: true }
+                    select: { legs: true }
                 }
             },
             orderBy: { createdAt: 'desc' },
         });
 
+        const mappedManifests = manifests.map(mapManifestLegsToDemands);
+        const dataWithMargins = await Promise.all(
+            mappedManifests.map(async (m: any) => {
+                const marginInfo = await getManifestMargin(m.id);
+                return {
+                    ...m,
+                    ...marginInfo,
+                };
+            })
+        );
+
         res.json({
             success: true,
-            data: manifests,
+            data: dataWithMargins,
         });
     } catch (error) {
         next(error);
@@ -116,10 +159,18 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
                 link: true,
                 hub: true,
                 destHub: true,
-                demands: {
+                legs: {
                     include: {
-                        client: {
-                            select: { companyName: true }
+                        order: {
+                            include: {
+                                demand: {
+                                    include: {
+                                        client: {
+                                            select: { companyName: true }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 },
@@ -140,9 +191,14 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
             }
         }
 
+        const marginInfo = await getManifestMargin(id);
+
         res.json({
             success: true,
-            data: manifest,
+            data: {
+                ...mapManifestLegsToDemands(manifest),
+                ...marginInfo,
+            },
         });
     } catch (error) {
         next(error);
@@ -203,17 +259,18 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response, next: Nex
     }
 });
 
-// POST /api/manifests/:id/demands - Add demand to manifest (Admin or HUB for own hub manifest)
+// POST /api/manifests/:id/demands - Add order to manifest (Admin or HUB for own hub manifest)
 router.post('/:id/demands', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('HUB')) {
         return next(new AppError('Not authorized', 403));
     }
     try {
         const id = req.params.id as string;
-        const { demandId } = req.body;
+        const { demandId, orderId } = req.body;
 
-        if (!demandId) {
-            throw new AppError('Demand ID is required', 400);
+        const targetOrderId = orderId ?? (demandId ? (await prisma.order.findUnique({ where: { demandId } }))?.id : null);
+        if (!targetOrderId) {
+            throw new AppError('Order ID or Demand ID with associated order is required', 400);
         }
 
         const manifestCheck = await prisma.manifest.findUnique({
@@ -227,11 +284,17 @@ router.post('/:id/demands', authenticate, async (req: AuthRequest, res: Response
             throw new AppError('Not authorized to modify this manifest', 403);
         }
 
-        const { manifest, utilization } = await addDemandToManifest(id, demandId);
+        const admin = await prisma.admin.findUnique({ where: { userId: req.user!.id } });
+        const actor = {
+            userId: req.user!.id,
+            role: req.user!.roles[0],
+            adminId: admin?.id,
+        };
+        const { manifest, utilization } = await addOrderToManifest(id, targetOrderId, actor);
 
         res.json({
             success: true,
-            data: manifest,
+            data: mapManifestLegsToDemands(manifest),
             utilization,
         });
     } catch (error) {
@@ -239,11 +302,16 @@ router.post('/:id/demands', authenticate, async (req: AuthRequest, res: Response
     }
 });
 
-// DELETE /api/manifests/:id/demands/:demandId - Remove demand from manifest
+// DELETE /api/manifests/:id/demands/:demandId - Remove order from manifest
 router.delete('/:id/demands/:demandId', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const id = req.params.id as string;
         const demandId = req.params.demandId as string;
+
+        const targetOrderId = (await prisma.order.findUnique({ where: { demandId } }))?.id;
+        if (!targetOrderId) {
+            throw new AppError('Order not found for this demand', 404);
+        }
 
         const manifestCheck = await prisma.manifest.findUnique({
             where: { id },
@@ -253,7 +321,13 @@ router.delete('/:id/demands/:demandId', authenticate, authorize('ADMIN'), async 
             throw new AppError('Manifest not found', 404);
         }
 
-        await removeDemandFromManifest(id, demandId);
+        const admin = await prisma.admin.findUnique({ where: { userId: req.user!.id } });
+        const actor = {
+            userId: req.user!.id,
+            role: req.user!.roles[0],
+            adminId: admin?.id,
+        };
+        await removeOrderFromManifest(id, targetOrderId, actor);
 
         res.json({
             success: true,
@@ -292,7 +366,15 @@ router.patch('/:id/assign', authenticate, authorize('ADMIN'), async (req: AuthRe
             include: {
                 link: true,
                 vehicleType: true,
-                demands: true,
+                legs: {
+                    include: {
+                        order: {
+                            include: {
+                                demand: true
+                            }
+                        }
+                    }
+                },
             }
         });
 
@@ -300,7 +382,7 @@ router.patch('/:id/assign', authenticate, authorize('ADMIN'), async (req: AuthRe
 
         res.json({
             success: true,
-            data: manifest,
+            data: mapManifestLegsToDemands(manifest),
             message: 'Manifest offered to link',
         });
     } catch (error) {
@@ -415,7 +497,13 @@ router.patch('/:id/complete', authenticate, authorize('LINK', 'ADMIN'), async (r
     try {
         const id = req.params.id as string;
 
-        await completeManifest(id);
+        const admin = await prisma.admin.findUnique({ where: { userId: req.user!.id } });
+        const actor = {
+            userId: req.user!.id,
+            role: req.user!.roles[0],
+            adminId: admin?.id,
+        };
+        await completeManifest(id, actor);
 
         res.json({
             success: true,

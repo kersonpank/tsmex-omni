@@ -4,10 +4,13 @@ import {
     ManifestTripType,
     OrderEventType,
     OrderStatus,
+    FeedbackAction,
     Prisma,
+    UserRole,
 } from '@prisma/client';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { getManifestMargin, allocateLegCosts } from './pricingService.js';
 
 export const ACTIVE_MANIFEST_STATUSES: ManifestStatus[] = [
     'DRAFT',
@@ -66,40 +69,25 @@ export async function validateCreateManifestInput(input: CreateManifestInput) {
     return { vehicleType, destHub };
 }
 
-function demandEffectiveWeight(demand: { weight: number; cubedWeight: number | null }) {
-    return Math.max(demand.weight, demand.cubedWeight ?? 0);
+function orderEffectiveWeight(order: { demand: { weight: number; cubedWeight: number | null } }) {
+    return Math.max(order.demand.weight, order.demand.cubedWeight ?? 0);
 }
 
-export async function assertDemandNotInOtherActiveManifest(
-    demandId: string,
+export async function assertOrderNotInOtherActiveManifest(
+    orderId: string,
     exceptManifestId: string
 ) {
-    const conflict = await prisma.demand.findFirst({
+    const activeLeg = await prisma.orderLeg.findFirst({
         where: {
-            id: demandId,
-            manifestId: { not: null },
+            orderId,
+            manifestId: { not: exceptManifestId },
             manifest: {
-                id: { not: exceptManifestId },
-                status: { in: ACTIVE_MANIFEST_STATUSES },
+                status: 'IN_PROGRESS',
             },
         },
     });
-    if (conflict) {
-        throw new AppError('Demanda já está em outro manifesto ativo', 400);
-    }
-
-    const orderConflict = await prisma.order.findFirst({
-        where: {
-            demandId,
-            manifestId: { not: null },
-            manifest: {
-                id: { not: exceptManifestId },
-                status: { in: ACTIVE_MANIFEST_STATUSES },
-            },
-        },
-    });
-    if (orderConflict) {
-        throw new AppError('Pedido já está em outro manifesto ativo', 400);
+    if (activeLeg) {
+        throw new AppError('Pedido já possui uma perna ativa em trânsito (manifesto em andamento)', 400);
     }
 }
 
@@ -115,7 +103,11 @@ function allocationOrderHistoryDescription(
     return `Pedido alocado ao manifesto ${manifestId} para transferência ao hub ${hubLabel}.`;
 }
 
-export async function addDemandToManifest(manifestId: string, demandId: string) {
+export async function addOrderToManifest(
+    manifestId: string,
+    orderId: string,
+    actor: { userId: string; role: UserRole; adminId?: string }
+) {
     const manifest = await prisma.manifest.findUnique({
         where: { id: manifestId },
         include: { vehicleType: true, destHub: { select: { code: true } } },
@@ -130,25 +122,31 @@ export async function addDemandToManifest(manifestId: string, demandId: string) 
 
     const tripType = assertOperationalTripType(manifest.tripType);
 
-    const demand = await prisma.demand.findUnique({
-        where: { id: demandId },
-        include: { order: true },
+    const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        include: { demand: true },
     });
 
-    if (!demand) {
-        throw new AppError('Demand not found', 404);
+    if (!order) {
+        throw new AppError('Order not found', 404);
     }
 
-    if (demand.manifestId && demand.manifestId !== manifestId) {
-        throw new AppError('Demand is already assigned to a manifest', 400);
+    // Check if already assigned to this manifest
+    const existingLeg = await prisma.orderLeg.findUnique({
+        where: {
+            orderId_manifestId: { orderId, manifestId }
+        }
+    });
+    if (existingLeg) {
+        throw new AppError('Order is already assigned to this manifest', 400);
     }
 
-    await assertDemandNotInOtherActiveManifest(demandId, manifestId);
+    await assertOrderNotInOtherActiveManifest(orderId, manifestId);
 
-    const effectiveWeight = demandEffectiveWeight(demand);
+    const effectiveWeight = orderEffectiveWeight(order);
     const newTotalWeight = manifest.totalWeight + effectiveWeight;
-    const newTotalVolume = manifest.totalVolume + demand.volume;
-    const newTotalValue = manifest.totalValue + demand.nfValue;
+    const newTotalVolume = manifest.totalVolume + order.demand.volume;
+    const newTotalValue = manifest.totalValue + order.demand.nfValue;
 
     if (newTotalWeight > manifest.vehicleType.maxWeight) {
         throw new AppError(
@@ -176,24 +174,45 @@ export async function addDemandToManifest(manifestId: string, demandId: string) 
     );
 
     await prisma.$transaction(async (tx) => {
-        await tx.demand.update({
-            where: { id: demandId },
-            data: { manifestId, status: 'ASSIGNED' },
+        // Calculate marginBefore
+        const marginBeforeStats = await getManifestMargin(manifestId, tx);
+        const marginBefore = (marginBeforeStats.margin !== null && marginBeforeStats.revenue > 0)
+            ? marginBeforeStats.margin / marginBeforeStats.revenue
+            : null;
+
+        // Find highest sequence number for this order
+        const maxLeg = await tx.orderLeg.findFirst({
+            where: { orderId },
+            orderBy: { sequence: 'desc' }
+        });
+        const sequence = maxLeg ? maxLeg.sequence + 1 : 1;
+
+        // Create OrderLeg
+        await tx.orderLeg.create({
+            data: {
+                orderId,
+                manifestId,
+                sequence,
+                legType: manifest.tripType === 'DELIVERY' ? 'ENTREGA' : 'TRANSFERENCIA',
+                executedBy: manifest.linkId ? 'LINK' : 'HUB',
+                originHubId: manifest.hubId,
+                destHubId: manifest.destHubId,
+            }
         });
 
-        if (demand.order) {
-            await tx.order.update({
-                where: { id: demand.order.id },
-                data: { manifestId },
-            });
-            await tx.orderHistory.create({
-                data: {
-                    orderId: demand.order.id,
-                    eventType: 'NOTE',
-                    description: historyDescription,
-                },
-            });
-        }
+        // Set manifestId on Order for legacy/read compatibility
+        await tx.order.update({
+            where: { id: orderId },
+            data: { manifestId },
+        });
+
+        await tx.orderHistory.create({
+            data: {
+                orderId: orderId,
+                eventType: 'NOTE',
+                description: historyDescription,
+            },
+        });
 
         await tx.manifest.update({
             where: { id: manifestId },
@@ -204,18 +223,40 @@ export async function addDemandToManifest(manifestId: string, demandId: string) 
             },
         });
 
-        await tx.demandEvent.create({
+        // Recalculate and allocate costs
+        await allocateLegCosts(manifestId, tx);
+
+        // Calculate marginAfter
+        const marginAfterStats = await getManifestMargin(manifestId, tx);
+        const marginAfter = (marginAfterStats.margin !== null && marginAfterStats.revenue > 0)
+            ? marginAfterStats.margin / marginAfterStats.revenue
+            : null;
+
+        // Write ConsolidationFeedback
+        await tx.consolidationFeedback.create({
             data: {
-                demandId,
-                status: 'ASSIGNED',
-                description: `Alocada ao manifesto ${manifestId}`,
-            },
+                adminId: actor.adminId || null,
+                actorUserId: actor.userId,
+                actorRole: actor.role,
+                action: 'ACCEPTED',
+                orderIds: [orderId],
+                suggestedManifests: Prisma.JsonNull,
+                finalManifests: Prisma.JsonNull,
+                utilizationBefore: manifest.totalWeight / manifest.vehicleType.maxWeight,
+                utilizationAfter: newTotalWeight / manifest.vehicleType.maxWeight,
+                marginBefore,
+                marginAfter,
+            }
         });
     });
 
     const updated = await prisma.manifest.findUnique({
         where: { id: manifestId },
-        include: { vehicleType: true, demands: true, destHub: true },
+        include: {
+            vehicleType: true,
+            legs: { include: { order: { include: { demand: true } } } },
+            destHub: true
+        },
     });
 
     return {
@@ -228,7 +269,11 @@ export async function addDemandToManifest(manifestId: string, demandId: string) 
     };
 }
 
-export async function removeDemandFromManifest(manifestId: string, demandId: string) {
+export async function removeOrderFromManifest(
+    manifestId: string,
+    orderId: string,
+    actor: { userId: string; role: UserRole; adminId?: string }
+) {
     const manifest = await prisma.manifest.findUnique({
         where: { id: manifestId },
         include: { vehicleType: true },
@@ -241,68 +286,129 @@ export async function removeDemandFromManifest(manifestId: string, demandId: str
         throw new AppError('Cannot modify manifest in current status', 400);
     }
 
-    const demand = await prisma.demand.findUnique({
-        where: { id: demandId },
-        include: { order: true },
+    const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        include: { demand: true },
     });
 
-    if (!demand || demand.manifestId !== manifestId) {
-        throw new AppError('Demand not found in this manifest', 404);
+    if (!order) {
+        throw new AppError('Order not found', 404);
     }
 
-    const effectiveWeight = demandEffectiveWeight(demand);
+    const leg = await prisma.orderLeg.findUnique({
+        where: {
+            orderId_manifestId: { orderId, manifestId }
+        }
+    });
+
+    if (!leg) {
+        throw new AppError('Order not assigned to this manifest', 404);
+    }
+
+    if (leg.startedAt || leg.completedAt) {
+        throw new AppError('Cannot remove a leg that is already started or completed', 400);
+    }
+
+    const effectiveWeight = orderEffectiveWeight(order);
 
     await prisma.$transaction(async (tx) => {
-        await tx.demand.update({
-            where: { id: demandId },
-            data: { manifestId: null, status: 'APPROVED' },
+        // Calculate marginBefore
+        const marginBeforeStats = await getManifestMargin(manifestId, tx);
+        const marginBefore = (marginBeforeStats.margin !== null && marginBeforeStats.revenue > 0)
+            ? marginBeforeStats.margin / marginBeforeStats.revenue
+            : null;
+
+        await tx.orderLeg.delete({
+            where: {
+                orderId_manifestId: { orderId, manifestId }
+            }
         });
 
-        if (demand.order) {
+        // Unset legacy manifestId if it matches this manifest
+        if (order.manifestId === manifestId) {
             await tx.order.update({
-                where: { id: demand.order.id },
+                where: { id: orderId },
                 data: { manifestId: null },
             });
-            await tx.orderHistory.create({
-                data: {
-                    orderId: demand.order.id,
-                    eventType: 'NOTE',
-                    description: `Demanda removida do manifesto ${manifestId}`,
-                },
-            });
         }
+
+        await tx.orderHistory.create({
+            data: {
+                orderId: orderId,
+                eventType: 'NOTE',
+                description: `Pedido removido do manifesto ${manifestId}`,
+            },
+        });
+
+        const newTotalWeight = Math.max(0, manifest.totalWeight - effectiveWeight);
+        const newTotalVolume = Math.max(0, manifest.totalVolume - order.demand.volume);
+        const newTotalValue = Math.max(0, manifest.totalValue - order.demand.nfValue);
 
         await tx.manifest.update({
             where: { id: manifestId },
             data: {
-                totalWeight: Math.max(0, manifest.totalWeight - effectiveWeight),
-                totalVolume: Math.max(0, manifest.totalVolume - demand.volume),
-                totalValue: Math.max(0, manifest.totalValue - demand.nfValue),
+                totalWeight: newTotalWeight,
+                totalVolume: newTotalVolume,
+                totalValue: newTotalValue,
             },
         });
 
-        await tx.demandEvent.create({
+        // Recalculate and allocate costs
+        await allocateLegCosts(manifestId, tx);
+
+        // Calculate marginAfter
+        const marginAfterStats = await getManifestMargin(manifestId, tx);
+        const marginAfter = (marginAfterStats.margin !== null && marginAfterStats.revenue > 0)
+            ? marginAfterStats.margin / marginAfterStats.revenue
+            : null;
+
+        // Write ConsolidationFeedback
+        await tx.consolidationFeedback.create({
             data: {
-                demandId,
-                status: 'APPROVED',
-                description: `Removida do manifesto ${manifestId}`,
-            },
+                adminId: actor.adminId || null,
+                actorUserId: actor.userId,
+                actorRole: actor.role,
+                action: 'MODIFIED',
+                orderIds: [orderId],
+                suggestedManifests: Prisma.JsonNull,
+                finalManifests: Prisma.JsonNull,
+                utilizationBefore: manifest.totalWeight / manifest.vehicleType.maxWeight,
+                utilizationAfter: newTotalWeight / manifest.vehicleType.maxWeight,
+                marginBefore,
+                marginAfter,
+            }
         });
     });
 }
 
-type ManifestWithDemands = Prisma.ManifestGetPayload<{
+type ManifestWithLegs = Prisma.ManifestGetPayload<{
     include: {
-        demands: true;
+        legs: {
+            include: {
+                order: {
+                    include: {
+                        demand: true;
+                    };
+                };
+            };
+        };
         destHub: { select: { id: true; code: true } };
     };
 }>;
 
-async function loadManifestForLifecycle(manifestId: string): Promise<ManifestWithDemands> {
+async function loadManifestForLifecycle(manifestId: string): Promise<ManifestWithLegs> {
     const manifest = await prisma.manifest.findUnique({
         where: { id: manifestId },
         include: {
-            demands: true,
+            legs: {
+                include: {
+                    order: {
+                        include: {
+                            demand: true,
+                        },
+                    },
+                },
+            },
             destHub: { select: { id: true, code: true } },
         },
     });
@@ -312,28 +418,19 @@ async function loadManifestForLifecycle(manifestId: string): Promise<ManifestWit
     return manifest;
 }
 
-async function loadOrdersForManifest(manifestId: string) {
-    return prisma.order.findMany({
-        where: { manifestId },
-    });
-}
-
 function startStatuses(tripType: OperationalTripType): {
-    demandStatus: DemandStatus;
     orderStatus: OrderStatus;
     demandDescription: string;
     orderEventType: OrderEventType;
 } {
     if (tripType === 'DELIVERY') {
         return {
-            demandStatus: 'OUT_FOR_DELIVERY',
             orderStatus: 'OUT_FOR_DELIVERY',
             demandDescription: 'Carga saiu para entrega final',
             orderEventType: 'OUT_FOR_DELIVERY',
         };
     }
     return {
-        demandStatus: 'IN_TRANSIT',
         orderStatus: 'IN_TRANSIT',
         demandDescription: 'Carga em trânsito entre hubs',
         orderEventType: 'IN_TRANSIT',
@@ -349,7 +446,23 @@ export async function startManifest(manifestId: string) {
 
     const tripType = assertOperationalTripType(manifest.tripType);
     const statuses = startStatuses(tripType);
-    const orders = await loadOrdersForManifest(manifestId);
+
+    // Verify invariant: none of the orders should have another leg IN_PROGRESS
+    for (const leg of manifest.legs) {
+        const orderId = leg.orderId;
+        const activeLeg = await prisma.orderLeg.findFirst({
+            where: {
+                orderId,
+                manifestId: { not: manifestId },
+                manifest: {
+                    status: 'IN_PROGRESS'
+                }
+            }
+        });
+        if (activeLeg) {
+            throw new AppError(`Pedido ${leg.order.nfNumber ?? orderId} já está em trânsito em outro manifesto.`, 400);
+        }
+    }
 
     await prisma.$transaction(async (tx) => {
         await tx.manifest.update({
@@ -357,29 +470,19 @@ export async function startManifest(manifestId: string) {
             data: { status: 'IN_PROGRESS', startedAt: new Date() },
         });
 
-        for (const d of manifest.demands) {
-            await tx.demand.update({
-                where: { id: d.id },
-                data: { status: statuses.demandStatus },
-            });
-            await tx.demandEvent.create({
-                data: {
-                    demandId: d.id,
-                    status: statuses.demandStatus,
-                    description: statuses.demandDescription,
-                    location: manifest.origin,
-                },
-            });
-        }
+        await tx.orderLeg.updateMany({
+            where: { manifestId },
+            data: { startedAt: new Date() }
+        });
 
-        for (const order of orders) {
+        for (const leg of manifest.legs) {
             await tx.order.update({
-                where: { id: order.id },
+                where: { id: leg.orderId },
                 data: { status: statuses.orderStatus },
             });
             await tx.orderHistory.create({
                 data: {
-                    orderId: order.id,
+                    orderId: leg.orderId,
                     eventType: statuses.orderEventType,
                     description: statuses.demandDescription,
                     location: manifest.origin,
@@ -389,7 +492,10 @@ export async function startManifest(manifestId: string) {
     });
 }
 
-export async function completeManifest(manifestId: string) {
+export async function completeManifest(
+    manifestId: string,
+    actor?: { userId: string; role: UserRole; adminId?: string }
+) {
     const manifest = await loadManifestForLifecycle(manifestId);
 
     if (manifest.status !== 'IN_PROGRESS') {
@@ -397,7 +503,6 @@ export async function completeManifest(manifestId: string) {
     }
 
     const tripType = assertOperationalTripType(manifest.tripType);
-    const orders = await loadOrdersForManifest(manifestId);
     const now = new Date();
 
     if (tripType === 'TRANSFER') {
@@ -413,69 +518,52 @@ export async function completeManifest(manifestId: string) {
                 data: { status: 'COMPLETED', completedAt: now },
             });
 
-            for (const d of manifest.demands) {
-                await tx.demand.update({
-                    where: { id: d.id },
-                    data: { status: 'AT_HUB' },
-                });
-                await tx.demandEvent.create({
-                    data: {
-                        demandId: d.id,
-                        status: 'AT_HUB',
-                        description: `Recebido no hub destino (${destCode})`,
-                        location: manifest.destination,
-                    },
-                });
-            }
+            await tx.orderLeg.updateMany({
+                where: { manifestId },
+                data: { completedAt: now }
+            });
 
-            for (const order of orders) {
+            for (const leg of manifest.legs) {
                 await tx.order.update({
-                    where: { id: order.id },
+                    where: { id: leg.orderId },
                     data: {
                         status: 'AT_HUB',
                         currentHubId: manifest.destHubId,
-                        enteredAtHubAt: order.enteredAtHubAt ?? now,
+                        enteredAtHubAt: leg.order.enteredAtHubAt ?? now,
                     },
                 });
                 await tx.orderHistory.create({
                     data: {
-                        orderId: order.id,
+                        orderId: leg.orderId,
                         eventType: 'AT_HUB',
                         description: `Recebido no hub destino (${destCode})`,
                         location: manifest.destination,
                     },
                 });
             }
+
+            // Final cost allocation update
+            await allocateLegCosts(manifestId, tx);
         });
 
         return;
     }
 
-    // DELIVERY — legado: entrega final + deliveryCount
+    // tripType === 'DELIVERY'
     await prisma.$transaction(async (tx) => {
         await tx.manifest.update({
             where: { id: manifestId },
             data: { status: 'COMPLETED', completedAt: now },
         });
 
-        for (const d of manifest.demands) {
-            await tx.demand.update({
-                where: { id: d.id },
-                data: { status: 'DELIVERED' },
-            });
-            await tx.demandEvent.create({
-                data: {
-                    demandId: d.id,
-                    status: 'DELIVERED',
-                    description: 'Carga entregue ao destinatário',
-                    location: manifest.destination,
-                },
-            });
-        }
+        await tx.orderLeg.updateMany({
+            where: { manifestId },
+            data: { completedAt: now }
+        });
 
-        for (const order of orders) {
+        for (const leg of manifest.legs) {
             await tx.order.update({
-                where: { id: order.id },
+                where: { id: leg.orderId },
                 data: {
                     status: 'DELIVERED',
                     currentHubId: null,
@@ -483,20 +571,22 @@ export async function completeManifest(manifestId: string) {
             });
             await tx.orderHistory.create({
                 data: {
-                    orderId: order.id,
+                    orderId: leg.orderId,
                     eventType: 'DELIVERED',
                     description: 'Carga entregue ao destinatário',
                     location: manifest.destination,
                 },
             });
         }
+
+        // Final cost allocation update
+        await allocateLegCosts(manifestId, tx);
     });
 
-    // deliveryCount: legado = cargas no manifesto DELIVERY concluído; não é transferência hub-hub
-    if (manifest.linkId && manifest.demands.length > 0) {
+    if (manifest.linkId && manifest.legs.length > 0) {
         await prisma.link.update({
             where: { id: manifest.linkId },
-            data: { deliveryCount: { increment: manifest.demands.length } },
+            data: { deliveryCount: { increment: manifest.legs.length } },
         });
     }
 }
