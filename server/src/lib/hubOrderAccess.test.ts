@@ -12,7 +12,7 @@ const OTHER = 'hub-b';
 const baseOrder = {
     currentHubId: null as string | null,
     demand: null as { expectedHubId?: string | null } | null,
-    manifest: null as { hubId?: string | null; destHubId?: string | null } | null,
+    legs: [] as any[] | null,
 };
 
 describe('hubOrderAccess', () => {
@@ -27,27 +27,16 @@ describe('hubOrderAccess', () => {
         );
     });
 
-    it('permite quando manifest.hubId coincide', () => {
+    it('permite quando manifest.hubId coincide na perna', () => {
         assert.equal(
-            hubCanAccessOrder(HUB, { ...baseOrder, manifest: { hubId: HUB, destHubId: null } }),
+            hubCanAccessOrder(HUB, { ...baseOrder, legs: [{ manifest: { hubId: HUB, destHubId: null } }] }),
             true,
         );
     });
 
-    it('permite quando manifest.destHubId coincide', () => {
+    it('permite quando manifest.destHubId coincide na perna', () => {
         assert.equal(
-            hubCanAccessOrder(HUB, { ...baseOrder, manifest: { hubId: OTHER, destHubId: HUB } }),
-            true,
-        );
-    });
-
-    it('permite quando manifest está na demanda (order.manifest null)', () => {
-        assert.equal(
-            hubCanAccessOrder(HUB, {
-                ...baseOrder,
-                manifest: null,
-                demand: { expectedHubId: null, manifest: { hubId: HUB, destHubId: null } },
-            }),
+            hubCanAccessOrder(HUB, { ...baseOrder, legs: [{ manifest: { hubId: OTHER, destHubId: HUB } }] }),
             true,
         );
     });
@@ -57,16 +46,16 @@ describe('hubOrderAccess', () => {
             hubCanAccessOrder(HUB, {
                 currentHubId: OTHER,
                 demand: { expectedHubId: OTHER },
-                manifest: { hubId: OTHER, destHubId: OTHER },
+                legs: [{ manifest: { hubId: OTHER, destHubId: OTHER } }],
             }),
             false,
         );
     });
 
-    it('buildHubOrderVisibilityWhere monta OR com seis critérios', () => {
+    it('buildHubOrderVisibilityWhere monta OR com três critérios', () => {
         const w = buildHubOrderVisibilityWhere(HUB);
         assert.ok('OR' in w && Array.isArray(w.OR));
-        assert.equal((w.OR as unknown[]).length, 6);
+        assert.equal((w.OR as unknown[]).length, 3);
     });
 
     it('shouldApplyLinkOrderScope é falso quando usuário também é HUB', () => {

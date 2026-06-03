@@ -44,10 +44,18 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
         let hubFilter: any = {};
         if (req.user!.roles.includes('HUB') && req.user!.hubId) {
             hubFilter = {
-                OR: [
-                    { manifest: { hubId: req.user!.hubId } },
-                    { order: { currentHubId: req.user!.hubId } },
-                ],
+                order: {
+                    OR: [
+                        { currentHubId: req.user!.hubId },
+                        {
+                            legs: {
+                                some: {
+                                    manifest: { hubId: req.user!.hubId }
+                                }
+                            }
+                        }
+                    ]
+                }
             };
         }
         if (req.user!.roles.includes('CLIENT')) {
@@ -86,9 +94,27 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
                 client: {
                     select: { companyName: true }
                 },
-                manifest: {
-                    select: { id: true, status: true, link: { select: { name: true } } }
-                },
+                order: {
+                    include: {
+                        legs: {
+                            where: {
+                                manifest: {
+                                    status: { in: ['DRAFT', 'PENDING_ACCEPT', 'ACCEPTED', 'IN_PROGRESS'] }
+                                }
+                            },
+                            include: {
+                                manifest: {
+                                    select: {
+                                        id: true,
+                                        status: true,
+                                        link: { select: { name: true } }
+                                    }
+                                }
+                            },
+                            take: 1
+                        }
+                    }
+                }
             },
             orderBy: { createdAt: 'desc' },
             take: parseInt(limit as string),
@@ -105,9 +131,18 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
             },
         });
 
+        const mappedDemands = demands.map((d) => {
+            const activeLeg = (d as any).order?.legs?.[0];
+            const manifest = activeLeg?.manifest || null;
+            return {
+                ...d,
+                manifest,
+            };
+        });
+
         res.json({
             success: true,
-            data: demands,
+            data: mappedDemands,
             pagination: {
                 total,
                 limit: parseInt(limit as string),
@@ -127,7 +162,6 @@ router.get('/pending', authenticate, authorize('ADMIN'), async (req: AuthRequest
         const demands = await prisma.demand.findMany({
             where: {
                 status: { in: ['PENDING', 'QUOTED', 'APPROVED'] }, // AWAITING_ARRIVAL excluded (intake pré-malha)
-                manifestId: null,
                 ...(destination ? { destination: { contains: destination as string, mode: 'insensitive' } } : {}),
             },
             include: {
@@ -165,10 +199,24 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
             where: { id: id },
             include: {
                 client: true,
-                manifest: {
+                order: {
                     include: {
-                        link: true,
-                        vehicleType: true,
+                        legs: {
+                            where: {
+                                manifest: {
+                                    status: { in: ['DRAFT', 'PENDING_ACCEPT', 'ACCEPTED', 'IN_PROGRESS'] }
+                                }
+                            },
+                            include: {
+                                manifest: {
+                                    include: {
+                                        link: true,
+                                        vehicleType: true,
+                                    }
+                                }
+                            },
+                            take: 1
+                        }
                     }
                 },
                 events: {
@@ -209,9 +257,16 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
             }
         }
 
+        const activeLeg = (demand as any).order?.legs?.[0];
+        const manifest = activeLeg?.manifest || null;
+        const mappedDemand = {
+            ...demand,
+            manifest,
+        };
+
         res.json({
             success: true,
-            data: demand,
+            data: mappedDemand,
         });
     } catch (error) {
         next(error);
@@ -401,7 +456,17 @@ router.patch('/:id/status', authenticate, async (req: AuthRequest, res: Response
 
         const existingDemand = await prisma.demand.findUnique({
             where: { id },
-            include: { manifest: true, order: true },
+            include: {
+                order: {
+                    include: {
+                        legs: {
+                            include: {
+                                manifest: true
+                            }
+                        }
+                    }
+                }
+            },
         });
 
         if (!existingDemand) {
@@ -419,7 +484,11 @@ router.patch('/:id/status', authenticate, async (req: AuthRequest, res: Response
             const link = await prisma.link.findFirst({
                 where: { userId: req.user!.id },
             });
-            if (!link || !existingDemand.manifestId || existingDemand.manifest?.linkId !== link.id) {
+            const activeLeg = existingDemand.order?.legs?.find(l => l.startedAt && !l.completedAt)
+                || existingDemand.order?.legs?.[existingDemand.order.legs.length - 1];
+            const manifestId = activeLeg?.manifestId || null;
+            const manifest = activeLeg?.manifest || null;
+            if (!link || !manifestId || manifest?.linkId !== link.id) {
                 throw new AppError('Not authorized: demand is not in your manifest', 403);
             }
             const linkAllowedStatuses = ['COLLECTED', 'IN_TRANSIT', 'AT_HUB', 'OUT_FOR_DELIVERY', 'DELIVERED'];
@@ -438,99 +507,151 @@ router.patch('/:id/status', authenticate, async (req: AuthRequest, res: Response
             throw new AppError(INTAKE_AUTO_ORDER_BLOCKED_MESSAGE, 403);
         }
 
+        const physicalStatuses = ['COLLECTED', 'IN_TRANSIT', 'AT_HUB', 'OUT_FOR_DELIVERY', 'DELIVERED'];
+        let targetDemandStatus: any = status;
+        if (physicalStatuses.includes(status)) {
+            targetDemandStatus = 'CONVERTED';
+        }
+
         const demand = await prisma.$transaction(async (tx) => {
-            // Update demand
-            const updatedDemand = await tx.demand.update({
-                where: { id: id },
-                data: { status },
-                include: {
-                    order: true
+            // 1. If order exists and incoming status is physical, update the order status
+            if (existingDemand.order && physicalStatuses.includes(status)) {
+                // Check if order has an active transit leg
+                const activeLeg = await tx.orderLeg.findFirst({
+                    where: {
+                        orderId: existingDemand.order.id,
+                        startedAt: { not: null },
+                        completedAt: null,
+                    }
+                });
+                if (activeLeg) {
+                    throw new AppError('Não é possível atualizar o status do pedido manualmente enquanto há uma perna de transporte ativa no manifesto.', 400);
                 }
+
+                const orderStatusMap: Record<string, string> = {
+                    'COLLECTED': 'PENDING',
+                    'IN_TRANSIT': 'IN_TRANSIT',
+                    'AT_HUB': 'AT_HUB',
+                    'OUT_FOR_DELIVERY': 'OUT_FOR_DELIVERY',
+                    'DELIVERED': 'DELIVERED',
+                };
+                const nextOrderStatus = orderStatusMap[status] as any;
+
+                await tx.order.update({
+                    where: { id: existingDemand.order.id },
+                    data: {
+                        status: nextOrderStatus,
+                        currentHubId: status === 'AT_HUB' ? (currentHubId || null) : undefined,
+                        enteredAtHubAt: status === 'AT_HUB' ? new Date() : undefined,
+                    }
+                });
+
+                const statusMap: Record<string, string> = {
+                    'COLLECTED': 'COLLECTED',
+                    'IN_TRANSIT': 'IN_TRANSIT',
+                    'AT_HUB': 'AT_HUB',
+                    'OUT_FOR_DELIVERY': 'OUT_FOR_DELIVERY',
+                    'DELIVERED': 'DELIVERED',
+                };
+
+                await tx.orderHistory.create({
+                    data: {
+                        orderId: existingDemand.order.id,
+                        eventType: (statusMap[status] || 'NOTE') as any,
+                        description: description || `Status do pedido atualizado para ${status}`,
+                        location,
+                        photoUrl,
+                    }
+                });
+
+                // Set demand status to CONVERTED
+                return tx.demand.update({
+                    where: { id },
+                    data: { status: 'CONVERTED' },
+                    include: { order: true }
+                });
+            }
+
+            // 2. If order doesn't exist and status indicates possession (COLLECTED, AT_HUB, CONVERTED)
+            if (!existingDemand.order && (status === 'COLLECTED' || status === 'AT_HUB' || status === 'CONVERTED')) {
+                const updatedDemand = await tx.demand.update({
+                    where: { id },
+                    data: { status: 'CONVERTED' },
+                    include: { order: true }
+                });
+
+                const matchingOpportunity = await tx.opportunity.findFirst({
+                    where: { matchedDemandId: id }
+                });
+
+                const orderCurrentHubId = status === 'AT_HUB' ? (currentHubId || null) : null;
+
+                const newOrder = await tx.order.create({
+                    data: {
+                        demandId: id,
+                        opportunityId: matchingOpportunity?.id || null,
+                        nfNumber: updatedDemand.nfNumber,
+                        status: status === 'AT_HUB' ? 'AT_HUB' : 'PENDING',
+                        enteredAtHubAt: status === 'AT_HUB' ? new Date() : null,
+                        currentHubId: orderCurrentHubId,
+                    }
+                });
+
+                // Import demand events as OrderHistory
+                const demandEvents = await tx.demandEvent.findMany({
+                    where: { demandId: id },
+                    orderBy: { createdAt: 'asc' }
+                });
+
+                const eventStatusMap: Record<string, string> = {
+                    'PENDING': 'CREATED',
+                    'QUOTED': 'CREATED',
+                    'APPROVED': 'CREATED',
+                    'CONVERTED': 'CREATED',
+                    'LOST': 'CANCELLED',
+                    'CANCELLED': 'CANCELLED',
+                };
+
+                for (const event of demandEvents) {
+                    await tx.orderHistory.create({
+                        data: {
+                            orderId: newOrder.id,
+                            eventType: (eventStatusMap[event.status] || 'NOTE') as any,
+                            description: event.description,
+                            location: event.location,
+                            photoUrl: event.photoUrl,
+                        }
+                    });
+                }
+
+                await tx.orderHistory.create({
+                    data: {
+                        orderId: newOrder.id,
+                        eventType: 'CREATED',
+                        description: `Pedido criado automaticamente quando demanda foi convertida/possuída (${status})`,
+                        location: location || updatedDemand.origin,
+                    }
+                });
+
+                return updatedDemand;
+            }
+
+            // 3. Otherwise, just update demand status normally (PENDING, QUOTED, APPROVED, etc.)
+            const updatedDemand = await tx.demand.update({
+                where: { id },
+                data: { status: targetDemandStatus },
+                include: { order: true }
             });
 
-            // Create event
             await tx.demandEvent.create({
                 data: {
                     demandId: id,
-                    status,
-                    description: description || `Status atualizado para ${status}`,
+                    status: targetDemandStatus,
+                    description: description || `Status da demanda atualizado para ${targetDemandStatus}`,
                     location,
                     photoUrl,
                 }
             });
-
-            // Create Order automatically when demand is COLLECTED or AT_HUB (legado, não-intake)
-            if ((status === 'COLLECTED' || status === 'AT_HUB') && !updatedDemand.order) {
-                // Check if order already exists
-                const existingOrder = await tx.order.findUnique({
-                    where: { demandId: id }
-                });
-
-                if (!existingOrder) {
-                    // Find opportunity that matches this demand (via matchedDemandId)
-                    const matchingOpportunity = await tx.opportunity.findFirst({
-                        where: { matchedDemandId: id }
-                    });
-
-                    const orderCurrentHubId = status === 'AT_HUB' ? (currentHubId || null) : null;
-
-                    // Create order
-                    const newOrder = await tx.order.create({
-                        data: {
-                            demandId: id,
-                            opportunityId: matchingOpportunity?.id || null,
-                            manifestId: updatedDemand.manifestId ?? undefined,
-                            nfNumber: updatedDemand.nfNumber,
-                            status: status === 'AT_HUB' ? 'AT_HUB' : 'PENDING',
-                            enteredAtHubAt: status === 'AT_HUB' ? new Date() : null,
-                            currentHubId: orderCurrentHubId,
-                        }
-                    });
-
-                    // Import all DemandEvents as OrderHistory
-                    const demandEvents = await tx.demandEvent.findMany({
-                        where: { demandId: id },
-                        orderBy: { createdAt: 'asc' }
-                    });
-
-                    // Map DemandStatus to OrderEventType
-                    const statusMap: Record<string, string> = {
-                        'PENDING': 'CREATED',
-                        'QUOTED': 'CREATED',
-                        'APPROVED': 'CREATED',
-                        'ASSIGNED': 'CREATED',
-                        'COLLECTED': 'COLLECTED',
-                        'IN_TRANSIT': 'IN_TRANSIT',
-                        'AT_HUB': 'AT_HUB',
-                        'OUT_FOR_DELIVERY': 'OUT_FOR_DELIVERY',
-                        'DELIVERED': 'DELIVERED',
-                        'CANCELLED': 'CANCELLED',
-                    };
-
-                    for (const event of demandEvents) {
-                        await tx.orderHistory.create({
-                            data: {
-                                orderId: newOrder.id,
-                                eventType: (statusMap[event.status] || 'NOTE') as any,
-                                description: event.description,
-                                location: event.location,
-                                photoUrl: event.photoUrl,
-                                demandEventId: event.id,
-                            }
-                        });
-                    }
-
-                    // Create initial history entry
-                    await tx.orderHistory.create({
-                        data: {
-                            orderId: newOrder.id,
-                            eventType: 'CREATED',
-                            description: `Pedido criado automaticamente quando demanda foi ${status === 'AT_HUB' ? 'entregue no HUB' : 'coletada'}`,
-                            location: location || updatedDemand.origin,
-                        }
-                    });
-                }
-            }
 
             return updatedDemand;
         });
@@ -554,6 +675,7 @@ router.patch('/:id/status', authenticate, async (req: AuthRequest, res: Response
         next(error);
     }
 });
+
 
 // PATCH /api/demands/:id/quote - Quote a demand (Admin)
 router.patch('/:id/quote', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {

@@ -37,16 +37,9 @@ export interface ResolveIntakeByNfeKeyResult {
 }
 
 const BLOCKED_STATUSES = new Set([
-    'DELIVERED',
+    'CONVERTED',
     'CANCELLED',
-    'OUT_FOR_DELIVERY',
-    'IN_TRANSIT',
-    'COLLECTED',
-    'ASSIGNED',
-    'AT_HUB',
-    'APPROVED',
-    'QUOTED',
-    'PENDING',
+    'LOST',
 ]);
 
 const WRONG_HUB_MESSAGE =
@@ -169,8 +162,7 @@ export async function resolveIntakeByNfeKey(
     const awaiting = scoped.filter(
         (d) =>
             d.status === 'AWAITING_ARRIVAL' &&
-            !d.order &&
-            !d.manifestId,
+            !d.order,
     );
 
     if (awaiting.length > 0) {
@@ -189,7 +181,7 @@ export async function resolveIntakeByNfeKey(
     }
 
     const blocked = scoped.some(
-        (d) => d.manifestId != null || BLOCKED_STATUSES.has(d.status),
+        (d) => d.order != null || BLOCKED_STATUSES.has(d.status),
     );
     if (blocked || scoped.length > 0) {
         return {

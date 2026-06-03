@@ -22,17 +22,17 @@ describe('intakeDemandPolicy', () => {
         assert.equal(normalizeExternalReference('ref-1'), 'ref-1');
     });
 
-    it('blocksAutoOrderOnStatusPatch bloqueia COLLECTED/AT_HUB sem Order', () => {
+    it('blocksAutoOrderOnStatusPatch bloqueia CONVERTED sem Order', () => {
         assert.equal(
-            blocksAutoOrderOnStatusPatch('NFE_KEY', 'AT_HUB', false),
+            blocksAutoOrderOnStatusPatch('NFE_KEY', 'CONVERTED', false),
             true,
         );
         assert.equal(
-            blocksAutoOrderOnStatusPatch('FORM', 'AT_HUB', false),
+            blocksAutoOrderOnStatusPatch('FORM', 'CONVERTED', false),
             false,
         );
         assert.equal(
-            blocksAutoOrderOnStatusPatch('NFE_KEY', 'AT_HUB', true),
+            blocksAutoOrderOnStatusPatch('NFE_KEY', 'CONVERTED', true),
             false,
         );
     });

@@ -181,9 +181,9 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
         if (collectionStatus) {
             const cs = String(collectionStatus).toUpperCase();
             if (cs === 'COLLECTED') {
-                andFilters.push({ demand: { status: 'COLLECTED' } });
+                andFilters.push({ status: { in: ['IN_TRANSIT', 'AT_HUB', 'OUT_FOR_DELIVERY', 'DELIVERED'] } });
             } else if (cs === 'NOT_COLLECTED') {
-                andFilters.push({ demand: { status: { not: 'COLLECTED' } } });
+                andFilters.push({ status: 'PENDING' });
             } else if (cs === 'WITH_COLLECTION_DATA') {
                 andFilters.push(collectionDataPresent);
             } else if (cs === 'WITHOUT_COLLECTION_DATA') {
@@ -191,8 +191,8 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
             } else if (cs === 'INCONSISTENT') {
                 andFilters.push({
                     OR: [
-                        { AND: [{ demand: { status: 'COLLECTED' } }, collectionDataMissing] },
-                        { AND: [{ demand: { status: { not: 'COLLECTED' } } }, collectionDataPresent] },
+                        { AND: [{ status: { in: ['IN_TRANSIT', 'AT_HUB', 'OUT_FOR_DELIVERY', 'DELIVERED'] } }, collectionDataMissing] },
+                        { AND: [{ status: 'PENDING' }, collectionDataPresent] },
                     ],
                 });
             }
@@ -580,7 +580,7 @@ router.post('/entrada', authenticate, authorize('ADMIN', 'HUB'), async (req: Aut
                     volume: 0,
                     riskClass: 'B',
                     intentType: 'DROP_AT_HUB',
-                    status: effectiveHubId ? 'AT_HUB' : 'PENDING',
+                    status: 'CONVERTED',
                     sourceType: 'FORM',
                     expectedHubId: effectiveHubId ?? null,
                 }
@@ -589,7 +589,7 @@ router.post('/entrada', authenticate, authorize('ADMIN', 'HUB'), async (req: Aut
             await tx.demandEvent.create({
                 data: {
                     demandId: demand.id,
-                    status: effectiveHubId ? 'AT_HUB' : 'PENDING',
+                    status: 'CONVERTED',
                     description: 'Pedido criado pela entrada manual',
                     location: data.origemPrestacao,
                 }
@@ -804,9 +804,9 @@ router.post('/', authenticate, authorize('ADMIN'), async (req: AuthRequest, res:
             throw new AppError('Order already exists for this demand', 400);
         }
 
-        // Validate demand status (must be COLLECTED or AT_HUB)
-        if (demand.status !== 'COLLECTED' && demand.status !== 'AT_HUB') {
-            throw new AppError(`Cannot create order. Demand must be COLLECTED or AT_HUB, current status: ${demand.status}`, 400);
+        // Validate demand status (must be APPROVED, AWAITING_ARRIVAL, PENDING or QUOTED)
+        if (demand.status !== 'APPROVED' && demand.status !== 'AWAITING_ARRIVAL' && demand.status !== 'PENDING' && demand.status !== 'QUOTED') {
+            throw new AppError(`Cannot create order. Demand status must be APPROVED, AWAITING_ARRIVAL, PENDING or QUOTED, current status: ${demand.status}`, 400);
         }
 
         // Find opportunity that matches this demand (via matchedDemandId)
@@ -822,13 +822,19 @@ router.post('/', authenticate, authorize('ADMIN'), async (req: AuthRequest, res:
                     opportunityId: matchingOpportunity?.id || null,
                     nfNumber: data.nfNumber || demand.nfNumber,
                     nfDocumentUrl: data.nfDocumentUrl,
-                    status: demand.status === 'AT_HUB' ? 'AT_HUB' : 'PENDING',
-                    enteredAtHubAt: demand.status === 'AT_HUB' ? new Date() : null,
+                    status: 'PENDING',
+                    enteredAtHubAt: null,
                 },
                 include: {
                     demand: true,
                     opportunity: true
                 }
+            });
+
+            // Set demand status to CONVERTED
+            await tx.demand.update({
+                where: { id: data.demandId },
+                data: { status: 'CONVERTED' }
             });
 
             // Import all DemandEvents as OrderHistory
@@ -929,6 +935,19 @@ router.patch('/:id/status', authenticate, authorize('ADMIN', 'LINK', 'HUB'), asy
 
         checkHubAccessIfHubRole(req, order);
 
+        // Block manual status updates if there's an active leg in progress
+        const activeLeg = await prisma.orderLeg.findFirst({
+            where: {
+                orderId: id,
+                manifest: {
+                    status: 'IN_PROGRESS',
+                },
+            },
+        });
+        if (activeLeg) {
+            throw new AppError('Não é possível alterar o status manualmente de um pedido que está em trânsito (viagem ativa). Conclua o manifesto correspondente.', 400);
+        }
+
         const newCurrentHubId = data.status === 'AT_HUB'
             ? (req.user!.roles.includes('HUB') ? req.user!.hubId! : (data.currentHubId ?? order.currentHubId))
             : (['IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'].includes(data.status) ? null : order.currentHubId);
@@ -963,29 +982,6 @@ router.patch('/:id/status', authenticate, authorize('ADMIN', 'LINK', 'HUB'), asy
                     photoUrl: data.photoUrl,
                 }
             });
-
-            // Update demand status if needed
-            if (data.status === 'DELIVERED') {
-                await tx.demand.update({
-                    where: { id: order.demandId },
-                    data: { status: 'DELIVERED' }
-                });
-            } else if (data.status === 'IN_TRANSIT') {
-                await tx.demand.update({
-                    where: { id: order.demandId },
-                    data: { status: 'IN_TRANSIT' }
-                });
-            } else if (data.status === 'AT_HUB') {
-                await tx.demand.update({
-                    where: { id: order.demandId },
-                    data: { status: 'AT_HUB' }
-                });
-            } else if (data.status === 'OUT_FOR_DELIVERY') {
-                await tx.demand.update({
-                    where: { id: order.demandId },
-                    data: { status: 'OUT_FOR_DELIVERY' }
-                });
-            }
 
             return updatedOrder;
         });

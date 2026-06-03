@@ -71,13 +71,13 @@ export async function confirmIntakeArrival(input: ConfirmIntakeArrivalInput): Pr
     return prisma.$transaction(async (tx) => {
         const updatedDemand = await tx.demand.update({
             where: { id: demand.id },
-            data: { status: 'AT_HUB' },
+            data: { status: 'CONVERTED' },
         });
 
         await tx.demandEvent.create({
             data: {
                 demandId: demand.id,
-                status: 'AT_HUB',
+                status: 'CONVERTED',
                 description: 'Chegada confirmada no hub — pedido criado',
                 location: demand.origin,
             },
@@ -87,7 +87,7 @@ export async function confirmIntakeArrival(input: ConfirmIntakeArrivalInput): Pr
             data: {
                 demandId: demand.id,
                 opportunityId: matchingOpportunity?.id ?? null,
-                manifestId: demand.manifestId ?? undefined,
+                manifestId: undefined,
                 nfNumber: demand.nfNumber,
                 status: 'AT_HUB',
                 enteredAtHubAt: new Date(),

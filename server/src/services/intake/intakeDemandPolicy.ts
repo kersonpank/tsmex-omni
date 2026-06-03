@@ -19,7 +19,7 @@ export function normalizeExternalReference(value: string | null | undefined): st
 }
 
 /** Status PATCH que dispararia criação automática de Order no legado. */
-export const AUTO_ORDER_DEMAND_STATUSES: DemandStatus[] = ['COLLECTED', 'AT_HUB'];
+export const AUTO_ORDER_DEMAND_STATUSES: DemandStatus[] = ['CONVERTED'];
 
 export function blocksAutoOrderOnStatusPatch(
     sourceType: DemandSource,

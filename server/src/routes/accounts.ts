@@ -920,13 +920,21 @@ router.get('/me/stats', authenticate, async (req: AuthRequest, res: Response, ne
                 createdAt: true,
             }
         });
+
+        // Get orders stats
+        const orders = await prisma.order.findMany({
+            where: { demand: { clientId: { in: clientIds } } },
+            select: {
+                status: true,
+            }
+        });
         
         const stats = {
             totalDemands: demands.length,
             pending: demands.filter(d => d.status === 'PENDING').length,
             quoted: demands.filter(d => d.status === 'QUOTED').length,
-            inTransit: demands.filter(d => d.status === 'IN_TRANSIT').length,
-            delivered: demands.filter(d => d.status === 'DELIVERED').length,
+            inTransit: orders.filter(o => o.status === 'IN_TRANSIT').length,
+            delivered: orders.filter(o => o.status === 'DELIVERED').length,
             totalValue: demands
                 .filter(d => d.quotedPrice)
                 .reduce((sum, d) => sum + (d.quotedPrice || 0), 0),

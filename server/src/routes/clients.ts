@@ -1,5 +1,6 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import { ManifestStatus } from '@prisma/client';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
@@ -136,6 +137,13 @@ router.get('/:id/demands', authenticate, async (req: AuthRequest, res: Response,
         const limit = (req.query.limit as string) || '50';
         const offset = (req.query.offset as string) || '0';
 
+        const ACTIVE_MANIFEST_STATUSES: ManifestStatus[] = [
+            'DRAFT',
+            'PENDING_ACCEPT',
+            'ACCEPTED',
+            'IN_PROGRESS',
+        ];
+
         // Clients can only view their own demands
         if (req.user!.roles.includes('CLIENT')) {
             const client = await prisma.client.findFirst({
@@ -152,8 +160,22 @@ router.get('/:id/demands', authenticate, async (req: AuthRequest, res: Response,
                 ...(status ? { status: status as any } : {}),
             },
             include: {
-                manifest: {
-                    select: { id: true, status: true }
+                order: {
+                    include: {
+                        legs: {
+                            where: {
+                                manifest: {
+                                    status: { in: ACTIVE_MANIFEST_STATUSES }
+                                }
+                            },
+                            include: {
+                                manifest: {
+                                    select: { id: true, status: true }
+                                }
+                            },
+                            take: 1
+                        }
+                    }
                 },
                 _count: {
                     select: { events: true }
@@ -164,9 +186,19 @@ router.get('/:id/demands', authenticate, async (req: AuthRequest, res: Response,
             skip: parseInt(offset as string),
         });
 
+        const mappedDemands = demands.map((d: any) => {
+            const activeLeg = d.order?.legs?.[0];
+            const manifest = activeLeg?.manifest || null;
+            const { order, ...rest } = d;
+            return {
+                ...rest,
+                manifest,
+            };
+        });
+
         res.json({
             success: true,
-            data: demands,
+            data: mappedDemands,
         });
     } catch (error) {
         next(error);

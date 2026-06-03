@@ -3,29 +3,26 @@ import prisma from './prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import type { AuthRequest } from '../middleware/auth.js';
 
-type ManifestHubFields = { hubId?: string | null; destHubId?: string | null } | null;
-
 /** Campos mínimos para decidir visibilidade de pedido ao operador HUB. */
 export type HubOrderAccessFields = {
     currentHubId: string | null;
-    demand?: { expectedHubId?: string | null; manifest?: ManifestHubFields } | null;
-    manifest?: ManifestHubFields;
+    demand?: { expectedHubId?: string | null } | null;
+    legs?: Array<{
+        manifest: {
+            hubId: string | null;
+            destHubId: string | null;
+        } | null;
+    }> | null;
 };
-
-function manifestMatchesHub(manifest: ManifestHubFields | undefined, hubId: string): boolean {
-    if (!manifest) return false;
-    return manifest.hubId === hubId || manifest.destHubId === hubId;
-}
 
 /**
  * Pedido visível ao CD se estiver no hub, previsto para o hub, ou ligado a manifesto
- * (no Order ou na Demand) originado/destinado neste hub.
+ * originado/destinado neste hub via pernas de transporte.
  */
 export function hubCanAccessOrder(hubId: string, order: HubOrderAccessFields): boolean {
     if (order.currentHubId === hubId) return true;
     if (order.demand?.expectedHubId === hubId) return true;
-    if (manifestMatchesHub(order.manifest, hubId)) return true;
-    if (manifestMatchesHub(order.demand?.manifest, hubId)) return true;
+    if (order.legs?.some(leg => leg.manifest && (leg.manifest.hubId === hubId || leg.manifest.destHubId === hubId))) return true;
     return false;
 }
 
@@ -34,10 +31,18 @@ export function buildHubOrderVisibilityWhere(hubId: string): Prisma.OrderWhereIn
         OR: [
             { currentHubId: hubId },
             { demand: { expectedHubId: hubId } },
-            { manifest: { hubId } },
-            { manifest: { destHubId: hubId } },
-            { demand: { manifest: { hubId } } },
-            { demand: { manifest: { destHubId: hubId } } },
+            {
+                legs: {
+                    some: {
+                        manifest: {
+                            OR: [
+                                { hubId },
+                                { destHubId: hubId }
+                            ]
+                        }
+                    }
+                }
+            }
         ],
     };
 }
@@ -85,8 +90,16 @@ export const hubOrderAccessSelect = {
     demand: {
         select: {
             expectedHubId: true,
-            manifest: { select: { hubId: true, destHubId: true, linkId: true } },
         },
     },
-    manifest: { select: { hubId: true, destHubId: true, linkId: true } },
+    legs: {
+        select: {
+            manifest: {
+                select: {
+                    hubId: true,
+                    destHubId: true,
+                }
+            }
+        }
+    }
 } satisfies Prisma.OrderSelect;

@@ -134,7 +134,7 @@ router.post('/entrada', authenticate, authorize('HUB'), async (req: AuthRequest,
                     units: data.units,
                     riskClass: data.riskClass as 'A' | 'B' | 'C',
                     intentType: 'DROP_AT_HUB',
-                    status: 'AT_HUB',
+                    status: 'CONVERTED',
                     sourceType: 'FORM',
                 },
             });
@@ -142,7 +142,7 @@ router.post('/entrada', authenticate, authorize('HUB'), async (req: AuthRequest,
             await tx.demandEvent.create({
                 data: {
                     demandId: demand.id,
-                    status: 'AT_HUB',
+                    status: 'CONVERTED',
                     description: 'Entrada registrada no hub',
                     location: hub.city + ', ' + hub.state,
                 },

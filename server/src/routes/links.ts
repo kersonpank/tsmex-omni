@@ -363,15 +363,23 @@ router.get('/:id/manifests', authenticate, async (req: AuthRequest, res: Respons
                 vehicleType: true,
                 hub: true,
                 _count: {
-                    select: { demands: true }
+                    select: { legs: true }
                 }
             },
             orderBy: { createdAt: 'desc' },
         });
 
+        const manifestsMapped = manifests.map((m) => {
+            const { _count, ...rest } = m;
+            return {
+                ...rest,
+                _count: _count ? { demands: _count.legs } : undefined
+            };
+        });
+
         res.json({
             success: true,
-            data: manifests,
+            data: manifestsMapped,
         });
     } catch (error) {
         next(error);

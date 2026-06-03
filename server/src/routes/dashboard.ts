@@ -8,7 +8,10 @@ const router = Router();
 /** Demandas visíveis para um operador de hub (alinhado a `demands` route). */
 function hubDemandFilter(hubId: string): Prisma.DemandWhereInput {
   return {
-    OR: [{ manifest: { hubId } }, { order: { currentHubId: hubId } }],
+    OR: [
+      { order: { legs: { some: { manifest: { hubId } } } } },
+      { order: { currentHubId: hubId } }
+    ],
   };
 }
 
@@ -45,28 +48,29 @@ router.get(
         totalClients,
       ] = await prisma.$transaction([
         prisma.demand.count({ where: { ...baseDemand, status: 'PENDING' } }),
-        prisma.demand.count({ where: { ...baseDemand, status: 'IN_TRANSIT' } }),
-        prisma.demand.count({ where: { ...baseDemand, status: 'AT_HUB' } }),
+        prisma.order.count({ where: { demand: baseDemand, status: 'IN_TRANSIT' } }),
+        prisma.order.count({ where: { demand: baseDemand, status: 'AT_HUB' } }),
         prisma.demand.count({ where: { ...baseDemand, riskClass: 'A' } }),
         prisma.demand.count({
           where: {
             ...baseDemand,
             status: { in: ['PENDING', 'QUOTED', 'APPROVED'] },
-            manifestId: null,
           },
         }),
         prisma.demand.count({
           where: {
             ...baseDemand,
             intentType: 'COLLECT',
-            status: { in: ['APPROVED', 'ASSIGNED'] },
+            status: 'APPROVED',
           },
         }),
-        prisma.demand.count({
+        prisma.order.count({
           where: {
-            ...baseDemand,
-            intentType: 'COLLECT',
-            status: { in: ['COLLECTED', 'IN_TRANSIT'] },
+            demand: {
+              ...baseDemand,
+              intentType: 'COLLECT',
+            },
+            status: 'IN_TRANSIT',
           },
         }),
         prisma.order.count({
