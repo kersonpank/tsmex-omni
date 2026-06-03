@@ -22,10 +22,18 @@ done
 MODE=${MIGRATE_MODE:-deploy}
 if [ "$MODE" = "deploy" ]; then
   npx prisma migrate deploy
+elif [ "$MODE" = "reset" ]; then
+  # PERIGO: apaga TODOS os dados e recria o schema do zero.
+  # Usar APENAS em staging/dev quando o DB esta sujo (ex: veio de db push sem historico).
+  # NUNCA usar em producao.
+  echo "⚠️  MIGRATE_MODE=reset: apagando schema e reaplicando todas as migrações..."
+  npx prisma migrate reset --force --skip-seed
+  echo "✅ Reset concluído. Troque MIGRATE_MODE para deploy no proximo deploy."
 elif [ "$MODE" = "push" ]; then
+  # LEGADO/dev apenas. Nao usar em staging/prod.
   npx prisma db push --accept-data-loss
 else
-  echo "Invalid MIGRATE_MODE: $MODE"
+  echo "Invalid MIGRATE_MODE: $MODE (validos: deploy | reset | push)"
   exit 1
 fi
 
