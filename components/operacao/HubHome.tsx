@@ -79,6 +79,41 @@ const toDateLabel = (order: Order): string => {
   return 'Esta semana';
 };
 
+const getOrderCustody = (order: any): string => {
+  if (order.status === 'AT_HUB') {
+    return `No HUB ${order.currentHub?.name ?? order.currentHub?.code ?? '—'}`;
+  }
+  if (order.status === 'IN_TRANSIT') {
+    const activeLeg = order.legs?.find((leg: any) => leg.startedAt && !leg.completedAt);
+    if (activeLeg) {
+      const origin = activeLeg.legType === 'COLETA'
+        ? (order.origemPrestacao ?? order.demand?.origin ?? 'Origem')
+        : (activeLeg.manifest?.hub?.name ?? activeLeg.manifest?.hub?.code ?? 'HUB Origem');
+      const dest = activeLeg.legType === 'ENTREGA'
+        ? (order.fimPrestacao ?? order.demand?.destination ?? 'Destino')
+        : (activeLeg.manifest?.destHub?.name ?? activeLeg.manifest?.destHub?.code ?? 'HUB Destino');
+      return `Em trânsito na perna: ${origin} → ${dest}`;
+    }
+    if (order.manifest) {
+      return `Em trânsito (${order.manifest.origin} → ${order.manifest.destination})`;
+    }
+    return 'Em trânsito';
+  }
+  if (order.status === 'PENDING') {
+    return 'Aguardando coleta';
+  }
+  if (order.status === 'OUT_FOR_DELIVERY') {
+    return 'Saiu para entrega final';
+  }
+  if (order.status === 'DELIVERED') {
+    return 'Entregue';
+  }
+  if (order.status === 'CANCELLED') {
+    return 'Cancelado';
+  }
+  return '—';
+};
+
 function extractArray(res: any): any[] {
   if (Array.isArray(res)) return res;
   if (res && Array.isArray(res.data)) return res.data;
@@ -450,6 +485,38 @@ const HubHome: React.FC = () => {
                         </span>
                       </div>
                       <p className="mt-2 text-sm font-medium text-tower-800 dark:text-tower-100">{order.demand?.origin ?? 'Origem'} → {order.demand?.destination ?? 'Destino'}</p>
+                      
+                      <div className="mt-2 text-xs text-tower-600 dark:text-tower-400">
+                        <span className="font-semibold text-brand-600 dark:text-brand-400">Custódia:</span> {getOrderCustody(order)}
+                      </div>
+
+                      {order.legs && order.legs.length > 0 && (
+                        <div className="mt-2 space-y-1 border-t border-tower-100 pt-2 dark:border-tower-800">
+                          <p className="text-[10px] uppercase font-bold tracking-wider text-tower-500">Jornada de Pernas</p>
+                          <div className="space-y-0.5">
+                            {order.legs.map((leg: any, idx: number) => {
+                              const origin = leg.legType === 'COLETA'
+                                ? (order.origemPrestacao ?? order.demand?.origin ?? 'Origem')
+                                : (leg.manifest?.hub?.name ?? leg.manifest?.hub?.code ?? 'HUB Origem');
+                              const dest = leg.legType === 'ENTREGA'
+                                ? (order.fimPrestacao ?? order.demand?.destination ?? 'Destino')
+                                : (leg.manifest?.destHub?.name ?? leg.manifest?.destHub?.code ?? 'HUB Destino');
+                              const legStatus = leg.completedAt ? 'Concluído' : leg.startedAt ? 'Em andamento' : 'Pendente';
+                              const legStatusColor = leg.completedAt ? 'text-green-600 dark:text-green-400' : leg.startedAt ? 'text-brand-600 dark:text-brand-400' : 'text-tower-400';
+                              const legTypeName = leg.legType === 'COLETA' ? 'Coleta' : leg.legType === 'TRANSFERENCIA' ? 'Transferência' : 'Entrega';
+                              
+                              return (
+                                <div key={leg.id} className="flex items-center justify-between text-[11px]">
+                                  <span className="text-tower-700 dark:text-tower-300">
+                                    {idx + 1}. {legTypeName}: {origin} → {dest}
+                                  </span>
+                                  <span className={`font-medium ${legStatusColor}`}>{legStatus}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </button>
                   ))}
                 </div>
@@ -486,6 +553,38 @@ const HubHome: React.FC = () => {
                   </div>
                   <span className={`rounded-full px-2 py-1 text-[11px] font-medium ${toneClassMap[orderStatusTones[order.status] ?? 'neutral']}`}>{orderStatusLabels[order.status] ?? order.status}</span>
                 </div>
+                
+                <div className="mt-2 text-xs text-tower-600 dark:text-tower-400">
+                  <span className="font-semibold text-brand-600 dark:text-brand-400">Custódia:</span> {getOrderCustody(order)}
+                </div>
+
+                {order.legs && order.legs.length > 0 && (
+                  <div className="mt-3 space-y-1 border-t border-tower-100 pt-2.5 dark:border-tower-800">
+                    <p className="text-[10px] uppercase font-bold tracking-wider text-tower-500">Jornada de Pernas</p>
+                    <div className="space-y-1">
+                      {order.legs.map((leg: any, idx: number) => {
+                        const origin = leg.legType === 'COLETA'
+                          ? (order.origemPrestacao ?? order.demand?.origin ?? 'Origem')
+                          : (leg.manifest?.hub?.name ?? leg.manifest?.hub?.code ?? 'HUB Origem');
+                        const dest = leg.legType === 'ENTREGA'
+                          ? (order.fimPrestacao ?? order.demand?.destination ?? 'Destino')
+                          : (leg.manifest?.destHub?.name ?? leg.manifest?.destHub?.code ?? 'HUB Destino');
+                        const legStatus = leg.completedAt ? 'Concluído' : leg.startedAt ? 'Em andamento' : 'Pendente';
+                        const legStatusColor = leg.completedAt ? 'text-green-600 dark:text-green-400' : leg.startedAt ? 'text-brand-600 dark:text-brand-400' : 'text-tower-400';
+                        const legTypeName = leg.legType === 'COLETA' ? 'Coleta' : leg.legType === 'TRANSFERENCIA' ? 'Transferência' : 'Entrega';
+                        
+                        return (
+                          <div key={leg.id} className="flex items-center justify-between text-xs">
+                            <span className="text-tower-700 dark:text-tower-300">
+                              {idx + 1}. {legTypeName}: {origin} → {dest}
+                            </span>
+                            <span className={`font-medium ${legStatusColor}`}>{legStatus}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 <div className="mt-3 flex items-center justify-between text-xs text-tower-600 dark:text-tower-400">
                   <label className="cursor-pointer font-medium text-brand-600 hover:underline dark:text-brand-300">
                     {attachmentUploadingOrderId === order.id ? 'Enviando...' : 'Anexar evidência'}
@@ -514,7 +613,7 @@ const HubHome: React.FC = () => {
         {!loading && tab === 'manifestos' && (
           <section className="space-y-3">
             {manifestosAtivos.length === 0 && <div className="rounded-xl border border-dashed border-tower-300 p-6 text-center text-sm text-tower-600 dark:border-tower-600 dark:text-tower-300">Nenhum manifesto ativo.</div>}
-            {manifestos.map((m) => (
+            {manifestos.map((m: any) => (
               <div key={m.id} className="card-surface p-4">
                 <div className="flex items-start justify-between gap-2">
                   <div>
@@ -522,6 +621,19 @@ const HubHome: React.FC = () => {
                     <p className="text-xs text-tower-600 dark:text-tower-400">{m.origin} → {m.destination}</p>
                   </div>
                   <span className={`rounded-full px-2 py-1 text-[11px] font-medium ${toneClassMap[MANIFEST_STATUS_TONE[m.status] ?? 'neutral']}`}>{MANIFEST_STATUS_LABEL[m.status] ?? m.status}</span>
+                </div>
+                
+                <div className="mt-3 flex items-center justify-between text-xs pt-2 border-t border-tower-100 dark:border-tower-800">
+                  <span className="text-tower-500 dark:text-tower-400">Margem:</span>
+                  {m.costComplete ? (
+                    <span className={`font-semibold ${(m.margin ?? 0) >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(m.margin ?? 0)} ({m.marginPercent?.toFixed(1) ?? '0.0'}%)
+                    </span>
+                  ) : (
+                    <span className="rounded bg-yellow-500/10 px-1.5 py-0.5 text-[10px] font-medium text-yellow-600 dark:text-yellow-400">
+                      Custo não definido
+                    </span>
+                  )}
                 </div>
               </div>
             ))}

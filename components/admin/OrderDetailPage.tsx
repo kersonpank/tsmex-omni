@@ -349,6 +349,83 @@ const OrderDetailPage: React.FC = () => {
             </p>
           </div>
         </div>
+
+        {/* Custódia e Jornada de Pernas */}
+        <div className="mt-6 border-t border-tower-200 pt-6 dark:border-tower-700">
+          <div className="rounded-xl bg-brand-50/50 p-4 dark:bg-brand-950/20 border border-brand-100/50 dark:border-brand-900/30">
+            <p className="text-xs uppercase font-bold tracking-wider text-brand-600 dark:text-brand-400">Custódia Atual</p>
+            <p className="mt-1 text-base font-semibold text-tower-900 dark:text-white">
+              {(() => {
+                if (order.status === 'AT_HUB') {
+                  return `No HUB ${order.currentHub?.name ?? order.currentHub?.code ?? '—'}`;
+                }
+                if (order.status === 'IN_TRANSIT') {
+                  const activeLeg = order.legs?.find((leg: any) => leg.startedAt && !leg.completedAt);
+                  if (activeLeg) {
+                    const origin = activeLeg.legType === 'COLETA'
+                      ? (order.origemPrestacao ?? order.demand?.origin ?? 'Origem')
+                      : (activeLeg.manifest?.hub?.name ?? activeLeg.manifest?.hub?.code ?? 'HUB Origem');
+                    const dest = activeLeg.legType === 'ENTREGA'
+                      ? (order.fimPrestacao ?? order.demand?.destination ?? 'Destino')
+                      : (activeLeg.manifest?.destHub?.name ?? activeLeg.manifest?.destHub?.code ?? 'HUB Destino');
+                    return `Em trânsito na perna: ${origin} → ${dest}`;
+                  }
+                  if (order.manifest) {
+                    return `Em trânsito (${order.manifest.origin} → ${order.manifest.destination})`;
+                  }
+                  return 'Em trânsito';
+                }
+                if (order.status === 'PENDING') return 'Aguardando coleta';
+                if (order.status === 'OUT_FOR_DELIVERY') return 'Saiu para entrega final';
+                if (order.status === 'DELIVERED') return 'Entregue';
+                if (order.status === 'CANCELLED') return 'Cancelado';
+                return '—';
+              })()}
+            </p>
+          </div>
+
+          {order.legs && order.legs.length > 0 && (
+            <div className="mt-6 rounded-xl border border-tower-200 bg-tower-50/30 p-4 dark:border-tower-700 dark:bg-tower-900/30">
+              <p className="text-xs uppercase font-bold tracking-wider text-tower-500 mb-4">Jornada de Pernas do Pedido</p>
+              <div className="relative border-l border-tower-200 dark:border-tower-700 ml-3 pl-6 space-y-4">
+                {order.legs.map((leg: any, idx: number) => {
+                  const origin = leg.legType === 'COLETA'
+                    ? (order.origemPrestacao ?? order.demand?.origin ?? 'Origem')
+                    : (leg.manifest?.hub?.name ?? leg.manifest?.hub?.code ?? 'HUB Origem');
+                  const dest = leg.legType === 'ENTREGA'
+                    ? (order.fimPrestacao ?? order.demand?.destination ?? 'Destino')
+                    : (leg.manifest?.destHub?.name ?? leg.manifest?.destHub?.code ?? 'HUB Destino');
+                  const legStatus = leg.completedAt ? 'Concluído' : leg.startedAt ? 'Em andamento' : 'Pendente';
+                  const legStatusColor = leg.completedAt ? 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400' : leg.startedAt ? 'bg-brand-100 text-brand-700 dark:bg-brand-950/40 dark:text-brand-400' : 'bg-tower-100 text-tower-700 dark:bg-tower-800 dark:text-tower-400';
+                  const legTypeName = leg.legType === 'COLETA' ? 'Coleta' : leg.legType === 'TRANSFERENCIA' ? 'Transferência' : 'Entrega';
+                  
+                  return (
+                    <div key={leg.id} className="relative">
+                      {/* Timeline dot */}
+                      <span className={`absolute -left-[30px] top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full ring-4 ring-white dark:ring-tower-900 ${leg.completedAt ? 'bg-green-500' : leg.startedAt ? 'bg-brand-500' : 'bg-tower-300'}`} />
+                      
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-semibold text-tower-900 dark:text-white animate-fade-in">
+                            {idx + 1}. {legTypeName}: {origin} → {dest}
+                          </p>
+                          {leg.manifest && (
+                            <p className="text-[11px] text-tower-500 dark:text-tower-400">
+                              Manifesto: {leg.manifest.id.slice(0, 8).toUpperCase()} {leg.manifest.link?.name ? `(${leg.manifest.link.name})` : ''}
+                            </p>
+                          )}
+                        </div>
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${legStatusColor}`}>
+                          {legStatus}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="mt-4 grid gap-4">

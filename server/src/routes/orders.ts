@@ -315,6 +315,18 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
                         }
                     },
                     currentHub: { select: { id: true, name: true, code: true } },
+                    legs: {
+                        include: {
+                            manifest: {
+                                include: {
+                                    link: { select: { name: true } },
+                                    hub: { select: { name: true, code: true } },
+                                    destHub: { select: { name: true, code: true } }
+                                }
+                            }
+                        },
+                        orderBy: { sequence: 'asc' }
+                    },
                     remetentePerson: { select: { id: true, legalName: true, city: true, state: true } },
                     destinatarioPerson: { select: { id: true, legalName: true, city: true, state: true } },
                     history: {
@@ -381,6 +393,18 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
                     }
                 },
                 currentHub: { select: { id: true, name: true, code: true } },
+                legs: {
+                    include: {
+                        manifest: {
+                            include: {
+                                link: { select: { name: true } },
+                                hub: { select: { name: true, code: true } },
+                                destHub: { select: { name: true, code: true } }
+                            }
+                        }
+                    },
+                    orderBy: { sequence: 'asc' }
+                },
                 remetentePerson: { select: { id: true, legalName: true, document: true, documentType: true, address: true, cep: true, city: true, state: true, neighborhood: true, number: true, complement: true } },
                 destinatarioPerson: { select: { id: true, legalName: true, document: true, documentType: true } },
                 consignatarioPerson: { select: { id: true, legalName: true, document: true, documentType: true } },
