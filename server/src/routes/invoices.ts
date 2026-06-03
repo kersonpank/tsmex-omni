@@ -3,6 +3,7 @@ import { z } from 'zod';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
+import { getOrderFreightValue, getOfficialFreightTotal } from '../services/pricingService.js';
 
 const router = Router();
 
@@ -133,7 +134,19 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
                 manifest: {
                     include: {
                         link: true,
-                        demands: true
+                        legs: {
+                            include: {
+                                order: {
+                                    include: {
+                                        demand: {
+                                            include: {
+                                                client: true
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -155,9 +168,18 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
             }
         }
 
+        const mappedInvoice = {
+            ...invoice,
+            manifest: invoice.manifest ? {
+                ...invoice.manifest,
+                demands: (invoice.manifest as any).legs?.map((leg: any) => leg.order?.demand).filter(Boolean) || [],
+                legs: undefined,
+            } : null
+        };
+
         res.json({
             success: true,
-            data: invoice,
+            data: mappedInvoice,
         });
     } catch (error) {
         next(error);
@@ -174,11 +196,19 @@ router.post('/', authenticate, authorize('ADMIN'), async (req: AuthRequest, res:
             demandId: z.string().uuid().optional(),
             manifestId: z.string().uuid().optional(),
             accountId: z.string().uuid(),
-            subtotal: z.number().positive(),
+            subtotal: z.number().positive().optional(),
             taxes: z.number().min(0).default(0),
             discounts: z.number().min(0).default(0),
             dueDate: z.string().datetime().optional(),
             notes: z.string().optional(),
+        }).superRefine((val, ctx) => {
+            if (!val.orderId && val.subtotal === undefined) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: 'Subtotal is required when not linked to an order',
+                    path: ['subtotal'],
+                });
+            }
         });
 
         const data = schema.parse(req.body);
@@ -197,8 +227,18 @@ router.post('/', authenticate, authorize('ADMIN'), async (req: AuthRequest, res:
             throw new AppError('Account not found', 404);
         }
 
+        // Derive subtotal for order-linked invoices from official calculation
+        let subtotal = data.subtotal;
+        if (data.orderId) {
+            const officialFreight = await getOfficialFreightTotal(data.orderId);
+            if (officialFreight === null) {
+                throw new AppError("Pedido sem cálculo de frete oficial; emita o CT-e/minuta antes de faturar", 400);
+            }
+            subtotal = officialFreight;
+        }
+
         // Calculate total
-        const total = data.subtotal + data.taxes - data.discounts;
+        const total = subtotal! + data.taxes - data.discounts;
 
         // Generate invoice number
         const invoiceNumber = await generateInvoiceNumber();
@@ -211,7 +251,7 @@ router.post('/', authenticate, authorize('ADMIN'), async (req: AuthRequest, res:
                 demandId: data.demandId,
                 manifestId: data.manifestId,
                 accountId: data.accountId,
-                subtotal: data.subtotal,
+                subtotal: subtotal!,
                 taxes: data.taxes,
                 discounts: data.discounts,
                 total,
@@ -247,12 +287,22 @@ router.post('/batch', authenticate, authorize('ADMIN'), async (req: AuthRequest,
                 demandId: z.string().uuid().optional(),
                 manifestId: z.string().uuid().optional(),
                 accountId: z.string().uuid(),
-                subtotal: z.number().positive(),
+                subtotal: z.number().positive().optional(),
                 taxes: z.number().min(0).default(0),
                 discounts: z.number().min(0).default(0),
                 dueDate: z.string().datetime().optional(),
                 notes: z.string().optional(),
             })).min(1, 'At least one invoice is required'),
+        }).superRefine((val, ctx) => {
+            val.invoices.forEach((inv, index) => {
+                if (!inv.orderId && inv.subtotal === undefined) {
+                    ctx.addIssue({
+                        code: z.ZodIssueCode.custom,
+                        message: 'Subtotal is required when not linked to an order',
+                        path: ['invoices', index, 'subtotal'],
+                    });
+                }
+            });
         });
 
         const { invoices } = schema.parse(req.body);
@@ -277,7 +327,17 @@ router.post('/batch', authenticate, authorize('ADMIN'), async (req: AuthRequest,
                     throw new AppError('At least one of orderId, demandId, or manifestId must be provided for each invoice', 400);
                 }
 
-                const total = invData.subtotal + invData.taxes - invData.discounts;
+                // Derive subtotal for order-linked invoices from official calculation
+                let subtotal = invData.subtotal;
+                if (invData.orderId) {
+                    const officialFreight = await getOfficialFreightTotal(invData.orderId, tx);
+                    if (officialFreight === null) {
+                        throw new AppError(`Pedido sem cálculo de frete oficial; emita o CT-e/minuta antes de faturar para o pedido ${invData.orderId}`, 400);
+                    }
+                    subtotal = officialFreight;
+                }
+
+                const total = subtotal! + invData.taxes - invData.discounts;
                 const invoiceNumber = await generateInvoiceNumber();
 
                 const invoice = await tx.invoice.create({
@@ -287,7 +347,7 @@ router.post('/batch', authenticate, authorize('ADMIN'), async (req: AuthRequest,
                         demandId: invData.demandId,
                         manifestId: invData.manifestId,
                         accountId: invData.accountId,
-                        subtotal: invData.subtotal,
+                        subtotal: subtotal!,
                         taxes: invData.taxes,
                         discounts: invData.discounts,
                         total,
@@ -390,6 +450,20 @@ router.patch('/:id', authenticate, authorize('ADMIN'), async (req: AuthRequest, 
 
         if (!invoice) {
             throw new AppError('Invoice not found', 404);
+        }
+
+        // Block arbitrary manual subtotals for order-linked invoices on update
+        if (data.subtotal !== undefined) {
+            const orderId = invoice.orderId;
+            if (orderId) {
+                const officialFreight = await getOfficialFreightTotal(orderId);
+                if (officialFreight === null) {
+                    throw new AppError("Pedido sem cálculo de frete oficial; emita o CT-e/minuta antes de faturar", 400);
+                }
+                if (Math.abs(data.subtotal - officialFreight) > 0.01) {
+                    throw new AppError(`Subtotal must match official calculated freight value of ${officialFreight}`, 400);
+                }
+            }
         }
 
         const updateData: any = {};

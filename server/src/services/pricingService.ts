@@ -20,6 +20,21 @@ export async function getOrderFreightValue(orderId: string, tx: Prisma.Transacti
 }
 
 /**
+ * Retorna o valor do frete oficial do pedido (OrderFreightCalculation.freightTotal) sem fallbacks.
+ * Retorna null se não houver cálculo de frete oficial.
+ */
+export async function getOfficialFreightTotal(orderId: string, tx: Prisma.TransactionClient = prisma): Promise<number | null> {
+    const calc = await tx.orderFreightCalculation.findFirst({
+        where: { orderId },
+        orderBy: { createdAt: 'desc' },
+    });
+    if (calc && calc.freightTotal > 0) {
+        return calc.freightTotal;
+    }
+    return null;
+}
+
+/**
  * Normaliza e limpa o nome da cidade para evitar falhas de casamento (ex: "Guarulhos, SP" -> "Guarulhos").
  */
 function cleanCity(cityStr: string): string {
