@@ -73,7 +73,7 @@ services:
       # NUNCA usar `push` (db push --accept-data-loss) em staging/prod: faz diff automático,
       # ignora as migrações versionadas e pode dropar dados / falhar em AlterEnum.
       MIGRATE_MODE: deploy
-      RUN_SEED: ${RUN_SEED:-false}
+      RUN_SEED: "true" # TEMP: rodar seed uma vez pós-reset. Reverter após confirmar acesso.
       RUN_MIGRATE_PERSONS: ${RUN_MIGRATE_PERSONS:-false}
     networks:
       - tsmex-staging-internal
