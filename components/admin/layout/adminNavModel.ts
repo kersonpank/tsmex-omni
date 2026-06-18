@@ -128,10 +128,10 @@ export function navigateToNavState(
   patch: Partial<AdminNavState>,
   current: AdminNavState,
   isHub: boolean,
-  navigate: (to: string) => void
+  navigate: (to: string, opts?: { replace?: boolean }) => void
 ) {
   const next = normalizeGestaoNavAfterMerge(mergeNavState(current, patch), isHub);
   const sp = adminStateToSearchParams(next, isHub);
   const q = sp.toString();
-  navigate(q ? `/gestao?${q}` : '/gestao', { replace: true });
+  navigate(q ? `/gestao?${q}` : '/gestao');
 }

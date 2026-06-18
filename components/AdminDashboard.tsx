@@ -94,7 +94,7 @@ const AdminDashboard: React.FC = () => {
       const next = normalizeGestaoNavAfterMerge({ ...current, ...patch }, isHub);
       const sp = adminStateToSearchParams(next, isHub);
       const q = sp.toString();
-      void navigate(q ? `/gestao?${q}` : '/gestao', { replace: true });
+      void navigate(q ? `/gestao?${q}` : '/gestao');
     },
     [isHub, hasPermission, navigate]
   );
