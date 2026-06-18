@@ -66,13 +66,27 @@ const AdminDashboard: React.FC = () => {
 
   const location = useLocation();
   const navigate = useNavigate();
-  const gestaoSearchRef = useRef(location.search);
-  gestaoSearchRef.current = location.search;
 
-  const navState = useMemo(
-    () => parseAdminSearchParams(new URLSearchParams(location.search), isHub, hasPermission),
-    [location.search, isHub, hasPermission]
+  const [navState, setLocalNavState] = useState<AdminNavState>(() =>
+    parseAdminSearchParams(new URLSearchParams(location.search), isHub, hasPermission)
   );
+
+  // Sync component state with URL search params (essential for Back/Forward buttons and deep links)
+  useEffect(() => {
+    const nextNavState = parseAdminSearchParams(new URLSearchParams(location.search), isHub, hasPermission);
+    setLocalNavState((current) => {
+      if (
+        nextNavState.category !== current.category ||
+        nextNavState.transportSubTab !== current.transportSubTab ||
+        nextNavState.commercialSubTab !== current.commercialSubTab ||
+        nextNavState.generalSubTab !== current.generalSubTab ||
+        nextNavState.entradaOrderId !== current.entradaOrderId
+      ) {
+        return nextNavState;
+      }
+      return current;
+    });
+  }, [location.search, isHub, hasPermission]);
 
   /**
    * URL da barra pode ter `sub` inválido para HUB; parse cai no fallback mas query não — alinha com replace.
@@ -90,13 +104,13 @@ const AdminDashboard: React.FC = () => {
 
   const setNavState = useCallback(
     (patch: Partial<AdminNavState>) => {
-      const current = parseAdminSearchParams(new URLSearchParams(gestaoSearchRef.current), isHub, hasPermission);
-      const next = normalizeGestaoNavAfterMerge({ ...current, ...patch }, isHub);
+      const next = normalizeGestaoNavAfterMerge({ ...navState, ...patch }, isHub);
+      setLocalNavState(next);
       const sp = adminStateToSearchParams(next, isHub);
       const q = sp.toString();
-      void navigate(q ? `/gestao?${q}` : '/gestao');
+      void navigate(q ? `/gestao?${q}` : '/gestao', { replace: true });
     },
-    [isHub, hasPermission, navigate]
+    [isHub, navigate, navState]
   );
 
   const hubContextLine = useMemo(() => {
