@@ -112,7 +112,7 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
   const [attachmentsLoading, setAttachmentsLoading] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
 
-  const loadOrders = async () => {
+  const loadOrders = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -124,9 +124,9 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const loadOrder = async (id: string) => {
+  const loadOrder = useCallback(async (id: string) => {
     setOrderLoading(true);
     try {
       const res = await ordersApi.getById(id);
@@ -154,9 +154,9 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
     } finally {
       setOrderLoading(false);
     }
-  };
+  }, []);
 
-  const loadAttachments = async (id: string) => {
+  const loadAttachments = useCallback(async (id: string) => {
     setAttachmentsLoading(true);
     setAttachmentError(null);
     try {
@@ -168,7 +168,7 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
     } finally {
       setAttachmentsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadOrders();
