@@ -564,10 +564,10 @@ async function main() {
 // Seed states and cities from IBGE API
 async function seedStatesAndCities(prisma: PrismaClient) {
     try {
-        // Check if states already exist
         const existingStates = await prisma.state.count();
-        if (existingStates > 0) {
-            console.log('   ⏭️  States already exist, skipping...');
+        const existingCities = await prisma.city.count();
+        if (existingStates > 0 && existingCities > 0) {
+            console.log('   ⏭️  States and cities already exist, skipping...');
             return;
         }
 
@@ -578,56 +578,62 @@ async function seedStatesAndCities(prisma: PrismaClient) {
 
         const statesData = statesResponse.data;
 
-        // Create states
-        for (const stateData of statesData) {
-            await prisma.state.create({
-                data: {
-                    code: stateData.sigla,
-                    name: stateData.nome,
-                    ibgeCode: String(stateData.id),
-                }
-            });
-        }
-
-        console.log(`   ✅ Created ${statesData.length} states`);
-
-        // Fetch cities for each state (in batches to avoid timeout)
-        let totalCities = 0;
-        for (const stateData of statesData) {
-            try {
-                const citiesResponse = await axios.get(
-                    `https://servicodados.ibge.gov.br/api/v1/localidades/estados/${stateData.id}/municipios`,
-                    { timeout: 30000 }
-                );
-
-                const citiesData = citiesResponse.data;
-                const state = await prisma.state.findUnique({
-                    where: { code: stateData.sigla }
-                });
-
-                if (state) {
-                    // Create cities in batches
-                    const batchSize = 100;
-                    for (let i = 0; i < citiesData.length; i += batchSize) {
-                        const batch = citiesData.slice(i, i + batchSize);
-                        await prisma.city.createMany({
-                            data: batch.map((cityData: any) => ({
-                                stateId: state.id,
-                                name: cityData.nome,
-                                ibgeCode: String(cityData.id),
-                            })),
-                            skipDuplicates: true,
-                        });
+        if (existingStates === 0) {
+            // Create states
+            for (const stateData of statesData) {
+                await prisma.state.create({
+                    data: {
+                        code: stateData.sigla,
+                        name: stateData.nome,
+                        ibgeCode: String(stateData.id),
                     }
-                    totalCities += citiesData.length;
-                    console.log(`   ✅ Created ${citiesData.length} cities for ${stateData.nome}`);
-                }
-            } catch (error: any) {
-                console.error(`   ⚠️  Error fetching cities for ${stateData.nome}:`, error.message);
+                });
             }
+            console.log(`   ✅ Created ${statesData.length} states`);
+        } else {
+            console.log('   ⏭️  States already exist, skipping state creation...');
         }
 
-        console.log(`   ✅ Total cities created: ${totalCities}`);
+        if (existingCities === 0) {
+            // Fetch cities for each state (in batches to avoid timeout)
+            let totalCities = 0;
+            for (const stateData of statesData) {
+                try {
+                    const citiesResponse = await axios.get(
+                        `https://servicodados.ibge.gov.br/api/v1/localidades/estados/${stateData.id}/municipios`,
+                        { timeout: 30000 }
+                    );
+
+                    const citiesData = citiesResponse.data;
+                    const state = await prisma.state.findUnique({
+                        where: { code: stateData.sigla }
+                    });
+
+                    if (state) {
+                        // Create cities in batches
+                        const batchSize = 100;
+                        for (let i = 0; i < citiesData.length; i += batchSize) {
+                            const batch = citiesData.slice(i, i + batchSize);
+                            await prisma.city.createMany({
+                                data: batch.map((cityData: any) => ({
+                                    stateId: state.id,
+                                    name: cityData.nome,
+                                    ibgeCode: String(cityData.id),
+                                })),
+                                skipDuplicates: true,
+                            });
+                        }
+                        totalCities += citiesData.length;
+                        console.log(`   ✅ Created ${citiesData.length} cities for ${stateData.nome}`);
+                    }
+                } catch (error: any) {
+                    console.error(`   ⚠️  Error fetching cities for ${stateData.nome}:`, error.message);
+                }
+            }
+            console.log(`   ✅ Total cities created: ${totalCities}`);
+        } else {
+            console.log('   ⏭️  Cities already exist, skipping city creation...');
+        }
     } catch (error: any) {
         console.error('   ❌ Error seeding states and cities:', error.message);
         // Don't throw - allow seed to continue even if this fails

@@ -11,7 +11,9 @@ export function ufToCuf(uf: string | null | undefined): number {
 }
 
 export async function resolveIbgeMunicipio(city: string | null | undefined, state: string | null | undefined): Promise<string> {
-    const fallback = process.env.ACBR_FALLBACK_CMUN?.trim() ?? '3550308';
+    const fallback = (process.env.ACBR_FALLBACK_CMUN && process.env.ACBR_FALLBACK_CMUN.trim())
+        ? process.env.ACBR_FALLBACK_CMUN.trim()
+        : '3550308';
     const c = (city ?? '').trim();
     const st = (state ?? '').trim().toUpperCase();
     if (!c || !st) return fallback;
