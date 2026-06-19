@@ -19,6 +19,19 @@ Use esta matriz no Portainer (Stack variables) para evitar drift e falha no star
 - `S3_PUBLIC_BASE_URL`
 - `S3_SIGNED_URL_PUBLIC_HOST` (recomendado, pode repetir o mesmo valor de `S3_PUBLIC_BASE_URL`)
 
+## Variáveis para Integração Fiscal (ACBr API)
+
+Estas variáveis habilitam e configuram a comunicação com os endpoints fiscais da ACBr API:
+
+- `ACBR_CLIENT_ID` — Client ID do OAuth gerado no console da ACBr API.
+- `ACBR_CLIENT_SECRET` — Client Secret correspondente obtido no console da ACBr API.
+- `ACBR_TOKEN_URL` — (Opcional) Endpoint OAuth. Default: `https://auth.acbr.api.br/realms/ACBrAPI/protocol/openid-connect/token`
+- `ACBR_API_BASE_URL` — (Opcional) Host base da API. Default: `https://hom.acbr.api.br`
+- `ACBR_FALLBACK_CMUN` — (Opcional) Código IBGE padrão caso falhe a resolução automática de município.
+- `FISCAL_CTE_PROVIDER` — Definir como `acbr` para forçar chamadas reais à API em vez do simulador.
+- `FISCAL_PROVIDER` — Definir como `acbr` para uso fiscal geral.
+- `FISCAL_SECRET_KEY` — Chave simétrica de criptografia usada para proteger a senha do certificado PFX do emitente no banco de dados.
+
 ## Variáveis opcionais (somente imagem `tsmex-migrate`)
 
 - `POSTGRES_HOST` (default `postgres`) — host TCP usado pela espera antes do Prisma (deve bater com o hostname em `DATABASE_URL`).
