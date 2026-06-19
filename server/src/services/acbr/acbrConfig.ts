@@ -1,5 +1,7 @@
 export const ACBR_TOKEN_URL =
-    process.env.ACBR_TOKEN_URL ?? 'https://auth.acbr.api.br/realms/ACBrAPI/protocol/openid-connect/token';
+    (process.env.ACBR_TOKEN_URL && process.env.ACBR_TOKEN_URL.trim())
+        ? process.env.ACBR_TOKEN_URL.trim()
+        : 'https://auth.acbr.api.br/realms/ACBrAPI/protocol/openid-connect/token';
 
 /** Ambiente fiscal SEFAZ / emitente (homologação vs produção). */
 export type AcbrFiscalEnvironment = 'HOMOLOGACAO' | 'PRODUCAO';
