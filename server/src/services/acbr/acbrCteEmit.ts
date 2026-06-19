@@ -3,6 +3,15 @@ import { getAcbrAccessToken } from './acbrAuth.js';
 import { buildAcbrCteEmitBody } from './acbrCteMapper.js';
 import { getAcbrApiBaseUrlForEnvironment } from './acbrConfig.js';
 import { acbrFetchJson } from './acbrHttp.js';
+import { ensureEmpresaRegistered, type EnsureEmpresaInput } from './acbrEmpresa.js';
+
+/** Optional fiscal emitter context for just-in-time empresa auto-provisioning. */
+export type FiscalEmitterContext = {
+    crt?: string | null;
+    environment: 'HOMOLOGACAO' | 'PRODUCAO';
+    certificateStorageKey?: string | null;
+    certificatePasswordEncrypted?: string | null;
+};
 
 function norm(s: unknown): string {
     return String(s ?? '')
@@ -46,9 +55,34 @@ function mapDocToResult(doc: Record<string, unknown>, id: string, baseUrl: strin
     };
 }
 
-export async function emitCteViaAcbr(input: CteEmissionInput, referencia: string): Promise<CteProviderResult> {
+export async function emitCteViaAcbr(
+    input: CteEmissionInput,
+    referencia: string,
+    fiscalEmitter?: FiscalEmitterContext | null,
+): Promise<CteProviderResult> {
     const apiEnv = input.ambiente;
     const baseUrl = getAcbrApiBaseUrlForEnvironment(apiEnv);
+
+    // ── Just-in-time: ensure empresa is registered on ACBr before POST /cte ──
+    if (fiscalEmitter) {
+        const ensureInput: EnsureEmpresaInput = {
+            environment: fiscalEmitter.environment,
+            crt: fiscalEmitter.crt,
+            person: input.person,
+            certificateStorageKey: fiscalEmitter.certificateStorageKey,
+            certificatePasswordEncrypted: fiscalEmitter.certificatePasswordEncrypted,
+        };
+        const ensureResult = await ensureEmpresaRegistered(ensureInput);
+        if (!ensureResult.ok) {
+            return {
+                status: 'REJECTED',
+                rejectionCode: 'ACBR_EMPRESA',
+                rejectionReason: ensureResult.message ?? 'Falha ao registrar empresa na ACBr antes da emissão.',
+                rawResponse: { provider: 'acbr', ensureEmpresa: ensureResult },
+            };
+        }
+    }
+
     const body = await buildAcbrCteEmitBody(input, referencia);
     const created = await acbrFetchJson<Record<string, unknown>>('/cte', {
         method: 'POST',

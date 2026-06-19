@@ -199,6 +199,20 @@ export async function getObjectDownloadUrl(storageKey: string, expiresInSeconds 
     return rewriteSignedUrlToPublicHost(signedUrl);
 }
 
+/** Read an S3 object and return its content as a Base64 string. */
+export async function getObjectAsBase64(storageKey: string): Promise<string> {
+    const client = getS3Client();
+    const res = await client.send(new GetObjectCommand({ Bucket: bucket, Key: storageKey }));
+    const bodyStream = res.Body;
+    if (!bodyStream) throw new Error(`S3 object "${storageKey}" has no body`);
+    const chunks: Buffer[] = [];
+    // @ts-expect-error — Body is a Readable stream in Node
+    for await (const chunk of bodyStream) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks).toString('base64');
+}
+
 export async function ensureBucketExists(): Promise<void> {
     try {
         const client = getS3Client();

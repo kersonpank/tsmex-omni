@@ -1,6 +1,6 @@
 import { buildCtePayload } from './freightEmission.js';
 import { getAcbrProviderDecision } from './acbr/acbrConfig.js';
-import { emitCteViaAcbr } from './acbr/acbrCteEmit.js';
+import { emitCteViaAcbr, type FiscalEmitterContext } from './acbr/acbrCteEmit.js';
 import { validateCteTaxSelection } from './fiscal/cteTaxRules.js';
 
 export type CteEnvironment = 'HOMOLOGACAO' | 'PRODUCAO';
@@ -81,6 +81,8 @@ export interface CteProviderOptions {
     mode?: CteProviderMode;
     /** Quando ACBR, emite via API ACBr (requer ACBR_CLIENT_*). */
     fiscalEmitterProvider?: string | null;
+    /** Fiscal emitter context for just-in-time ACBr empresa auto-provisioning. */
+    fiscalEmitterContext?: FiscalEmitterContext | null;
 }
 
 export interface CteProviderResult {
@@ -200,7 +202,7 @@ export async function authorizeCteWithProvider(
 
     if (acbrDecision.willUseAcbrHttp && (options.mode ?? 'simulate-authorized') === 'simulate-authorized') {
         try {
-            const r = await emitCteViaAcbr(input, input.calc.id);
+            const r = await emitCteViaAcbr(input, input.calc.id, options.fiscalEmitterContext ?? null);
             r.rawResponse = { ...r.rawResponse, provider: 'acbr' };
             return r;
         } catch (e) {

@@ -1159,6 +1159,14 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
         const providerResult = await authorizeCteWithProvider(cteInput, {
             mode: providerMode,
             fiscalEmitterProvider: calc.fiscalEmitter?.provider ?? null,
+            fiscalEmitterContext: calc.fiscalEmitter
+                ? {
+                      crt: calc.fiscalEmitter.crt,
+                      environment: calc.fiscalEmitter.environment as 'HOMOLOGACAO' | 'PRODUCAO',
+                      certificateStorageKey: calc.fiscalEmitter.certificateStorageKey,
+                      certificatePasswordEncrypted: calc.fiscalEmitter.certificatePasswordEncrypted,
+                  }
+                : null,
         });
         const now = new Date();
         const payload = buildCtePayload({
