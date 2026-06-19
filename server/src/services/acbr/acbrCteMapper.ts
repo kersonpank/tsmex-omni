@@ -90,7 +90,7 @@ export async function buildAcbrCteEmitBody(input: CteEmissionInput, referencia: 
     }
 
     const dhEmi = new Date().toISOString();
-    const cCT = String(Math.floor(Math.random() * 899999) + 100000);
+    const cCT = String(Math.floor(Math.random() * 89999999) + 10000000);
 
     const infCte: Record<string, unknown> = {
         versao: '4.00',
@@ -112,6 +112,9 @@ export async function buildAcbrCteEmitBody(input: CteEmissionInput, referencia: 
             verProc: 'TSM-EX-OMNI',
             modal: '01',
             tpServ: 0,
+            cMunEnv: emitCmun,
+            xMunEnv: (emit.city ?? 'INI').slice(0, 60),
+            UFEnv: (emit.state ?? 'SP').slice(0, 2).toUpperCase(),
             cMunIni: remCmun,
             xMunIni: (rem.city ?? 'INI').slice(0, 60),
             UFIni: (rem.state ?? 'SP').slice(0, 2).toUpperCase(),

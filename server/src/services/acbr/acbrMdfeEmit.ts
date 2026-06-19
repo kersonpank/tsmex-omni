@@ -101,7 +101,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
             mod: 58,
             serie: 1,
             nMDF: Math.floor(Math.random() * 899999) + 1,
-            cMDF: String(Math.floor(Math.random() * 899999) + 100000),
+            cMDF: String(Math.floor(Math.random() * 89999999) + 10000000),
             cDV: 0,
             modal: 1,
             dhEmi: new Date().toISOString(),

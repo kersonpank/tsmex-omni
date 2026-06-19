@@ -65,7 +65,7 @@ async function buildAcbrDceBody(input: CteEmissionInput, referencia: string): Pr
             versao: '1.00',
             ide: {
                 cUF,
-                cDC: String(Math.floor(Math.random() * 899999) + 100000),
+                cDC: String(Math.floor(Math.random() * 89999999) + 10000000),
                 mod: 62,
                 serie: input.serie,
                 nDC: input.numero,
