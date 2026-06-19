@@ -3,6 +3,7 @@ import { getAcbrAccessToken } from './acbrAuth.js';
 import { getAcbrApiBaseUrlForEnvironment, type AcbrFiscalEnvironment } from './acbrConfig.js';
 import { resolveIbgeMunicipio, ufToCuf } from './acbrIbge.js';
 import { acbrFetchJson } from './acbrHttp.js';
+import { cleanIe } from './acbrCteMapper.js';
 
 function digits(s: string): string {
     return s.replace(/\D/g, '');
@@ -116,7 +117,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
         },
         emit: {
             CNPJ: emitCnpj,
-            IE: emit.stateRegistration ?? 'ISENTO',
+            IE: cleanIe(emit.stateRegistration) ?? 'ISENTO',
             xNome: emit.legalName,
             xFant: manifest.hub.name?.slice(0, 60),
             enderEmit: {

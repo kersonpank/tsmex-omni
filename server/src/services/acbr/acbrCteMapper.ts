@@ -6,6 +6,15 @@ function digits(s: string): string {
     return s.replace(/\D/g, '');
 }
 
+export function cleanIe(ie: string | null | undefined): string | undefined {
+    if (!ie) return undefined;
+    const cleaned = ie.replace(/\D/g, '');
+    if (cleaned.length >= 2 && cleaned.length <= 14) return cleaned;
+    const upper = ie.trim().toUpperCase();
+    if (upper === 'ISENTO') return 'ISENTO';
+    return undefined;
+}
+
 function enderecoParte(p: CtePerson, cMun: string): Record<string, unknown> {
     const xLgr = (p.address ?? 'NAO INFORMADO').slice(0, 60);
     const nro = (p.number ?? 'S/N').slice(0, 60);
@@ -57,17 +66,17 @@ export async function buildAcbrCteEmitBody(input: CteEmissionInput, referencia: 
 
     const emitParty =
         emitDoc.length === 14
-            ? { CNPJ: emitDoc, IE: emit.stateRegistration ?? 'ISENTO', xNome: emit.legalName, enderEmit: enderecoParte(emit, emitCmun) }
-            : { CPF: emitDoc.padStart(11, '0').slice(0, 11), IE: emit.stateRegistration ?? 'ISENTO', xNome: emit.legalName, enderEmit: enderecoParte(emit, emitCmun) };
+            ? { CNPJ: emitDoc, IE: cleanIe(emit.stateRegistration), xNome: emit.legalName, enderEmit: enderecoParte(emit, emitCmun) }
+            : { CPF: emitDoc.padStart(11, '0').slice(0, 11), IE: cleanIe(emit.stateRegistration), xNome: emit.legalName, enderEmit: enderecoParte(emit, emitCmun) };
 
     const remParty =
         remDoc.length === 14
-            ? { CNPJ: remDoc, IE: rem.stateRegistration ?? undefined, xNome: rem.legalName, enderReme: enderecoParte(rem, remCmun) }
+            ? { CNPJ: remDoc, IE: cleanIe(rem.stateRegistration), xNome: rem.legalName, enderReme: enderecoParte(rem, remCmun) }
             : { CPF: remDoc.padStart(11, '0').slice(0, 11), xNome: rem.legalName, enderReme: enderecoParte(rem, remCmun) };
 
     const destParty =
         destDoc.length === 14
-            ? { CNPJ: destDoc, IE: dest.stateRegistration ?? undefined, xNome: dest.legalName, enderDest: enderecoParte(dest, destCmun) }
+            ? { CNPJ: destDoc, IE: cleanIe(dest.stateRegistration), xNome: dest.legalName, enderDest: enderecoParte(dest, destCmun) }
             : { CPF: destDoc.padStart(11, '0').slice(0, 11), xNome: dest.legalName, enderDest: enderecoParte(dest, destCmun) };
 
     let tomaIde: Record<string, unknown>;
@@ -81,7 +90,7 @@ export async function buildAcbrCteEmitBody(input: CteEmissionInput, referencia: 
             toma4: {
                 toma: 4,
                 ...(tomDoc.length === 14
-                    ? { CNPJ: tomDoc, IE: tomador.stateRegistration ?? undefined }
+                    ? { CNPJ: tomDoc, IE: cleanIe(tomador.stateRegistration) }
                     : { CPF: tomDoc.padStart(11, '0').slice(0, 11) }),
                 xNome: tomador.legalName,
                 enderToma: enderecoParte(tomador, tomCmun),
