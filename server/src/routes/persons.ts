@@ -63,6 +63,19 @@ function validateDocument(documentType: 'CPF' | 'CNPJ', document: string): void 
     }
 }
 
+const stateRegistrationSchema = z.string().optional().transform(v => {
+    const trimmed = v?.trim();
+    if (!trimmed) return undefined;
+    const upper = trimmed.toUpperCase();
+    if (upper === 'ISENTO') return 'ISENTO';
+    return trimmed.replace(/\D/g, '') || undefined;
+}).refine(val => {
+    if (val === undefined || val === 'ISENTO') return true;
+    return val.length >= 2 && val.length <= 14;
+}, {
+    message: "Inscrição Estadual deve ter entre 2 e 14 dígitos numéricos ou ser 'ISENTO'"
+});
+
 const createPersonSchema = z.object({
     documentType: z.enum(['CPF', 'CNPJ']),
     document: z.string().min(1, 'Documento é obrigatório').transform(normalizeDocument),
@@ -76,7 +89,7 @@ const createPersonSchema = z.object({
     city: z.string().optional().transform(v => v?.trim() || undefined),
     state: z.string().optional().transform(v => v?.trim()?.toUpperCase() || undefined),
     country: z.string().optional().default('BRASIL'),
-    stateRegistration: z.string().optional().transform(v => v?.trim() || undefined),
+    stateRegistration: stateRegistrationSchema,
     municipalRegistration: z.string().optional().transform(v => v?.trim() || undefined),
 });
 
@@ -300,6 +313,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
                     },
                 },
                 hubs: { select: { id: true, name: true, code: true } },
+                fiscalEmitters: { select: { id: true, active: true } },
                 users: req.user!.roles.includes('ADMIN')
                     ? {
                           select: {
@@ -410,7 +424,17 @@ router.patch('/:id', authenticate, authorize('ADMIN'), async (req: AuthRequest, 
                 throw new AppError('Já existe outra pessoa com este documento', 400);
             }
         }
+        const nextStateRegistration = body.stateRegistration !== undefined ? body.stateRegistration : person.stateRegistration;
 
+        const isEmitter = (await prisma.fiscalEmitter.findFirst({
+            where: { personId: id },
+        })) || (await prisma.hub.findFirst({
+            where: { personId: id },
+        }));
+
+        if (isEmitter && !nextStateRegistration) {
+            throw new AppError('Esta pessoa é um emissor fiscal e deve possuir uma Inscrição Estadual válida ou ser marcada como ISENTO', 400);
+        }
         const updated = await prisma.person.update({
             where: { id },
             data: {

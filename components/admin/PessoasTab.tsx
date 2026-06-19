@@ -622,6 +622,7 @@ const PessoasTab: React.FC = () => {
         <PersonFormModal
           mode="edit"
           personId={selectedPerson.id}
+          isEmitter={(selectedPerson.hubs?.length ?? 0) > 0 || (selectedPerson.fiscalEmitters?.length ?? 0) > 0}
           initialValues={{
             documentType: selectedPerson.documentType,
             document: selectedPerson.document,
@@ -635,6 +636,8 @@ const PessoasTab: React.FC = () => {
             city: selectedPerson.city ?? '',
             state: selectedPerson.state ?? '',
             country: selectedPerson.country ?? 'BRASIL',
+            stateRegistration: selectedPerson.stateRegistration ?? '',
+            municipalRegistration: selectedPerson.municipalRegistration ?? '',
           }}
           onClose={() => setShowEditModal(false)}
           onSuccess={() => { setShowEditModal(false); if (selectedPersonId) openDetail(selectedPersonId); loadPersons(); }}
@@ -709,11 +712,14 @@ const defaultPersonForm = {
   city: '',
   state: '',
   country: 'BRASIL',
+  stateRegistration: '',
+  municipalRegistration: '',
 };
 
 function PersonFormModal({
   mode,
   personId,
+  isEmitter = false,
   initialValues,
   onClose,
   onSuccess,
@@ -724,7 +730,8 @@ function PersonFormModal({
 }: {
   mode: 'create' | 'edit';
   personId?: string;
-  initialValues: Partial<CreatePersonRequest & { tradeName: string; cep: string; number: string; complement: string; neighborhood: string; city: string; state: string; country: string }>;
+  isEmitter?: boolean;
+  initialValues: Partial<CreatePersonRequest & { tradeName: string; cep: string; number: string; complement: string; neighborhood: string; city: string; state: string; country: string; stateRegistration?: string; municipalRegistration?: string }>;
   onClose: () => void;
   onSuccess: () => void;
   formError: string | null;
@@ -739,6 +746,12 @@ function PersonFormModal({
     setFormError(null);
     setFormSaving(true);
     try {
+      const cleanIeVal = (form.stateRegistration || '').trim().toUpperCase();
+      if (isEmitter && !cleanIeVal) {
+        setFormError("A Inscrição Estadual é obrigatória para emissores fiscais. Caso seja isento, marque a opção 'Isento'.");
+        setFormSaving(false);
+        return;
+      }
       const payload = {
         documentType: form.documentType,
         document: form.document.replace(/\D/g, ''),
@@ -752,6 +765,8 @@ function PersonFormModal({
         city: form.city || undefined,
         state: form.state || undefined,
         country: form.country || 'BRASIL',
+        stateRegistration: form.stateRegistration || undefined,
+        municipalRegistration: form.municipalRegistration || undefined,
       };
       if (mode === 'create') {
         await personsApi.create(payload);
@@ -771,6 +786,15 @@ function PersonFormModal({
       <div className="bg-white dark:bg-tower-900 rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
         <h3 className="text-lg font-bold text-tower-900 dark:text-tower-100 mb-4">{mode === 'create' ? 'Nova Pessoa' : 'Editar Pessoa'}</h3>
         {formError && <p className="text-red-600 text-sm mb-4">{formError}</p>}
+        {isEmitter && (
+          <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 rounded-lg p-3 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2 mb-4">
+            <span className="text-sm">⚠️</span>
+            <div>
+              <p className="font-semibold">Pessoa vinculada como Emissor Fiscal</p>
+              <p className="mt-0.5">A Inscrição Estadual (IE) é obrigatória. Insira uma IE válida (somente números) ou marque como "Isento".</p>
+            </div>
+          </div>
+        )}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Tipo documento</label>
@@ -834,6 +858,45 @@ function PersonFormModal({
           <div>
             <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Endereço</label>
             <input type="text" value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <label className="block text-sm font-medium text-tower-700 dark:text-tower-200">Inscrição Estadual (IE)</label>
+                <label className="flex items-center gap-1 text-xs cursor-pointer text-tower-500 dark:text-tower-400">
+                  <input
+                    type="checkbox"
+                    checked={form.stateRegistration === 'ISENTO'}
+                    onChange={e => {
+                      setForm(f => ({
+                        ...f,
+                        stateRegistration: e.target.checked ? 'ISENTO' : ''
+                      }));
+                    }}
+                    className="rounded border-tower-300 text-brand-600 focus:ring-brand-500"
+                  />
+                  <span>Isento</span>
+                </label>
+              </div>
+              <input
+                type="text"
+                disabled={form.stateRegistration === 'ISENTO'}
+                value={form.stateRegistration === 'ISENTO' ? 'ISENTO' : form.stateRegistration}
+                onChange={e => setForm(f => ({ ...f, stateRegistration: e.target.value }))}
+                placeholder={form.stateRegistration === 'ISENTO' ? 'ISENTO' : 'Apenas números'}
+                className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 disabled:bg-tower-100 dark:disabled:bg-tower-850 placeholder:text-tower-400 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Inscrição Municipal (IM)</label>
+              <input
+                type="text"
+                value={form.municipalRegistration || ''}
+                onChange={e => setForm(f => ({ ...f, municipalRegistration: e.target.value }))}
+                placeholder="Opcional"
+                className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
+              />
+            </div>
           </div>
           <div className="flex gap-2 justify-end pt-4">
             <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 hover:bg-tower-100 rounded-lg">Cancelar</button>

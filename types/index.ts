@@ -253,6 +253,7 @@ export interface Person {
     country?: string;
     stateRegistration?: string;
     municipalRegistration?: string;
+    fiscalEmitters?: Array<{ id: string; active: boolean }>;
     createdAt: string;
     updatedAt: string;
     clients?: Array<{ id: string; companyName: string; document: string }>;
