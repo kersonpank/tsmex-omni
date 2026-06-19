@@ -117,6 +117,34 @@ function emitterToForm(emitter: FiscalEmitter): FormState {
   };
 }
 
+function formatIsoToBrDate(isoStr?: string | null): string {
+  if (!isoStr) return '';
+  try {
+    const date = new Date(isoStr);
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const year = date.getUTCFullYear();
+    return `${day}/${month}/${year}`;
+  } catch {
+    return '';
+  }
+}
+
+function parseBrDateToIso(dateStr: string): string | null {
+  if (!dateStr) return null;
+  const parts = dateStr.split('/');
+  if (parts.length === 3) {
+    const day = parseInt(parts[0]!, 10);
+    const month = parseInt(parts[1]!, 10) - 1; // 0-indexed
+    const year = parseInt(parts[2]!, 10);
+    if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
+      const date = new Date(Date.UTC(year, month, day, 12, 0, 0));
+      return date.toISOString();
+    }
+  }
+  return null;
+}
+
 const IdentidadeVisualTab: React.FC = () => {
   const isAdmin = useAuthStore((s) => s.user?.roles?.includes('ADMIN') ?? false);
   const [, setSearchParams] = useSearchParams();
@@ -130,6 +158,7 @@ const IdentidadeVisualTab: React.FC = () => {
   const [certificateExpiresAt, setCertificateExpiresAt] = useState('');
   const [showCertificatePassword, setShowCertificatePassword] = useState(false);
   const [selectedCertificateFileName, setSelectedCertificateFileName] = useState<string | null>(null);
+  const [selectedCertificateFile, setSelectedCertificateFile] = useState<File | null>(null);
   const [logoPreviewUrl, setLogoPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -185,6 +214,7 @@ const IdentidadeVisualTab: React.FC = () => {
     setCertificatePassword('');
     setCertificateExpiresAt('');
     setSelectedCertificateFileName(null);
+    setSelectedCertificateFile(null);
     setIsEditing(true);
   };
 
@@ -192,12 +222,19 @@ const IdentidadeVisualTab: React.FC = () => {
     setSelectedEmitterId(emitter.id);
     setForm(emitterToForm(emitter));
     setSelectedCertificateFileName(null);
+    setSelectedCertificateFile(null);
+    setCertificatePassword('');
+    setCertificateExpiresAt(formatIsoToBrDate(emitter.certificateExpiresAt));
     setIsEditing(false);
   };
 
   const startEditEmitter = (emitter: FiscalEmitter) => {
     setSelectedEmitterId(emitter.id);
     setForm(emitterToForm(emitter));
+    setSelectedCertificateFileName(null);
+    setSelectedCertificateFile(null);
+    setCertificatePassword('');
+    setCertificateExpiresAt(formatIsoToBrDate(emitter.certificateExpiresAt));
     setIsEditing(true);
   };
 
@@ -233,46 +270,16 @@ const IdentidadeVisualTab: React.FC = () => {
     }
   };
 
-  const handleCertificateChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCertificateChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file || !form.id) return;
-    setSelectedCertificateFileName(file.name);
-    if (!certificatePassword) {
-      setError('Informe a senha do certificado A1 antes do upload.');
-      return;
-    }
+    if (!file) return;
     const lower = file.name.toLowerCase();
     if (!lower.endsWith('.pfx') && !lower.endsWith('.p12')) {
       setError('Certificado A1 precisa ser .pfx ou .p12.');
       return;
     }
-    setUploading(true);
-    setError(null);
-    try {
-      const base64 = await fileToBase64DataPart(file);
-      const updated = await fiscalEmittersApi.uploadCertificate(form.id, {
-        file: base64,
-        filename: file.name,
-        mimeType: file.type || 'application/x-pkcs12',
-        password: certificatePassword,
-        expiresAt: certificateExpiresAt ? new Date(certificateExpiresAt).toISOString() : null,
-      }) as { success?: boolean; data: FiscalEmitter; acbrCertificate?: { ok: boolean; message?: string } };
-      setEmitters((current) => current.map((e) => (e.id === updated.data.id ? updated.data : e)));
-      setCertificatePassword('');
-      await load();
-      let certMsg = 'Certificado A1 enviado com segurança.';
-      if (updated.acbrCertificate && !updated.acbrCertificate.ok) {
-        certMsg += ` ACBr: ${updated.acbrCertificate.message ?? 'falha ao registrar certificado na nuvem.'}`;
-      } else if (updated.acbrCertificate?.ok) {
-        certMsg += ' Registrado na ACBr.';
-      }
-      setSuccess(certMsg);
-    } catch (e: any) {
-      setError(e.response?.data?.error ?? e.message ?? 'Falha ao enviar certificado');
-    } finally {
-      setUploading(false);
-    }
+    setSelectedCertificateFile(file);
+    setSelectedCertificateFileName(file.name);
   };
 
   const handleCertificateDownloadLink = async (emitterId: string) => {
@@ -296,6 +303,10 @@ const IdentidadeVisualTab: React.FC = () => {
     setError(null);
     setSuccess(null);
     try {
+      if (certificateExpiresAt && !parseBrDateToIso(certificateExpiresAt)) {
+        throw new Error('Data de validade inválida. Use o formato DD/MM/AAAA (ex: 10/02/2026).');
+      }
+
       const payload = {
         personId: form.personId,
         hubId: form.hubId || null,
@@ -318,25 +329,60 @@ const IdentidadeVisualTab: React.FC = () => {
         defaultCteCfop: form.defaultCteCfop.trim() || null,
         defaultCteCst: form.defaultCteCst.trim() || null,
       };
+
       const result = form.id
         ? await fiscalEmittersApi.update(form.id, payload)
         : await fiscalEmittersApi.create(payload);
-      const extra = result as { acbrSync?: { ok: boolean; message?: string }; acbrCertificate?: { ok: boolean; message?: string } };
-      setForm(emitterToForm(result.data));
-      setSelectedEmitterId(result.data.id);
+
+      let savedEmitter = result.data;
+      let acbrSyncResult = (result as any).acbrSync;
+      let acbrCertResult: { ok: boolean; message?: string } | undefined;
+
+      if (selectedCertificateFile) {
+        if (!certificatePassword) {
+          throw new Error('Informe a senha do certificado A1 para realizar o upload.');
+        }
+
+        const base64 = await fileToBase64DataPart(selectedCertificateFile);
+        const parsedExpiresAt = parseBrDateToIso(certificateExpiresAt);
+
+        const certResult = await fiscalEmittersApi.uploadCertificate(savedEmitter.id, {
+          file: base64,
+          filename: selectedCertificateFile.name,
+          mimeType: selectedCertificateFile.type || 'application/x-pkcs12',
+          password: certificatePassword,
+          expiresAt: parsedExpiresAt,
+        }) as { success?: boolean; data: FiscalEmitter; acbrCertificate?: { ok: boolean; message?: string } };
+
+        savedEmitter = certResult.data;
+        acbrCertResult = certResult.acbrCertificate;
+      }
+
+      setForm(emitterToForm(savedEmitter));
+      setSelectedEmitterId(savedEmitter.id);
       setIsEditing(false);
+      setSelectedCertificateFile(null);
+      setSelectedCertificateFileName(null);
+      setCertificatePassword('');
+      setCertificateExpiresAt(formatIsoToBrDate(savedEmitter.certificateExpiresAt));
+
       await load();
+
       let msg = 'Emitente credenciado salvo.';
-      if (extra.acbrSync && !extra.acbrSync.ok) {
-        msg += ` Sincronização ACBr (empresa): ${extra.acbrSync.message ?? 'falhou — verifique credenciais e dados da pessoa.'}`;
-      } else if (extra.acbrSync?.ok) {
+      if (acbrSyncResult && !acbrSyncResult.ok) {
+        msg += ` Sincronização ACBr (empresa): ${acbrSyncResult.message ?? 'falhou — verifique credenciais e dados da pessoa.'}`;
+      } else if (acbrSyncResult?.ok) {
         msg += ' Empresa sincronizada na ACBr.';
       }
-      if (extra.acbrCertificate && !extra.acbrCertificate.ok) {
-        msg += ` Certificado na ACBr: ${extra.acbrCertificate.message ?? 'falhou.'}`;
-      } else if (extra.acbrCertificate?.ok) {
-        msg += ' Certificado enviado à ACBr.';
+
+      if (selectedCertificateFile) {
+        if (acbrCertResult && !acbrCertResult.ok) {
+          msg += ` Certificado na ACBr: ${acbrCertResult.message ?? 'falhou.'}`;
+        } else {
+          msg += ' Certificado enviado com sucesso.';
+        }
       }
+
       setSuccess(msg);
     } catch (e: any) {
       setError(e.response?.data?.error ?? e.message ?? 'Erro ao salvar emitente');
@@ -743,8 +789,8 @@ const IdentidadeVisualTab: React.FC = () => {
                       {showCertificatePassword ? 'Ocultar' : 'Ver'}
                     </button>
                   </div>
-                  <input type="date" className="admin-focus rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900" value={certificateExpiresAt} onChange={(e) => setCertificateExpiresAt(e.target.value)} />
-                  <input type="file" accept=".pfx,.p12" onChange={(e) => void handleCertificateChange(e)} disabled={uploading} className="text-sm text-tower-600 file:mr-2 file:rounded-md file:border-0 file:bg-brand-100 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-brand-900" />
+                  <input type="text" placeholder="Validade (DD/MM/AAAA)" className="admin-focus rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900" value={certificateExpiresAt} onChange={(e) => setCertificateExpiresAt(e.target.value)} />
+                  <input type="file" accept=".pfx,.p12" onChange={(e) => handleCertificateChange(e)} disabled={uploading} className="text-sm text-tower-600 file:mr-2 file:rounded-md file:border-0 file:bg-brand-100 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-brand-900" />
                 </div>
               </div>
             )}
