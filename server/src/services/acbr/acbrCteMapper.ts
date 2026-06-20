@@ -15,6 +15,25 @@ export function cleanIe(ie: string | null | undefined): string | undefined {
     return undefined;
 }
 
+export function getIndIETomaAndIe(person: CtePerson): { indIEToma: number; ie?: string } {
+    const doc = digits(person.document);
+    const cleanedIe = cleanIe(person.stateRegistration);
+
+    if (doc.length === 11) {
+        return { indIEToma: 9 };
+    }
+
+    if (!cleanedIe) {
+        return { indIEToma: 9 };
+    }
+
+    if (cleanedIe === 'ISENTO') {
+        return { indIEToma: 2, ie: 'ISENTO' };
+    }
+
+    return { indIEToma: 1, ie: cleanedIe };
+}
+
 function enderecoParte(p: CtePerson, cMun: string): Record<string, unknown> {
     const xLgr = (p.address ?? 'NAO INFORMADO').slice(0, 60);
     const nro = (p.number ?? 'S/N').slice(0, 60);
@@ -79,18 +98,20 @@ export async function buildAcbrCteEmitBody(input: CteEmissionInput, referencia: 
             ? { CNPJ: destDoc, IE: cleanIe(dest.stateRegistration), xNome: dest.legalName, enderDest: enderecoParte(dest, destCmun) }
             : { CPF: destDoc.padStart(11, '0').slice(0, 11), xNome: dest.legalName, enderDest: enderecoParte(dest, destCmun) };
 
+    const { indIEToma, ie: tomadorIe } = getIndIETomaAndIe(tomador);
+
     let tomaIde: Record<string, unknown>;
     if (input.order.freightTerm === 'CIF') {
-        tomaIde = { indIEToma: 1, toma3: { toma: 0 } };
+        tomaIde = { indIEToma, toma3: { toma: 0 } };
     } else if (input.order.freightTerm === 'FOB') {
-        tomaIde = { indIEToma: 1, toma3: { toma: 3 } };
+        tomaIde = { indIEToma, toma3: { toma: 3 } };
     } else {
         tomaIde = {
-            indIEToma: 1,
+            indIEToma,
             toma4: {
                 toma: 4,
                 ...(tomDoc.length === 14
-                    ? { CNPJ: tomDoc, IE: cleanIe(tomador.stateRegistration) }
+                    ? { CNPJ: tomDoc, ...(tomadorIe ? { IE: tomadorIe } : {}) }
                     : { CPF: tomDoc.padStart(11, '0').slice(0, 11) }),
                 xNome: tomador.legalName,
                 enderToma: enderecoParte(tomador, tomCmun),

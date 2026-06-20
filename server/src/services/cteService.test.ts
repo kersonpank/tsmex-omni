@@ -125,6 +125,52 @@ describe('validateCteReadiness', () => {
         assert.equal(result.ok, false);
         assert.ok(result.issues.includes('CST 99 não está habilitado para CT-e no MVP.'));
     });
+
+    it('rejeita emitente corporativo sem Inscrição Estadual (IE) numérica válida', () => {
+        const result = validateCteReadiness({
+            ...completeInput,
+            person: { ...completeInput.person, stateRegistration: '' },
+        });
+
+        assert.equal(result.ok, false);
+        assert.ok(result.issues.includes('Emitente precisa de uma Inscrição Estadual (IE) numérica válida.'));
+    });
+
+    it('rejeita emitente corporativo com IE igual a ISENTO', () => {
+        const result = validateCteReadiness({
+            ...completeInput,
+            person: { ...completeInput.person, stateRegistration: 'ISENTO' },
+        });
+
+        assert.equal(result.ok, false);
+        assert.ok(result.issues.includes('Emitente precisa de uma Inscrição Estadual (IE) numérica válida.'));
+    });
+
+    it('rejeita destinatário corporativo sem IE e que não seja ISENTO', () => {
+        const result = validateCteReadiness({
+            ...completeInput,
+            order: {
+                ...completeInput.order,
+                destinatarioPerson: { ...completeInput.order.destinatarioPerson!, stateRegistration: '' },
+            },
+        });
+
+        assert.equal(result.ok, false);
+        assert.ok(result.issues.includes("Destinatário (CNPJ) precisa de Inscrição Estadual (IE) numérica válida ou ser marcado como 'ISENTO'."));
+    });
+
+    it('aceita destinatário corporativo marcado como ISENTO', () => {
+        const result = validateCteReadiness({
+            ...completeInput,
+            order: {
+                ...completeInput.order,
+                destinatarioPerson: { ...completeInput.order.destinatarioPerson!, stateRegistration: 'ISENTO' },
+            },
+        });
+
+        assert.equal(result.ok, true);
+        assert.deepEqual(result.issues, []);
+    });
 });
 
 describe('authorizeCteWithProvider', () => {

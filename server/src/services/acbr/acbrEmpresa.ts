@@ -12,6 +12,17 @@ function parseCrt(crt?: string | null): number {
     return 3;
 }
 
+function extractErrorMessage(json: Record<string, unknown>, status: number): string {
+    if (json.error && typeof json.error === 'object') {
+        const errObj = json.error as Record<string, unknown>;
+        if (typeof errObj.message === 'string') return errObj.message;
+        if (typeof errObj.code === 'string') return errObj.code;
+    }
+    if (typeof json.message === 'string') return json.message;
+    if (typeof json.error === 'string') return json.error;
+    return `HTTP ${status}`;
+}
+
 type PersonLike = {
     document: string;
     legalName: string;
@@ -113,20 +124,18 @@ export async function createAcbrEmpresaForPerson(
     });
     if (status === 201 || status === 200) return { ok: true };
     if (status === 409) return { ok: true, duplicate: true };
-    const msg =
-        typeof json.message === 'string'
-            ? json.message
-            : typeof json.error === 'string'
-              ? json.error
-              : `HTTP ${status}`;
+    const msg = extractErrorMessage(json, status);
 
     const lowerMsg = msg.toLowerCase();
+    const code = (json.error && typeof json.error === 'object') ? String((json.error as Record<string, unknown>).code ?? '') : '';
     if (
-        status === 400 &&
-        (lowerMsg.includes('cadastrad') ||
-            lowerMsg.includes('existe') ||
-            lowerMsg.includes('conflict') ||
-            lowerMsg.includes('duplicad'))
+        status === 409 ||
+        code === 'EmpresaAlreadyExists' ||
+        (status === 400 &&
+            (lowerMsg.includes('cadastrad') ||
+                lowerMsg.includes('existe') ||
+                lowerMsg.includes('conflict') ||
+                lowerMsg.includes('duplicad')))
     ) {
         return { ok: true, duplicate: true };
     }
@@ -153,12 +162,7 @@ export async function putAcbrEmpresaCteConfig(
         apiEnvironment,
     });
     if (status === 200 || status === 201) return { ok: true };
-    const msg =
-        typeof json.message === 'string'
-            ? json.message
-            : typeof json.error === 'string'
-              ? json.error
-              : `HTTP ${status}`;
+    const msg = extractErrorMessage(json, status);
     return { ok: false, message: msg };
 }
 
@@ -179,12 +183,7 @@ export async function putAcbrEmpresaCertificado(
         apiEnvironment,
     });
     if (status === 200 || status === 201) return { ok: true };
-    const msg =
-        typeof json.message === 'string'
-            ? json.message
-            : typeof json.error === 'string'
-              ? json.error
-              : `HTTP ${status}`;
+    const msg = extractErrorMessage(json, status);
     return { ok: false, message: msg };
 }
 

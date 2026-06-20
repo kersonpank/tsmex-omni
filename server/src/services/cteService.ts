@@ -120,17 +120,45 @@ export function validateCteReadiness(input: CteEmissionInput): CteReadinessResul
     const tomador = getTomador(input);
 
     if (!present(input.hub.rntrc)) issues.push('Hub emissor precisa de RNTRC para CT-e.');
-    if (!present(input.person.document) || !present(input.person.legalName)) {
-        issues.push('Emitente precisa de CNPJ e razão social.');
+
+    function validateParticipant(person: CtePerson | null | undefined, roleName: string, isEmitente = false): void {
+        if (!person) {
+            issues.push(`${roleName} é obrigatório para o CT-e.`);
+            return;
+        }
+        if (!present(person.document) || !present(person.legalName)) {
+            issues.push(`${roleName} precisa de documento e razão social/nome.`);
+        }
+        if (!hasFiscalAddress(person)) {
+            issues.push(`${roleName} precisa de endereço, município, UF e CEP.`);
+        }
+        const docClean = (person.document ?? '').replace(/\D/g, '');
+        if (docClean.length === 14) {
+            const ie = person.stateRegistration;
+            const ieClean = ie ? ie.replace(/\D/g, '') : '';
+            const isIeExempt = ie ? ie.trim().toUpperCase() === 'ISENTO' : false;
+            
+            if (isEmitente) {
+                if (!ieClean || ieClean.length < 2 || ieClean.length > 14) {
+                    issues.push(`Emitente precisa de uma Inscrição Estadual (IE) numérica válida.`);
+                }
+            } else {
+                const hasValidIe = (ieClean.length >= 2 && ieClean.length <= 14) || isIeExempt;
+                if (!hasValidIe) {
+                    issues.push(`${roleName} (CNPJ) precisa de Inscrição Estadual (IE) numérica válida ou ser marcado como 'ISENTO'.`);
+                }
+            }
+        }
     }
-    if (!hasFiscalAddress(input.person)) issues.push('Emitente precisa de endereço, município, UF e CEP.');
+
+    validateParticipant(input.person, 'Emitente', true);
+    validateParticipant(input.order.remetentePerson, 'Remetente');
+    validateParticipant(input.order.destinatarioPerson, 'Destinatário');
+
     if (!tomador) {
         issues.push(`Tomador do frete não identificado para o termo ${input.order.freightTerm ?? 'não informado'}.`);
     } else {
-        if (!present(tomador.document) || !present(tomador.legalName)) {
-            issues.push('Tomador precisa de documento e razão social/nome.');
-        }
-        if (!hasFiscalAddress(tomador)) issues.push('Tomador precisa de endereço, município, UF e CEP.');
+        validateParticipant(tomador, 'Tomador');
     }
 
     if (!present(input.calc.cfop)) issues.push('CT-e precisa de CFOP.');
