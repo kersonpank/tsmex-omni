@@ -25,6 +25,7 @@ interface CNPJData {
     capital?: number;
     size?: string;
     source: 'receitaws' | 'sintegra';
+    stateRegistration?: string;
 }
 
 // Consulta ReceitaWS (gratuita)
@@ -95,41 +96,67 @@ async function consultSintegraWS(cnpj: string, token?: string): Promise<CNPJData
             params: {
                 token: token,
                 cnpj: cleanCNPJ,
-                plugin: 'RF', // Receita Federal plugin
+                plugin: 'ST', // Use Sintegra plugin to retrieve state registration (IE)
             },
             timeout: 10000,
         });
 
-        if (response.data.status === 'ERROR' || !response.data.dados) {
+        const resData = response.data;
+        if (resData.status === 'ERROR' || resData.code === 'ERROR') {
             return null;
         }
 
-        const data = response.data.dados;
+        const data = resData.dados || resData;
+
+        // Map address fields
+        const street = data.logradouro || undefined;
+        const number = data.numero || undefined;
+        const complement = data.complemento || undefined;
+        const neighborhood = data.bairro || undefined;
+        const city = data.municipio || data.cidade || undefined;
+        const state = data.uf || undefined;
+        const zipCode = data.cep ? String(data.cep).replace(/\D/g, '') : undefined;
+
+        // Map CNAE
+        let cnae = data.cnae_principal?.codigo || data.cnae || undefined;
+        let cnaeDescription = data.cnae_principal?.descricao || data.cnae_descricao || undefined;
+
+        // Clean IE: SintegraWS might return 'ISENTO' or numbers with dots/dashes, clean them or keep ISENTO
+        let stateRegistration = data.inscricao_estadual;
+        if (stateRegistration) {
+            const cleanIe = String(stateRegistration).trim();
+            if (cleanIe.toUpperCase() === 'ISENTO') {
+                stateRegistration = 'ISENTO';
+            } else {
+                stateRegistration = cleanIe.replace(/\D/g, '') || undefined;
+            }
+        }
 
         return {
             cnpj: cleanCNPJ,
-            legalName: data.razao_social || data.nome || '',
-            tradeName: data.nome_fantasia || undefined,
-            situation: data.situacao_cadastral,
-            situationDate: data.data_situacao_cadastral,
-            address: {
-                street: data.logradouro,
-                number: data.numero,
-                complement: data.complemento,
-                neighborhood: data.bairro,
-                city: data.municipio,
-                state: data.uf,
-                zipCode: data.cep?.replace(/\D/g, ''),
-            },
+            legalName: data.razao_social || data.nome_empresarial || data.nome || '',
+            tradeName: data.nome_fantasia || data.fantasia || undefined,
+            situation: data.situacao_cadastral || data.situacao || undefined,
+            situationDate: data.data_situacao_cadastral || data.data_situacao || undefined,
+            address: (street || city || state || zipCode) ? {
+                street,
+                number,
+                complement,
+                neighborhood,
+                city,
+                state,
+                zipCode,
+            } : undefined,
             phone: data.telefone,
             email: data.email,
-            cnae: data.cnae_principal?.codigo,
-            cnaeDescription: data.cnae_principal?.descricao,
-            openingDate: data.data_inicio_atividade,
+            cnae: cnae ? String(cnae) : undefined,
+            cnaeDescription: cnaeDescription ? String(cnaeDescription) : undefined,
+            openingDate: data.data_inicio_atividade || data.abertura || undefined,
             legalNature: data.natureza_juridica,
             capital: data.capital_social ? parseFloat(String(data.capital_social)) : undefined,
             size: data.porte,
             source: 'sintegra',
+            stateRegistration,
         };
     } catch (error: any) {
         console.error('SintegraWS error:', error.message);
@@ -148,7 +175,24 @@ export async function consultCNPJ(cnpj: string, sintegraToken?: string): Promise
     // Try ReceitaWS first (free)
     let result = await consultReceitaWS(cleanCNPJ);
 
-    // If ReceitaWS failed or returned incomplete data, try SintegraWS
+    // If ReceitaWS succeeded but lacks stateRegistration, supplement with SintegraWS if token exists
+    if (result && !result.stateRegistration && sintegraToken) {
+        try {
+            const sintegraData = await consultSintegraWS(cleanCNPJ, sintegraToken);
+            if (sintegraData) {
+                if (sintegraData.stateRegistration) {
+                    result.stateRegistration = sintegraData.stateRegistration;
+                }
+                if (!result.tradeName && sintegraData.tradeName) {
+                    result.tradeName = sintegraData.tradeName;
+                }
+            }
+        } catch (err: any) {
+            console.error('Failed to supplement IE from SintegraWS:', err.message);
+        }
+    }
+
+    // If ReceitaWS failed entirely or returned incomplete data, fallback/try SintegraWS
     if ((!result || !result.legalName) && sintegraToken) {
         result = await consultSintegraWS(cleanCNPJ, sintegraToken);
     }

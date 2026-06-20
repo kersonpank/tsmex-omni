@@ -246,6 +246,7 @@ const defaultPersonForm = {
   city: '',
   state: '',
   country: 'BRASIL',
+  stateRegistration: '',
 };
 
 function PersonCreateModal({
@@ -288,6 +289,7 @@ function PersonCreateModal({
         city: form.city || undefined,
         state: form.state || undefined,
         country: form.country || 'BRASIL',
+        stateRegistration: form.stateRegistration || undefined,
       };
       const res = await personsApi.create(payload);
       const created = (res as any)?.data ?? res;
@@ -329,6 +331,7 @@ function PersonCreateModal({
               city: data.address?.city || f.city,
               state: data.address?.state || f.state,
               cep: data.address?.zipCode || f.cep,
+              stateRegistration: data.stateRegistration || f.stateRegistration,
             })) : undefined}
             placeholder={form.documentType === 'CPF' ? '11 dígitos' : '14 dígitos'}
             required
@@ -351,6 +354,33 @@ function PersonCreateModal({
               value={form.tradeName}
               onChange={e => setForm(f => ({ ...f, tradeName: e.target.value }))}
               className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100"
+            />
+          </div>
+          <div>
+            <div className="flex justify-between items-center mb-1">
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-300">Inscrição Estadual (IE)</label>
+              <label className="flex items-center gap-1 text-xs cursor-pointer text-tower-500 dark:text-tower-400">
+                <input
+                  type="checkbox"
+                  checked={form.stateRegistration === 'ISENTO'}
+                  onChange={e => {
+                    setForm(f => ({
+                      ...f,
+                      stateRegistration: e.target.checked ? 'ISENTO' : ''
+                    }));
+                  }}
+                  className="rounded border-tower-300 text-brand-600 focus:ring-brand-500"
+                />
+                <span>Isento</span>
+              </label>
+            </div>
+            <input
+              type="text"
+              disabled={form.stateRegistration === 'ISENTO'}
+              value={form.stateRegistration === 'ISENTO' ? 'ISENTO' : form.stateRegistration}
+              onChange={e => setForm(f => ({ ...f, stateRegistration: e.target.value }))}
+              placeholder={form.stateRegistration === 'ISENTO' ? 'ISENTO' : 'Apenas números'}
+              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100 disabled:bg-tower-100 dark:disabled:bg-tower-850 placeholder:text-tower-400 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
             />
           </div>
           {showAddClientHint && (

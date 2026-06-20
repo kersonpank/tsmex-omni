@@ -821,6 +821,7 @@ function PersonFormModal({
               city: data.address?.city || f.city,
               state: data.address?.state || f.state,
               cep: data.address?.zipCode || f.cep,
+              stateRegistration: data.stateRegistration || f.stateRegistration,
             })) : undefined}
             placeholder={form.documentType === 'CPF' ? '11 dígitos' : '14 dígitos'}
             required
