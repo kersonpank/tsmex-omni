@@ -53,6 +53,18 @@ async function acbrJsonRequest(
     } catch {
         json = { raw: text.slice(0, 500) };
     }
+    if (res.status >= 400) {
+        console.warn(
+            JSON.stringify({
+                level: 'warn',
+                source: 'acbrJsonRequest',
+                path,
+                httpStatus: res.status,
+                requestBody: init.body ? JSON.stringify(init.body).slice(0, 300) : null,
+                response: text.slice(0, 800),
+            }),
+        );
+    }
     return { status: res.status, json };
 }
 
@@ -107,6 +119,18 @@ export async function createAcbrEmpresaForPerson(
             : typeof json.error === 'string'
               ? json.error
               : `HTTP ${status}`;
+
+    const lowerMsg = msg.toLowerCase();
+    if (
+        status === 400 &&
+        (lowerMsg.includes('cadastrad') ||
+            lowerMsg.includes('existe') ||
+            lowerMsg.includes('conflict') ||
+            lowerMsg.includes('duplicad'))
+    ) {
+        return { ok: true, duplicate: true };
+    }
+
     return { ok: false, message: msg };
 }
 

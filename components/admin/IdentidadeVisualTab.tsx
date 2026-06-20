@@ -282,6 +282,33 @@ const IdentidadeVisualTab: React.FC = () => {
     setSelectedCertificateFileName(file.name);
   };
 
+  const handleDateInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    const clean = val.replace(/[^0-9/]/g, '');
+    const digits = clean.replace(/\D/g, '');
+    let formatted = clean;
+
+    if (digits.length > 0) {
+      if (digits.length <= 2) {
+        formatted = digits;
+      } else if (digits.length <= 4) {
+        formatted = `${digits.slice(0, 2)}/${digits.slice(2)}`;
+      } else {
+        formatted = `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4, 8)}`;
+      }
+    } else {
+      formatted = '';
+    }
+
+    if (val.length < certificateExpiresAt.length) {
+      if (certificateExpiresAt.endsWith('/') && val === certificateExpiresAt.slice(0, -1)) {
+        formatted = val.slice(0, -1);
+      }
+    }
+
+    setCertificateExpiresAt(formatted);
+  };
+
   const handleCertificateDownloadLink = async (emitterId: string) => {
     setCertificateDownloadBusy(true);
     setError(null);
@@ -783,13 +810,13 @@ const IdentidadeVisualTab: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setShowCertificatePassword((value) => !value)}
-                      className="absolute inset-y-0 right-2 my-auto h-7 rounded px-2 text-xs font-semibold text-tower-600 hover:text-tower-900 dark:text-tower-300"
+                      className="absolute inset-y-0 right-2 my-auto h-7 rounded px-2 text-xs font-semibold text-tower-600 hover:text-tower-900 dark:text-tower-300 z-10 cursor-pointer"
                       aria-label={showCertificatePassword ? 'Ocultar senha do certificado' : 'Mostrar senha do certificado'}
                     >
                       {showCertificatePassword ? 'Ocultar' : 'Ver'}
                     </button>
                   </div>
-                  <input type="text" placeholder="Validade (DD/MM/AAAA)" className="admin-focus rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900" value={certificateExpiresAt} onChange={(e) => setCertificateExpiresAt(e.target.value)} />
+                  <input type="text" placeholder="Validade (DD/MM/AAAA)" className="admin-focus rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900" value={certificateExpiresAt} onChange={handleDateInputChange} />
                   <input type="file" accept=".pfx,.p12" onChange={(e) => handleCertificateChange(e)} disabled={uploading} className="text-sm text-tower-600 file:mr-2 file:rounded-md file:border-0 file:bg-brand-100 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-brand-900" />
                 </div>
               </div>
