@@ -853,7 +853,17 @@ function PersonFormModal({
             </div>
             <div>
               <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Cidade</label>
-              <input type="text" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" />
+              <CityAutocomplete
+                value={form.city && form.state ? `${form.city}, ${form.state}` : form.city}
+                onChange={v => {
+                  const parts = v.split(', ');
+                  if (parts.length >= 2) setForm(f => ({ ...f, city: parts[0], state: parts[1] }));
+                  else setForm(f => ({ ...f, city: v }));
+                }}
+                onSelect={(city, state) => setForm(f => ({ ...f, city, state }))}
+                placeholder="Ex: São Paulo, SP"
+                className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
+              />
             </div>
           </div>
           <div>

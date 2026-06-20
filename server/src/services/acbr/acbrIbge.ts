@@ -1,4 +1,5 @@
 import prisma from '../../lib/prisma.js';
+import { AppError } from '../../middleware/errorHandler.js';
 
 /** Mapeamento de UFs brasileiras para o código IBGE de suas respectivas capitais. */
 const stateCapitalIbge: Record<string, string> = {
@@ -41,6 +42,58 @@ export function ufToCuf(uf: string | null | undefined): number {
     return map[u] ?? 35;
 }
 
+/** normaliza texto removendo acentos, espaços e pontuações */
+function normalizeText(text: string): string {
+    return text
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-zA-Z0-9]/g, '')
+        .toLowerCase();
+}
+
+/**
+ * Valida e normaliza o nome de uma cidade com base no cadastro do IBGE.
+ * Retorna o nome oficial (com acentos e grafia corretos) se encontrado, ou lança AppError se inválido.
+ */
+export async function validateAndNormalizeCity(city: string | null | undefined, state: string | null | undefined): Promise<string | null> {
+    const c = city?.trim();
+    const st = state?.trim().toUpperCase();
+    if (!c) return null;
+    if (!st) {
+        throw new AppError('O estado (UF) é obrigatório para validar a cidade.', 400);
+    }
+
+    const cities = await prisma.city.findMany({
+        where: {
+            state: { code: st },
+        },
+        select: { name: true },
+    });
+
+    if (cities.length === 0) {
+        throw new AppError(`Nenhum estado ou cidade cadastrado para a UF "${st}".`, 400);
+    }
+
+    const target = normalizeText(c);
+
+    // 1. Busca exata normalizada
+    let match = cities.find((item) => normalizeText(item.name) === target);
+
+    // 2. Busca parcial / inclusiva
+    if (!match) {
+        match = cities.find((item) => {
+            const itemNorm = normalizeText(item.name);
+            return itemNorm.includes(target) || target.includes(itemNorm);
+        });
+    }
+
+    if (!match) {
+        throw new AppError(`A cidade "${c}" não foi encontrada no cadastro do IBGE para o estado "${st}". Por favor, verifique a grafia.`, 400);
+    }
+
+    return match.name;
+}
+
 export async function resolveIbgeMunicipio(city: string | null | undefined, state: string | null | undefined): Promise<string> {
     const st = (state ?? '').trim().toUpperCase();
     
@@ -54,12 +107,28 @@ export async function resolveIbgeMunicipio(city: string | null | undefined, stat
     const c = (city ?? '').trim();
     if (!c || !st) return stateFallback;
 
-    const row = await prisma.city.findFirst({
+    // Load cities of this state to do robust matching
+    const cities = await prisma.city.findMany({
         where: {
-            name: { equals: c, mode: 'insensitive' },
             state: { code: st },
         },
-        select: { ibgeCode: true },
+        select: { name: true, ibgeCode: true },
     });
-    return row?.ibgeCode ?? stateFallback;
+
+    if (cities.length === 0) return stateFallback;
+
+    const target = normalizeText(c);
+
+    // 1. Exact normalized match
+    let match = cities.find((item) => normalizeText(item.name) === target);
+
+    // 2. Contains normalized match
+    if (!match) {
+        match = cities.find((item) => {
+            const itemNorm = normalizeText(item.name);
+            return itemNorm.includes(target) || target.includes(itemNorm);
+        });
+    }
+
+    return match?.ibgeCode ?? stateFallback;
 }

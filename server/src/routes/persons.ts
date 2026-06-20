@@ -8,6 +8,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { getParamId } from '../lib/routeUtils.js';
 import { findOrCreateConcluirCadastroColumn } from './pipeline.js';
+import { validateAndNormalizeCity } from '../services/acbr/acbrIbge.js';
 
 const router = Router();
 
@@ -358,6 +359,13 @@ router.post('/', authenticate, authorize('ADMIN'), async (req: AuthRequest, res:
         const body = createPersonSchema.parse(req.body);
         validateDocument(body.documentType, body.document);
 
+        if (body.city) {
+            const normalizedCity = await validateAndNormalizeCity(body.city, body.state);
+            if (normalizedCity) {
+                body.city = normalizedCity;
+            }
+        }
+
         const existing = await prisma.person.findUnique({
             where: { document: body.document },
         });
@@ -412,6 +420,17 @@ router.patch('/:id', authenticate, authorize('ADMIN'), async (req: AuthRequest, 
         const document = body.document ?? person.document;
         const documentType = body.documentType ?? person.documentType;
         validateDocument(documentType, document);
+
+        if (body.city !== undefined || body.state !== undefined) {
+            const nextCity = body.city !== undefined ? body.city : person.city;
+            const nextState = body.state !== undefined ? body.state : person.state;
+            if (nextCity) {
+                const normalizedCity = await validateAndNormalizeCity(nextCity, nextState);
+                if (normalizedCity) {
+                    body.city = normalizedCity;
+                }
+            }
+        }
 
         if (body.document !== undefined || body.documentType !== undefined) {
             const existing = await prisma.person.findFirst({
