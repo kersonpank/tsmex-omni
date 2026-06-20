@@ -102,10 +102,14 @@ export async function emitCteViaAcbr(
 
     for (let attempt = 0; attempt < 24; attempt++) {
         if (attempt > 0) await new Promise((r) => setTimeout(r, 1500));
-        try {
-            await acbrFetchJson(`/cte/${id}/sincronizar`, { method: 'POST', scopes: ['empresa', 'cte'], apiEnvironment: apiEnv });
-        } catch {
-            /* sync opcional */
+        
+        // Apenas sincroniza com a SEFAZ se já tivermos tentado algumas vezes (ex.: após 5ª tentativa) e de forma espaçada
+        if (attempt >= 5 && attempt % 3 === 0) {
+            try {
+                await acbrFetchJson(`/cte/${id}/sincronizar`, { method: 'POST', scopes: ['empresa', 'cte'], apiEnvironment: apiEnv });
+            } catch {
+                /* sync opcional */
+            }
         }
         const doc = await acbrFetchJson<Record<string, unknown>>(`/cte/${id}`, { method: 'GET', scopes: ['empresa', 'cte'], apiEnvironment: apiEnv });
         const st = norm(doc.status);

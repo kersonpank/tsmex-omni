@@ -175,10 +175,14 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
 
         for (let i = 0; i < 20; i++) {
             if (i > 0) await new Promise((r) => setTimeout(r, 1500));
-            try {
-                await acbrFetchJson(`/mdfe/${id}/sincronizar`, { method: 'POST', scopes: ['empresa', 'mdfe'], apiEnvironment: apiEnv });
-            } catch {
-                /* opcional */
+            
+            // Apenas sincroniza com a SEFAZ se já tivermos tentado algumas vezes (ex.: após 5ª tentativa) e de forma espaçada
+            if (i >= 5 && i % 3 === 0) {
+                try {
+                    await acbrFetchJson(`/mdfe/${id}/sincronizar`, { method: 'POST', scopes: ['empresa', 'mdfe'], apiEnvironment: apiEnv });
+                } catch {
+                    /* opcional */
+                }
             }
             const doc = await acbrFetchJson<Record<string, unknown>>(`/mdfe/${id}`, { method: 'GET', scopes: ['empresa', 'mdfe'], apiEnvironment: apiEnv });
             const st = String(doc.status ?? '').toLowerCase();
