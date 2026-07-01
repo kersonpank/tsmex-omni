@@ -1,6 +1,13 @@
 @import "tailwindcss";
 
 /*
+ * Dark mode: class-based (.dark on <html>), synced with themeStore.
+ * CRITICAL: must be before @theme so Tailwind v4 uses class strategy
+ * for ALL dark: utilities instead of prefers-color-scheme media query.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
  * Transmesquita / TSM EX — tokens de marca (claro + escuro legíveis)
  * Azul corporativo #2E3192 · vermelho TRAN · amarelo faixa #FFD400
  * accent-* = azul marca (retrocompat com componentes existentes)
@@ -21,6 +28,7 @@
   --color-tower-600: #454c6e;
   --color-tower-700: #363c58;
   --color-tower-800: #252a42;
+  --color-tower-850: #1e2239; /* NEW: between 800 and 900, used as dark input bg */
   --color-tower-900: #1a1d32;
   --color-tower-950: #0e1024;
 
@@ -69,40 +77,56 @@
   --color-app-text-muted: var(--app-text-muted);
   --color-app-fg-muted: var(--app-fg-muted);
   --color-app-fg-subtle: var(--app-fg-subtle);
+  /* Input semantic tokens */
+  --color-app-input-bg: var(--app-input-bg);
+  --color-app-input-fg: var(--app-input-fg);
+  --color-app-input-border: var(--app-input-border);
+  --color-app-input-placeholder: var(--app-input-placeholder);
 }
 
 
 :root {
-  /* Stitch-like light: off-white page, white cards, bordas legíveis */
-  --app-page-bg: #f8f9fb;
+  /* Light mode: clean white, clear readability */
+  --app-page-bg: #f2f5fb;
   --app-surface: #ffffff;
-  --app-surface-muted: #f2f4fa;
+  --app-surface-muted: #f0f3f9;
   --app-border-strong: var(--color-tower-300);
   --app-nav-bg: #ffffff;
   --app-nav-border: var(--color-tower-200);
   --app-accent: var(--color-brand-500);
   --app-accent-hover: var(--color-brand-600);
   --app-surface-elevated: #ffffff;
-  --app-text-muted: var(--color-tower-600);
+  --app-text-muted: var(--color-tower-500);
   --app-fg-muted: var(--color-tower-600);
   --app-fg-subtle: var(--color-tower-700);
   --app-border: var(--color-tower-200);
+  /* Light mode inputs */
+  --app-input-bg: #ffffff;
+  --app-input-fg: #1a1d32;
+  --app-input-border: #c8cedf;
+  --app-input-placeholder: #7a84a8;
 }
 
 html.dark, .dark, :root.dark {
-  --app-page-bg: #090a16;
-  --app-surface: #121429;
-  --app-surface-muted: #1a1c34;
-  --app-border-strong: #383c66;
-  --app-nav-bg: #090a16;
-  --app-nav-border: #222544;
+  /* Dark mode: deep navy, high contrast readability */
+  --app-page-bg: #080c1a;
+  --app-surface: #0f1328;
+  --app-surface-muted: #161933;
+  --app-border-strong: #38406a;
+  --app-nav-bg: #080c1a;
+  --app-nav-border: #1a1f42;
   --app-accent: #6366f1;
   --app-accent-hover: #4f46e5;
-  --app-surface-elevated: #1d203b;
+  --app-surface-elevated: #1a1e3a;
   --app-text-muted: #94a3b8;
-  --app-fg-muted: #cbd5e1;
-  --app-fg-subtle: #e2e8f0;
-  --app-border: #222544;
+  --app-fg-muted: #c8d2e8;
+  --app-fg-subtle: #dce4f2;
+  --app-border: #1e2445;
+  /* Dark mode inputs — slightly elevated over surface */
+  --app-input-bg: #1e2445;
+  --app-input-fg: #dce4f2;
+  --app-input-border: #323870;
+  --app-input-placeholder: #5c6490;
 }
 
 @layer base {
@@ -110,10 +134,32 @@ html.dark, .dark, :root.dark {
     @apply font-sans antialiased;
     background-color: var(--app-page-bg);
     color: var(--color-tower-900);
+    transition: background-color 0.2s ease, color 0.2s ease;
   }
   html.dark, body.dark, .dark {
     color: var(--color-tower-100);
     background-color: var(--app-page-bg);
+  }
+
+  /*
+   * Global input/textarea/select base styles.
+   * These apply when no explicit Tailwind utility overrides them.
+   * They use CSS variables so they automatically adapt to light/dark.
+   * NOTE: @layer base has lower specificity than @layer utilities,
+   * so any dark:bg-* that resolves to a valid color will override these.
+   * They serve as the correct fallback for dark mode when dark: utilities fail.
+   */
+  input:not([type='radio']):not([type='checkbox']):not([type='range']):not([type='file']):not([type='submit']):not([type='button']):not([type='reset']):not([type='hidden']),
+  textarea,
+  select {
+    background-color: var(--app-input-bg);
+    color: var(--app-input-fg);
+    border-color: var(--app-input-border);
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--app-input-placeholder);
+    opacity: 1;
   }
 }
 
