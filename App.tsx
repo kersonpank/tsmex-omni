@@ -331,7 +331,7 @@ const AppMain: React.FC = () => {
 const App: React.FC = () => {
   return (
     <HashRouter>
-      <div className="flex min-h-screen flex-col bg-tower-50 text-tower-900 dark:bg-brand-950 dark:text-tower-100">
+      <div className="flex min-h-screen flex-col bg-app-bg text-tower-900 dark:text-tower-100">
         <Navigation />
         <AppMain />
 

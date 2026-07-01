@@ -89,29 +89,30 @@
   --app-border: var(--color-tower-200);
 }
 
-.dark:root {
-  --app-page-bg: var(--color-brand-950);
-  --app-surface: #16183f;
-  --app-surface-muted: #1a1c4d;
-  --app-border-strong: color-mix(in srgb, var(--color-tower-400) 45%, transparent);
-  --app-nav-bg: var(--color-brand-950);
-  --app-nav-border: color-mix(in srgb, var(--color-brand-500) 28%, transparent);
-  --app-accent: #8b92d9;
-  --app-accent-hover: #a8aedf;
-  --app-surface-elevated: #16183f;
-  --app-text-muted: #a8b0d0;
-  --app-fg-muted: #c5c9e8;
-  --app-fg-subtle: #d0d5e8;
-  --app-border: color-mix(in srgb, var(--color-tower-400) 35%, transparent);
+html.dark, .dark, :root.dark {
+  --app-page-bg: #090a16;
+  --app-surface: #121429;
+  --app-surface-muted: #1a1c34;
+  --app-border-strong: #383c66;
+  --app-nav-bg: #090a16;
+  --app-nav-border: #222544;
+  --app-accent: #6366f1;
+  --app-accent-hover: #4f46e5;
+  --app-surface-elevated: #1d203b;
+  --app-text-muted: #94a3b8;
+  --app-fg-muted: #cbd5e1;
+  --app-fg-subtle: #e2e8f0;
+  --app-border: #222544;
 }
 
 @layer base {
-  html {
-    @apply font-sans text-tower-900 antialiased;
+  html, body {
+    @apply font-sans antialiased;
     background-color: var(--app-page-bg);
+    color: var(--color-tower-900);
   }
-  html.dark {
-    @apply text-tower-100;
+  html.dark, body.dark, .dark {
+    color: var(--color-tower-100);
     background-color: var(--app-page-bg);
   }
 }
