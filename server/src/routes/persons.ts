@@ -8,7 +8,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { getParamId } from '../lib/routeUtils.js';
 import { findOrCreateConcluirCadastroColumn } from './pipeline.js';
-import { validateAndNormalizeCity } from '../services/acbr/acbrIbge.js';
+import { validateAndNormalizeCity, resolveIbgeCode } from '../services/acbr/acbrIbge.js';
 
 const router = Router();
 
@@ -89,6 +89,7 @@ const createPersonSchema = z.object({
     neighborhood: z.string().optional().transform(v => v?.trim() || undefined),
     city: z.string().optional().transform(v => v?.trim() || undefined),
     state: z.string().optional().transform(v => v?.trim()?.toUpperCase() || undefined),
+    cityIbgeCode: z.string().optional().transform(v => v?.trim() || undefined),
     country: z.string().optional().default('BRASIL'),
     stateRegistration: stateRegistrationSchema,
     municipalRegistration: z.string().optional().transform(v => v?.trim() || undefined),
@@ -359,10 +360,13 @@ router.post('/', authenticate, authorize('ADMIN'), async (req: AuthRequest, res:
         const body = createPersonSchema.parse(req.body);
         validateDocument(body.documentType, body.document);
 
-        if (body.city) {
-            const normalizedCity = await validateAndNormalizeCity(body.city, body.state);
-            if (normalizedCity) {
-                body.city = normalizedCity;
+        if (body.city && body.state) {
+            const resolved = await resolveIbgeCode(body.city, body.state);
+            if (resolved) {
+                body.city = resolved.name;
+                body.cityIbgeCode = resolved.ibgeCode;
+            } else {
+                throw new AppError(`Cidade "${body.city} - ${body.state}" não encontrada no cadastro nacional.`, 400);
             }
         }
 
@@ -386,6 +390,7 @@ router.post('/', authenticate, authorize('ADMIN'), async (req: AuthRequest, res:
                 neighborhood: body.neighborhood,
                 city: body.city,
                 state: body.state,
+                cityIbgeCode: body.cityIbgeCode,
                 country: body.country ?? 'BRASIL',
                 stateRegistration: body.stateRegistration,
                 municipalRegistration: body.municipalRegistration,
@@ -424,10 +429,13 @@ router.patch('/:id', authenticate, authorize('ADMIN'), async (req: AuthRequest, 
         if (body.city !== undefined || body.state !== undefined) {
             const nextCity = body.city !== undefined ? body.city : person.city;
             const nextState = body.state !== undefined ? body.state : person.state;
-            if (nextCity) {
-                const normalizedCity = await validateAndNormalizeCity(nextCity, nextState);
-                if (normalizedCity) {
-                    body.city = normalizedCity;
+            if (nextCity && nextState) {
+                const resolved = await resolveIbgeCode(nextCity, nextState);
+                if (resolved) {
+                    body.city = resolved.name;
+                    body.cityIbgeCode = resolved.ibgeCode;
+                } else {
+                    throw new AppError(`Cidade "${nextCity} - ${nextState}" não encontrada no cadastro nacional.`, 400);
                 }
             }
         }
@@ -468,6 +476,7 @@ router.patch('/:id', authenticate, authorize('ADMIN'), async (req: AuthRequest, 
                 ...(body.neighborhood !== undefined && { neighborhood: body.neighborhood }),
                 ...(body.city !== undefined && { city: body.city }),
                 ...(body.state !== undefined && { state: body.state }),
+                ...(body.cityIbgeCode !== undefined && { cityIbgeCode: body.cityIbgeCode }),
                 ...(body.country !== undefined && { country: body.country }),
                 ...(body.stateRegistration !== undefined && { stateRegistration: body.stateRegistration }),
                 ...(body.municipalRegistration !== undefined && { municipalRegistration: body.municipalRegistration }),

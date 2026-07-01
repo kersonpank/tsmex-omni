@@ -21,14 +21,18 @@ describe('acbrIbge helpers', () => {
     });
 
     describe('resolveIbgeMunicipio', () => {
-        it('retorna código da capital do estado correspondente quando cidade não é encontrada no banco', async () => {
+        it('lança AppError (400) quando cidade não é encontrada no banco', async () => {
             prisma.city.findMany = (async () => []) as any;
 
-            // Test fallbacks
-            assert.equal(await resolveIbgeMunicipio('QualquerCidade', 'MA'), '2111300'); // São Luís, MA
-            assert.equal(await resolveIbgeMunicipio('QualquerCidade', 'SP'), '3550308'); // São Paulo, SP
-            assert.equal(await resolveIbgeMunicipio('QualquerCidade', 'PR'), '4106902'); // Curitiba, PR
-            assert.equal(await resolveIbgeMunicipio('QualquerCidade', 'XX'), '3550308'); // Fallback global
+            await assert.rejects(
+                resolveIbgeMunicipio('QualquerCidade', 'MA'),
+                (err: any) => err instanceof AppError && err.statusCode === 400 && err.message.includes('Não foi possível localizar')
+            );
+        });
+
+        it('retorna explicitIbgeCode imediatamente se fornecido', async () => {
+            const code = await resolveIbgeMunicipio('QualquerCidade', 'MA', '1234567');
+            assert.equal(code, '1234567');
         });
 
         it('retorna código IBGE da cidade encontrada no banco (busca exata)', async () => {

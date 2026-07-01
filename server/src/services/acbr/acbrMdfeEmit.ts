@@ -60,7 +60,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
     }
 
     const emit = manifest.hub.person;
-    const emitCmun = await resolveIbgeMunicipio(emit.city, emit.state);
+    const emitCmun = await resolveIbgeMunicipio(emit.city, emit.state, emit.cityIbgeCode);
     const ufIni = (emit.state ?? 'SP').slice(0, 2).toUpperCase();
     const ufFim = ufIni;
     const cMunDesc = emitCmun;

@@ -43,6 +43,7 @@ interface FormColetaData {
   addressCep: string;
   addressCity: string;
   addressState: string;
+  addressIbgeCode: string;
   addressReferencePoint: string;
   commodity: string;
   volumesList: Volume[];
@@ -73,6 +74,7 @@ const emptyForm = (): FormColetaData => ({
   addressCep: '',
   addressCity: '',
   addressState: '',
+  addressIbgeCode: '',
   addressReferencePoint: '',
   commodity: '',
   volumesList: [{ qty: 1, alturaCm: '', larguraCm: '', comprimentoCm: '' }],
@@ -268,6 +270,7 @@ export default function FormColeta() {
           if (addr.cep) { updates.addressCep = maskCep(addr.cep); prefilled.add('addressCep'); }
           if (addr.city) { updates.addressCity = addr.city; prefilled.add('addressCity'); }
           if (addr.state) { updates.addressState = addr.state.toUpperCase(); prefilled.add('addressState'); }
+          if (addr.cityIbgeCode) { updates.addressIbgeCode = addr.cityIbgeCode; }
           if (addr.referencePoint) { updates.addressReferencePoint = addr.referencePoint; prefilled.add('addressReferencePoint'); }
         }
 
@@ -325,6 +328,7 @@ export default function FormColeta() {
           addressNeighborhood: d.bairro || prev.addressNeighborhood,
           addressCity: d.cidade || prev.addressCity,
           addressState: d.uf || prev.addressState,
+          addressIbgeCode: d.city?.ibgeCode || prev.addressIbgeCode,
         }));
       }
     } catch {
@@ -510,6 +514,7 @@ export default function FormColeta() {
         cep: form.addressCep.replace(/\D/g, ''),
         city: form.addressCity.trim(),
         state: form.addressState.trim(),
+        cityIbgeCode: form.addressIbgeCode || undefined,
         referencePoint: form.addressReferencePoint.trim() || undefined,
       },
       commodity: form.commodity.trim(),
@@ -635,13 +640,13 @@ export default function FormColeta() {
 
       <form onSubmit={handleSubmit} className="space-y-8">
         {!isLinked && companies.length === 0 && (
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-amber-800 text-sm">
+          <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 rounded-xl p-4 text-amber-800 dark:text-amber-300 text-sm">
             Nenhum CNPJ cadastrado na sua conta. O pagador do frete deve estar na sua conta. <Link to="/client" className="text-amber-700 font-medium hover:underline">Adicione um CNPJ</Link> antes de solicitar uma coleta.
           </div>
         )}
 
         <div className="bg-white dark:bg-tower-800 rounded-2xl shadow-lg border border-tower-100 dark:border-tower-700 p-6 md:p-8">
-          <h2 className="text-lg font-bold text-tower-800 mb-4">Pagador do frete e CNPJs</h2>
+          <h2 className="text-lg font-bold text-tower-800 dark:text-tower-100 mb-4">Pagador do frete e CNPJs</h2>
           {isLinked ? (
             <div className="space-y-4">
               <div className="p-4 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl">
@@ -658,7 +663,7 @@ export default function FormColeta() {
                   <div className="font-medium text-tower-900 dark:text-tower-100">{form.cnpjDestino ? maskCNPJOrCPF(form.cnpjDestino) : '—'}</div>
                 </div>
                 {form.freightTerm === 'REDESPACHO' && (
-                  <div className="md:col-span-2 p-4 bg-tower-50 border border-tower-200 rounded-xl">
+                  <div className="md:col-span-2 p-4 bg-tower-50 dark:bg-tower-800 border border-tower-200 dark:border-tower-700 rounded-xl">
                     <div className="text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">CNPJ transportadora</div>
                     <div className="font-medium text-tower-900 dark:text-tower-100">{form.cnpjTransportadora ? maskCNPJOrCPF(form.cnpjTransportadora) : '—'}</div>
                   </div>
@@ -684,7 +689,7 @@ export default function FormColeta() {
                   </label>
                 </div>
                 {form.freightTerm === 'REDESPACHO' && (
-                  <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                  <div className="mt-3 p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 rounded-lg text-sm text-amber-800 dark:text-amber-300">
                     Você será o responsável financeiro (consignatário) por esta operação.
                   </div>
                 )}
@@ -703,7 +708,7 @@ export default function FormColeta() {
                     if (form.freightTerm === 'CIF' && d.length === 11 && !cnpjInAccount(form.cnpjRemetente) && !addCpfOpen)
                       setTimeout(() => { if (!addCpfOpen) handleCpfNotInAccount(form.cnpjRemetente, 'cnpjRemetente'); }, 200);
                   }}
-                  className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
+                  className="w-full p-3 bg-tower-50 dark:bg-tower-850 border border-tower-200 dark:border-tower-700 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 focus:outline-none"
                   maxLength={18}
                 />
                 {showCnpjRemetente && cnpjRemetenteSuggestions.length > 0 && (
@@ -738,7 +743,7 @@ export default function FormColeta() {
                     if (form.freightTerm === 'FOB' && d.length === 11 && !cnpjInAccount(form.cnpjDestino) && !addCpfOpen)
                       setTimeout(() => { if (!addCpfOpen) handleCpfNotInAccount(form.cnpjDestino, 'cnpjDestino'); }, 200);
                   }}
-                  className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
+                  className="w-full p-3 bg-tower-50 dark:bg-tower-850 border border-tower-200 dark:border-tower-700 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 focus:outline-none"
                   maxLength={18}
                 />
                 {showCnpjDestino && cnpjDestinoSuggestions.length > 0 && (
@@ -769,7 +774,7 @@ export default function FormColeta() {
                     value={maskCNPJOrCPF(form.cnpjTransportadora)}
                     onChange={e => { update({ cnpjTransportadora: digitsOnly(e.target.value) }); searchCnpj(e.target.value, setCnpjTransportadoraSuggestions); setShowCnpjTransportadora(true); }}
                     onFocus={() => { if (form.cnpjTransportadora.length >= 3) { searchCnpj(form.cnpjTransportadora, setCnpjTransportadoraSuggestions); setShowCnpjTransportadora(true); } }}
-                    className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
+                    className="w-full p-3 bg-tower-50 dark:bg-tower-850 border border-tower-200 dark:border-tower-700 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 focus:outline-none"
                     maxLength={18}
                   />
                   {showCnpjTransportadora && cnpjTransportadoraSuggestions.length > 0 && (
@@ -879,7 +884,7 @@ export default function FormColeta() {
                 type="text"
                 value={form.pickupAvailableTime}
                 onChange={e => update({ pickupAvailableTime: e.target.value })}
-                    className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
+                    className="w-full p-3 bg-tower-50 dark:bg-tower-850 border border-tower-200 dark:border-tower-700 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 focus:outline-none"
                 placeholder="Ex: 8h às 18h"
               />
             </div>
@@ -888,7 +893,7 @@ export default function FormColeta() {
               <textarea
                 value={form.pickupNotes}
                 onChange={e => update({ pickupNotes: e.target.value })}
-                    className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
+                    className="w-full p-3 bg-tower-50 dark:bg-tower-850 border border-tower-200 dark:border-tower-700 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 focus:outline-none"
                 rows={2}
                 placeholder="Observações gerais sobre o local da coleta"
               />
@@ -897,7 +902,7 @@ export default function FormColeta() {
         </div>
 
         <div className="bg-white dark:bg-tower-800 rounded-2xl shadow-lg border border-tower-100 dark:border-tower-700 p-6 md:p-8">
-          <h2 className="text-lg font-bold text-tower-800 mb-4">Endereço de coleta</h2>
+          <h2 className="text-lg font-bold text-tower-800 dark:text-tower-100 mb-4">Endereço de coleta</h2>
           <div className="space-y-4">
             <div className="max-w-[180px]">
               <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">CEP *</label>
@@ -905,7 +910,7 @@ export default function FormColeta() {
                 type="text"
                 value={form.addressCep}
                 onChange={e => update({ addressCep: maskCep(e.target.value) })}
-                    className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
+                    className="w-full p-3 bg-tower-50 dark:bg-tower-850 border border-tower-200 dark:border-tower-700 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 focus:outline-none"
                 placeholder="00000-000"
                 maxLength={9}
               />
@@ -919,7 +924,7 @@ export default function FormColeta() {
                   type="text"
                   value={form.addressStreet}
                   onChange={e => update({ addressStreet: e.target.value })}
-                  className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
+                  className="w-full p-3 bg-tower-50 dark:bg-tower-850 border border-tower-200 dark:border-tower-700 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 focus:outline-none"
                 />
               </div>
               <div>
@@ -928,7 +933,7 @@ export default function FormColeta() {
                   type="text"
                   value={form.addressNumber}
                   onChange={e => update({ addressNumber: e.target.value })}
-                  className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
+                  className="w-full p-3 bg-tower-50 dark:bg-tower-850 border border-tower-200 dark:border-tower-700 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 focus:outline-none"
                 />
               </div>
             </div>
@@ -938,7 +943,7 @@ export default function FormColeta() {
                 type="text"
                 value={form.addressComplement}
                 onChange={e => update({ addressComplement: e.target.value })}
-                    className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
+                    className="w-full p-3 bg-tower-50 dark:bg-tower-850 border border-tower-200 dark:border-tower-700 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 focus:outline-none"
               />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -948,7 +953,7 @@ export default function FormColeta() {
                   type="text"
                   value={form.addressNeighborhood}
                   onChange={e => update({ addressNeighborhood: e.target.value })}
-                  className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
+                  className="w-full p-3 bg-tower-50 dark:bg-tower-850 border border-tower-200 dark:border-tower-700 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 focus:outline-none"
                 />
               </div>
               <div className="md:col-span-2">
@@ -957,13 +962,13 @@ export default function FormColeta() {
                   value={form.addressCity && form.addressState ? `${form.addressCity}, ${form.addressState}` : form.addressCity}
                   onChange={v => {
                     const parts = v.split(', ');
-                    if (parts.length >= 2) update({ addressCity: parts[0], addressState: parts[1] });
-                    else update({ addressCity: v });
+                    if (parts.length >= 2) update({ addressCity: parts[0], addressState: parts[1], addressIbgeCode: '' });
+                    else update({ addressCity: v, addressIbgeCode: '' });
                   }}
-                  onSelect={(city, state) => update({ addressCity: city, addressState: state })}
+                  onSelect={(city, state, ibgeCode) => update({ addressCity: city, addressState: state, addressIbgeCode: ibgeCode || '' })}
                   placeholder="Ex: São Paulo, SP"
                   required
-                  className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
+                  className="w-full p-3 bg-tower-50 dark:bg-tower-850 border border-tower-200 dark:border-tower-700 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 focus:outline-none"
                 />
               </div>
             </div>
@@ -974,7 +979,7 @@ export default function FormColeta() {
               <textarea
                 value={form.addressReferencePoint}
                 onChange={e => update({ addressReferencePoint: e.target.value })}
-                    className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
+                    className="w-full p-3 bg-tower-50 dark:bg-tower-850 border border-tower-200 dark:border-tower-700 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 focus:outline-none"
                 rows={3}
                 placeholder="Descreva o máximo de detalhes possível sobre o local da coleta para facilitar a localização (ex: próximo ao mercado X, portão azul, prédio com placa Y, etc.)"
               />
@@ -986,7 +991,7 @@ export default function FormColeta() {
         </div>
 
         <div className="bg-white dark:bg-tower-800 rounded-2xl shadow-lg border border-tower-100 dark:border-tower-700 p-6 md:p-8">
-          <h2 className="text-lg font-bold text-tower-800 mb-4">Mercadoria</h2>
+          <h2 className="text-lg font-bold text-tower-800 dark:text-tower-100 mb-4">Mercadoria</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
               <label className="block text-xs font-bold text-tower-500 dark:text-tower-400 uppercase tracking-wide mb-1">O que é a mercadoria *</label>
@@ -994,7 +999,7 @@ export default function FormColeta() {
                 type="text"
                 value={form.commodity}
                 onChange={e => update({ commodity: e.target.value })}
-                    className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
+                    className="w-full p-3 bg-tower-50 dark:bg-tower-850 border border-tower-200 dark:border-tower-700 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 focus:outline-none"
               />
             </div>
             <div>
@@ -1005,7 +1010,7 @@ export default function FormColeta() {
                 step={0.1}
                 value={form.weight}
                 onChange={e => update({ weight: e.target.value })}
-                    className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
+                    className="w-full p-3 bg-tower-50 dark:bg-tower-850 border border-tower-200 dark:border-tower-700 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 focus:outline-none"
               />
             </div>
             <div>
@@ -1016,7 +1021,7 @@ export default function FormColeta() {
                 step={0.01}
                 value={form.nfValue}
                 onChange={e => update({ nfValue: e.target.value })}
-                    className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
+                    className="w-full p-3 bg-tower-50 dark:bg-tower-850 border border-tower-200 dark:border-tower-700 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 focus:outline-none"
               />
             </div>
           </div>
@@ -1138,7 +1143,7 @@ export default function FormColeta() {
           </div>
         </div>
 
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-amber-800 text-sm">
+        <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 rounded-xl p-4 text-amber-800 dark:text-amber-300 text-sm">
           Se já possuir a NF, favor enviar para já ocorrer a averbação. Após averbação, já está sujeito a cobrança.
         </div>
 

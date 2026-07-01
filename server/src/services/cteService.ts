@@ -19,6 +19,7 @@ export interface CtePerson {
     city?: NullableString;
     state?: NullableString;
     cep?: NullableString;
+    cityIbgeCode?: NullableString;
 }
 
 export interface CteInvoice {
@@ -58,6 +59,8 @@ export interface CteEmissionInput {
         expedidorPerson: CtePerson | null;
         invoicesRel: CteInvoice[];
         collectionData?: unknown;
+        origemIbgeCode?: NullableString;
+        fimIbgeCode?: NullableString;
     };
     hub: {
         id: string;

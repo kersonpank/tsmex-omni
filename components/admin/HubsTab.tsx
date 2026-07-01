@@ -46,12 +46,12 @@ function HubUsersRow({
     setEditPerms((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   };
 
-  if (loading) return <div className="text-sm text-tower-500 py-2">Carregando operadores...</div>;
+  if (loading) return <div className="text-sm text-tower-500 dark:text-tower-400 py-2">Carregando operadores...</div>;
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-xs font-semibold text-tower-500 uppercase">Operadores do hub (login)</span>
+        <span className="text-xs font-semibold text-tower-500 dark:text-tower-400 uppercase">Operadores do hub (login)</span>
         <button
           type="button"
           onClick={onAddOperator}
@@ -61,14 +61,14 @@ function HubUsersRow({
         </button>
       </div>
       {users.length === 0 && (
-        <p className="text-sm text-tower-500">
+        <p className="text-sm text-tower-500 dark:text-tower-400">
           Nenhum operador com login neste depósito. Use <strong>Adicionar operador</strong> ou copie o{' '}
           <strong>link de cadastro</strong> na tabela acima.
         </p>
       )}
       {users.map((u) => (
         <div key={u.id} className="flex flex-wrap items-center gap-3 py-2 border-b border-tower-200 last:border-0">
-          <span className="font-medium text-tower-800">{u.email}</span>
+          <span className="font-medium text-tower-800 dark:text-tower-200">{u.email}</span>
           {editingUserId === u.id ? (
             <>
               <div className="flex gap-2 flex-wrap">
@@ -80,11 +80,11 @@ function HubUsersRow({
                 ))}
               </div>
               <button type="button" onClick={saveEdit} className="px-2 py-1 text-xs bg-brand-600 text-white rounded hover:bg-brand-700">Salvar</button>
-              <button type="button" onClick={() => setEditingUserId(null)} className="px-2 py-1 text-xs text-tower-600 hover:bg-tower-200 rounded">Cancelar</button>
+              <button type="button" onClick={() => setEditingUserId(null)} className="px-2 py-1 text-xs text-tower-600 dark:text-tower-300 hover:bg-tower-200 dark:hover:bg-tower-700 rounded">Cancelar</button>
             </>
           ) : (
             <>
-              <span className="text-xs text-tower-500">
+              <span className="text-xs text-tower-500 dark:text-tower-400">
                 {((u.permissions as string[]) ?? []).length > 0 ? (u.permissions as string[]).join(', ') : 'Sem permissões'}
               </span>
               <button type="button" onClick={() => startEdit(u)} className="text-xs text-brand-600 hover:underline">Editar permissões</button>
@@ -212,7 +212,7 @@ function AddHubOperatorModal({
             />
           </div>
           <div className="flex gap-2 justify-end pt-2">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 hover:bg-tower-100 rounded-lg">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg">
               Cancelar
             </button>
             <button
@@ -252,6 +252,7 @@ const HubsTab: React.FC = () => {
     code: '',
     city: '',
     state: '',
+    cityIbgeCode: '',
     address: '',
     coverageCities: [] as string[],
     managerName: '',
@@ -296,6 +297,7 @@ const HubsTab: React.FC = () => {
       code: '',
       city: '',
       state: '',
+      cityIbgeCode: '',
       address: '',
       coverageCities: [],
       managerName: '',
@@ -352,6 +354,7 @@ const HubsTab: React.FC = () => {
       code: hub.code,
       city: hub.city,
       state: hub.state,
+      cityIbgeCode: (hub as any).cityIbgeCode ?? '',
       address: hub.address ?? '',
       coverageCities: hub.coverageCities ?? [],
       managerName: hub.managerName ?? '',
@@ -419,11 +422,12 @@ const HubsTab: React.FC = () => {
     }
     setError(null);
     try {
-      const payload: Partial<Hub> = {
+      const payload: Partial<Hub> & { cityIbgeCode?: string | null } = {
         name: form.name,
         code: form.code,
         city: form.city,
         state: form.state,
+        cityIbgeCode: form.cityIbgeCode || null,
         address: form.address || undefined,
         coverageCities: form.coverageCities.length ? form.coverageCities : [],
         managerName: form.managerName || undefined,
@@ -449,7 +453,7 @@ const HubsTab: React.FC = () => {
     <div>
       <div className="mb-6">
         <h2 className="text-lg font-bold text-tower-700 dark:text-tower-200">Hubs (depósitos / filiais)</h2>
-        <p className="mt-2 text-sm text-tower-600 dark:text-tower-400 max-w-3xl">
+        <p className="mt-2 text-sm text-tower-600 dark:text-tower-350 max-w-3xl">
           <strong>1.</strong> Crie o depósito (Novo). <strong>2.</strong> Opcional: vincule o CNPJ emissor para CT-e/Minuta.
           <strong> 3.</strong> Cadastre operadores com login em ▼ Operadores ou pelo link de cadastro.
         </p>
@@ -503,10 +507,10 @@ const HubsTab: React.FC = () => {
                   value={form.city && form.state ? `${form.city}, ${form.state}` : (form.city || '')}
                   onChange={v => {
                     const parts = v.split(', ');
-                    if (parts.length >= 2) setForm(f => ({ ...f, city: parts[0], state: parts[1] }));
-                    else setForm(f => ({ ...f, city: v }));
+                    if (parts.length >= 2) setForm(f => ({ ...f, city: parts[0], state: parts[1], cityIbgeCode: '' }));
+                    else setForm(f => ({ ...f, city: v, cityIbgeCode: '' }));
                   }}
-                  onSelect={(city, state) => setForm(f => ({ ...f, city, state }))}
+                  onSelect={(city, state, ibgeCode) => setForm(f => ({ ...f, city, state, cityIbgeCode: ibgeCode || '' }))}
                   placeholder="Ex: São Paulo"
                   state={form.state || undefined}
                   required
@@ -566,13 +570,13 @@ const HubsTab: React.FC = () => {
           <table className="w-full">
             <thead className="bg-tower-50 border-b border-tower-200">
               <tr>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700">Nome</th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700">Código</th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700">CNPJ emissor</th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700">Cidade / Estado</th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700">Status</th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700">Link de cadastro</th>
-                <th className="text-right py-3 px-4 text-sm font-semibold text-tower-700">Ações</th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700 dark:text-tower-300">Nome</th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700 dark:text-tower-300">Código</th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700 dark:text-tower-300">CNPJ emissor</th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700 dark:text-tower-300">Cidade / Estado</th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700 dark:text-tower-300">Status</th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700 dark:text-tower-300">Link de cadastro</th>
+                <th className="text-right py-3 px-4 text-sm font-semibold text-tower-700 dark:text-tower-300">Ações</th>
               </tr>
             </thead>
             <tbody>

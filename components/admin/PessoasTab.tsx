@@ -322,46 +322,46 @@ const PessoasTab: React.FC = () => {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-tower-200">
-                <thead className="bg-tower-50">
+              <table className="min-w-full divide-y divide-tower-200 dark:divide-tower-800">
+                <thead className="bg-tower-50 dark:bg-tower-800/40">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-tower-600 uppercase">Documento</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-tower-600 uppercase">Nome / Razão Social</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-tower-600 uppercase">Tipo</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-tower-600 uppercase">Papéis</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-tower-600 uppercase">Ações</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-tower-600 dark:text-tower-400 uppercase">Documento</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-tower-600 dark:text-tower-400 uppercase">Nome / Razão Social</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-tower-600 dark:text-tower-400 uppercase">Tipo</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-tower-600 dark:text-tower-400 uppercase">Papéis</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-tower-600 dark:text-tower-400 uppercase">Ações</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-tower-200">
+                <tbody className="divide-y divide-tower-200 dark:divide-tower-800">
                   {persons.map(p => (
                     <tr
                       key={p.id}
                       className={`cursor-pointer hover:bg-tower-50 dark:hover:bg-tower-800/80 ${gestaoSelectedPersonId === p.id ? 'ring-2 ring-inset ring-brand-400 dark:ring-brand-500' : ''}`}
                       onClick={() => setGestaoSelectedPersonId(p.id)}
                     >
-                      <td className="px-4 py-3 text-sm font-mono text-tower-700">
+                      <td className="px-4 py-3 text-sm font-mono text-tower-700 dark:text-tower-300">
                         {formatDocument(p.document, p.documentType)}
                       </td>
                       <td className="px-4 py-3 text-sm text-tower-900 dark:text-tower-100">
                         {p.legalName}
                         {p.tradeName && (
-                          <span className="block text-xs text-tower-500">{p.tradeName}</span>
+                          <span className="block text-xs text-tower-500 dark:text-tower-400">{p.tradeName}</span>
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${p.documentType === 'CPF' ? 'bg-tower-100 text-tower-700' : 'bg-brand-100 text-brand-700'}`}>
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${p.documentType === 'CPF' ? 'bg-tower-100 dark:bg-tower-800 text-tower-700 dark:text-tower-300' : 'bg-brand-100 dark:bg-brand-950 text-brand-700 dark:text-brand-400'}`}>
                           {p.documentType}
                         </span>
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-1">
                           {p.clients && p.clients.length > 0 && (
-                            <span className="px-2 py-0.5 rounded text-xs font-medium bg-brand-100 text-brand-700">
+                            <span className="px-2 py-0.5 rounded text-xs font-medium bg-brand-100 dark:bg-brand-950 text-brand-700 dark:text-brand-400">
                               Cliente
                             </span>
                           )}
                           {p.links && p.links.length > 0 && (
-                            <span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
+                            <span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400">
                               Motorista
                             </span>
                           )}
@@ -406,21 +406,21 @@ const PessoasTab: React.FC = () => {
               </div>
             ) : selectedPerson ? (
               <>
-                <div className="p-6 border-b border-tower-200">
+                <div className="p-6 border-b border-tower-200 dark:border-tower-850">
                   <div className="flex justify-between items-start">
                     <div>
                       <h3 className="text-xl font-bold text-tower-900 dark:text-tower-100">{selectedPerson.legalName}</h3>
                       {selectedPerson.tradeName && (
                         <p className="text-sm text-tower-500">{selectedPerson.tradeName}</p>
                       )}
-                      <p className="text-sm font-mono text-tower-600 mt-1">
+                      <p className="text-sm font-mono text-tower-600 dark:text-tower-400 mt-1">
                         {formatDocument(selectedPerson.document, selectedPerson.documentType)}
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={closeDetail}
-                      className="text-tower-400 hover:text-tower-600 text-2xl leading-none"
+                      className="text-tower-400 hover:text-tower-600 dark:text-tower-500 dark:hover:text-tower-300 text-2xl leading-none"
                     >
                       ×
                     </button>
@@ -428,65 +428,65 @@ const PessoasTab: React.FC = () => {
                 </div>
                 <div className="p-6 space-y-6">
                   <div>
-                    <h4 className="text-sm font-semibold text-tower-700 mb-2">Dados gerais</h4>
+                    <h4 className="text-sm font-semibold text-tower-700 dark:text-tower-200 mb-2">Dados gerais</h4>
                     <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                      <dt className="text-tower-500">Tipo</dt>
+                      <dt className="text-tower-500 dark:text-tower-400">Tipo</dt>
                       <dd>{selectedPerson.documentType}</dd>
-                      <dt className="text-tower-500">Documento</dt>
+                      <dt className="text-tower-500 dark:text-tower-400">Documento</dt>
                       <dd className="font-mono">{formatDocument(selectedPerson.document, selectedPerson.documentType)}</dd>
                       {selectedPerson.cep && (
                         <>
-                          <dt className="text-tower-500">CEP</dt>
+                          <dt className="text-tower-500 dark:text-tower-400">CEP</dt>
                           <dd>{selectedPerson.cep}</dd>
                         </>
                       )}
                       {selectedPerson.address && (
                         <>
-                          <dt className="text-tower-500">Endereço</dt>
+                          <dt className="text-tower-500 dark:text-tower-400">Endereço</dt>
                           <dd>{selectedPerson.address}{selectedPerson.number ? `, ${selectedPerson.number}` : ''}{selectedPerson.complement ? ` - ${selectedPerson.complement}` : ''}</dd>
                         </>
                       )}
                       {(selectedPerson.neighborhood || selectedPerson.city) && (
                         <>
-                          <dt className="text-tower-500">Bairro / Cidade</dt>
+                          <dt className="text-tower-500 dark:text-tower-400">Bairro / Cidade</dt>
                           <dd>{[selectedPerson.neighborhood, selectedPerson.city].filter(Boolean).join(' - ')}</dd>
                         </>
                       )}
                       {selectedPerson.state && (
                         <>
-                          <dt className="text-tower-500">Estado</dt>
+                          <dt className="text-tower-500 dark:text-tower-400">Estado</dt>
                           <dd>{selectedPerson.state}</dd>
                         </>
                       )}
                       {selectedPerson.country && (
                         <>
-                          <dt className="text-tower-500">País</dt>
+                          <dt className="text-tower-500 dark:text-tower-400">País</dt>
                           <dd>{selectedPerson.country}</dd>
                         </>
                       )}
                       {selectedPerson.stateRegistration && (
                         <>
-                          <dt className="text-tower-500">Inscrição Estadual</dt>
+                          <dt className="text-tower-500 dark:text-tower-400">Inscrição Estadual</dt>
                           <dd>{selectedPerson.stateRegistration}</dd>
                         </>
                       )}
                       {selectedPerson.municipalRegistration && (
                         <>
-                          <dt className="text-tower-500">Inscrição Municipal</dt>
+                          <dt className="text-tower-500 dark:text-tower-400">Inscrição Municipal</dt>
                           <dd>{selectedPerson.municipalRegistration}</dd>
                         </>
                       )}
                     </dl>
                   </div>
                   <div>
-                    <h4 className="text-sm font-semibold text-tower-700 mb-2">Relacionamentos</h4>
+                    <h4 className="text-sm font-semibold text-tower-700 dark:text-tower-200 mb-2">Relacionamentos</h4>
                     <div className="flex flex-wrap gap-2">
                       {ROLES.map(role => {
                         const active = role.hasRelation(selectedPerson);
                         return (
                           <span
                             key={role.key}
-                            className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium ${active ? 'bg-brand-100 text-brand-800' : 'bg-tower-100 text-tower-600'}`}
+                            className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium ${active ? 'bg-brand-100 dark:bg-brand-950 text-brand-800 dark:text-brand-300' : 'bg-tower-100 dark:bg-tower-800 text-tower-600 dark:text-tower-400'}`}
                           >
                             {active ? '✓' : '+'} {role.label}
                           </span>
@@ -551,11 +551,11 @@ const PessoasTab: React.FC = () => {
                       </div>
                     )}
                   </div>
-                  <div className="p-6 border-t border-tower-200 flex flex-wrap gap-2">
+                  <div className="p-6 border-t border-tower-200 dark:border-tower-800 flex flex-wrap gap-2">
                     <button
                       type="button"
                       onClick={() => { setShowEditModal(true); }}
-                      className="px-3 py-1.5 bg-tower-100 text-tower-700 rounded-lg text-sm font-medium hover:bg-tower-200"
+                      className="px-3 py-1.5 bg-tower-100 dark:bg-tower-800 text-tower-700 dark:text-tower-300 rounded-lg text-sm font-medium hover:bg-tower-200 dark:hover:bg-tower-700"
                     >
                       Editar
                     </button>
@@ -563,7 +563,7 @@ const PessoasTab: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setShowAddClientModal(true)}
-                        className="px-3 py-1.5 bg-brand-100 text-brand-700 rounded-lg text-sm font-medium hover:bg-brand-200"
+                        className="px-3 py-1.5 bg-brand-100 dark:bg-brand-950 text-brand-700 dark:text-brand-400 rounded-lg text-sm font-medium hover:bg-brand-200"
                       >
                         + Adicionar como Cliente
                       </button>
@@ -572,7 +572,7 @@ const PessoasTab: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setShowAddLinkModal(true)}
-                        className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-200"
+                        className="px-3 py-1.5 bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 rounded-lg text-sm font-medium hover:bg-blue-200"
                       >
                         + Adicionar como Motorista
                       </button>
@@ -580,7 +580,7 @@ const PessoasTab: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setShowAddHubModal(true)}
-                      className="px-3 py-1.5 bg-amber-100 text-amber-700 rounded-lg text-sm font-medium hover:bg-amber-200"
+                      className="px-3 py-1.5 bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400 rounded-lg text-sm font-medium hover:bg-amber-200 dark:hover:bg-amber-900/50"
                     >
                       Criar login de operador de Hub
                     </button>
@@ -588,7 +588,7 @@ const PessoasTab: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setShowLinkAsEmitterModal(true)}
-                        className="px-3 py-1.5 bg-brand-100 text-brand-700 rounded-lg text-sm font-medium hover:bg-brand-200"
+                        className="px-3 py-1.5 bg-brand-100 dark:bg-brand-950 text-brand-700 dark:text-brand-400 rounded-lg text-sm font-medium hover:bg-brand-200"
                       >
                         Vincular como emissor de Hub (CNPJ)
                       </button>
@@ -711,6 +711,7 @@ const defaultPersonForm = {
   neighborhood: '',
   city: '',
   state: '',
+  cityIbgeCode: '',
   country: 'BRASIL',
   stateRegistration: '',
   municipalRegistration: '',
@@ -731,7 +732,7 @@ function PersonFormModal({
   mode: 'create' | 'edit';
   personId?: string;
   isEmitter?: boolean;
-  initialValues: Partial<CreatePersonRequest & { tradeName: string; cep: string; number: string; complement: string; neighborhood: string; city: string; state: string; country: string; stateRegistration?: string; municipalRegistration?: string }>;
+  initialValues: Partial<CreatePersonRequest & { tradeName: string; cep: string; number: string; complement: string; neighborhood: string; city: string; state: string; cityIbgeCode: string; country: string; stateRegistration?: string; municipalRegistration?: string }>;
   onClose: () => void;
   onSuccess: () => void;
   formError: string | null;
@@ -764,6 +765,7 @@ function PersonFormModal({
         neighborhood: form.neighborhood || undefined,
         city: form.city || undefined,
         state: form.state || undefined,
+        cityIbgeCode: form.cityIbgeCode || undefined,
         country: form.country || 'BRASIL',
         stateRegistration: form.stateRegistration || undefined,
         municipalRegistration: form.municipalRegistration || undefined,
@@ -785,7 +787,7 @@ function PersonFormModal({
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50" onClick={onClose} role="dialog">
       <div className="bg-white dark:bg-tower-900 rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
         <h3 className="text-lg font-bold text-tower-900 dark:text-tower-100 mb-4">{mode === 'create' ? 'Nova Pessoa' : 'Editar Pessoa'}</h3>
-        {formError && <p className="text-red-600 text-sm mb-4">{formError}</p>}
+        {formError && <p className="text-red-600 dark:text-brand-red-400 text-sm mb-4">{formError}</p>}
         {isEmitter && (
           <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 rounded-lg p-3 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2 mb-4">
             <span className="text-sm">⚠️</span>
@@ -820,6 +822,7 @@ function PersonFormModal({
               address: data.address ? [data.address.street, data.address.number, data.address.complement, data.address.neighborhood].filter(Boolean).join(', ') : f.address,
               city: data.address?.city || f.city,
               state: data.address?.state || f.state,
+              cityIbgeCode: data.address?.cityIbgeCode || f.cityIbgeCode,
               cep: data.address?.zipCode || f.cep,
               stateRegistration: data.stateRegistration || f.stateRegistration,
             })) : undefined}
@@ -857,10 +860,10 @@ function PersonFormModal({
                 value={form.city && form.state ? `${form.city}, ${form.state}` : form.city}
                 onChange={v => {
                   const parts = v.split(', ');
-                  if (parts.length >= 2) setForm(f => ({ ...f, city: parts[0], state: parts[1] }));
-                  else setForm(f => ({ ...f, city: v }));
+                  if (parts.length >= 2) setForm(f => ({ ...f, city: parts[0], state: parts[1], cityIbgeCode: '' }));
+                  else setForm(f => ({ ...f, city: v, cityIbgeCode: '' }));
                 }}
-                onSelect={(city, state) => setForm(f => ({ ...f, city, state }))}
+                onSelect={(city, state, ibgeCode) => setForm(f => ({ ...f, city, state, cityIbgeCode: ibgeCode || '' }))}
                 placeholder="Ex: São Paulo, SP"
                 className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
               />
@@ -884,7 +887,7 @@ function PersonFormModal({
                         stateRegistration: e.target.checked ? 'ISENTO' : ''
                       }));
                     }}
-                    className="rounded border-tower-300 text-brand-600 focus:ring-brand-500"
+                    className="rounded border-tower-300 dark:border-tower-600 text-brand-600 focus:ring-brand-500"
                   />
                   <span>Isento</span>
                 </label>
@@ -910,7 +913,7 @@ function PersonFormModal({
             </div>
           </div>
           <div className="flex gap-2 justify-end pt-4">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 hover:bg-tower-100 rounded-lg">Cancelar</button>
+            <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg">Cancelar</button>
             <button type="submit" disabled={formSaving} className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50">
               {formSaving ? 'Salvando...' : 'Gravar Pessoa'}
             </button>
@@ -947,7 +950,7 @@ function AddClientModal({ personId, onClose, onSuccess }: { personId: string; on
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50" onClick={onClose} role="dialog">
       <div className="bg-white dark:bg-tower-900 rounded-2xl shadow-xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
         <h3 className="text-lg font-bold text-tower-900 dark:text-tower-100 mb-4">Adicionar como Cliente</h3>
-        {err && <p className="text-red-600 text-sm mb-4">{err}</p>}
+        {err && <p className="text-red-600 dark:text-brand-red-400 text-sm mb-4">{err}</p>}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Email</label>
@@ -966,7 +969,7 @@ function AddClientModal({ personId, onClose, onSuccess }: { personId: string; on
             <input type="tel" value={maskPhone(phone)} onChange={e => setPhone(e.target.value.replace(/\D/g, ''))} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" placeholder="(11) 99999-9999" required maxLength={15} />
           </div>
           <div className="flex gap-2 justify-end pt-4">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 hover:bg-tower-100 rounded-lg">Cancelar</button>
+            <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg">Cancelar</button>
             <button type="submit" disabled={saving} className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50">{saving ? 'Salvando...' : 'Adicionar'}</button>
           </div>
         </form>
@@ -1014,7 +1017,7 @@ function AddLinkModal({
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50" onClick={onClose} role="dialog">
       <div className="bg-white dark:bg-tower-900 rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <h3 className="text-lg font-bold text-tower-900 dark:text-tower-100 mb-4">Adicionar como Motorista</h3>
-        {err && <p className="text-red-600 text-sm mb-4">{err}</p>}
+        {err && <p className="text-red-600 dark:text-brand-red-400 text-sm mb-4">{err}</p>}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Email</label>
@@ -1050,7 +1053,7 @@ function AddLinkModal({
             <input type="text" value={homeBase} onChange={e => setHomeBase(e.target.value)} placeholder="Cidade base" className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" required />
           </div>
           <div className="flex gap-2 justify-end pt-4">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 hover:bg-tower-100 rounded-lg">Cancelar</button>
+            <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg">Cancelar</button>
             <button type="submit" disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">{saving ? 'Salvando...' : 'Adicionar'}</button>
           </div>
         </form>
@@ -1116,14 +1119,14 @@ function AddHubModal({
         <p className="text-sm text-tower-600 dark:text-tower-400 mb-4">
           Acesso ao sistema para operar um depósito. Isso é diferente do CNPJ emissor (CT-e/Minuta).
         </p>
-        {err && <p className="text-red-600 text-sm mb-4">{err}</p>}
+        {err && <p className="text-red-600 dark:text-brand-red-400 text-sm mb-4">{err}</p>}
         {hubs.length === 0 ? (
           <div className="space-y-4">
             <p className="text-sm text-tower-600">
               Nenhum depósito cadastrado. Crie um Hub antes de vincular um operador.
             </p>
             <div className="flex gap-2 justify-end">
-              <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 hover:bg-tower-100 rounded-lg">
+              <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg">
                 Cancelar
               </button>
               <button
@@ -1157,7 +1160,7 @@ function AddHubModal({
                     onChange={() => togglePermission(p.id)}
                     className="rounded"
                   />
-                  <span className="text-sm text-tower-700">{p.label}</span>
+                  <span className="text-sm text-tower-700 dark:text-tower-200">{p.label}</span>
                 </label>
               ))}
             </div>
@@ -1171,7 +1174,7 @@ function AddHubModal({
             <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" required minLength={6} />
           </div>
           <div className="flex gap-2 justify-end pt-4">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 hover:bg-tower-100 rounded-lg">Cancelar</button>
+            <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg">Cancelar</button>
             <button type="submit" disabled={saving} className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50">{saving ? 'Salvando...' : 'Adicionar'}</button>
           </div>
         </form>
@@ -1202,6 +1205,7 @@ function LinkPersonAsEmitterModal({
     code: '',
     city: '',
     state: '',
+    cityIbgeCode: '',
     address: '',
     phone: '',
     email: '',
@@ -1249,6 +1253,7 @@ function LinkPersonAsEmitterModal({
         code: createForm.code,
         city: createForm.city,
         state: createForm.state,
+        cityIbgeCode: createForm.cityIbgeCode || undefined,
         address: createForm.address || undefined,
         phone: createForm.phone || undefined,
         email: createForm.email || undefined,
@@ -1269,7 +1274,7 @@ function LinkPersonAsEmitterModal({
         <p className="text-sm text-tower-600 mb-4">
           Define a razão social que emite CT-e/Minuta neste depósito. Não cria login de operador.
         </p>
-        {err && <p className="text-red-600 text-sm mb-4">{err}</p>}
+        {err && <p className="text-red-600 dark:text-brand-red-400 text-sm mb-4">{err}</p>}
         <div className="flex gap-2 mb-4">
           <button
             type="button"
@@ -1298,7 +1303,7 @@ function LinkPersonAsEmitterModal({
               </select>
             </div>
             <div className="flex gap-2 justify-end pt-2">
-              <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 hover:bg-tower-100 rounded-lg">Cancelar</button>
+              <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg">Cancelar</button>
               <button type="submit" disabled={saving} className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50">{saving ? 'Salvando...' : 'Vincular'}</button>
             </div>
           </form>
@@ -1327,10 +1332,10 @@ function LinkPersonAsEmitterModal({
                 value={createForm.city && createForm.state ? `${createForm.city}, ${createForm.state}` : createForm.city}
                 onChange={v => {
                   const parts = v.split(', ');
-                  if (parts.length >= 2) setCreateForm(f => ({ ...f, city: parts[0], state: parts[1] }));
-                  else setCreateForm(f => ({ ...f, city: v }));
+                  if (parts.length >= 2) setCreateForm(f => ({ ...f, city: parts[0], state: parts[1], cityIbgeCode: '' }));
+                  else setCreateForm(f => ({ ...f, city: v, cityIbgeCode: '' }));
                 }}
-                onSelect={(city, state) => setCreateForm(f => ({ ...f, city, state }))}
+                onSelect={(city, state, ibgeCode) => setCreateForm(f => ({ ...f, city, state, cityIbgeCode: ibgeCode || '' }))}
                 state={createForm.state || undefined}
                 placeholder="Ex: São Paulo"
                 required
@@ -1352,7 +1357,7 @@ function LinkPersonAsEmitterModal({
               </div>
             </div>
             <div className="flex gap-2 justify-end pt-2">
-              <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 hover:bg-tower-100 rounded-lg">Cancelar</button>
+              <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg">Cancelar</button>
               <button type="submit" disabled={saving} className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50">{saving ? 'Criando...' : 'Criar Hub'}</button>
             </div>
           </form>

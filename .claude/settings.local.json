@@ -4,7 +4,10 @@
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
       "Bash(git push *)",
-      "Bash(gh run *)"
+      "Bash(gh run *)",
+      "Bash(git -C \"d:\\\\Kerson Company Tech\\\\TSM EX\\\\TSM EX JAN 2026-ATUAL\\\\tsm ex omni\" status)",
+      "Bash(git -C \"d:\\\\Kerson Company Tech\\\\TSM EX\\\\TSM EX JAN 2026-ATUAL\\\\tsm ex omni\" diff)",
+      "Bash(git -C \"d:\\\\Kerson Company Tech\\\\TSM EX\\\\TSM EX JAN 2026-ATUAL\\\\tsm ex omni\" log --oneline -5)"
     ]
   }
 }

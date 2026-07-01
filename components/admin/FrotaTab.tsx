@@ -170,7 +170,7 @@ const FrotaTab: React.FC = () => {
             id="frota-act"
             value={filterActive}
             onChange={(e) => setFilterActive(e.target.value as 'all' | 'active' | 'inactive')}
-            className="rounded-lg border border-tower-200 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-900 dark:text-tower-100"
+            className="rounded-lg border border-tower-200 dark:border-tower-600 px-3 py-2 text-sm bg-white dark:bg-tower-900 text-tower-900 dark:text-tower-100 focus:outline-none"
           >
             <option value="all">Todos</option>
             <option value="active">Ativos</option>
@@ -185,13 +185,13 @@ const FrotaTab: React.FC = () => {
         <div className="mb-4 bg-brand-50 border border-brand-200 text-brand-800 px-4 py-3 rounded-xl text-sm">{success}</div>
       )}
       {showForm && (
-        <div className="mb-6 bg-white border border-tower-200 rounded-xl p-6 shadow-sm">
-          <h3 className="text-base font-bold text-tower-800 mb-4">
+        <div className="mb-6 bg-white dark:bg-tower-900 border border-tower-200 dark:border-tower-800 rounded-xl p-6 shadow-sm dark:shadow-none">
+          <h3 className="text-base font-bold text-tower-800 dark:text-tower-100 mb-4">
             {editingId ? 'Editar tipo de veículo' : 'Novo tipo de veículo'}
           </h3>
           <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-tower-700 mb-1">Nome</label>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Nome</label>
               <input
                 type="text"
                 value={form.name}
@@ -201,7 +201,7 @@ const FrotaTab: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-tower-700 mb-1">Código</label>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Código</label>
               <input
                 type="text"
                 value={form.code}
@@ -211,7 +211,7 @@ const FrotaTab: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-tower-700 mb-1">Peso máx. (kg)</label>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Peso máx. (kg)</label>
               <input
                 type="number"
                 min={1}
@@ -221,7 +221,7 @@ const FrotaTab: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-tower-700 mb-1">Volume máx. (m³)</label>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Volume máx. (m³)</label>
               <input
                 type="number"
                 min={0.01}
@@ -232,7 +232,7 @@ const FrotaTab: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-tower-700 mb-1">Valor máx. (R$)</label>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Valor máx. (R$)</label>
               <input
                 type="number"
                 min={0}
@@ -242,7 +242,7 @@ const FrotaTab: React.FC = () => {
               />
             </div>
             <div className="md:col-span-2 flex gap-4">
-              <label className="flex items-center gap-2 text-sm text-tower-700">
+              <label className="flex items-center gap-2 text-sm text-tower-700 dark:text-tower-200">
                 <input
                   type="checkbox"
                   checked={form.enclosed}
@@ -251,7 +251,7 @@ const FrotaTab: React.FC = () => {
                 />
                 Fechado
               </label>
-              <label className="flex items-center gap-2 text-sm text-tower-700">
+              <label className="flex items-center gap-2 text-sm text-tower-700 dark:text-tower-200">
                 <input
                   type="checkbox"
                   checked={form.refrigerated}
@@ -261,7 +261,7 @@ const FrotaTab: React.FC = () => {
                 Refrigerado
               </label>
               {editingId && (
-                <label className="flex items-center gap-2 text-sm text-tower-700">
+                <label className="flex items-center gap-2 text-sm text-tower-700 dark:text-tower-200">
                   <input
                     type="checkbox"
                     checked={form.active}
@@ -279,7 +279,7 @@ const FrotaTab: React.FC = () => {
               <button
                 type="button"
                 onClick={() => { setShowForm(false); setEditingId(null); setError(null); }}
-                className="px-4 py-2 text-tower-600 hover:bg-tower-100 rounded-lg"
+                className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg"
               >
                 Cancelar
               </button>
@@ -290,7 +290,7 @@ const FrotaTab: React.FC = () => {
       {loading ? (
         <div className="py-12 text-center text-tower-500">Carregando...</div>
       ) : list.length === 0 ? (
-        <div className="bg-white border-2 border-dashed border-tower-200 rounded-xl p-12 text-center text-tower-500">
+        <div className="bg-white dark:bg-tower-900 border-2 border-dashed border-tower-200 dark:border-tower-800 rounded-xl p-12 text-center text-tower-500">
           Nenhum tipo de veículo cadastrado.
         </div>
       ) : filteredList.length === 0 ? (
@@ -300,12 +300,12 @@ const FrotaTab: React.FC = () => {
           <table className="w-full">
             <thead className="bg-tower-50 border-b border-tower-200">
               <tr>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700">Nome / Código</th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700">Peso máx.</th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700">Volume máx.</th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700">Valor máx.</th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700">Ativo</th>
-                <th className="text-right py-3 px-4 text-sm font-semibold text-tower-700">Ações</th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700 dark:text-tower-300">Nome / Código</th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700 dark:text-tower-300">Peso máx.</th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700 dark:text-tower-300">Volume máx.</th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700 dark:text-tower-300">Valor máx.</th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-tower-700 dark:text-tower-300">Ativo</th>
+                <th className="text-right py-3 px-4 text-sm font-semibold text-tower-700 dark:text-tower-300">Ações</th>
               </tr>
             </thead>
             <tbody>

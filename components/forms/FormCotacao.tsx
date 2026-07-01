@@ -671,7 +671,7 @@ export default function FormCotacao() {
                     }, 200);
                   }
                 }}
-                className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
+                className="w-full p-3 bg-tower-50 dark:bg-tower-850 border border-tower-200 dark:border-tower-700 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 focus:outline-none"
                 maxLength={18}
               />
               {idx === activeCnpjRemetenteBlock && showCnpjRemetente && cnpjRemetenteSuggestions.length > 0 && (
@@ -739,7 +739,7 @@ export default function FormCotacao() {
                     }, 200);
                   }
                 }}
-                className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
+                className="w-full p-3 bg-tower-50 dark:bg-tower-850 border border-tower-200 dark:border-tower-700 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 focus:outline-none"
                 maxLength={18}
               />
               {idx === activeCnpjDestinoBlock && showCnpjDestino && cnpjDestinoSuggestions.length > 0 && (
@@ -800,7 +800,7 @@ export default function FormCotacao() {
                       setShowCnpjTransportadora(true);
                     }
                   }}
-                  className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
+                  className="w-full p-3 bg-tower-50 dark:bg-tower-850 border border-tower-200 dark:border-tower-700 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 focus:outline-none"
                   maxLength={18}
                 />
                 {idx === activeCnpjTransportadoraBlock && showCnpjTransportadora && cnpjTransportadoraSuggestions.length > 0 && (
@@ -852,7 +852,7 @@ export default function FormCotacao() {
                     setShowOrigin(true);
                   }}
                   onFocus={() => focusOrigin(idx)}
-                  className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
+                  className="w-full p-3 bg-tower-50 dark:bg-tower-850 border border-tower-200 dark:border-tower-700 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 focus:outline-none"
                 />
                 {idx === activeOriginBlock && showOrigin && originSuggestions.length > 0 && (
                   <div className="absolute z-10 w-full mt-1 bg-white dark:bg-tower-800 border border-tower-200 dark:border-tower-600 rounded-xl shadow-lg max-h-48 overflow-y-auto">
@@ -882,7 +882,7 @@ export default function FormCotacao() {
                     setShowDest(true);
                   }}
                   onFocus={() => focusDest(idx)}
-                  className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
+                  className="w-full p-3 bg-tower-50 dark:bg-tower-850 border border-tower-200 dark:border-tower-700 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 focus:outline-none"
                 />
                 {idx === activeDestBlock && showDest && destSuggestions.length > 0 && (
                   <div className="absolute z-10 w-full mt-1 bg-white dark:bg-tower-800 border border-tower-200 dark:border-tower-600 rounded-xl shadow-lg max-h-48 overflow-y-auto">
@@ -910,7 +910,7 @@ export default function FormCotacao() {
                   placeholder="O que está enviando"
                   value={block.commodity}
                   onChange={e => updateBlock(idx, { commodity: e.target.value })}
-                  className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
+                  className="w-full p-3 bg-tower-50 dark:bg-tower-850 border border-tower-200 dark:border-tower-700 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 focus:outline-none"
                 />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -923,7 +923,7 @@ export default function FormCotacao() {
                     placeholder="0,00"
                     value={block.nfValue}
                     onChange={e => updateBlock(idx, { nfValue: e.target.value })}
-                    className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
+                    className="w-full p-3 bg-tower-50 dark:bg-tower-850 border border-tower-200 dark:border-tower-700 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 focus:outline-none"
                   />
                 </div>
                 <div>
@@ -935,7 +935,7 @@ export default function FormCotacao() {
                     placeholder="0"
                     value={block.weight}
                     onChange={e => updateBlock(idx, { weight: e.target.value })}
-                    className="w-full p-3 bg-tower-50 dark:bg-tower-700/50 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
+                    className="w-full p-3 bg-tower-50 dark:bg-tower-850 border border-tower-200 dark:border-tower-700 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 focus:outline-none"
                   />
                 </div>
               </div>

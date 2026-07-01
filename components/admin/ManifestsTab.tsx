@@ -310,7 +310,7 @@ const ManifestsTab: React.FC = () => {
                 id="man-st"
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
-                className="rounded-lg border border-tower-200 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-900 dark:text-tower-100"
+                className="rounded-lg border border-tower-200 dark:border-tower-600 px-3 py-2 text-sm bg-white dark:bg-tower-900 text-tower-900 dark:text-tower-100 focus:outline-none"
               >
                 <option value="">Todos</option>
                 {Object.keys(statusLabels).map((k) => (
@@ -329,7 +329,7 @@ const ManifestsTab: React.FC = () => {
                 type="search"
                 value={filterQ}
                 onChange={(e) => setFilterQ(e.target.value)}
-                className="w-full rounded-lg border border-tower-200 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-900 dark:text-tower-100"
+                className="w-full rounded-lg border border-tower-200 dark:border-tower-600 px-3 py-2 text-sm bg-white dark:bg-tower-900 text-tower-900 dark:text-tower-100 focus:outline-none"
                 placeholder="Origem, destino ou ID…"
               />
             </div>
@@ -348,11 +348,11 @@ const ManifestsTab: React.FC = () => {
       )}
 
       {showCreate && (
-        <div className="mb-6 bg-white border border-tower-200 rounded-xl p-6 shadow-sm">
-          <h3 className="text-base font-bold text-tower-800 mb-4">Nova viagem</h3>
+        <div className="mb-6 bg-white dark:bg-tower-900 border border-tower-200 dark:border-tower-800 rounded-xl p-6 shadow-sm dark:shadow-none">
+          <h3 className="text-base font-bold text-tower-800 dark:text-tower-100 mb-4">Nova viagem</h3>
           <form onSubmit={handleCreate} className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-tower-700 mb-1">Tipo de viagem</label>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Tipo de viagem</label>
               <select
                 value={createForm.tripType}
                 onChange={(e) =>
@@ -370,7 +370,7 @@ const ManifestsTab: React.FC = () => {
             </div>
             {createForm.tripType === 'TRANSFER' && (
               <div>
-                <label className="block text-sm font-medium text-tower-700 mb-1">Hub destino</label>
+                <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Hub destino</label>
                 <select
                   value={createForm.destHubId}
                   onChange={(e) => setCreateForm((f) => ({ ...f, destHubId: e.target.value }))}
@@ -389,7 +389,7 @@ const ManifestsTab: React.FC = () => {
               </div>
             )}
             <div>
-              <label className="block text-sm font-medium text-tower-700 mb-1">Tipo de veículo</label>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Tipo de veículo</label>
               <select
                 value={createForm.vehicleTypeId}
                 onChange={(e) => setCreateForm((f) => ({ ...f, vehicleTypeId: e.target.value }))}
@@ -403,7 +403,7 @@ const ManifestsTab: React.FC = () => {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-tower-700 mb-1">Hub origem (opcional)</label>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Hub origem (opcional)</label>
               <select
                 value={createForm.hubId}
                 onChange={(e) => setCreateForm((f) => ({ ...f, hubId: e.target.value }))}
@@ -416,7 +416,7 @@ const ManifestsTab: React.FC = () => {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-tower-700 mb-1">Origem</label>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Origem</label>
               <CityAutocomplete
                 value={createForm.origin}
                 onChange={(v) => setCreateForm((f) => ({ ...f, origin: v }))}
@@ -426,7 +426,7 @@ const ManifestsTab: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-tower-700 mb-1">Destino</label>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Destino</label>
               <CityAutocomplete
                 value={createForm.destination}
                 onChange={(v) => setCreateForm((f) => ({ ...f, destination: v }))}
@@ -437,18 +437,18 @@ const ManifestsTab: React.FC = () => {
             </div>
             <div className="md:col-span-2 flex gap-2">
               <button type="submit" className="px-4 py-2 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700">Criar</button>
-              <button type="button" onClick={() => { setShowCreate(false); setError(null); }} className="px-4 py-2 text-tower-600 hover:bg-tower-100 rounded-lg">Cancelar</button>
+              <button type="button" onClick={() => { setShowCreate(false); setError(null); }} className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg">Cancelar</button>
             </div>
           </form>
         </div>
       )}
 
       {showAddDemand && (
-        <div className="mb-6 bg-white border border-tower-200 rounded-xl p-6 shadow-sm">
-          <h3 className="text-base font-bold text-tower-800 mb-4">Adicionar demanda à viagem</h3>
+        <div className="mb-6 bg-white dark:bg-tower-900 border border-tower-200 dark:border-tower-800 rounded-xl p-6 shadow-sm dark:shadow-none">
+          <h3 className="text-base font-bold text-tower-800 dark:text-tower-100 mb-4">Adicionar demanda à viagem</h3>
           <div className="flex gap-2 items-end">
             <div className="flex-1">
-              <label className="block text-sm font-medium text-tower-700 mb-1">Demanda aprovada (sem viagem)</label>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Demanda aprovada (sem viagem)</label>
               <select
                 value={selectedDemandId}
                 onChange={(e) => setSelectedDemandId(e.target.value)}
@@ -461,17 +461,17 @@ const ManifestsTab: React.FC = () => {
               </select>
             </div>
             <button type="button" onClick={handleAddDemand} disabled={!selectedDemandId} className="px-4 py-2 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50">Adicionar</button>
-            <button type="button" onClick={() => { setShowAddDemand(null); setSelectedDemandId(''); }} className="px-4 py-2 text-tower-600 hover:bg-tower-100 rounded-lg">Fechar</button>
+            <button type="button" onClick={() => { setShowAddDemand(null); setSelectedDemandId(''); }} className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg">Fechar</button>
           </div>
         </div>
       )}
 
       {showAssign && (
-        <div className="mb-6 bg-white border border-tower-200 rounded-xl p-6 shadow-sm">
-          <h3 className="text-base font-bold text-tower-800 mb-4">Atribuir motorista (Link)</h3>
+        <div className="mb-6 bg-white dark:bg-tower-900 border border-tower-200 dark:border-tower-800 rounded-xl p-6 shadow-sm dark:shadow-none">
+          <h3 className="text-base font-bold text-tower-800 dark:text-tower-100 mb-4">Atribuir motorista (Link)</h3>
           <div className="flex gap-2 items-end">
             <div className="flex-1">
-              <label className="block text-sm font-medium text-tower-700 mb-1">Motorista</label>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Motorista</label>
               <select
                 value={assignLinkId}
                 onChange={(e) => setAssignLinkId(e.target.value)}
@@ -484,7 +484,7 @@ const ManifestsTab: React.FC = () => {
               </select>
             </div>
             <button type="button" onClick={handleAssign} disabled={!assignLinkId} className="px-4 py-2 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50">Atribuir</button>
-            <button type="button" onClick={() => { setShowAssign(null); setAssignLinkId(''); }} className="px-4 py-2 text-tower-600 hover:bg-tower-100 rounded-lg">Fechar</button>
+            <button type="button" onClick={() => { setShowAssign(null); setAssignLinkId(''); }} className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg">Fechar</button>
           </div>
         </div>
       )}
@@ -538,7 +538,7 @@ const ManifestsTab: React.FC = () => {
                           e.stopPropagation();
                           openAddDemand(m.id);
                         }}
-                        className="px-3 py-1.5 text-sm bg-tower-100 text-tower-700 rounded-lg hover:bg-tower-200"
+                        className="px-3 py-1.5 text-sm bg-tower-100 dark:bg-tower-800 text-tower-700 dark:text-tower-300 rounded-lg hover:bg-tower-200 dark:hover:bg-tower-700"
                       >
                         + Demanda
                       </button>
@@ -549,7 +549,7 @@ const ManifestsTab: React.FC = () => {
                           setShowAssign(m.id);
                           setAssignLinkId(m.linkId || '');
                         }}
-                        className="px-3 py-1.5 text-sm bg-tower-100 text-tower-700 rounded-lg hover:bg-tower-200"
+                        className="px-3 py-1.5 text-sm bg-tower-100 dark:bg-tower-800 text-tower-700 dark:text-tower-300 rounded-lg hover:bg-tower-200 dark:hover:bg-tower-700"
                       >
                         Atribuir motorista
                       </button>

@@ -515,14 +515,14 @@ const CommercialTab: React.FC<{ forceSubTab?: CommercialSubTab }> = ({ forceSubT
     return (
         <div>
             {!forceSubTab && (
-            <div className="flex border-b border-tower-200 mb-6">
+            <div className="flex border-b border-tower-200 dark:border-tower-800 mb-6">
                 <button
                     type="button"
                     onClick={() => setCommercialSubTab('pipeline')}
                     className={`px-4 py-2 font-medium text-sm border-b-2 transition-colors ${
                         commercialSubTab === 'pipeline'
                             ? 'border-brand-600 text-brand-600'
-                            : 'border-transparent text-tower-500 hover:text-tower-700'
+                            : 'border-transparent text-tower-500 dark:text-tower-400 hover:text-tower-700 dark:hover:text-tower-200'
                     }`}
                 >
                     Pipeline
@@ -533,7 +533,7 @@ const CommercialTab: React.FC<{ forceSubTab?: CommercialSubTab }> = ({ forceSubT
                     className={`px-4 py-2 font-medium text-sm border-b-2 transition-colors ${
                         commercialSubTab === 'tarifas'
                             ? 'border-brand-600 text-brand-600'
-                            : 'border-transparent text-tower-500 hover:text-tower-700'
+                            : 'border-transparent text-tower-500 dark:text-tower-400 hover:text-tower-700 dark:hover:text-tower-200'
                     }`}
                 >
                     Tarifas
@@ -615,13 +615,13 @@ const CommercialTab: React.FC<{ forceSubTab?: CommercialSubTab }> = ({ forceSubT
             )}
 
             {error && (
-                <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl">
+                <div className="mb-4 bg-red-50 dark:bg-brand-red-500/15 border border-red-200 dark:border-brand-red-500/25 text-red-700 dark:text-brand-red-400 px-4 py-3 rounded-xl">
                     {error}
                 </div>
             )}
 
             {success && (
-                <div className="mb-4 bg-brand-50 border border-brand-200 text-brand-800 px-4 py-3 rounded-xl">
+                <div className="mb-4 bg-brand-50 dark:bg-brand-950/40 border border-brand-200 dark:border-brand-900/40 text-brand-800 dark:text-brand-400 px-4 py-3 rounded-xl">
                     {success}
                 </div>
             )}
@@ -656,7 +656,7 @@ const CommercialTab: React.FC<{ forceSubTab?: CommercialSubTab }> = ({ forceSubT
 
                 <DragOverlay>
                     {activeId ? (
-                        <div className="bg-white border border-tower-200 rounded-xl p-4 opacity-90 shadow-lg">
+                        <div className="bg-white dark:bg-tower-900 border border-tower-200 dark:border-tower-800 rounded-xl p-4 opacity-90 shadow-lg">
                             Arrastando...
                         </div>
                     ) : null}

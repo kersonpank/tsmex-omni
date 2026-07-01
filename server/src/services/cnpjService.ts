@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { AppError } from '../middleware/errorHandler.js';
+import { resolveIbgeCode } from './acbr/acbrIbge.js';
 
 interface CNPJData {
     cnpj: string;
@@ -15,6 +16,7 @@ interface CNPJData {
         city?: string;
         state?: string;
         zipCode?: string;
+        cityIbgeCode?: string;
     };
     phone?: string;
     email?: string;
@@ -199,6 +201,17 @@ export async function consultCNPJ(cnpj: string, sintegraToken?: string): Promise
 
     if (!result || !result.legalName) {
         throw new AppError('CNPJ not found or invalid', 404);
+    }
+
+    if (result && result.address?.city && result.address?.state) {
+        try {
+            const resolved = await resolveIbgeCode(result.address.city, result.address.state);
+            if (resolved) {
+                result.address.cityIbgeCode = resolved.ibgeCode;
+            }
+        } catch (e) {
+            console.error('Failed to resolve IBGE code during CNPJ lookup:', e);
+        }
     }
 
     return result;

@@ -327,6 +327,7 @@ export interface Hub {
     person?: { id: string; document?: string; legalName?: string } | null;
     city: string;
     state: string;
+    cityIbgeCode?: string | null;
     address?: string;
     lat?: number;
     lng?: number;

@@ -33,6 +33,7 @@ type PersonLike = {
     city?: string | null;
     state?: string | null;
     cep?: string | null;
+    cityIbgeCode?: string | null;
 };
 
 async function acbrJsonRequest(
@@ -111,7 +112,7 @@ export async function createAcbrEmpresaForPerson(
     apiEnvironment: AcbrFiscalEnvironment,
     email = 'fiscal@tsm-ex.local',
 ): Promise<{ ok: boolean; duplicate?: boolean; message?: string }> {
-    const cMun = await resolveIbgeMunicipio(person.city, person.state);
+    const cMun = await resolveIbgeMunicipio(person.city, person.state, person.cityIbgeCode);
     const body = buildEmpresaBody(person, email) as Record<string, unknown>;
     const end = (body.endereco as Record<string, unknown>);
     end.codigo_municipio = cMun;

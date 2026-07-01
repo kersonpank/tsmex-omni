@@ -4,14 +4,15 @@ import { locationsApi } from '../../lib/api';
 export interface CityOption {
   id: string;
   name: string;
+  ibgeCode: string;
   state: { code: string; name: string };
 }
 
 interface CityAutocompleteProps {
   value: string;
   onChange: (value: string) => void;
-  /** Callback opcional ao selecionar (city, state) */
-  onSelect?: (city: string, state: string) => void;
+  /** Callback opcional ao selecionar (city, state, ibgeCode) */
+  onSelect?: (city: string, state: string, ibgeCode?: string) => void;
   placeholder?: string;
   state?: string;
   required?: boolean;
@@ -76,7 +77,7 @@ export const CityAutocomplete: React.FC<CityAutocompleteProps> = ({
   const selectCity = (city: CityOption) => {
     const val = `${city.name}, ${city.state.code}`;
     onChange(val);
-    onSelect?.(city.name, city.state.code);
+    onSelect?.(city.name, city.state.code, city.ibgeCode);
     setSuggestions([]);
     setShowSuggestions(false);
   };

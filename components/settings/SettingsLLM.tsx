@@ -388,15 +388,15 @@ const SettingsLLM: React.FC = () => {
             {/* Header */}
             <div className="flex justify-between items-center">
                 <div>
-                    <h2 className="text-2xl font-bold text-tower-900">Modelos de IA</h2>
-                    <p className="text-tower-500 mt-1">
+                    <h2 className="text-2xl font-bold text-tower-900 dark:text-tower-100">Modelos de IA</h2>
+                    <p className="text-tower-500 dark:text-tower-400 mt-1">
                         Configure os modelos LLM usados no sistema
                     </p>
                 </div>
                 <div className="flex gap-2">
                     <button
                         onClick={() => setShowAddProvider(true)}
-                        className="px-4 py-2 bg-tower-100 text-tower-700 rounded-xl font-medium hover:bg-tower-200 transition-colors"
+                        className="px-4 py-2 bg-tower-100 dark:bg-tower-800 text-tower-700 dark:text-tower-300 rounded-xl font-medium hover:bg-tower-200 dark:hover:bg-tower-700 transition-colors"
                     >
                         + Provider
                     </button>
@@ -417,15 +417,15 @@ const SettingsLLM: React.FC = () => {
             )}
 
             {/* Chat Configuration */}
-            <div className="bg-white rounded-2xl border-2 border-brand-100 p-6">
-                <h3 className="text-lg font-bold text-tower-900 mb-4">Configuração do Chat</h3>
-                <p className="text-sm text-tower-500 mb-6">
+            <div className="bg-white dark:bg-tower-900 rounded-2xl border-2 border-brand-100 dark:border-tower-800 p-6">
+                <h3 className="text-lg font-bold text-tower-900 dark:text-tower-100 mb-4">Configuração do Chat</h3>
+                <p className="text-sm text-tower-500 dark:text-tower-400 mb-6">
                     Escolha qual modelo LLM será usado no chat. Você pode usar um modelo fixo ou configurar rotação entre múltiplos modelos.
                 </p>
 
                 <div className="space-y-4">
                     <div>
-                        <label className="block text-sm font-medium text-tower-700 mb-3">Modo de Seleção</label>
+                        <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-3">Modo de Seleção</label>
                         <div className="flex gap-4">
                             <label className="flex items-center gap-2 cursor-pointer">
                                 <input
@@ -452,11 +452,11 @@ const SettingsLLM: React.FC = () => {
 
                     {chatConfig?.selectionMode === 'FIXED' && (
                         <div>
-                            <label className="block text-sm font-medium text-tower-700 mb-2">Modelo para Chat</label>
+                            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-2">Modelo para Chat</label>
                             <select
                                 value={chatConfig.fixedModelId || ''}
                                 onChange={(e) => handleChatConfigChange('FIXED', e.target.value)}
-                                className="w-full p-3 border rounded-xl"
+                                className="w-full p-3 border border-tower-300 dark:border-tower-600 rounded-xl bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
                             >
                                 <option value="">Selecione um modelo...</option>
                                 {chatModels.map(m => (
@@ -466,7 +466,7 @@ const SettingsLLM: React.FC = () => {
                                 ))}
                             </select>
                             {chatConfig.fixedModel && (
-                                <p className="text-xs text-tower-500 mt-2">
+                                <p className="text-xs text-tower-500 dark:text-tower-400 mt-2">
                                     Modelo atual: <strong>{chatConfig.fixedModel.name}</strong> ({chatConfig.fixedModel.provider?.name})
                                 </p>
                             )}
@@ -475,11 +475,11 @@ const SettingsLLM: React.FC = () => {
 
                     {chatConfig?.selectionMode === 'ROTATION' && (
                         <div>
-                            <label className="block text-sm font-medium text-tower-700 mb-2">Modelos na Rotação</label>
+                            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-2">Modelos na Rotação</label>
                             {chatConfig.rotationModels && chatConfig.rotationModels.length > 0 ? (
                                 <div className="space-y-2">
                                     {chatConfig.rotationModels.map(rm => (
-                                        <div key={rm.id} className="flex items-center justify-between p-3 bg-tower-50 rounded-xl">
+                                        <div key={rm.id} className="flex items-center justify-between p-3 bg-tower-50 dark:bg-tower-800 rounded-xl">
                                             <div>
                                                 <span className="font-medium">{rm.model.name}</span>
                                                 <span className="text-sm text-tower-500 ml-2">
@@ -488,7 +488,7 @@ const SettingsLLM: React.FC = () => {
                                             </div>
                                             <button
                                                 onClick={() => handleRemoveRotationModel(rm.id)}
-                                                className="px-3 py-1 text-xs text-red-600 hover:bg-red-50 rounded-lg"
+                                                className="px-3 py-1 text-xs text-red-600 dark:text-brand-red-400 hover:bg-red-50 rounded-lg"
                                             >
                                                 Remover
                                             </button>
@@ -499,12 +499,12 @@ const SettingsLLM: React.FC = () => {
                                 <p className="text-sm text-tower-500 mb-3">Nenhum modelo na rotação. Adicione modelos abaixo.</p>
                             )}
                             
-                            <div className="mt-4 p-4 bg-tower-50 rounded-xl">
-                                <label className="block text-sm font-medium text-tower-700 mb-2">Adicionar Modelo à Rotação</label>
+                            <div className="mt-4 p-4 bg-tower-50 dark:bg-tower-800 rounded-xl">
+                                <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-2">Adicionar Modelo à Rotação</label>
                                 <div className="flex gap-2">
                                     <select
                                         id="rotationModelSelect"
-                                        className="flex-1 p-2 border rounded-lg"
+                                        className="flex-1 p-2 border border-tower-300 dark:border-tower-700 rounded-lg bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 focus:outline-none"
                                         defaultValue=""
                                     >
                                         <option value="">Selecione um modelo...</option>
@@ -523,7 +523,7 @@ const SettingsLLM: React.FC = () => {
                                         max="10"
                                         defaultValue="1"
                                         placeholder="Peso"
-                                        className="w-20 p-2 border rounded-lg"
+                                        className="w-20 p-2 border border-tower-300 dark:border-tower-700 rounded-lg bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 focus:outline-none"
                                     />
                                     <button
                                         onClick={() => {
@@ -549,13 +549,13 @@ const SettingsLLM: React.FC = () => {
             {/* Providers & API Keys */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {providers.map(provider => (
-                    <div key={provider.id} className={`bg-white rounded-2xl border-2 p-4 ${provider.isBuiltIn ? 'border-tower-100' : 'border-brand-100'}`}>
+                    <div key={provider.id} className={`bg-white dark:bg-tower-900 rounded-2xl border-2 p-4 ${provider.isBuiltIn ? 'border-tower-100 dark:border-tower-800' : 'border-brand-100 dark:border-brand-900/40'}`}>
                         <div className="flex items-center justify-between mb-3">
                             <div>
                                 <h3 className="font-bold text-tower-900">{provider.name}</h3>
                                 <code className="text-xs text-tower-400">{provider.apiFormat}</code>
                             </div>
-                            <span className={`text-xs px-2 py-1 rounded-full ${provider.apiKey ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                            <span className={`text-xs px-2 py-1 rounded-full ${provider.apiKey ? 'bg-green-100 dark:bg-emerald-950/40 text-green-700 dark:text-emerald-400' : 'bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400'}`}>
                                 {provider.apiKey ? 'Configurado' : 'Sem chave'}
                             </span>
                         </div>
@@ -573,7 +573,7 @@ const SettingsLLM: React.FC = () => {
                                     placeholder="Cole sua API key..."
                                     value={apiKeyInput}
                                     onChange={e => setApiKeyInput(e.target.value)}
-                                    className="w-full p-2 border rounded-lg text-sm"
+                                    className="w-full p-2 border border-tower-300 dark:border-tower-600 rounded-lg text-sm bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
                                 />
                                 <div className="flex gap-2">
                                     <button
@@ -584,7 +584,7 @@ const SettingsLLM: React.FC = () => {
                                     </button>
                                     <button
                                         onClick={() => { setShowAddKey(null); setApiKeyInput(''); }}
-                                        className="px-3 py-1 bg-tower-100 rounded-lg text-sm"
+                                        className="px-3 py-1 bg-tower-100 dark:bg-tower-800 text-tower-700 dark:text-tower-300 rounded-lg text-sm hover:bg-tower-200 dark:hover:bg-tower-700"
                                     >
                                         Cancelar
                                     </button>
@@ -593,7 +593,7 @@ const SettingsLLM: React.FC = () => {
                         ) : (
                             <button
                                 onClick={() => setShowAddKey(provider.id)}
-                                className="w-full py-2 border-2 border-dashed border-tower-200 rounded-xl text-tower-500 hover:border-brand-300 hover:text-brand-600 text-sm transition-colors"
+                                className="w-full py-2 border-2 border-dashed border-tower-200 dark:border-tower-850 rounded-xl text-tower-500 dark:text-tower-400 hover:border-brand-300 hover:text-brand-600 text-sm transition-colors"
                             >
                                 {provider.apiKey ? 'Atualizar Chave' : 'Adicionar Chave'}
                             </button>
@@ -603,7 +603,7 @@ const SettingsLLM: React.FC = () => {
             </div>
 
             {/* Models List */}
-            <div className="bg-white rounded-2xl border-2 border-tower-100 overflow-hidden">
+            <div className="bg-white dark:bg-tower-900 rounded-2xl border-2 border-tower-100 dark:border-tower-800 overflow-hidden">
                 <div className="px-6 py-4 border-b border-tower-100">
                     <h3 className="font-bold text-tower-900">Modelos Configurados</h3>
                 </div>
@@ -627,7 +627,7 @@ const SettingsLLM: React.FC = () => {
                                             {model.modelId}
                                         </code>
                                         {model.isDefault && (
-                                            <span className="text-xs px-2 py-0.5 bg-brand-100 text-brand-700 rounded-full font-medium">
+                                            <span className="text-xs px-2 py-0.5 bg-brand-100 dark:bg-brand-950 text-brand-700 dark:text-brand-400 rounded-full font-medium">
                                                 PADRÃO
                                             </span>
                                         )}
@@ -637,7 +637,7 @@ const SettingsLLM: React.FC = () => {
                                         {model.inputPrice ? ` • $${model.inputPrice}/$${model.outputPrice} per 1M` : ''}
                                     </div>
                                     {testResult?.id === model.id && (
-                                        <div className={`text-sm mt-1 ${testResult.success ? 'text-brand-600' : 'text-red-600'}`}>
+                                        <div className={`text-sm mt-1 ${testResult.success ? 'text-brand-600' : 'text-red-600 dark:text-brand-red-400'}`}>
                                             {testResult.message}
                                         </div>
                                     )}
@@ -648,7 +648,7 @@ const SettingsLLM: React.FC = () => {
                                     <button
                                         onClick={() => handleTestModel(model.id)}
                                         disabled={testingModel === model.id}
-                                        className="px-3 py-1.5 text-xs font-medium bg-tower-100 hover:bg-tower-200 rounded-lg transition-colors disabled:opacity-50"
+                                        className="px-3 py-1.5 text-xs font-medium bg-tower-100 dark:bg-tower-800 hover:bg-tower-200 dark:hover:bg-tower-700 text-tower-700 dark:text-tower-300 rounded-lg transition-colors disabled:opacity-50"
                                     >
                                         {testingModel === model.id ? '...' : 'Testar'}
                                     </button>
@@ -656,7 +656,7 @@ const SettingsLLM: React.FC = () => {
                                     {!model.isDefault && (
                                         <button
                                             onClick={() => handleSetDefault(model.id)}
-                                            className="px-3 py-1.5 text-xs font-medium bg-brand-100 text-brand-700 hover:bg-brand-200 rounded-lg transition-colors"
+                                            className="px-3 py-1.5 text-xs font-medium bg-brand-100 dark:bg-brand-950 text-brand-700 dark:text-brand-400 hover:bg-brand-200 dark:hover:bg-brand-900/50 rounded-lg transition-colors"
                                         >
                                             Padrão
                                         </button>
@@ -674,7 +674,7 @@ const SettingsLLM: React.FC = () => {
 
                                     <button
                                         onClick={() => handleDeleteModel(model.id)}
-                                        className="px-2 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                        className="px-2 py-1.5 text-xs text-red-600 dark:text-brand-red-400 hover:bg-red-50 rounded-lg transition-colors"
                                     >
                                         🗑
                                     </button>
@@ -688,16 +688,16 @@ const SettingsLLM: React.FC = () => {
             {/* Add Model Modal */}
             {showAddModel && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-auto">
+                    <div className="bg-white dark:bg-tower-900 border dark:border-tower-800 rounded-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-auto">
                         <h3 className="text-xl font-bold text-tower-900 mb-4">Adicionar Modelo</h3>
 
                         <div className="space-y-4">
                             <div>
-                                <label className="block text-sm font-medium text-tower-700 mb-1">Provider *</label>
+                                <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Provider *</label>
                                 <select
                                     value={newModel.providerId}
                                     onChange={e => setNewModel(m => ({ ...m, providerId: e.target.value }))}
-                                    className="w-full p-3 border rounded-xl"
+                                    className="w-full p-3 border border-tower-300 dark:border-tower-600 rounded-xl bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
                                 >
                                     <option value="">Selecione...</option>
                                     {providers.map(p => (
@@ -708,40 +708,40 @@ const SettingsLLM: React.FC = () => {
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-tower-700 mb-1">Nome *</label>
+                                    <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Nome *</label>
                                     <input
                                         type="text"
                                         placeholder="GPT-4o"
                                         value={newModel.name}
                                         onChange={e => setNewModel(m => ({ ...m, name: e.target.value }))}
-                                        className="w-full p-3 border rounded-xl"
+                                        className="w-full p-3 border border-tower-300 dark:border-tower-600 rounded-xl bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-tower-700 mb-1">Model ID *</label>
+                                    <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Model ID *</label>
                                     <input
                                         type="text"
                                         placeholder="gpt-4o"
                                         value={newModel.modelId}
                                         onChange={e => setNewModel(m => ({ ...m, modelId: e.target.value }))}
-                                        className="w-full p-3 border rounded-xl"
+                                        className="w-full p-3 border border-tower-300 dark:border-tower-600 rounded-xl bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
                                     />
                                 </div>
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-tower-700 mb-1">Descrição</label>
+                                <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Descrição</label>
                                 <input
                                     type="text"
                                     placeholder="Modelo otimizado para..."
                                     value={newModel.description}
                                     onChange={e => setNewModel(m => ({ ...m, description: e.target.value }))}
-                                    className="w-full p-3 border rounded-xl"
+                                    className="w-full p-3 border border-tower-300 dark:border-tower-600 rounded-xl bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
                                 />
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-tower-700 mb-2">Capabilities</label>
+                                <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-2">Capabilities</label>
                                 <div className="flex flex-wrap gap-2">
                                     {CAPABILITIES.map(cap => (
                                         <button
@@ -761,44 +761,44 @@ const SettingsLLM: React.FC = () => {
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-tower-700 mb-1">Context Window</label>
+                                    <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Context Window</label>
                                     <input
                                         type="number"
                                         value={newModel.contextWindow}
                                         onChange={e => setNewModel(m => ({ ...m, contextWindow: parseInt(e.target.value) || 8192 }))}
-                                        className="w-full p-3 border rounded-xl"
+                                        className="w-full p-3 border border-tower-300 dark:border-tower-600 rounded-xl bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-tower-700 mb-1">Max Output</label>
+                                    <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Max Output</label>
                                     <input
                                         type="number"
                                         value={newModel.maxOutput}
                                         onChange={e => setNewModel(m => ({ ...m, maxOutput: parseInt(e.target.value) || 4096 }))}
-                                        className="w-full p-3 border rounded-xl"
+                                        className="w-full p-3 border border-tower-300 dark:border-tower-600 rounded-xl bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
                                     />
                                 </div>
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-tower-700 mb-1">Preço Input (USD/1M)</label>
+                                    <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Preço Input (USD/1M)</label>
                                     <input
                                         type="number"
                                         step="0.01"
                                         value={newModel.inputPrice}
                                         onChange={e => setNewModel(m => ({ ...m, inputPrice: parseFloat(e.target.value) || 0 }))}
-                                        className="w-full p-3 border rounded-xl"
+                                        className="w-full p-3 border border-tower-300 dark:border-tower-600 rounded-xl bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-tower-700 mb-1">Preço Output (USD/1M)</label>
+                                    <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Preço Output (USD/1M)</label>
                                     <input
                                         type="number"
                                         step="0.01"
                                         value={newModel.outputPrice}
                                         onChange={e => setNewModel(m => ({ ...m, outputPrice: parseFloat(e.target.value) || 0 }))}
-                                        className="w-full p-3 border rounded-xl"
+                                        className="w-full p-3 border border-tower-300 dark:border-tower-600 rounded-xl bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
                                     />
                                 </div>
                             </div>
@@ -814,7 +814,7 @@ const SettingsLLM: React.FC = () => {
                             </button>
                             <button
                                 onClick={() => setShowAddModel(false)}
-                                className="px-6 py-3 bg-tower-100 font-medium rounded-xl hover:bg-tower-200 transition-colors"
+                                className="px-6 py-3 bg-tower-100 dark:bg-tower-800 text-tower-700 dark:text-tower-300 font-medium rounded-xl hover:bg-tower-200 dark:hover:bg-tower-700 transition-colors"
                             >
                                 Cancelar
                             </button>
@@ -826,51 +826,51 @@ const SettingsLLM: React.FC = () => {
             {/* Add Provider Modal */}
             {showAddProvider && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-2xl p-6 w-full max-w-lg">
+                    <div className="bg-white dark:bg-tower-900 border dark:border-tower-800 rounded-2xl p-6 w-full max-w-lg">
                         <h3 className="text-xl font-bold text-tower-900 mb-4">Adicionar Provider Customizado</h3>
 
                         <div className="space-y-4">
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-tower-700 mb-1">Nome *</label>
+                                    <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Nome *</label>
                                     <input
                                         type="text"
                                         placeholder="Meu Provider"
                                         value={newProvider.name}
                                         onChange={e => setNewProvider(p => ({ ...p, name: e.target.value }))}
-                                        className="w-full p-3 border rounded-xl"
+                                        className="w-full p-3 border border-tower-300 dark:border-tower-600 rounded-xl bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-tower-700 mb-1">Código *</label>
+                                    <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Código *</label>
                                     <input
                                         type="text"
                                         placeholder="meu-provider"
                                         value={newProvider.code}
                                         onChange={e => setNewProvider(p => ({ ...p, code: e.target.value.toLowerCase().replace(/\s/g, '-') }))}
-                                        className="w-full p-3 border rounded-xl"
+                                        className="w-full p-3 border border-tower-300 dark:border-tower-600 rounded-xl bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
                                     />
                                 </div>
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-tower-700 mb-1">Base URL *</label>
+                                <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Base URL *</label>
                                 <input
                                     type="url"
                                     placeholder="https://api.example.com/v1"
                                     value={newProvider.baseUrl}
                                     onChange={e => setNewProvider(p => ({ ...p, baseUrl: e.target.value }))}
-                                    className="w-full p-3 border rounded-xl"
+                                    className="w-full p-3 border border-tower-300 dark:border-tower-600 rounded-xl bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
                                 />
                                 <p className="text-xs text-tower-400 mt-1">Maioria das APIs usa formato OpenAI: /v1/chat/completions</p>
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-tower-700 mb-1">Formato da API</label>
+                                <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Formato da API</label>
                                 <select
                                     value={newProvider.apiFormat}
                                     onChange={e => setNewProvider(p => ({ ...p, apiFormat: e.target.value }))}
-                                    className="w-full p-3 border rounded-xl"
+                                    className="w-full p-3 border border-tower-300 dark:border-tower-600 rounded-xl bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
                                 >
                                     <option value="openai">OpenAI-compatible (DeepSeek, Groq, etc.)</option>
                                     <option value="gemini">Google Gemini</option>
@@ -902,7 +902,7 @@ const SettingsLLM: React.FC = () => {
                             </button>
                             <button
                                 onClick={() => setShowAddProvider(false)}
-                                className="px-6 py-3 bg-tower-100 font-medium rounded-xl hover:bg-tower-200 transition-colors"
+                                className="px-6 py-3 bg-tower-100 dark:bg-tower-800 text-tower-700 dark:text-tower-300 font-medium rounded-xl hover:bg-tower-200 dark:hover:bg-tower-700 transition-colors"
                             >
                                 Cancelar
                             </button>

@@ -58,10 +58,10 @@ export async function buildAcbrCteEmitBody(input: CteEmissionInput, referencia: 
     const tomador = getTomador(input);
     if (!rem || !dest || !tomador) throw new Error('Remetente, destinatário e tomador são obrigatórios para ACBr CT-e.');
 
-    const emitCmun = await resolveIbgeMunicipio(emit.city, emit.state);
-    const remCmun = await resolveIbgeMunicipio(rem.city, rem.state);
-    const destCmun = await resolveIbgeMunicipio(dest.city, dest.state);
-    const tomCmun = await resolveIbgeMunicipio(tomador.city, tomador.state);
+    const emitCmun = await resolveIbgeMunicipio(emit.city, emit.state, emit.cityIbgeCode);
+    const remCmun = await resolveIbgeMunicipio(rem.city, rem.state, input.order.origemIbgeCode ?? rem.cityIbgeCode);
+    const destCmun = await resolveIbgeMunicipio(dest.city, dest.state, input.order.fimIbgeCode ?? dest.cityIbgeCode);
+    const tomCmun = await resolveIbgeMunicipio(tomador.city, tomador.state, tomador.cityIbgeCode);
 
     const cUF = ufToCuf(emit.state);
     const tpAmb = input.ambiente === 'PRODUCAO' ? 1 : 2;

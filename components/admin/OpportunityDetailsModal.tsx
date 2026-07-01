@@ -189,59 +189,59 @@ const OpportunityDetailsModal: React.FC<OpportunityDetailsModalProps> = ({
                             )}
                             <div className="grid md:grid-cols-2 gap-6">
                                 <div>
-                                    <label className="block text-xs font-bold text-tower-400 uppercase mb-1">Origem</label>
-                                    <div className="text-tower-900 font-medium">{opportunity.origin || 'Não informado'}</div>
+                                    <label className="block text-xs font-bold text-tower-400 dark:text-tower-500 uppercase mb-1">Origem</label>
+                                    <div className="text-tower-900 dark:text-tower-100 font-medium">{opportunity.origin || 'Não informado'}</div>
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-tower-400 uppercase mb-1">Destino</label>
-                                    <div className="text-tower-900 font-medium">{opportunity.destination || 'Não informado'}</div>
+                                    <label className="block text-xs font-bold text-tower-400 dark:text-tower-500 uppercase mb-1">Destino</label>
+                                    <div className="text-tower-900 dark:text-tower-100 font-medium">{opportunity.destination || 'Não informado'}</div>
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-tower-400 uppercase mb-1">CNPJ Remetente</label>
-                                    <div className="text-tower-900 font-medium">{opportunity.cpfCnpjSender || 'Não informado'}</div>
+                                    <label className="block text-xs font-bold text-tower-400 dark:text-tower-500 uppercase mb-1">CNPJ Remetente</label>
+                                    <div className="text-tower-900 dark:text-tower-100 font-medium">{opportunity.cpfCnpjSender || 'Não informado'}</div>
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-tower-400 uppercase mb-1">CNPJ Destinatário</label>
-                                    <div className="text-tower-900 font-medium">{opportunity.cpfCnpjReceiver || 'Não informado'}</div>
+                                    <label className="block text-xs font-bold text-tower-400 dark:text-tower-500 uppercase mb-1">CNPJ Destinatário</label>
+                                    <div className="text-tower-900 dark:text-tower-100 font-medium">{opportunity.cpfCnpjReceiver || 'Não informado'}</div>
                                 </div>
                                 {opportunity.cpfCnpjTransportadora && (
                                     <div>
-                                        <label className="block text-xs font-bold text-tower-400 uppercase mb-1">CNPJ Transportadora</label>
-                                        <div className="text-tower-900 font-medium">{opportunity.cpfCnpjTransportadora}</div>
+                                        <label className="block text-xs font-bold text-tower-400 dark:text-tower-500 uppercase mb-1">CNPJ Transportadora</label>
+                                        <div className="text-tower-900 dark:text-tower-100 font-medium">{opportunity.cpfCnpjTransportadora}</div>
                                     </div>
                                 )}
                                 <div>
-                                    <label className="block text-xs font-bold text-tower-400 uppercase mb-1">Mercadoria</label>
-                                    <div className="text-tower-900 font-medium">{opportunity.commodity || 'Não informado'}</div>
+                                    <label className="block text-xs font-bold text-tower-400 dark:text-tower-500 uppercase mb-1">Mercadoria</label>
+                                    <div className="text-tower-900 dark:text-tower-100 font-medium">{opportunity.commodity || 'Não informado'}</div>
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-tower-400 uppercase mb-1">Peso</label>
-                                    <div className="text-tower-900 font-medium">{opportunity.weight ? `${opportunity.weight}kg` : 'Não informado'}</div>
+                                    <label className="block text-xs font-bold text-tower-400 dark:text-tower-500 uppercase mb-1">Peso</label>
+                                    <div className="text-tower-900 dark:text-tower-100 font-medium">{opportunity.weight ? `${opportunity.weight}kg` : 'Não informado'}</div>
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-tower-400 uppercase mb-1">Volumes</label>
-                                    <div className="text-tower-900 font-medium">{opportunity.volumes || 'Não informado'}</div>
+                                    <label className="block text-xs font-bold text-tower-400 dark:text-tower-500 uppercase mb-1">Volumes</label>
+                                    <div className="text-tower-900 dark:text-tower-100 font-medium">{opportunity.volumes || 'Não informado'}</div>
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-tower-400 uppercase mb-1">Valor da NF</label>
-                                    <div className="text-tower-900 font-medium">
+                                    <label className="block text-xs font-bold text-tower-400 dark:text-tower-500 uppercase mb-1">Valor da NF</label>
+                                    <div className="text-tower-900 dark:text-tower-100 font-medium">
                                         {opportunity.nfValue ? `R$ ${opportunity.nfValue.toLocaleString()}` : 'Não informado'}
                                     </div>
                                 </div>
                                 {opportunity.freightTerm && (
                                     <div>
-                                        <label className="block text-xs font-bold text-tower-400 uppercase mb-1">Termo de Frete</label>
-                                        <div className="text-tower-900 font-medium">{opportunity.freightTerm}</div>
+                                        <label className="block text-xs font-bold text-tower-400 dark:text-tower-500 uppercase mb-1">Termo de Frete</label>
+                                        <div className="text-tower-900 dark:text-tower-100 font-medium">{opportunity.freightTerm}</div>
                                     </div>
                                 )}
                             </div>
 
                             {opportunity.dimensions && (
                                 <div>
-                                    <label className="block text-xs font-bold text-tower-400 uppercase mb-2">Dimensões</label>
+                                    <label className="block text-xs font-bold text-tower-400 dark:text-tower-500 uppercase mb-2">Dimensões</label>
                                     <div className="space-y-2">
                                         {parseDimensions(opportunity.dimensions).map((dim, idx) => (
-                                            <div key={idx} className="bg-tower-50 rounded-lg p-3 text-sm">
+                                            <div key={idx} className="bg-tower-50 dark:bg-tower-800 rounded-lg p-3 text-sm">
                                                 {dim.qty} vol: {dim.altura}cm × {dim.largura}cm × {dim.comprimento}cm
                                             </div>
                                         ))}
@@ -255,20 +255,20 @@ const OpportunityDetailsModal: React.FC<OpportunityDetailsModalProps> = ({
                         <div className="space-y-6">
                             {opportunity.quotedPrice ? (
                                 <>
-                                    <div className="bg-brand-50 border border-brand-200 rounded-xl p-6">
-                                        <div className="text-2xl font-bold text-brand-700 mb-2">
+                                    <div className="bg-brand-50 dark:bg-brand-950/40 border border-brand-200 dark:border-brand-900/50 rounded-xl p-6">
+                                        <div className="text-2xl font-bold text-brand-700 dark:text-brand-300 mb-2">
                                             R$ {opportunity.quotedPrice.toLocaleString()}
                                         </div>
-                                        <div className="text-sm text-brand-600">Valor Total Cotado</div>
+                                        <div className="text-sm text-brand-600 dark:text-brand-400">Valor Total Cotado</div>
                                     </div>
 
                                     {opportunity.quoteBreakdown && typeof opportunity.quoteBreakdown === 'object' && (
                                         <div className="space-y-3">
-                                            <h3 className="font-bold text-tower-800">Detalhamento</h3>
+                                            <h3 className="font-bold text-tower-800 dark:text-tower-100">Detalhamento</h3>
                                             {Object.entries(opportunity.quoteBreakdown as any).map(([key, value]: [string, any]) => (
-                                                <div key={key} className="flex justify-between items-center p-3 bg-tower-50 rounded-lg">
-                                                    <span className="text-sm text-tower-600 capitalize">{key}</span>
-                                                    <span className="text-sm font-bold text-tower-900">
+                                                <div key={key} className="flex justify-between items-center p-3 bg-tower-50 dark:bg-tower-800 rounded-lg">
+                                                    <span className="text-sm text-tower-600 dark:text-tower-300 capitalize">{key}</span>
+                                                    <span className="text-sm font-bold text-tower-900 dark:text-tower-100">
                                                         {typeof value === 'number' ? `R$ ${value.toLocaleString()}` : String(value)}
                                                     </span>
                                                 </div>
@@ -296,20 +296,20 @@ const OpportunityDetailsModal: React.FC<OpportunityDetailsModalProps> = ({
                                 <>
                                     {opportunity.collectionData.contractorCnpj && (
                                         <div>
-                                            <label className="block text-xs font-bold text-tower-400 uppercase mb-1">CNPJ Contratante</label>
-                                            <div className="text-tower-900 font-medium">{opportunity.collectionData.contractorCnpj}</div>
+                                            <label className="block text-xs font-bold text-tower-400 dark:text-tower-500 uppercase mb-1">CNPJ Contratante</label>
+                                            <div className="text-tower-900 dark:text-tower-100 font-medium">{opportunity.collectionData.contractorCnpj}</div>
                                         </div>
                                     )}
 
                                     {opportunity.collectionData.senderContacts && Array.isArray(opportunity.collectionData.senderContacts) && (
                                         <div>
-                                            <label className="block text-xs font-bold text-tower-400 uppercase mb-2">Contatos do Remetente</label>
+                                            <label className="block text-xs font-bold text-tower-400 dark:text-tower-500 uppercase mb-2">Contatos do Remetente</label>
                                             <div className="space-y-3">
                                                 {opportunity.collectionData.senderContacts.map((contact: any, idx: number) => (
-                                                    <div key={idx} className="bg-tower-50 rounded-lg p-4">
-                                                        <div className="font-medium text-tower-900">{contact.name}</div>
-                                                        <div className="text-sm text-tower-600">{contact.phone}</div>
-                                                        {contact.email && <div className="text-sm text-tower-600">{contact.email}</div>}
+                                                    <div key={idx} className="bg-tower-50 dark:bg-tower-800 rounded-lg p-4">
+                                                        <div className="font-medium text-tower-900 dark:text-tower-100">{contact.name}</div>
+                                                        <div className="text-sm text-tower-600 dark:text-tower-300">{contact.phone}</div>
+                                                        {contact.email && <div className="text-sm text-tower-600 dark:text-tower-300">{contact.email}</div>}
                                                         {contact.availableTime && <div className="text-sm text-tower-500">Horário: {contact.availableTime}</div>}
                                                         {contact.notes && <div className="text-sm text-tower-500 mt-2">{contact.notes}</div>}
                                                     </div>
@@ -320,20 +320,20 @@ const OpportunityDetailsModal: React.FC<OpportunityDetailsModalProps> = ({
 
                                     {opportunity.collectionData.address && (
                                         <div>
-                                            <label className="block text-xs font-bold text-tower-400 uppercase mb-2">Endereço de Coleta</label>
-                                            <div className="bg-tower-50 rounded-lg p-4 space-y-1 text-sm">
-                                                <div className="font-medium text-tower-900">
+                                            <label className="block text-xs font-bold text-tower-400 dark:text-tower-500 uppercase mb-2">Endereço de Coleta</label>
+                                            <div className="bg-tower-50 dark:bg-tower-800 rounded-lg p-4 space-y-1 text-sm">
+                                                <div className="font-medium text-tower-900 dark:text-tower-100">
                                                     {opportunity.collectionData.address.street}, {opportunity.collectionData.address.number}
                                                 </div>
                                                 {opportunity.collectionData.address.complement && (
-                                                    <div className="text-tower-600">Complemento: {opportunity.collectionData.address.complement}</div>
+                                                    <div className="text-tower-600 dark:text-tower-300">Complemento: {opportunity.collectionData.address.complement}</div>
                                                 )}
-                                                <div className="text-tower-600">
+                                                <div className="text-tower-600 dark:text-tower-300">
                                                     {opportunity.collectionData.address.neighborhood} - {opportunity.collectionData.address.city}/{opportunity.collectionData.address.state}
                                                 </div>
-                                                <div className="text-tower-600">CEP: {opportunity.collectionData.address.cep}</div>
+                                                <div className="text-tower-600 dark:text-tower-300">CEP: {opportunity.collectionData.address.cep}</div>
                                                 {opportunity.collectionData.address.referencePoint && (
-                                                    <div className="text-tower-500 mt-2 italic">
+                                                    <div className="text-tower-500 dark:text-tower-400 mt-2 italic">
                                                         Ponto de referência: {opportunity.collectionData.address.referencePoint}
                                                     </div>
                                                 )}
@@ -343,12 +343,12 @@ const OpportunityDetailsModal: React.FC<OpportunityDetailsModalProps> = ({
 
                                     <div className="flex gap-4">
                                         {opportunity.collectionData.needsHelper && (
-                                            <span className="px-3 py-1 bg-amber-100 text-amber-700 rounded-lg text-sm font-medium">
+                                            <span className="px-3 py-1 bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 rounded-lg text-sm font-medium">
                                                 Precisa de ajudante
                                             </span>
                                         )}
                                         {opportunity.collectionData.needsLoading && (
-                                            <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-lg text-sm font-medium">
+                                            <span className="px-3 py-1 bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 rounded-lg text-sm font-medium">
                                                 Necessário carregar
                                             </span>
                                         )}
@@ -397,7 +397,7 @@ const OpportunityDetailsModal: React.FC<OpportunityDetailsModalProps> = ({
                                                         ))}
                                                     </div>
                                                 )}
-                                                <div className={`text-xs mt-2 ${msg.role === 'user' ? 'text-brand-100' : 'text-tower-500'}`}>
+                                                <div className={`text-xs mt-2 ${msg.role === 'user' ? 'text-brand-100 dark:text-brand-300' : 'text-tower-500 dark:text-tower-400'}`}>
                                                     {new Date(msg.createdAt).toLocaleString('pt-BR')}
                                                 </div>
                                             </div>
@@ -414,14 +414,14 @@ const OpportunityDetailsModal: React.FC<OpportunityDetailsModalProps> = ({
 
                     {activeTab === 'history' && (
                         <div className="space-y-4">
-                            <div className="bg-tower-50 rounded-lg p-4">
+                            <div className="bg-tower-50 dark:bg-tower-800 rounded-lg p-4">
                                 <div className="text-sm font-medium text-tower-900 mb-1">Criado</div>
                                 <div className="text-xs text-tower-600">
                                     {new Date(opportunity.createdAt).toLocaleString('pt-BR')}
                                 </div>
                             </div>
                             {opportunity.updatedAt && opportunity.updatedAt !== opportunity.createdAt && (
-                                <div className="bg-tower-50 rounded-lg p-4">
+                                <div className="bg-tower-50 dark:bg-tower-800 rounded-lg p-4">
                                     <div className="text-sm font-medium text-tower-900 mb-1">Última atualização</div>
                                     <div className="text-xs text-tower-600">
                                         {new Date(opportunity.updatedAt).toLocaleString('pt-BR')}
@@ -441,10 +441,10 @@ const OpportunityDetailsModal: React.FC<OpportunityDetailsModalProps> = ({
                 </div>
 
                 {/* Footer Actions */}
-                <div className="border-t border-tower-200 p-6 flex justify-end gap-3">
+                <div className="border-t border-tower-200 dark:border-tower-700 p-6 flex justify-end gap-3">
                     <button
                         onClick={onClose}
-                        className="px-4 py-2 text-tower-600 font-medium hover:bg-tower-100 rounded-lg"
+                        className="px-4 py-2 text-tower-600 dark:text-tower-300 font-medium hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg"
                     >
                         Fechar
                     </button>

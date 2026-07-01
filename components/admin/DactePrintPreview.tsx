@@ -92,7 +92,17 @@ const DactePrintPreview: React.FC<DactePrintPreviewProps> = ({ payload, branding
             </div>
             <div className="p-1 text-center text-[10px]">
               <b>Autorização</b><br />{payload?.autorizacaoEm ?? '-'}
-              <div className="mt-2 flex h-24 items-center justify-center border border-black text-[9px]">QR Code</div>
+              <div className="mt-2 flex h-24 items-center justify-center border border-black p-1">
+                {payload?.qrCodeUrl ? (
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(payload.qrCodeUrl)}`}
+                    alt="QR Code"
+                    className="h-22 w-22 object-contain"
+                  />
+                ) : (
+                  <span className="text-[9px]">QR Code</span>
+                )}
+              </div>
               <div className="mt-1 break-all text-[7px]">{payload?.qrCodeUrl ?? '-'}</div>
             </div>
           </section>

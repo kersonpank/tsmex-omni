@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { resolveIbgeCode, parseCityState } from '../services/acbr/acbrIbge.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { freightCalculationsRouter } from './freightCalculations.js';
 import {
@@ -544,6 +545,8 @@ const orderEntradaSchema = z.object({
     redespachantePersonId: optionalUuid(),
     origemPrestacao: z.string().min(1),
     fimPrestacao: z.string().min(1),
+    origemIbgeCode: z.string().optional().nullable(),
+    fimIbgeCode: z.string().optional().nullable(),
     routeId: optionalUuid(),
     hubId: optionalUuid(),
     collectionData: z.record(z.unknown()).optional(),
@@ -571,6 +574,30 @@ router.post('/entrada', authenticate, authorize('ADMIN', 'HUB'), async (req: Aut
 
         if (!payerPersonId) {
             throw new AppError('Pagador não definido. Para REDESPACHO, informe o consignatário.', 400);
+        }
+
+        // Resolve IBGE codes for origemPrestacao and fimPrestacao if not explicitly passed
+        let origemIbgeCode = data.origemIbgeCode ?? null;
+        let fimIbgeCode = data.fimIbgeCode ?? null;
+
+        if (!origemIbgeCode && data.origemPrestacao) {
+            const parsed = parseCityState(data.origemPrestacao);
+            if (parsed) {
+                const resolved = await resolveIbgeCode(parsed.city, parsed.state);
+                if (resolved) {
+                    origemIbgeCode = resolved.ibgeCode;
+                }
+            }
+        }
+
+        if (!fimIbgeCode && data.fimPrestacao) {
+            const parsed = parseCityState(data.fimPrestacao);
+            if (parsed) {
+                const resolved = await resolveIbgeCode(parsed.city, parsed.state);
+                if (resolved) {
+                    fimIbgeCode = resolved.ibgeCode;
+                }
+            }
         }
 
         // Payer must have a Client
@@ -633,6 +660,8 @@ router.post('/entrada', authenticate, authorize('ADMIN', 'HUB'), async (req: Aut
                     redespachantePersonId: data.redespachantePersonId ?? null,
                     origemPrestacao: data.origemPrestacao,
                     fimPrestacao: data.fimPrestacao,
+                    origemIbgeCode,
+                    fimIbgeCode,
                     routeId: data.routeId || undefined,
                     collectionData: data.collectionData != null ? (data.collectionData as Prisma.InputJsonValue) : undefined,
                 }
@@ -736,6 +765,8 @@ const orderPeopleSchema = z.object({
     redespachantePersonId: optionalUuidNullable(),
     origemPrestacao: z.string().optional(),
     fimPrestacao: z.string().optional(),
+    origemIbgeCode: z.string().optional().nullable(),
+    fimIbgeCode: z.string().optional().nullable(),
     routeId: optionalUuidNullable(),
     collectionData: z.record(z.unknown()).optional(),
 });
@@ -761,6 +792,41 @@ router.patch('/:id/people', authenticate, authorize('ADMIN', 'HUB'), async (req:
         if (data.redespachantePersonId !== undefined) updateData.redespachantePersonId = data.redespachantePersonId;
         if (data.origemPrestacao != null) updateData.origemPrestacao = data.origemPrestacao;
         if (data.fimPrestacao != null) updateData.fimPrestacao = data.fimPrestacao;
+
+        let origemIbgeCode = data.origemIbgeCode;
+        let fimIbgeCode = data.fimIbgeCode;
+
+        if (data.origemPrestacao !== undefined && origemIbgeCode === undefined) {
+            if (data.origemPrestacao) {
+                const parsed = parseCityState(data.origemPrestacao);
+                if (parsed) {
+                    const resolved = await resolveIbgeCode(parsed.city, parsed.state);
+                    if (resolved) {
+                        origemIbgeCode = resolved.ibgeCode;
+                    }
+                }
+            } else {
+                origemIbgeCode = null;
+            }
+        }
+
+        if (data.fimPrestacao !== undefined && fimIbgeCode === undefined) {
+            if (data.fimPrestacao) {
+                const parsed = parseCityState(data.fimPrestacao);
+                if (parsed) {
+                    const resolved = await resolveIbgeCode(parsed.city, parsed.state);
+                    if (resolved) {
+                        fimIbgeCode = resolved.ibgeCode;
+                    }
+                }
+            } else {
+                fimIbgeCode = null;
+            }
+        }
+
+        if (origemIbgeCode !== undefined) updateData.origemIbgeCode = origemIbgeCode;
+        if (fimIbgeCode !== undefined) updateData.fimIbgeCode = fimIbgeCode;
+
         if (data.routeId !== undefined) updateData.routeId = data.routeId;
         if (data.collectionData !== undefined) updateData.collectionData = data.collectionData;
 

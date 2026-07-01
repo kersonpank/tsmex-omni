@@ -561,9 +561,9 @@ const CompanyOnboarding: React.FC = () => {
                 
                 {/* Stepper */}
                 <div className="flex justify-between mb-12 relative">
-                    <div className="absolute top-1/2 left-0 w-full h-0.5 bg-tower-200 -z-10 -translate-y-1/2"></div>
+                    <div className="absolute top-1/2 left-0 w-full h-0.5 bg-tower-200 dark:bg-tower-700 -z-10 -translate-y-1/2"></div>
                     {steps.map(step => (
-                        <div key={step.id} className="flex flex-col items-center bg-tower-50 px-3">
+                        <div key={step.id} className="flex flex-col items-center bg-app-bg px-3">
                             <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-bold border-2 transition-all ${
                                 currentStep >= step.id
                                     ? 'bg-brand-600 border-brand-600 text-white shadow-lg shadow-brand-100'
@@ -581,13 +581,13 @@ const CompanyOnboarding: React.FC = () => {
                 </div>
                 
                 {error && (
-                    <div className="bg-red-50 border border-red-200 text-red-600 p-4 rounded-xl mb-6">
+                    <div className="bg-red-50 dark:bg-brand-red-500/15 border border-red-200 dark:border-brand-red-500/25 text-red-600 dark:text-brand-red-400 p-4 rounded-xl mb-6">
                         {error}
                     </div>
                 )}
                 
                 {/* Step Content */}
-                <div className="bg-white dark:bg-tower-800 rounded-[2rem] shadow-xl shadow-tower-200/50 border border-tower-100 p-8 md:p-12">
+                <div className="bg-white dark:bg-tower-800 rounded-[2rem] shadow-xl shadow-tower-200/50 dark:shadow-none border border-tower-100 dark:border-tower-700 p-8 md:p-12">
                     {/* Step 1: Dados da Empresa */}
                     {currentStep === 1 && (
                         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -598,7 +598,7 @@ const CompanyOnboarding: React.FC = () => {
                                 <input
                                     type="text"
                                     placeholder="Ex: Empresa ABC Ltda"
-                                    className="w-full p-4 bg-tower-50 border-2 border-tower-100 rounded-2xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium text-tower-700"
+                                    className="w-full p-4 bg-tower-50 dark:bg-tower-800 border-2 border-tower-100 dark:border-tower-700 rounded-2xl focus:border-brand-500 focus:bg-white dark:focus:bg-tower-900 outline-none transition-all font-medium text-tower-700 dark:text-tower-200"
                                     value={accountName}
                                     onChange={e => setAccountName(e.target.value)}
                                 />
@@ -614,8 +614,8 @@ const CompanyOnboarding: React.FC = () => {
                                         onClick={() => setAccountType('COMPANY')}
                                         className={`flex-1 p-4 rounded-xl border-2 font-bold transition-all ${
                                             accountType === 'COMPANY'
-                                                ? 'bg-brand-50 border-brand-500 text-brand-600'
-                                                : 'bg-tower-50 border-tower-200 dark:border-tower-700 text-tower-400'
+                                                ? 'bg-brand-50 dark:bg-brand-950/40 border-brand-500 text-brand-600 dark:text-brand-400'
+                                                : 'bg-tower-50 dark:bg-tower-800 border-tower-200 dark:border-tower-700 text-tower-400'
                                         }`}
                                     >
                                         Empresa
@@ -625,8 +625,8 @@ const CompanyOnboarding: React.FC = () => {
                                         onClick={() => setAccountType('INDIVIDUAL')}
                                         className={`flex-1 p-4 rounded-xl border-2 font-bold transition-all ${
                                             accountType === 'INDIVIDUAL'
-                                                ? 'bg-brand-50 border-brand-500 text-brand-600'
-                                                : 'bg-tower-50 border-tower-200 dark:border-tower-700 text-tower-400'
+                                                ? 'bg-brand-50 dark:bg-brand-950/40 border-brand-500 text-brand-600 dark:text-brand-400'
+                                                : 'bg-tower-50 dark:bg-tower-800 border-tower-200 dark:border-tower-700 text-tower-400'
                                         }`}
                                     >
                                         Pessoa Física
@@ -634,8 +634,8 @@ const CompanyOnboarding: React.FC = () => {
                                 </div>
                             </div>
                             
-                            <div className="border-t border-tower-100 pt-6">
-                                <h3 className="text-sm font-bold text-tower-700 mb-4">CNPJ Principal</h3>
+                            <div className="border-t border-tower-100 dark:border-tower-700 pt-6">
+                                <h3 className="text-sm font-bold text-tower-700 dark:text-tower-200 dark:text-tower-200 mb-4">CNPJ Principal</h3>
                                 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                                     <div>
@@ -646,12 +646,12 @@ const CompanyOnboarding: React.FC = () => {
                                             type="text"
                                             placeholder="00.000.000/0000-00"
                                             maxLength={18}
-                                            className="w-full p-4 bg-tower-50 border-2 border-tower-100 rounded-2xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
+                                            className="w-full p-4 bg-tower-50 dark:bg-tower-800 border-2 border-tower-100 dark:border-tower-700 rounded-2xl focus:border-brand-500 focus:bg-white dark:focus:bg-tower-900 outline-none transition-all font-medium text-tower-900 dark:text-tower-100"
                                             value={primaryCompany.cnpj}
                                             onChange={e => handleCNPJChange(e.target.value, setPrimaryCompany, primaryCompany)}
                                         />
                                         {cnpjExistsWarning && (
-                                            <p className="text-amber-700 text-sm mt-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                                            <p className="text-amber-700 dark:text-amber-400 text-sm mt-2 bg-amber-50 dark:bg-amber-500/15 border border-amber-200 dark:border-amber-500/25 rounded-lg px-3 py-2">
                                                 {cnpjExistsWarning}
                                             </p>
                                         )}
@@ -664,7 +664,7 @@ const CompanyOnboarding: React.FC = () => {
                                         <input
                                             type="text"
                                             placeholder="Razão Social Completa"
-                                            className="w-full p-4 bg-tower-50 border-2 border-tower-100 rounded-2xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
+                                            className="w-full p-4 bg-tower-50 dark:bg-tower-800 border-2 border-tower-100 dark:border-tower-700 rounded-2xl focus:border-brand-500 focus:bg-white dark:focus:bg-tower-900 outline-none transition-all font-medium text-tower-900 dark:text-tower-100"
                                             value={primaryCompany.legalName}
                                             onChange={e => setPrimaryCompany({ ...primaryCompany, legalName: e.target.value })}
                                         />
@@ -679,7 +679,7 @@ const CompanyOnboarding: React.FC = () => {
                                         <input
                                             type="text"
                                             placeholder="Nome Fantasia"
-                                            className="w-full p-4 bg-tower-50 border-2 border-tower-100 rounded-2xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
+                                            className="w-full p-4 bg-tower-50 dark:bg-tower-800 border-2 border-tower-100 dark:border-tower-700 rounded-2xl focus:border-brand-500 focus:bg-white dark:focus:bg-tower-900 outline-none transition-all font-medium text-tower-900 dark:text-tower-100"
                                             value={primaryCompany.tradeName || ''}
                                             onChange={e => setPrimaryCompany({ ...primaryCompany, tradeName: e.target.value })}
                                         />
@@ -691,7 +691,7 @@ const CompanyOnboarding: React.FC = () => {
                                         <input
                                             type="text"
                                             placeholder="Rua, número, complemento"
-                                            className="w-full p-4 bg-tower-50 border-2 border-tower-100 rounded-2xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
+                                            className="w-full p-4 bg-tower-50 dark:bg-tower-800 border-2 border-tower-100 dark:border-tower-700 rounded-2xl focus:border-brand-500 focus:bg-white dark:focus:bg-tower-900 outline-none transition-all font-medium text-tower-900 dark:text-tower-100"
                                             value={primaryCompany.address || ''}
                                             onChange={e => setPrimaryCompany({ ...primaryCompany, address: e.target.value })}
                                         />
@@ -704,7 +704,7 @@ const CompanyOnboarding: React.FC = () => {
                                             type="text"
                                             placeholder="00000-000"
                                             maxLength={9}
-                                            className="w-full p-4 bg-tower-50 border-2 border-tower-100 rounded-2xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
+                                            className="w-full p-4 bg-tower-50 dark:bg-tower-800 border-2 border-tower-100 dark:border-tower-700 rounded-2xl focus:border-brand-500 focus:bg-white dark:focus:bg-tower-900 outline-none transition-all font-medium text-tower-900 dark:text-tower-100"
                                             value={cep}
                                             onChange={e => {
                                                 const masked = maskCEP(e.target.value);
@@ -722,7 +722,7 @@ const CompanyOnboarding: React.FC = () => {
                                             Estado
                                         </label>
                                         <select
-                                            className="w-full p-4 bg-tower-50 border-2 border-tower-100 rounded-2xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
+                                            className="w-full p-4 bg-tower-50 dark:bg-tower-800 border-2 border-tower-100 dark:border-tower-700 rounded-2xl focus:border-brand-500 focus:bg-white dark:focus:bg-tower-900 outline-none transition-all font-medium text-tower-900 dark:text-tower-100"
                                             value={primaryCompany.state || ''}
                                             onChange={e => setPrimaryCompany({ ...primaryCompany, state: e.target.value, city: '' })}
                                         >
@@ -739,7 +739,7 @@ const CompanyOnboarding: React.FC = () => {
                                             Cidade
                                         </label>
                                         <select
-                                            className="w-full p-4 bg-tower-50 border-2 border-tower-100 rounded-2xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
+                                            className="w-full p-4 bg-tower-50 dark:bg-tower-800 border-2 border-tower-100 dark:border-tower-700 rounded-2xl focus:border-brand-500 focus:bg-white dark:focus:bg-tower-900 outline-none transition-all font-medium text-tower-900 dark:text-tower-100"
                                             value={primaryCompany.city || ''}
                                             onChange={e => setPrimaryCompany({ ...primaryCompany, city: e.target.value })}
                                             disabled={!primaryCompany.state || cities.length === 0}
@@ -761,7 +761,7 @@ const CompanyOnboarding: React.FC = () => {
                     {currentStep === 2 && (
                         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                             <div className="flex justify-between items-center mb-4">
-                                <h3 className="text-sm font-bold text-tower-700">Contatos da Empresa</h3>
+                                <h3 className="text-sm font-bold text-tower-700 dark:text-tower-200">Contatos da Empresa</h3>
                                 <button
                                     type="button"
                                     onClick={addContact}
@@ -772,7 +772,7 @@ const CompanyOnboarding: React.FC = () => {
                             </div>
                             
                             {contacts.map((contact, index) => (
-                                <div key={index} className="border-2 border-tower-100 rounded-2xl p-6 space-y-4">
+                                <div key={index} className="border-2 border-tower-100 dark:border-tower-700 rounded-2xl p-6 space-y-4">
                                     <div className="flex justify-between items-center mb-2">
                                         <span className="text-xs font-bold text-tower-400 uppercase">Contato {index + 1}</span>
                                         {contacts.length > 1 && (
@@ -794,7 +794,7 @@ const CompanyOnboarding: React.FC = () => {
                                             <input
                                                 type="text"
                                                 placeholder="Nome completo"
-                                                className="w-full p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
+                                                className="w-full p-3 bg-tower-50 border-2 border-tower-100 dark:border-tower-700 rounded-xl focus:border-brand-500 focus:bg-white dark:focus:bg-tower-900 dark:bg-tower-800 outline-none transition-all font-medium text-tower-900 dark:text-tower-100"
                                                 value={contact.name}
                                                 onChange={e => updateContact(index, 'name', e.target.value)}
                                             />
@@ -806,7 +806,7 @@ const CompanyOnboarding: React.FC = () => {
                                             <input
                                                 type="text"
                                                 placeholder="Ex: Gerente de Logística"
-                                                className="w-full p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
+                                                className="w-full p-3 bg-tower-50 border-2 border-tower-100 dark:border-tower-700 rounded-xl focus:border-brand-500 focus:bg-white dark:focus:bg-tower-900 dark:bg-tower-800 outline-none transition-all font-medium text-tower-900 dark:text-tower-100"
                                                 value={contact.role || ''}
                                                 onChange={e => updateContact(index, 'role', e.target.value)}
                                             />
@@ -818,7 +818,7 @@ const CompanyOnboarding: React.FC = () => {
                                             <input
                                                 type="email"
                                                 placeholder="email@exemplo.com"
-                                                className="w-full p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
+                                                className="w-full p-3 bg-tower-50 border-2 border-tower-100 dark:border-tower-700 rounded-xl focus:border-brand-500 focus:bg-white dark:focus:bg-tower-900 dark:bg-tower-800 outline-none transition-all font-medium text-tower-900 dark:text-tower-100"
                                                 value={contact.email || ''}
                                                 onChange={e => updateContact(index, 'email', e.target.value)}
                                             />
@@ -830,7 +830,7 @@ const CompanyOnboarding: React.FC = () => {
                                             <input
                                                 type="tel"
                                                 placeholder="(11) 99999-9999"
-                                                className="w-full p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
+                                                className="w-full p-3 bg-tower-50 border-2 border-tower-100 dark:border-tower-700 rounded-xl focus:border-brand-500 focus:bg-white dark:focus:bg-tower-900 dark:bg-tower-800 outline-none transition-all font-medium text-tower-900 dark:text-tower-100"
                                                 value={maskPhone(contact.phone || '')}
                                                 onChange={e => updateContact(index, 'phone', e.target.value.replace(/\D/g, ''))}
                                                 maxLength={15}
@@ -846,7 +846,7 @@ const CompanyOnboarding: React.FC = () => {
                                             onChange={e => updateContact(index, 'isPrimary', e.target.checked)}
                                             className="w-4 h-4 text-brand-600 border-tower-300 rounded focus:ring-brand-500"
                                         />
-                                        <label htmlFor={`primary-${index}`} className="text-sm font-medium text-tower-700">
+                                        <label htmlFor={`primary-${index}`} className="text-sm font-medium text-tower-700 dark:text-tower-200">
                                             Tomador de Decisão
                                         </label>
                                     </div>
@@ -871,7 +871,7 @@ const CompanyOnboarding: React.FC = () => {
                                 <input
                                     type="text"
                                     placeholder="Nome completo"
-                                    className="w-full p-4 bg-tower-50 border-2 border-tower-100 rounded-2xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium text-tower-700"
+                                    className="w-full p-4 bg-tower-50 dark:bg-tower-800 border-2 border-tower-100 dark:border-tower-700 rounded-2xl focus:border-brand-500 focus:bg-white dark:focus:bg-tower-900 outline-none transition-all font-medium text-tower-700 dark:text-tower-200"
                                     value={adminUser.name}
                                     onChange={e => setAdminUser({ ...adminUser, name: e.target.value })}
                                 />
@@ -884,13 +884,13 @@ const CompanyOnboarding: React.FC = () => {
                                 <input
                                     type="email"
                                     placeholder="seu@email.com"
-                                    className="w-full p-4 bg-tower-50 border-2 border-tower-100 rounded-2xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium text-tower-700"
+                                    className="w-full p-4 bg-tower-50 dark:bg-tower-800 border-2 border-tower-100 dark:border-tower-700 rounded-2xl focus:border-brand-500 focus:bg-white dark:focus:bg-tower-900 outline-none transition-all font-medium text-tower-700 dark:text-tower-200"
                                     value={adminUser.email}
                                     onChange={e => { setAdminUser({ ...adminUser, email: e.target.value }); setEmailExistsWarning(false); }}
                                     onBlur={handleEmailBlur}
                                 />
                                 {emailExistsWarning && (
-                                    <p className="text-amber-700 text-sm mt-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                                    <p className="text-amber-700 dark:text-amber-400 text-sm mt-2 bg-amber-50 dark:bg-amber-500/15 border border-amber-200 dark:border-amber-500/25 rounded-lg px-3 py-2">
                                         Este e-mail já possui cadastro no sistema.
                                     </p>
                                 )}
@@ -904,7 +904,7 @@ const CompanyOnboarding: React.FC = () => {
                                     <input
                                         type="password"
                                         placeholder="Mínimo 6 caracteres"
-                                        className="w-full p-4 bg-tower-50 border-2 border-tower-100 rounded-2xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
+                                        className="w-full p-4 bg-tower-50 dark:bg-tower-800 border-2 border-tower-100 dark:border-tower-700 rounded-2xl focus:border-brand-500 focus:bg-white dark:focus:bg-tower-900 outline-none transition-all font-medium text-tower-900 dark:text-tower-100"
                                         value={adminUser.password}
                                         onChange={e => setAdminUser({ ...adminUser, password: e.target.value })}
                                     />
@@ -916,7 +916,7 @@ const CompanyOnboarding: React.FC = () => {
                                     <input
                                         type="password"
                                         placeholder="Repita a senha"
-                                        className="w-full p-4 bg-tower-50 border-2 border-tower-100 rounded-2xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
+                                        className="w-full p-4 bg-tower-50 dark:bg-tower-800 border-2 border-tower-100 dark:border-tower-700 rounded-2xl focus:border-brand-500 focus:bg-white dark:focus:bg-tower-900 outline-none transition-all font-medium text-tower-900 dark:text-tower-100"
                                         value={adminUser.confirmPassword}
                                         onChange={e => setAdminUser({ ...adminUser, confirmPassword: e.target.value })}
                                     />
@@ -931,14 +931,14 @@ const CompanyOnboarding: React.FC = () => {
                     {/* Step 4: CNPJs Adicionais */}
                     {currentStep === 4 && (
                         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                            <div className="bg-tower-50 border border-tower-200 dark:border-tower-700 rounded-xl p-4 mb-4">
+                            <div className="bg-tower-50 dark:bg-tower-800 border border-tower-200 dark:border-tower-700 rounded-xl p-4 mb-4">
                                 <p className="text-sm text-tower-600 dark:text-tower-400">
                                     Adicione outros CNPJs da mesma empresa ou filiais. Todos compartilharão as mesmas tabelas de preço especiais.
                                 </p>
                             </div>
                             
                             <div className="flex justify-between items-center mb-4">
-                                <h3 className="text-sm font-bold text-tower-700">CNPJs Adicionais</h3>
+                                <h3 className="text-sm font-bold text-tower-700 dark:text-tower-200">CNPJs Adicionais</h3>
                                 <button
                                     type="button"
                                     onClick={addCompany}
@@ -949,13 +949,13 @@ const CompanyOnboarding: React.FC = () => {
                             </div>
                             
                             {additionalCompanies.length === 0 ? (
-                                <div className="text-center py-12 text-tower-400 border-2 border-dashed border-tower-200 dark:border-tower-700 rounded-2xl">
+                                <div className="text-center py-12 text-tower-400 border-2 border-dashed border-tower-200 dark:border-tower-700 dark:border-tower-700 rounded-2xl">
                                     <p>Nenhum CNPJ adicional adicionado.</p>
                                     <p className="text-xs mt-2">Você pode pular esta etapa e adicionar depois.</p>
                                 </div>
                             ) : (
                                 additionalCompanies.map((company, index) => (
-                                    <div key={index} className="border-2 border-tower-100 rounded-2xl p-6 space-y-4">
+                                    <div key={index} className="border-2 border-tower-100 dark:border-tower-700 rounded-2xl p-6 space-y-4">
                                         <div className="flex justify-between items-center mb-2">
                                             <span className="text-xs font-bold text-tower-400 uppercase">CNPJ {index + 1}</span>
                                             <button
@@ -976,7 +976,7 @@ const CompanyOnboarding: React.FC = () => {
                                                     type="text"
                                                     placeholder="00.000.000/0000-00"
                                                     maxLength={18}
-                                                    className="w-full p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
+                                                    className="w-full p-3 bg-tower-50 border-2 border-tower-100 dark:border-tower-700 rounded-xl focus:border-brand-500 focus:bg-white dark:focus:bg-tower-900 dark:bg-tower-800 outline-none transition-all font-medium text-tower-900 dark:text-tower-100"
                                                     value={company.cnpj}
                                                     onChange={e => handleAdditionalCNPJChange(index, e.target.value)}
                                                 />
@@ -989,7 +989,7 @@ const CompanyOnboarding: React.FC = () => {
                                                 <input
                                                     type="text"
                                                     placeholder="Razão Social"
-                                                    className="w-full p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
+                                                    className="w-full p-3 bg-tower-50 border-2 border-tower-100 dark:border-tower-700 rounded-xl focus:border-brand-500 focus:bg-white dark:focus:bg-tower-900 dark:bg-tower-800 outline-none transition-all font-medium text-tower-900 dark:text-tower-100"
                                                     value={company.legalName}
                                                     onChange={e => updateCompany(index, 'legalName', e.target.value)}
                                                 />
@@ -1001,7 +1001,7 @@ const CompanyOnboarding: React.FC = () => {
                                                 <input
                                                     type="text"
                                                     placeholder="Nome Fantasia"
-                                                    className="w-full p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
+                                                    className="w-full p-3 bg-tower-50 border-2 border-tower-100 dark:border-tower-700 rounded-xl focus:border-brand-500 focus:bg-white dark:focus:bg-tower-900 dark:bg-tower-800 outline-none transition-all font-medium text-tower-900 dark:text-tower-100"
                                                     value={company.tradeName || ''}
                                                     onChange={e => updateCompany(index, 'tradeName', e.target.value)}
                                                 />
@@ -1014,7 +1014,7 @@ const CompanyOnboarding: React.FC = () => {
                                                     <input
                                                         type="text"
                                                         placeholder="Cidade"
-                                                        className="p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium"
+                                                        className="p-3 bg-tower-50 border-2 border-tower-100 dark:border-tower-700 rounded-xl focus:border-brand-500 focus:bg-white dark:focus:bg-tower-900 dark:bg-tower-800 outline-none transition-all font-medium text-tower-900 dark:text-tower-100"
                                                         value={company.city || ''}
                                                         onChange={e => updateCompany(index, 'city', e.target.value)}
                                                     />
@@ -1022,7 +1022,7 @@ const CompanyOnboarding: React.FC = () => {
                                                         type="text"
                                                         placeholder="UF"
                                                         maxLength={2}
-                                                        className="p-3 bg-tower-50 border-2 border-tower-100 rounded-xl focus:border-brand-500 focus:bg-white dark:bg-tower-800 outline-none transition-all font-medium uppercase"
+                                                        className="p-3 bg-tower-50 border-2 border-tower-100 dark:border-tower-700 rounded-xl focus:border-brand-500 focus:bg-white dark:focus:bg-tower-900 dark:bg-tower-800 outline-none transition-all font-medium uppercase text-tower-900 dark:text-tower-100"
                                                         value={company.state || ''}
                                                         onChange={e => updateCompany(index, 'state', e.target.value.toUpperCase())}
                                                     />
@@ -1038,7 +1038,7 @@ const CompanyOnboarding: React.FC = () => {
                     {/* Step 5: Revisão */}
                     {currentStep === 5 && (
                         <div className="space-y-6 animate-in fade-in zoom-in duration-500">
-                            <div className="bg-brand-900 rounded-3xl p-8 text-white relative overflow-hidden">
+                            <div className="bg-brand-900 dark:bg-brand-950 rounded-3xl p-8 text-white border dark:border-brand-800 relative overflow-hidden">
                                 <div className="absolute -top-12 -right-12 w-48 h-48 bg-white dark:bg-tower-800/10 rounded-full blur-3xl"></div>
                                 <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
                                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1049,28 +1049,28 @@ const CompanyOnboarding: React.FC = () => {
                                 
                                 <div className="space-y-4 text-sm">
                                     <div>
-                                        <span className="text-brand-300 block mb-1">Nome da Conta</span>
+                                        <span className="text-brand-300 dark:text-tower-400 block mb-1">Nome da Conta</span>
                                         <span className="font-bold text-lg">{accountName}</span>
                                     </div>
                                     <div>
-                                        <span className="text-brand-300 block mb-1">Tipo</span>
+                                        <span className="text-brand-300 dark:text-tower-400 block mb-1">Tipo</span>
                                         <span className="font-bold text-lg">{accountType === 'COMPANY' ? 'Empresa' : 'Pessoa Física'}</span>
                                     </div>
                                     <div>
-                                        <span className="text-brand-300 block mb-1">CNPJ Principal</span>
+                                        <span className="text-brand-300 dark:text-tower-400 block mb-1">CNPJ Principal</span>
                                         <span className="font-bold text-lg">{primaryCompany.cnpj} - {primaryCompany.legalName}</span>
                                     </div>
                                     <div>
-                                        <span className="text-brand-300 block mb-1">Contatos</span>
+                                        <span className="text-brand-300 dark:text-tower-400 block mb-1">Contatos</span>
                                         <span className="font-bold text-lg">{contacts.filter(c => c.name.trim() !== '').length} contato(s)</span>
                                     </div>
                                     <div>
-                                        <span className="text-brand-300 block mb-1">Usuário Admin</span>
+                                        <span className="text-brand-300 dark:text-tower-400 block mb-1">Usuário Admin</span>
                                         <span className="font-bold text-lg">{adminUser.email}</span>
                                     </div>
                                     {additionalCompanies.length > 0 && (
                                         <div>
-                                            <span className="text-brand-300 block mb-1">CNPJs Adicionais</span>
+                                            <span className="text-brand-300 dark:text-tower-400 block mb-1">CNPJs Adicionais</span>
                                             <span className="font-bold text-lg">{additionalCompanies.length} CNPJ(s)</span>
                                         </div>
                                     )}
@@ -1084,7 +1084,7 @@ const CompanyOnboarding: React.FC = () => {
                         <button
                             onClick={back}
                             disabled={currentStep === 1 || loading}
-                            className="px-6 py-3 font-bold text-tower-400 hover:text-brand-600 disabled:opacity-30 transition-colors uppercase tracking-widest text-xs"
+                            className="px-6 py-3 font-bold text-tower-400 hover:text-brand-600 dark:text-tower-500 dark:hover:text-brand-400 disabled:opacity-30 transition-colors uppercase tracking-widest text-xs"
                         >
                             Voltar
                         </button>

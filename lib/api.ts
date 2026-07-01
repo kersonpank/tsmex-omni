@@ -891,7 +891,9 @@ export const ordersEntradaApi = {
         expedidorPersonId?: string;
         redespachantePersonId?: string;
         origemPrestacao: string;
+        origemIbgeCode?: string;
         fimPrestacao: string;
+        fimIbgeCode?: string;
         routeId?: string;
         hubId?: string;
         collectionData?: Record<string, unknown>;
@@ -907,7 +909,9 @@ export const ordersEntradaApi = {
         expedidorPersonId?: string | null;
         redespachantePersonId?: string | null;
         origemPrestacao?: string;
+        origemIbgeCode?: string | null;
         fimPrestacao?: string;
+        fimIbgeCode?: string | null;
         routeId?: string | null;
         collectionData?: Record<string, unknown>;
     }) => {
@@ -1300,6 +1304,11 @@ export const nfeApi = {
       cnpjEmitente: string;
       emitenteRazaoSocial: string | null;
       emitenteTradeName: string | null;
+      emitenteMunicipio: string | null;
+      emitenteCep: string | null;
+      emitenteLogradouro: string | null;
+      emitenteNumero: string | null;
+      emitenteBairro: string | null;
       modelo: string;
     } }>(`/nfe/${encodeURIComponent(chave)}`),
 };

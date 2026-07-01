@@ -144,6 +144,7 @@ model Person {
   neighborhood String?
   city         String?
   state        String?
+  cityIbgeCode String?
   country      String? @default("BRASIL")
 
   // PJ
@@ -252,11 +253,12 @@ model Hub {
   person   Person? @relation(fields: [personId], references: [id], onDelete: SetNull)
 
   // Location
-  city    String
-  state   String
-  address String?
-  lat     Float?
-  lng     Float?
+  city         String
+  state        String
+  cityIbgeCode String?
+  address      String?
+  lat          Float?
+  lng          Float?
 
   // Coverage
   coverageCities String[] // Cities served
@@ -1103,9 +1105,10 @@ model AccountCompany {
   tradeName String?
 
   // Default address
-  address String?
-  city    String?
-  state   String?
+  address      String?
+  city         String?
+  state        String?
+  cityIbgeCode String?
 
   isPrimary Boolean @default(false)
 
@@ -1412,7 +1415,9 @@ model Order {
   redespachantePersonId String?
   redespachantePerson   Person?       @relation("OrderRedespachante", fields: [redespachantePersonId], references: [id], onDelete: SetNull)
   origemPrestacao       String?
+  origemIbgeCode        String?
   fimPrestacao          String?
+  fimIbgeCode           String?
   routeId               String?
   route                 PricingRoute? @relation(fields: [routeId], references: [id], onDelete: SetNull)
   collectionData        Json? // { address, contact, scheduledAt, needsHelper }

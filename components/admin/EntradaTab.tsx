@@ -73,7 +73,9 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
     expedidor: Person | null;
     redespachante: Person | null;
     origemPrestacao: string;
+    origemIbgeCode: string;
     fimPrestacao: string;
+    fimIbgeCode: string;
     routeId: string;
     hubId: string;
   }>({
@@ -84,7 +86,9 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
     expedidor: null as Person | null,
     redespachante: null as Person | null,
     origemPrestacao: '',
+    origemIbgeCode: '',
     fimPrestacao: '',
+    fimIbgeCode: '',
     routeId: '',
     hubId: '',
   });
@@ -144,7 +148,9 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
           expedidor: o.expedidorPerson ?? null,
           redespachante: o.redespachantePerson ?? null,
           origemPrestacao: o.origemPrestacao ?? '',
+          origemIbgeCode: o.origemIbgeCode ?? '',
           fimPrestacao: o.fimPrestacao ?? '',
+          fimIbgeCode: o.fimIbgeCode ?? '',
           routeId: o.routeId ?? '',
           hubId: o.currentHubId ?? '',
         });
@@ -242,7 +248,9 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
       expedidor: null,
       redespachante: null,
       origemPrestacao: '',
+      origemIbgeCode: '',
       fimPrestacao: '',
+      fimIbgeCode: '',
       routeId: '',
       hubId: isHub ? hubId ?? '' : '',
     });
@@ -406,7 +414,9 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
           expedidorPersonId: (expedidorIdU && UUID_REGEX.test(expedidorIdU)) ? expedidorIdU : null,
           redespachantePersonId: (redespachanteIdU && UUID_REGEX.test(redespachanteIdU)) ? redespachanteIdU : null,
           origemPrestacao: peopleForm.origemPrestacao,
+          origemIbgeCode: peopleForm.origemIbgeCode || null,
           fimPrestacao: peopleForm.fimPrestacao,
+          fimIbgeCode: peopleForm.fimIbgeCode || null,
           routeId: (routeVal && UUID_REGEX.test(routeVal)) ? routeVal : null,
         });
         const o = (res as any)?.data ?? res;
@@ -422,7 +432,9 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
           remetentePersonId: remId,
           destinatarioPersonId: destId,
           origemPrestacao: peopleForm.origemPrestacao.trim(),
+          origemIbgeCode: peopleForm.origemIbgeCode || undefined,
           fimPrestacao: peopleForm.fimPrestacao.trim(),
+          fimIbgeCode: peopleForm.fimIbgeCode || undefined,
         };
         // UUIDs opcionais: nunca enviar string vazia ou inválida (evita "Invalid uuid")
         const consignatarioId = peopleForm.consignatario?.id?.trim();
@@ -918,14 +930,16 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <CityAutocomplete
                       value={peopleForm.origemPrestacao}
-                      onChange={(v) => setPeopleForm((f) => ({ ...f, origemPrestacao: v }))}
+                      onChange={(v) => setPeopleForm((f) => ({ ...f, origemPrestacao: v, origemIbgeCode: '' }))}
+                      onSelect={(city, state, ibgeCode) => setPeopleForm((f) => ({ ...f, origemPrestacao: `${city}, ${state}`, origemIbgeCode: ibgeCode || '' }))}
                       placeholder="Origem da prestação"
                       required
                       className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100"
                     />
                     <CityAutocomplete
                       value={peopleForm.fimPrestacao}
-                      onChange={(v) => setPeopleForm((f) => ({ ...f, fimPrestacao: v }))}
+                      onChange={(v) => setPeopleForm((f) => ({ ...f, fimPrestacao: v, fimIbgeCode: '' }))}
+                      onSelect={(city, state, ibgeCode) => setPeopleForm((f) => ({ ...f, fimPrestacao: `${city}, ${state}`, fimIbgeCode: ibgeCode || '' }))}
                       placeholder="Fim da prestação"
                       required
                       className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100"

@@ -7,6 +7,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, AuthRequest } from '../middleware/auth.js';
 import { getParamId } from '../lib/routeUtils.js';
 import { consultCNPJ } from '../services/cnpjService.js';
+import { resolveIbgeCode } from '../services/acbr/acbrIbge.js';
 
 // Generate JWT token helper
 function generateToken(userId: string): string {
@@ -37,6 +38,7 @@ const onboardingSchema = z.object({
         address: z.string().optional().transform(val => val?.trim() || undefined),
         city: z.string().optional().transform(val => val?.trim() || undefined),
         state: z.string().optional().transform(val => val?.trim()?.toUpperCase() || undefined),
+        cityIbgeCode: z.string().optional().nullable(),
     }),
     
     // Contacts
@@ -64,6 +66,7 @@ const onboardingSchema = z.object({
         address: z.string().optional().transform(val => val?.trim() || undefined),
         city: z.string().optional().transform(val => val?.trim() || undefined),
         state: z.string().optional().transform(val => val?.trim()?.toUpperCase() || undefined),
+        cityIbgeCode: z.string().optional().nullable(),
     })).optional(),
 });
 
@@ -74,6 +77,7 @@ const addCompanySchema = z.object({
     address: z.string().optional(),
     city: z.string().optional(),
     state: z.string().optional(),
+    cityIbgeCode: z.string().optional().nullable(),
     isPrimary: z.boolean().default(false),
 });
 
@@ -157,6 +161,32 @@ router.get('/check-email', async (req, res: Response, next: NextFunction) => {
 router.post('/onboarding', async (req, res: Response, next: NextFunction) => {
     try {
         const data = onboardingSchema.parse(req.body);
+
+        // Resolve IBGE code for primary company
+        if (data.primaryCompany.city && data.primaryCompany.state) {
+            const resolved = await resolveIbgeCode(data.primaryCompany.city, data.primaryCompany.state);
+            if (resolved) {
+                data.primaryCompany.city = resolved.name;
+                data.primaryCompany.cityIbgeCode = resolved.ibgeCode;
+            } else {
+                throw new AppError(`Cidade "${data.primaryCompany.city} - ${data.primaryCompany.state}" não encontrada no cadastro nacional.`, 400);
+            }
+        }
+
+        // Resolve IBGE code for additional companies
+        if (data.additionalCompanies) {
+            for (const company of data.additionalCompanies) {
+                if (company.city && company.state) {
+                    const resolved = await resolveIbgeCode(company.city, company.state);
+                    if (resolved) {
+                        company.city = resolved.name;
+                        company.cityIbgeCode = resolved.ibgeCode;
+                    } else {
+                        throw new AppError(`Cidade "${company.city} - ${company.state}" não encontrada no cadastro nacional.`, 400);
+                    }
+                }
+            }
+        }
         
         // Validate CNPJ uniqueness (compare normalized)
         const allCnpjsNorm = [
@@ -205,6 +235,7 @@ router.post('/onboarding', async (req, res: Response, next: NextFunction) => {
                     address: data.primaryCompany.address,
                     city: data.primaryCompany.city,
                     state: data.primaryCompany.state,
+                    cityIbgeCode: data.primaryCompany.cityIbgeCode,
                     isPrimary: true,
                 }
             });
@@ -222,6 +253,7 @@ router.post('/onboarding', async (req, res: Response, next: NextFunction) => {
                             address: company.address,
                             city: company.city,
                             state: company.state,
+                            cityIbgeCode: company.cityIbgeCode,
                             isPrimary: false,
                         }
                     });
@@ -425,10 +457,20 @@ router.post('/me/companies', authenticate, async (req: AuthRequest, res: Respons
             });
         }
         
+        if (data.city && data.state) {
+            const resolved = await resolveIbgeCode(data.city, data.state);
+            if (resolved) {
+                data.city = resolved.name;
+                (data as any).cityIbgeCode = resolved.ibgeCode;
+            } else {
+                throw new AppError(`Cidade "${data.city} - ${data.state}" não encontrada no cadastro nacional.`, 400);
+            }
+        }
+
         const company = await prisma.accountCompany.create({
             data: {
                 accountId,
-                ...data,
+                ...(data as any),
             }
         });
         
@@ -458,6 +500,20 @@ router.patch('/me/companies/:id', authenticate, async (req: AuthRequest, res: Re
         
         if (!company) {
             throw new AppError('Company not found', 404);
+        }
+
+        if (data.city !== undefined || data.state !== undefined) {
+            const nextCity = data.city !== undefined ? data.city : company.city;
+            const nextState = data.state !== undefined ? data.state : company.state;
+            if (nextCity && nextState) {
+                const resolved = await resolveIbgeCode(nextCity, nextState);
+                if (resolved) {
+                    data.city = resolved.name;
+                    (data as any).cityIbgeCode = resolved.ibgeCode;
+                } else {
+                    throw new AppError(`Cidade "${nextCity} - ${nextState}" não encontrada no cadastro nacional.`, 400);
+                }
+            }
         }
         
         // If marking as primary, unset other primaries

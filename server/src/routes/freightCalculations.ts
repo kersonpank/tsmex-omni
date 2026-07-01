@@ -85,6 +85,12 @@ const FISCAL_LOCKED_STATUSES = [
     'DCE_CANCELLED',
 ] as const;
 
+function extractQrCodeUrlFromXml(xml: string | null): string | null {
+    if (!xml) return null;
+    const match = xml.match(/<qrCod(?:CTe|MDFe|Dce)?>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/qrCod(?:CTe|MDFe|Dce)?>/i);
+    return match ? match[1].trim() : null;
+}
+
 // Helper: coleta parâmetros do pedido (volumes, peso, cubagem, valor NF)
 function getOrderParams(order: { invoicesRel: { volumes: number; weight: number; cubedVolume: number | null; value: number }[]; collectionData: unknown }) {
     const inv = order.invoicesRel || [];
@@ -900,6 +906,7 @@ router.get('/:calcId/print-preview', authenticate, authorize('ADMIN', 'HUB'), as
                 chaveAcesso: calc.cteAccessKey ?? null,
                 protocolo: calc.cteProtocol ?? null,
                 autorizacaoEm: calc.cteAuthorizedAt?.toISOString() ?? null,
+                qrCodeUrl: extractQrCodeUrlFromXml(calc.cteXml),
                 previewDraft,
             });
 
@@ -932,6 +939,7 @@ router.get('/:calcId/print-preview', authenticate, authorize('ADMIN', 'HUB'), as
                 chaveAcesso: calc.dceAccessKey ?? null,
                 protocolo: calc.dceProtocol ?? null,
                 autorizacaoEm: calc.dceAuthorizedAt?.toISOString() ?? null,
+                qrCodeUrl: extractQrCodeUrlFromXml(calc.dceXml),
                 previewDraft,
             });
 
@@ -1188,6 +1196,7 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
             chaveAcesso: providerResult.accessKey ?? null,
             protocolo: providerResult.protocol ?? null,
             autorizacaoEm: providerResult.status === 'AUTHORIZED' ? now.toISOString() : null,
+            qrCodeUrl: providerResult.xml ? extractQrCodeUrlFromXml(providerResult.xml) : null,
         });
         const fiscalData = providerResult.status === 'AUTHORIZED'
             ? {
@@ -1404,6 +1413,7 @@ router.post('/:calcId/emit-dce', authenticate, authorize('ADMIN', 'HUB'), async 
             chaveAcesso: providerResult.accessKey ?? null,
             protocolo: providerResult.protocol ?? null,
             autorizacaoEm: providerResult.status === 'AUTHORIZED' ? now.toISOString() : null,
+            qrCodeUrl: providerResult.xml ? extractQrCodeUrlFromXml(providerResult.xml) : null,
         });
         const fiscalData =
             providerResult.status === 'AUTHORIZED'

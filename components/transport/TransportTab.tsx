@@ -187,66 +187,66 @@ const TransportTab: React.FC = () => {
       )}
 
       {error && (
-        <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
+        <div className="mb-4 bg-red-50 dark:bg-brand-red-500/15 border border-red-200 dark:border-brand-red-500/25 text-red-700 dark:text-brand-red-400 px-4 py-3 rounded-xl text-sm">
           {error}
         </div>
       )}
       {success && (
-        <div className="mb-4 bg-brand-50 border border-brand-200 text-brand-800 px-4 py-3 rounded-xl text-sm">
+        <div className="mb-4 bg-brand-50 dark:bg-brand-950/40 border border-brand-200 dark:border-brand-900/50 text-brand-800 dark:text-brand-400 px-4 py-3 rounded-xl text-sm">
           {success}
         </div>
       )}
 
       {showForm && (
-        <div className="mb-6 bg-white border border-tower-200 rounded-xl p-6 shadow-sm">
-          <h3 className="text-base font-bold text-tower-800 mb-4">
+        <div className="mb-6 bg-white dark:bg-tower-900 border border-tower-200 dark:border-tower-800 rounded-xl p-6 shadow-sm dark:shadow-none">
+          <h3 className="text-base font-bold text-tower-800 dark:text-tower-100 mb-4">
             {editingId ? 'Editar rota' : 'Nova rota'}
           </h3>
           <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-tower-700 mb-1">Nome</label>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Nome</label>
               <input
                 type="text"
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                className="w-full px-3 py-2 border border-tower-200 rounded-lg"
+                className="w-full px-3 py-2 border border-tower-200 dark:border-tower-700 rounded-lg bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 focus:outline-none"
                 placeholder="Ex: São Paulo → São Luís"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-tower-700 mb-1">Código origem</label>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Código origem</label>
               <input
                 type="text"
                 value={form.originCode}
                 onChange={(e) => setForm((f) => ({ ...f, originCode: e.target.value }))}
-                className="w-full px-3 py-2 border border-tower-200 rounded-lg"
+                className="w-full px-3 py-2 border border-tower-200 dark:border-tower-700 rounded-lg bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 focus:outline-none"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-tower-700 mb-1">Nome origem</label>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Nome origem</label>
               <input
                 type="text"
                 value={form.originName}
                 onChange={(e) => setForm((f) => ({ ...f, originName: e.target.value }))}
-                className="w-full px-3 py-2 border border-tower-200 rounded-lg"
+                className="w-full px-3 py-2 border border-tower-200 dark:border-tower-700 rounded-lg bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 focus:outline-none"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-tower-700 mb-1">Código destino</label>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Código destino</label>
               <input
                 type="text"
                 value={form.destCode}
                 onChange={(e) => setForm((f) => ({ ...f, destCode: e.target.value }))}
-                className="w-full px-3 py-2 border border-tower-200 rounded-lg"
+                className="w-full px-3 py-2 border border-tower-200 dark:border-tower-700 rounded-lg bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 focus:outline-none"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-tower-700 mb-1">Nome destino</label>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Nome destino</label>
               <input
                 type="text"
                 value={form.destName}
                 onChange={(e) => setForm((f) => ({ ...f, destName: e.target.value }))}
-                className="w-full px-3 py-2 border border-tower-200 rounded-lg"
+                className="w-full px-3 py-2 border border-tower-200 dark:border-tower-700 rounded-lg bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 focus:outline-none"
               />
             </div>
             <div className="md:col-span-2 flex gap-2">
@@ -259,7 +259,7 @@ const TransportTab: React.FC = () => {
               <button
                 type="button"
                 onClick={() => { setShowForm(false); setEditingId(null); setError(null); }}
-                className="px-4 py-2 text-tower-600 hover:bg-tower-100 rounded-lg"
+                className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg"
               >
                 Cancelar
               </button>
@@ -271,7 +271,7 @@ const TransportTab: React.FC = () => {
       {loading ? (
         <div className="py-12 text-center text-tower-500">Carregando rotas...</div>
       ) : filteredRoutes.length === 0 ? (
-        <div className="bg-white border-2 border-dashed border-tower-200 rounded-xl p-12 text-center text-tower-400">
+        <div className="bg-white dark:bg-tower-900 border-2 border-dashed border-tower-200 dark:border-tower-800 rounded-xl p-12 text-center text-tower-400">
           Nenhuma rota encontrada. Crie uma rota para vincular às tarifas.
         </div>
       ) : (

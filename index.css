@@ -54,7 +54,23 @@
 
   --color-amber-ctrl: #f59e0b;
   --color-danger-ctrl: #d81e25;
+
+  /* Cores semânticas adaptativas baseadas em variáveis */
+  --color-app-bg: var(--app-page-bg);
+  --color-app-surface: var(--app-surface);
+  --color-app-surface-muted: var(--app-surface-muted);
+  --color-app-surface-elevated: var(--app-surface-elevated);
+  --color-app-nav-bg: var(--app-nav-bg);
+  --color-app-nav-border: var(--app-nav-border);
+  --color-app-border: var(--app-border);
+  --color-app-border-strong: var(--app-border-strong);
+  --color-app-accent: var(--app-accent);
+  --color-app-accent-hover: var(--app-accent-hover);
+  --color-app-text-muted: var(--app-text-muted);
+  --color-app-fg-muted: var(--app-fg-muted);
+  --color-app-fg-subtle: var(--app-fg-subtle);
 }
+
 
 :root {
   /* Stitch-like light: off-white page, white cards, bordas legíveis */

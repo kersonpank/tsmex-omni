@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
+import { resolveIbgeCode } from '../services/acbr/acbrIbge.js';
 
 const router = Router();
 
@@ -40,6 +41,7 @@ const hubSchema = z.object({
     lastCteNumber: z.number().int().min(0).optional(),
     lastMinutaNumber: z.number().int().min(0).optional(),
     simplesNacional: z.boolean().optional().nullable(),
+    cityIbgeCode: z.string().optional().nullable(),
 });
 
 const addHubUserSchema = z.object({
@@ -427,6 +429,16 @@ router.post('/', authenticate, authorize('ADMIN'), async (req: AuthRequest, res:
             throw new AppError('Hub code already exists', 400);
         }
 
+        if (data.city && data.state) {
+            const resolved = await resolveIbgeCode(data.city, data.state);
+            if (resolved) {
+                data.city = resolved.name;
+                (data as any).cityIbgeCode = resolved.ibgeCode;
+            } else {
+                throw new AppError(`Cidade "${data.city} - ${data.state}" não encontrada no cadastro nacional.`, 400);
+            }
+        }
+
         const hub = await prisma.hub.create({
             data,
         });
@@ -448,6 +460,23 @@ router.patch('/:id', authenticate, authorize('ADMIN'), async (req: AuthRequest, 
     try {
         const id = req.params.id as string;
         const data = hubSchema.partial().parse(req.body);
+
+        const current = await prisma.hub.findUnique({ where: { id: id } });
+        if (!current) throw new AppError('Hub not found', 404);
+
+        if (data.city !== undefined || data.state !== undefined) {
+            const nextCity = data.city !== undefined ? data.city : current.city;
+            const nextState = data.state !== undefined ? data.state : current.state;
+            if (nextCity && nextState) {
+                const resolved = await resolveIbgeCode(nextCity, nextState);
+                if (resolved) {
+                    data.city = resolved.name;
+                    (data as any).cityIbgeCode = resolved.ibgeCode;
+                } else {
+                    throw new AppError(`Cidade "${nextCity} - ${nextState}" não encontrada no cadastro nacional.`, 400);
+                }
+            }
+        }
 
         const hub = await prisma.hub.update({
             where: { id: id },

@@ -95,7 +95,7 @@ const statusColors: Record<string, string> = {
     AT_HUB: 'bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-200',
     OUT_FOR_DELIVERY: 'bg-teal-100 text-teal-700 dark:bg-teal-900/50 dark:text-teal-200',
     DELIVERED: 'bg-brand-100 text-brand-700 dark:bg-brand-900/50 dark:text-brand-200',
-    CANCELLED: 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-200',
+    CANCELLED: 'bg-red-100 dark:bg-brand-red-500/15 text-red-700 dark:text-brand-red-400 dark:bg-red-900/50 dark:text-red-200',
 };
 
 // ==================== COMPONENT ====================
@@ -806,7 +806,7 @@ const ClientDashboard: React.FC = () => {
                                             <div className="flex items-center gap-2 mb-2">
                                                 <span className="font-bold text-tower-900 dark:text-tower-100">{user.email}</span>
                                                 {!user.active && (
-                                                    <span className="px-2 py-1 bg-red-100 text-red-700 text-xs font-bold rounded">
+                                                    <span className="px-2 py-1 bg-red-100 dark:bg-brand-red-500/15 text-red-700 dark:text-brand-red-400 text-xs font-bold rounded">
                                                         INATIVO
                                                     </span>
                                                 )}
@@ -870,7 +870,7 @@ const ClientDashboard: React.FC = () => {
                                                 )}
                                             </div>
                                             {contact.role && (
-                                                <div className="text-sm text-tower-600 mb-2">{contact.role}</div>
+                                                <div className="text-sm text-tower-600 dark:text-tower-400 mb-2">{contact.role}</div>
                                             )}
                                             <div className="text-sm text-tower-500 dark:text-tower-400 space-y-1">
                                                 {contact.email && <div>📧 {contact.email}</div>}

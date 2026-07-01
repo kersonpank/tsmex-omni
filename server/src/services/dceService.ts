@@ -40,8 +40,8 @@ export function validateDceReadiness(input: CteEmissionInput): { ok: boolean; is
 async function buildAcbrDceBody(input: CteEmissionInput, referencia: string): Promise<Record<string, unknown>> {
     const emit = input.person;
     const dest = input.order.destinatarioPerson!;
-    const emitCmun = await resolveIbgeMunicipio(emit.city, emit.state);
-    const destCmun = await resolveIbgeMunicipio(dest.city, dest.state);
+    const emitCmun = await resolveIbgeMunicipio(emit.city, emit.state, emit.cityIbgeCode);
+    const destCmun = await resolveIbgeMunicipio(dest.city, dest.state, input.order.fimIbgeCode ?? dest.cityIbgeCode);
     const cUF = ufToCuf(emit.state);
     const tpAmb = input.ambiente === 'PRODUCAO' ? 1 : 2;
     const emitDoc = digits(emit.document);

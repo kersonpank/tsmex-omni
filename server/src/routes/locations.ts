@@ -2,6 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import axios from 'axios';
+import { resolveIbgeCode } from '../services/acbr/acbrIbge.js';
 
 const router = Router();
 
@@ -169,6 +170,15 @@ router.get('/cep/:cep', async (req, res: Response, next: NextFunction) => {
                         stateId: stateRecord.id,
                     }
                 });
+
+                if (!cityRecord) {
+                    const resolved = await resolveIbgeCode(data.localidade, stateRecord.code);
+                    if (resolved) {
+                        cityRecord = await prisma.city.findUnique({
+                            where: { ibgeCode: resolved.ibgeCode }
+                        });
+                    }
+                }
             }
 
             // Save to database for future queries
