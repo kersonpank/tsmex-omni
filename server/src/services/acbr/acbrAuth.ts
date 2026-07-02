@@ -5,20 +5,26 @@ type Cached = { token: string; expiresAtMs: number };
 let cachedByScopeKey: Cached | null = null;
 let lastScopeKey = '';
 /**
- * Promise em voo para o request de token atualmente em andamento, por escopo.
- * O endpoint de token da ACBr tem limite de só 10 req/min — muito mais apertado que os
- * demais endpoints (240-360/min para CT-e). Sem essa deduplicação, chamadas concorrentes
- * (ex.: o worker processando vários `CteEmissionJob` ao mesmo tempo, todas batendo aqui
- * antes do primeiro fetch de token resolver) disparariam um POST de token por chamada e
- * estourariam a cota rapidamente, já que o cache só é preenchido depois que o fetch
- * original termina.
+ * Promises em voo para requests de token atualmente em andamento, uma por escopo (chave =
+ * `scopeKey`). O endpoint de token da ACBr tem limite de só 10 req/min — muito mais apertado
+ * que os demais endpoints (240-360/min para CT-e). Sem essa deduplicação, chamadas
+ * concorrentes (ex.: o worker processando vários `CteEmissionJob` ao mesmo tempo, todas
+ * batendo aqui antes do primeiro fetch de token resolver) disparariam um POST de token por
+ * chamada e estourariam a cota rapidamente, já que o cache só é preenchido depois que o
+ * fetch original termina.
+ *
+ * Precisa ser um `Map` (não um slot único) porque este arquivo é usado por toda a
+ * integração ACBr — CT-e, MDF-e, DC-e, distribuição NF-e — cada um pedindo combinações de
+ * escopo diferentes. Com um slot único, um request para o escopo B em voo sobrescreveria o
+ * slot do escopo A; um terceiro request para A chegando enquanto B ainda está em voo falharia
+ * o match de escopo e disparia um fetch duplicado para um escopo que já está sendo buscado.
  */
-let inFlightRequest: { scopeKey: string; promise: Promise<string> } | null = null;
+const inFlightRequests = new Map<string, Promise<string>>();
 
 export function clearAcbrTokenCache(): void {
     cachedByScopeKey = null;
     lastScopeKey = '';
-    inFlightRequest = null;
+    inFlightRequests.clear();
 }
 
 function scopeKey(scopes: string[]): string {
@@ -36,8 +42,9 @@ export async function getAcbrAccessToken(scopes: string[]): Promise<string> {
     if (cachedByScopeKey && lastScopeKey === sk && cachedByScopeKey.expiresAtMs > now + 60_000) {
         return cachedByScopeKey.token;
     }
-    if (inFlightRequest && inFlightRequest.scopeKey === sk) {
-        return inFlightRequest.promise;
+    const existing = inFlightRequests.get(sk);
+    if (existing) {
+        return existing;
     }
 
     const promise = (async (): Promise<string> => {
@@ -63,9 +70,9 @@ export async function getAcbrAccessToken(scopes: string[]): Promise<string> {
         lastScopeKey = sk;
         return json.access_token;
     })().finally(() => {
-        if (inFlightRequest?.scopeKey === sk) inFlightRequest = null;
+        if (inFlightRequests.get(sk) === promise) inFlightRequests.delete(sk);
     });
 
-    inFlightRequest = { scopeKey: sk, promise };
+    inFlightRequests.set(sk, promise);
     return promise;
 }

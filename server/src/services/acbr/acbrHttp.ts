@@ -39,6 +39,48 @@ function parseRetryHeaders(res: Response): { retryAfterSeconds?: number; retryIn
     };
 }
 
+/**
+ * Classifica uma resposta HTTP não-2xx da ACBr num `AcbrHttpError` tipado (com
+ * `httpStatus`/`retryAfterSeconds`/`retryInSeconds`/`quotaErrorCode`) e lança.
+ *
+ * Compartilhado entre `acbrFetchJson` (chamadas JSON) e os downloads de arquivo
+ * (`downloadCteXml`/`downloadCtePdf` em `acbrCteEmit.ts`, que usam `fetch` puro porque
+ * precisam de corpo texto/binário, não JSON) — assim um 402/429 durante o download do
+ * XML/PDF autorizado é classificado exatamente igual a um 402/429 em qualquer outra
+ * chamada, e o processor da fila (`cteEmissionProcessor.ts`) reage do mesmo jeito.
+ *
+ * O parse do corpo como JSON é best-effort: corpos de erro de download muitas vezes não
+ * são JSON, e isso NUNCA deve mascarar o erro HTTP original com um erro secundário de parse.
+ */
+export async function classifyAcbrErrorResponse(res: Response, path: string, bodyForMessage: string): Promise<never> {
+    let json: unknown;
+    try {
+        json = bodyForMessage ? JSON.parse(bodyForMessage) : undefined;
+    } catch {
+        json = undefined;
+    }
+    const msg = typeof json === 'object' && json && 'message' in json ? String((json as { message: unknown }).message) : bodyForMessage;
+    console.warn(
+        JSON.stringify({
+            level: 'warn',
+            source: 'acbrHttp',
+            path,
+            httpStatus: res.status,
+            messagePreview: msg.slice(0, 200),
+        }),
+    );
+    const { retryAfterSeconds, retryInSeconds } = parseRetryHeaders(res);
+    const quotaErrorCode =
+        res.status === 402 && typeof json === 'object' && json && 'error' in json
+            ? String((json as { error: unknown }).error)
+            : undefined;
+    throw new AcbrHttpError(`ACBr ${path} HTTP ${res.status}: ${msg.slice(0, 800)}`, res.status, {
+        retryAfterSeconds,
+        retryInSeconds,
+        quotaErrorCode,
+    });
+}
+
 export async function acbrFetchJson<T = unknown>(path: string, init: AcbrRequestInit): Promise<T> {
     const scopes = init.scopes;
     const token = await getAcbrAccessToken(scopes);
@@ -73,33 +115,14 @@ export async function acbrFetchJson<T = unknown>(path: string, init: AcbrRequest
     }
 
     const text = await res.text();
+    if (!res.ok) {
+        await classifyAcbrErrorResponse(res, path, text);
+    }
     let json: unknown;
     try {
         json = text ? JSON.parse(text) : {};
     } catch {
         throw new Error(`ACBr resposta não-JSON (${res.status}): ${text.slice(0, 400)}`);
-    }
-    if (!res.ok) {
-        const msg = typeof json === 'object' && json && 'message' in json ? String((json as { message: unknown }).message) : text;
-        console.warn(
-            JSON.stringify({
-                level: 'warn',
-                source: 'acbrHttp',
-                path,
-                httpStatus: res.status,
-                messagePreview: msg.slice(0, 200),
-            }),
-        );
-        const { retryAfterSeconds, retryInSeconds } = parseRetryHeaders(res);
-        const quotaErrorCode =
-            res.status === 402 && typeof json === 'object' && json && 'error' in json
-                ? String((json as { error: unknown }).error)
-                : undefined;
-        throw new AcbrHttpError(`ACBr ${path} HTTP ${res.status}: ${msg.slice(0, 800)}`, res.status, {
-            retryAfterSeconds,
-            retryInSeconds,
-            quotaErrorCode,
-        });
     }
     return json as T;
 }

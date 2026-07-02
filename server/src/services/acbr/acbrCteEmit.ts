@@ -2,7 +2,7 @@ import type { CteEmissionInput, CteProviderResult } from '../cteService.js';
 import { getAcbrAccessToken } from './acbrAuth.js';
 import { buildAcbrCteEmitBody } from './acbrCteMapper.js';
 import { getAcbrApiBaseUrlForEnvironment, type AcbrFiscalEnvironment } from './acbrConfig.js';
-import { acbrFetchJson } from './acbrHttp.js';
+import { acbrFetchJson, classifyAcbrErrorResponse } from './acbrHttp.js';
 import { ensureEmpresaRegistered, type EnsureEmpresaInput } from './acbrEmpresa.js';
 
 /** Optional fiscal emitter context for just-in-time empresa auto-provisioning. */
@@ -151,27 +151,43 @@ export async function pollCteStatusOnce(
     return { kind: 'PENDING' };
 }
 
-/** Baixa o XML autorizado — chamar só quando ainda não foi baixado (idempotência é responsabilidade do chamador). */
+/**
+ * Baixa o XML autorizado — chamar só quando ainda não foi baixado (idempotência é
+ * responsabilidade do chamador). Usa `fetch` puro (não `acbrFetchJson`, que é JSON-only)
+ * porque o corpo de sucesso é texto XML — mas em caso de erro (ex.: 402/429) reusa o mesmo
+ * `classifyAcbrErrorResponse` de `acbrFetchJson`, para que um 402 aqui pause a fila e dispare
+ * o alerta administrativo igual a qualquer outro 402 da integração ACBr, e um 429 respeite
+ * `Retry-After`/`X-Retry-In` em vez de cair no backoff genérico.
+ */
 export async function downloadCteXml(providerDocId: string, ambiente: AcbrFiscalEnvironment): Promise<string> {
     const baseUrl = getAcbrApiBaseUrlForEnvironment(ambiente);
     const token = await getAcbrAccessToken(['empresa', 'cte']);
-    const res = await fetch(`${baseUrl}/cte/${providerDocId}/xml`, {
+    const path = `/cte/${providerDocId}/xml`;
+    const res = await fetch(`${baseUrl}${path}`, {
         headers: { Authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(15_000),
     });
-    if (!res.ok) throw new Error(`ACBr /cte/${providerDocId}/xml HTTP ${res.status}`);
+    if (!res.ok) {
+        await classifyAcbrErrorResponse(res, path, await res.text());
+    }
     return res.text();
 }
 
-/** Baixa o PDF (DACTE) autorizado — chamar só quando ainda não foi baixado. */
+/**
+ * Baixa o PDF (DACTE) autorizado — chamar só quando ainda não foi baixado. Ver nota em
+ * `downloadCteXml` sobre por que não usa `acbrFetchJson` mas reusa a classificação de erro.
+ */
 export async function downloadCtePdf(providerDocId: string, ambiente: AcbrFiscalEnvironment): Promise<Buffer> {
     const baseUrl = getAcbrApiBaseUrlForEnvironment(ambiente);
     const token = await getAcbrAccessToken(['empresa', 'cte']);
-    const res = await fetch(`${baseUrl}/cte/${providerDocId}/pdf`, {
+    const path = `/cte/${providerDocId}/pdf`;
+    const res = await fetch(`${baseUrl}${path}`, {
         headers: { Authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(15_000),
     });
-    if (!res.ok) throw new Error(`ACBr /cte/${providerDocId}/pdf HTTP ${res.status}`);
+    if (!res.ok) {
+        await classifyAcbrErrorResponse(res, path, await res.text());
+    }
     return Buffer.from(await res.arrayBuffer());
 }
 
