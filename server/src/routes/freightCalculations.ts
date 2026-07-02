@@ -21,6 +21,7 @@ import { resolveCteCfopCstForEmission } from '../services/fiscal/cteEmitterDefau
 import { buildCteEmissionInputFromRecords } from '../services/fiscal/cteEmissionInputBuilder.js';
 import { getAcbrProviderDecision } from '../services/acbr/acbrConfig.js';
 import { enqueueCteEmissionJob } from '../services/queues/cteEmissionQueue.js';
+import { getObjectDownloadUrl } from '../lib/objectStorage.js';
 
 const router = Router({ mergeParams: true });
 
@@ -681,6 +682,48 @@ router.get('/:calcId/cte-preflight', authenticate, authorize('ADMIN', 'HUB'), as
 
         const { preflight } = buildCteEmissionInputFromRecords({ order, calc, hub });
         res.json({ success: true, data: preflight });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// GET .../cte-document?type=xml|pdf — única forma do frontend obter o documento. NUNCA expõe URL da ACBr.
+router.get('/:calcId/cte-document', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const orderId = req.params.orderId as string;
+        const calcId = req.params.calcId as string;
+        const type = req.query.type === 'xml' ? 'xml' : 'pdf';
+
+        const order = await prisma.order.findUnique({ where: { id: orderId }, select: { currentHubId: true } });
+        if (!order) throw new AppError('Order not found', 404);
+        if (req.user!.roles.includes('HUB') && (!req.user!.hubId || order.currentHubId !== req.user!.hubId)) {
+            throw new AppError('Not authorized to access this document', 403);
+        }
+
+        const calc = await prisma.orderFreightCalculation.findFirst({
+            where: { id: calcId, orderId },
+            select: { cteXmlStorageKey: true, ctePdfStorageKey: true, status: true },
+        });
+        if (!calc) throw new AppError('Cálculo de frete não encontrado', 404);
+
+        const key = type === 'xml' ? calc.cteXmlStorageKey : calc.ctePdfStorageKey;
+        if (key) {
+            const downloadUrl = await getObjectDownloadUrl(key, 300);
+            res.json({ success: true, data: { downloadUrl, expiresInSeconds: 300 } });
+            return;
+        }
+
+        if (calc.status !== 'CTE_AUTHORIZED') {
+            throw new AppError('Documento ainda não disponível — CT-e não autorizado.', 404);
+        }
+
+        // CT-e autorizado antes desta mudança, sem storage key ainda: nunca expor a URL crua da ACBr.
+        // Sinaliza "em migração" — o script de backfill (Task 14) deve rodar antes de habilitar isto em produção,
+        // então este caminho só deve ser alcançado em cenários residuais.
+        res.status(202).json({
+            success: false,
+            error: 'Documento ainda está sendo migrado para o repositório interno. Tente novamente em alguns instantes.',
+        });
     } catch (error) {
         next(error);
     }
