@@ -1123,11 +1123,56 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
 
         if (acbrDecision.willUseAcbrHttp) {
             // Caminho real ACBr: assíncrono. Cria o job de emissão e enfileira — nunca chama a ACBr aqui.
-            const emissionJob = await prisma.cteEmissionJob.create({
-                data: { calcId, phase: 'QUEUED' },
-            });
-            const queueJobId = await enqueueCteEmissionJob({ calcId, cteEmissionJobId: emissionJob.id, phaseHint: 'submit' });
-            await prisma.cteEmissionJob.update({ where: { id: emissionJob.id }, data: { queueJobId } });
+            // Este bloco fica isolado num try/catch próprio: o calc já foi marcado CTE_SENT acima e
+            // CTE_SENT está em FISCAL_LOCKED_STATUSES (bloqueia recálculo/reemissão). Se criar o job,
+            // enfileirar ou persistir o queueJobId falhar (ex.: blip do Redis), o calc NÃO pode ficar
+            // preso em CTE_SENT — isso seria um estado órfão sem nenhuma saída via API (nem reconcile,
+            // que só aceita CTE_PENDING_RECONCILIATION, nem reemissão, bloqueada por FISCAL_LOCKED_STATUSES).
+            // Por isso, qualquer falha aqui reclassifica o calc para CTE_PENDING_RECONCILIATION — o
+            // mesmo estado "precisa de atenção humana" já usado pelo processor (markPendingReconciliation
+            // em cteEmissionProcessor.ts) — e relança o erro original para o caller ver a falha (500).
+            let emissionJob: Awaited<ReturnType<typeof prisma.cteEmissionJob.create>> | null = null;
+            try {
+                emissionJob = await prisma.cteEmissionJob.create({
+                    data: { calcId, phase: 'QUEUED' },
+                });
+                const queueJobId = await enqueueCteEmissionJob({ calcId, cteEmissionJobId: emissionJob.id, phaseHint: 'submit' });
+                await prisma.cteEmissionJob.update({ where: { id: emissionJob.id }, data: { queueJobId } });
+            } catch (enqueueError) {
+                const errMessage = enqueueError instanceof Error ? enqueueError.message : String(enqueueError);
+                // Nenhum documento chega a ser submetido à ACBr neste bloco (isso só acontece depois,
+                // no worker), então o `providerDocId` do job nunca existe aqui — ou seja, mesmo a
+                // reconciliação (/emit-cte/reconcile) não consegue agir sozinha neste estado exato
+                // (ela exige um job com `providerDocId` já preenchido). E reemitir via este mesmo
+                // endpoint também não é possível a partir de CTE_PENDING_RECONCILIATION, que está em
+                // FISCAL_LOCKED_STATUSES. Por isso a mensagem não promete "refaça a emissão" — só
+                // deixa claro que precisa de intervenção do suporte/administrador.
+                //
+                // As duas escritas abaixo usam `updateMany` com um filtro de estado (compare-and-swap)
+                // em vez de `update`: é possível que `enqueueCteEmissionJob` tenha de fato colocado o
+                // job na fila (BullMQ) antes de o `queueJobId` falhar ao persistir — nesse caso um
+                // worker pode já estar processando o job concorrentemente com este catch. Sem o
+                // filtro, escreveríamos CTE_PENDING_RECONCILIATION por cima de um resultado real
+                // (ex.: CTE_PROCESSING/CTE_AUTHORIZED/CTE_REJECTED) que o worker já persistiu.
+                await prisma.orderFreightCalculation.updateMany({
+                    where: { id: calcId, status: 'CTE_SENT' },
+                    data: {
+                        status: 'CTE_PENDING_RECONCILIATION',
+                        cteStatusReason: 'Falha ao enfileirar a emissão assíncrona do CT-e. Nenhum documento foi enviado à ACBr — contate o suporte técnico para reprocessar este cálculo.',
+                    },
+                });
+                if (emissionJob) {
+                    try {
+                        await prisma.cteEmissionJob.updateMany({
+                            where: { id: emissionJob.id, phase: 'QUEUED' },
+                            data: { phase: 'PENDING_RECONCILIATION', lastError: errMessage },
+                        });
+                    } catch {
+                        // Best-effort: não deixa uma falha secundária ao marcar o job mascarar o erro original.
+                    }
+                }
+                throw enqueueError;
+            }
 
             const updated = await prisma.orderFreightCalculation.findUniqueOrThrow({
                 where: { id: calcId },
@@ -1140,7 +1185,9 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
             res.status(202).json({
                 success: true,
                 data: updated,
-                job: { id: emissionJob.id, phase: emissionJob.phase },
+                // Não-nulo aqui: o catch acima sempre relança (nunca cai para fora do try/catch
+                // deixando `emissionJob` como null quando o bloco todo teve sucesso).
+                job: { id: emissionJob!.id, phase: emissionJob!.phase },
                 message: 'CT-e enviado para processamento assíncrono. Acompanhe o status do cálculo.',
             });
             return;

@@ -2,8 +2,18 @@ import { ACBR_TOKEN_URL } from './acbrConfig.js';
 
 type Cached = { token: string; expiresAtMs: number };
 
-let cachedByScopeKey: Cached | null = null;
-let lastScopeKey = '';
+/**
+ * Cache persistente de tokens já resolvidos, por escopo (chave = `scopeKey`).
+ *
+ * Precisa ser um `Map` (não um slot único) pelo mesmo motivo do `inFlightRequests` abaixo:
+ * este arquivo é usado por toda a integração ACBr — CT-e, MDF-e, DC-e, distribuição NF-e —
+ * cada um pedindo combinações de escopo diferentes. Com um slot único, buscar o escopo B
+ * expulsaria do slot o token (ainda válido) do escopo A; uma chamada seguinte para A erraria
+ * o cache e dispararia um fetch real desnecessário, desperdiçando cota do endpoint de token
+ * (10 req/min) sempre que mais de uma combinação de escopo estiver em jogo — o cenário normal
+ * neste código, não uma borda rara.
+ */
+const cachedByScopeKey = new Map<string, Cached>();
 /**
  * Promises em voo para requests de token atualmente em andamento, uma por escopo (chave =
  * `scopeKey`). O endpoint de token da ACBr tem limite de só 10 req/min — muito mais apertado
@@ -22,8 +32,7 @@ let lastScopeKey = '';
 const inFlightRequests = new Map<string, Promise<string>>();
 
 export function clearAcbrTokenCache(): void {
-    cachedByScopeKey = null;
-    lastScopeKey = '';
+    cachedByScopeKey.clear();
     inFlightRequests.clear();
 }
 
@@ -39,8 +48,9 @@ export async function getAcbrAccessToken(scopes: string[]): Promise<string> {
     }
     const sk = scopeKey(scopes);
     const now = Date.now();
-    if (cachedByScopeKey && lastScopeKey === sk && cachedByScopeKey.expiresAtMs > now + 60_000) {
-        return cachedByScopeKey.token;
+    const cached = cachedByScopeKey.get(sk);
+    if (cached && cached.expiresAtMs > now + 60_000) {
+        return cached.token;
     }
     const existing = inFlightRequests.get(sk);
     if (existing) {
@@ -66,8 +76,7 @@ export async function getAcbrAccessToken(scopes: string[]): Promise<string> {
         const json = JSON.parse(text) as { access_token?: string; expires_in?: number };
         if (!json.access_token) throw new Error('ACBr token: resposta sem access_token');
         const expiresIn = typeof json.expires_in === 'number' ? json.expires_in : 3600;
-        cachedByScopeKey = { token: json.access_token, expiresAtMs: now + expiresIn * 1000 };
-        lastScopeKey = sk;
+        cachedByScopeKey.set(sk, { token: json.access_token, expiresAtMs: now + expiresIn * 1000 });
         return json.access_token;
     })().finally(() => {
         if (inFlightRequests.get(sk) === promise) inFlightRequests.delete(sk);

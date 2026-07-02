@@ -75,3 +75,41 @@ describe('getAcbrAccessToken — dedup em voo é por escopo (não um slot único
         }
     });
 });
+
+describe('getAcbrAccessToken — cache persistente é por escopo (não um slot único)', () => {
+    beforeEach(() => {
+        clearAcbrTokenCache();
+        process.env.ACBR_CLIENT_ID = 'test-client';
+        process.env.ACBR_CLIENT_SECRET = 'test-secret';
+    });
+
+    it('busca sequencial de A, depois B, depois A de novo: A2 reaproveita o cache (2 fetches no total, não 3)', async () => {
+        const originalFetch = globalThis.fetch;
+        const fetchMock = mock.fn(async (_url: string, init?: RequestInit) => {
+            const body = String(init?.body ?? '');
+            const scope = new URLSearchParams(body).get('scope') ?? '';
+            return new Response(JSON.stringify({ access_token: `tok-${scope.replace(/\s+/g, '-')}`, expires_in: 3600 }), { status: 200 });
+        });
+        globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+        try {
+            const scopeA = ['empresa', 'cte'];
+            const scopeB = ['empresa', 'mdfe'];
+
+            // Regressão do bug do slot único: A é buscado e cacheado (fetch #1). B é buscado
+            // e cacheado (fetch #2) — com o slot único isso sobrescreveria a entrada de A.
+            // Uma terceira chamada, de novo para A, ainda dentro da validade, deve vir do
+            // cache (0 fetches adicionais) — com o slot único ela erraria o cache (o slot
+            // agora contém B) e dispararia um 3º fetch desnecessário.
+            const tokenA1 = await getAcbrAccessToken(scopeA);
+            const tokenB = await getAcbrAccessToken(scopeB);
+            const tokenA2 = await getAcbrAccessToken(scopeA);
+
+            assert.equal(fetchMock.mock.callCount(), 2, 'A segunda busca por A deveria vir do cache, não disparar um 3º fetch');
+            assert.equal(tokenA1, tokenA2, 'a segunda busca por A deve retornar o mesmo token cacheado da primeira');
+            assert.notEqual(tokenA1, tokenB, 'escopos diferentes devem produzir tokens diferentes');
+        } finally {
+            globalThis.fetch = originalFetch;
+        }
+    });
+});

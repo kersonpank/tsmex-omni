@@ -268,6 +268,86 @@ describe('processCteEmissionJob', () => {
         assert.equal(prismaBundle.jobState.phase, 'FAILED');
     });
 
+    it('7a. sem providerDocId ainda, submitCteToAcbr resolve com sucesso → persiste providerDocId, calc CTE_PROCESSING, e cai no mesmo tick para o polling', async () => {
+        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: null, phase: 'QUEUED', attemptCount: 0, maxAttempts: 5 }));
+        const { job, moveToDelayed } = makeJob({ calcId: 'calc-1', cteEmissionJobId: 'job-1', phaseHint: 'submit' });
+        const submitMock = mock.fn(async () => ({ providerDocId: 'new-doc-id' }));
+        const pollMock = mock.fn(async (_providerDocId: string, _ambiente: string, _attempt: number): Promise<CtePollOutcome> => ({ kind: 'PENDING' }));
+        const deps = makeDeps(
+            {
+                submitCteToAcbr: submitMock as unknown as CteEmissionProcessorDeps['submitCteToAcbr'],
+                pollCteStatusOnce: pollMock as unknown as CteEmissionProcessorDeps['pollCteStatusOnce'],
+            },
+            prismaBundle,
+        );
+
+        // A tentativa 0 → 1 ainda está abaixo de maxAttempts(5), então o poll PENDING desta
+        // mesma execução reagenda via DelayedError — não é uma falha, é o fluxo normal de poll.
+        await assert.rejects(processCteEmissionJob(job, deps), (err) => err instanceof DelayedError);
+
+        assert.equal(submitMock.mock.callCount(), 1, 'deve submeter exatamente 1 vez (não havia providerDocId ainda)');
+        assert.equal(prismaBundle.jobState.providerDocId, 'new-doc-id', 'providerDocId retornado pelo submit deve ser persistido');
+        assert.equal(prismaBundle.jobState.phase, 'POLLING', 'após o submit bem-sucedido e um poll PENDING, a fase avança para POLLING (reagendado)');
+        assert.equal(prismaBundle.calcState.status, 'CTE_PROCESSING', 'calc deve virar CTE_PROCESSING assim que o submit é aceito pela ACBr');
+        assert.equal(pollMock.mock.callCount(), 1, 'no mesmo tick, após o submit, deve cair para o polling (não é um job run separado)');
+        assert.equal(pollMock.mock.calls[0].arguments[0], 'new-doc-id', 'o poll deve usar o providerDocId recém-obtido do submit');
+        assert.equal(moveToDelayed.mock.callCount(), 1);
+    });
+
+    it('7b. sem providerDocId ainda, submitCteToAcbr resolve com rejeição → calc CTE_REJECTED, job FAILED, pollCteStatusOnce NUNCA chamado', async () => {
+        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: null, phase: 'QUEUED', attemptCount: 0, maxAttempts: 5 }));
+        const { job } = makeJob({ calcId: 'calc-1', cteEmissionJobId: 'job-1', phaseHint: 'submit' });
+        const rejection: CteProviderResult = { status: 'REJECTED', rejectionCode: '204', rejectionReason: 'CT-e já emitido para esta referência', rawResponse: {} };
+        const submitMock = mock.fn(async () => ({ rejected: rejection }));
+        const pollMock = mock.fn(async (): Promise<CtePollOutcome> => ({ kind: 'PENDING' }));
+        const deps = makeDeps(
+            {
+                submitCteToAcbr: submitMock as unknown as CteEmissionProcessorDeps['submitCteToAcbr'],
+                pollCteStatusOnce: pollMock,
+            },
+            prismaBundle,
+        );
+
+        await processCteEmissionJob(job, deps);
+
+        assert.equal(submitMock.mock.callCount(), 1);
+        assert.equal(prismaBundle.calcState.status, 'CTE_REJECTED');
+        assert.equal(prismaBundle.calcState.cteStatusReason, 'CT-e já emitido para esta referência');
+        assert.equal(prismaBundle.jobState.phase, 'FAILED');
+        assert.equal(prismaBundle.jobState.providerDocId, null, 'documento rejeitado não deve ganhar um providerDocId');
+        assert.equal(pollMock.mock.callCount(), 0, 'nada a fazer polling — o submit foi rejeitado, não há documento na ACBr');
+    });
+
+    it('7c. phaseHint poll-only sem providerDocId (estado inconsistente que o código detecta e rejeita) — nem submit nem poll são chamados, erro é registrado e reagendado', async () => {
+        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: null, phase: 'QUEUED', attemptCount: 0, maxAttempts: 5 }));
+        const { job, moveToDelayed } = makeJob({ calcId: 'calc-1', cteEmissionJobId: 'job-1', phaseHint: 'poll-only' });
+        const submitMock = mock.fn(async () => {
+            throw new Error('submitCteToAcbr não deveria ser chamado em poll-only');
+        });
+        const pollMock = mock.fn(async (): Promise<CtePollOutcome> => ({ kind: 'PENDING' }));
+        const deps = makeDeps(
+            {
+                submitCteToAcbr: submitMock as unknown as CteEmissionProcessorDeps['submitCteToAcbr'],
+                pollCteStatusOnce: pollMock,
+            },
+            prismaBundle,
+        );
+
+        // O código atual detecta esse estado inconsistente (`poll-only` sem providerDocId) e
+        // lança um Error explícito dentro do try principal; como não é DelayedError nem
+        // AcbrHttpError, cai no ramo genérico do catch — que, com tentativas ainda disponíveis
+        // (attemptCount 0 < maxAttempts 5), registra o erro em `lastError` e reagenda o job em
+        // vez de deixá-lo travado silenciosamente. Este teste documenta esse comportamento
+        // existente (não o altera).
+        await assert.rejects(processCteEmissionJob(job, deps), (err) => err instanceof DelayedError);
+
+        assert.equal(submitMock.mock.callCount(), 0, 'poll-only nunca deve chamar submit');
+        assert.equal(pollMock.mock.callCount(), 0, 'sem providerDocId não há o que consultar — poll nunca deveria ser chamado');
+        assert.match(prismaBundle.jobState.lastError ?? '', /poll-only sem providerDocId/, 'o erro de estado inconsistente deve ficar registrado em lastError');
+        assert.equal(prismaBundle.jobState.attemptCount, 1);
+        assert.equal(moveToDelayed.mock.callCount(), 1);
+    });
+
     it('bônus (issue 1): falha ao carregar o CteEmissionJob (findUniqueOrThrow) antes do try não escapa — cai em reconciliação sem crashar', async () => {
         const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: 'doc-1' }));
         prismaBundle.findUniqueOrThrow.mock.mockImplementationOnce(async () => {
