@@ -17,8 +17,8 @@ import { authorizeCteWithProvider, type CteEmissionInput, type CteEnvironment, t
 import { authorizeDceWithProvider, validateDceReadiness } from '../services/dceService.js';
 import { getBrandingForFiscalEmitter } from '../services/visualIdentityService.js';
 import { getFiscalDocModeForFreight } from '../services/fiscal/fiscalDocPolicy.js';
-import { buildCtePreflightResult, type CtePreflightResult } from '../services/fiscal/ctePreflight.js';
 import { resolveCteCfopCstForEmission } from '../services/fiscal/cteEmitterDefaults.js';
+import { buildCteEmissionInputFromRecords } from '../services/fiscal/cteEmissionInputBuilder.js';
 
 const router = Router({ mergeParams: true });
 
@@ -332,98 +332,6 @@ async function validateFiscalEmitterSelection(params: {
     if (params.user?.roles.includes('HUB') && fiscalEmitter.hubId && fiscalEmitter.hubId !== params.user.hubId) {
         throw new AppError('Você não pode usar emitente credenciado de outro Hub', 403);
     }
-}
-
-type CteInputBuildResult = {
-    input: CteEmissionInput | null;
-    preflight: CtePreflightResult;
-};
-
-function buildCteEmissionInputFromRecords(params: {
-    order: any;
-    calc: any;
-    hub: any;
-    numero?: number;
-}): CteInputBuildResult {
-    const { order, calc, hub } = params;
-    const ambiente = (calc.fiscalEmitter?.environment ?? calc.cteEnvironment ?? 'HOMOLOGACAO') as CteEnvironment;
-    const serie = calc.fiscalEmitter?.cteSeries ?? calc.cteSeries ?? 1;
-    const additionalIssues: string[] = [];
-    const additionalMissingFields: string[] = [];
-
-    if (calc.documentType !== 'CTE') {
-        additionalIssues.push('Este cálculo não é do tipo CT-e.');
-    }
-    if ((calc.freightTotal ?? 0) <= 0) {
-        additionalIssues.push('CT-e precisa de valor de frete maior que zero.');
-        additionalMissingFields.push('freightTotal');
-    }
-    if (!calc.fiscalEmitterId || !calc.fiscalEmitter || !calc.fiscalEmitter.active) {
-        additionalIssues.push('É obrigatório vincular um emitente credenciado ativo a este cálculo para emitir CT-e.');
-        additionalMissingFields.push('fiscalEmitterId');
-    }
-    if (calc.fiscalEmitter && !calc.fiscalEmitter.person) {
-        additionalIssues.push('Emitente credenciado sem pessoa jurídica vinculada.');
-        additionalMissingFields.push('fiscalEmitterId');
-    }
-
-    const emitterPerson = calc.fiscalEmitter?.person ?? hub?.person ?? null;
-    const rntrc = calc.fiscalEmitter?.rntrc ?? hub?.rntrc ?? null;
-    const canBuildInput = calc.documentType === 'CTE' && Boolean(hub && emitterPerson);
-    const effectiveTax = resolveCteCfopCstForEmission(calc, calc.fiscalEmitter);
-
-    const input = canBuildInput
-        ? {
-            calc: {
-                id: calc.id,
-                originCity: calc.originCity,
-                destCity: calc.destCity,
-                cfop: effectiveTax.cfop,
-                cst: effectiveTax.cst,
-                tipoFrete: calc.tipoFrete,
-                observacoes: calc.observacoes,
-                volumes: calc.volumes,
-                weight: calc.weight,
-                effectiveWeight: calc.effectiveWeight,
-                cubage: calc.cubage,
-                nfValue: calc.nfValue,
-                commodity: calc.commodity,
-                freightTotal: calc.freightTotal,
-                breakdown: calc.breakdown,
-                icmsValue: calc.icmsValue,
-            },
-            order: {
-                freightTerm: order.freightTerm,
-                remetentePerson: order.remetentePerson,
-                destinatarioPerson: order.destinatarioPerson,
-                consignatarioPerson: order.consignatarioPerson,
-                expedidorPerson: order.expedidorPerson,
-                invoicesRel: order.invoicesRel,
-                collectionData: order.collectionData,
-            },
-            hub: {
-                id: hub.id,
-                name: calc.fiscalEmitter?.displayName ?? emitterPerson.legalName ?? hub.name,
-                code: hub.code,
-                phone: calc.fiscalEmitter?.hub?.phone ?? hub.phone,
-                rntrc,
-            },
-            person: emitterPerson,
-            numero: params.numero ?? 0,
-            serie,
-            ambiente,
-        } satisfies CteEmissionInput
-        : null;
-
-    return {
-        input,
-        preflight: buildCtePreflightResult(input, {
-            environment: ambiente,
-            provider: calc.fiscalEmitter?.provider ?? null,
-            additionalIssues,
-            additionalMissingFields,
-        }),
-    };
 }
 
 // ==================== ROUTES ====================
