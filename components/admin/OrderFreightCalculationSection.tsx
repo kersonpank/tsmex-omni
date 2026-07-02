@@ -478,6 +478,24 @@ function OrderFreightCard({
     }
   };
 
+  const [downloadingDoc, setDownloadingDoc] = useState<'xml' | 'pdf' | null>(null);
+
+  const handleDownloadCteDocument = async (type: 'xml' | 'pdf') => {
+    setDownloadingDoc(type);
+    try {
+      const result = await ordersFreightApi.getCteDocumentUrl(orderId, calc.id, type);
+      if (result.success && result.data?.downloadUrl) {
+        window.open(result.data.downloadUrl, '_blank', 'noopener,noreferrer');
+      } else {
+        window.alert(result.error ?? 'Documento ainda não disponível.');
+      }
+    } catch (e: any) {
+      window.alert(e.response?.data?.error ?? e.message ?? 'Erro ao obter documento.');
+    } finally {
+      setDownloadingDoc(null);
+    }
+  };
+
   const handleEmitDce = async () => {
     setEmittingDce(true);
     try {
@@ -717,10 +735,24 @@ function OrderFreightCard({
               <span className="font-medium">Protocolo:</span> {calc.cteProtocol}
             </div>
           )}
-          {(calc.ctePdfUrl || calc.cteXmlUrl) && (
+          {calc.status === 'CTE_AUTHORIZED' && (
             <div className="flex gap-3 mt-1">
-              {calc.ctePdfUrl && <a href={calc.ctePdfUrl} className="text-brand-600 dark:text-brand-400 hover:underline" target="_blank" rel="noreferrer">PDF</a>}
-              {calc.cteXmlUrl && <a href={calc.cteXmlUrl} className="text-brand-600 dark:text-brand-400 hover:underline" target="_blank" rel="noreferrer">XML</a>}
+              <button
+                type="button"
+                onClick={() => handleDownloadCteDocument('pdf')}
+                disabled={downloadingDoc === 'pdf'}
+                className="text-brand-600 dark:text-brand-400 hover:underline disabled:opacity-50"
+              >
+                {downloadingDoc === 'pdf' ? 'Abrindo…' : 'PDF'}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDownloadCteDocument('xml')}
+                disabled={downloadingDoc === 'xml'}
+                className="text-brand-600 dark:text-brand-400 hover:underline disabled:opacity-50"
+              >
+                {downloadingDoc === 'xml' ? 'Abrindo…' : 'XML'}
+              </button>
             </div>
           )}
           {calc.dceNumber && (

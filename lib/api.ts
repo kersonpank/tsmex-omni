@@ -1077,6 +1077,15 @@ export const ordersFreightApi = {
         }>(`/orders/${orderId}/freight-calculations/${calcId}/print-preview`);
         return response.data;
     },
+
+    getCteDocumentUrl: async (orderId: string, calcId: string, type: 'xml' | 'pdf') => {
+        const response = await api.get<{
+            success: boolean;
+            data?: { downloadUrl: string; expiresInSeconds: number };
+            error?: string;
+        }>(`/orders/${orderId}/freight-calculations/${calcId}/cte-document`, { params: { type } });
+        return response.data;
+    },
 };
 
 export const ordersApi = {
