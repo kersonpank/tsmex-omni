@@ -1850,7 +1850,7 @@ model CteEmissionJob {
   calc   OrderFreightCalculation @relation(fields: [calcId], references: [id], onDelete: Cascade)
 
   queueJobId      String?             @unique
-  providerDocId   String?
+  providerDocId   String?             @unique
   phase           CteEmissionJobPhase @default(QUEUED)
   attemptCount    Int                 @default(0)
   maxAttempts     Int                 @default(24)
@@ -1866,8 +1866,7 @@ model CteEmissionJob {
   updatedAt DateTime @updatedAt
 
   @@index([calcId])
-  @@index([providerDocId])
-  @@index([phase])
+  @@index([phase, nextPollAt])
 }
 
 enum SystemAlertCategory {
