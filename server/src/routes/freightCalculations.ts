@@ -1186,6 +1186,37 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
     }
 });
 
+// POST .../emit-cte/reconcile — só permite a partir de CTE_PENDING_RECONCILIATION.
+// Reenfileira em modo 'poll-only': NUNCA refaz POST /cte, só consulta o status já existente.
+router.post('/:calcId/emit-cte/reconcile', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const orderId = req.params.orderId as string;
+        const calcId = req.params.calcId as string;
+
+        const calc = await prisma.orderFreightCalculation.findFirst({
+            where: { id: calcId, orderId },
+            include: { cteEmissionJobs: { orderBy: { createdAt: 'desc' }, take: 1 } },
+        });
+        if (!calc) throw new AppError('Cálculo de frete não encontrado', 404);
+        if (calc.status !== 'CTE_PENDING_RECONCILIATION') {
+            throw new AppError('Reconciliação só é permitida quando o CT-e está em estado de alerta/conciliação.', 400);
+        }
+        const lastJob = calc.cteEmissionJobs[0];
+        if (!lastJob?.providerDocId) {
+            throw new AppError('Nenhum documento foi submetido à ACBr ainda para este cálculo — não é possível reconciliar, refaça a emissão.', 400);
+        }
+
+        await prisma.cteEmissionJob.update({ where: { id: lastJob.id }, data: { phase: 'POLLING', attemptCount: 0, pausedForQuota: false } });
+        const queueJobId = await enqueueCteEmissionJob({ calcId, cteEmissionJobId: lastJob.id, phaseHint: 'poll-only' });
+        await prisma.cteEmissionJob.update({ where: { id: lastJob.id }, data: { queueJobId } });
+        await prisma.orderFreightCalculation.update({ where: { id: calcId }, data: { status: 'CTE_PROCESSING', cteStatusReason: null } });
+
+        res.status(202).json({ success: true, message: 'Reconciliação reenfileirada — apenas consulta de status, sem novo envio à ACBr.' });
+    } catch (error) {
+        next(error);
+    }
+});
+
 // POST .../emit-dce — DC-e (declaração sem NF-e completa) via ACBr ou simulação
 router.post('/:calcId/emit-dce', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
