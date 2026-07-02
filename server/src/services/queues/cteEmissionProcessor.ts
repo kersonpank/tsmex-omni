@@ -11,7 +11,7 @@ import {
 import type { CteEmissionInput } from '../cteService.js';
 import { buildCteEmissionInputForJob } from './cteEmissionJobInput.js';
 import { uploadBase64Object } from '../../lib/objectStorage.js';
-import { cteEmissionQueue, type CteEmissionJobData } from './cteEmissionQueue.js';
+import { getCteEmissionQueue, type CteEmissionJobData } from './cteEmissionQueue.js';
 import { createSystemAlert } from '../systemAlertService.js';
 
 const POLL_DELAY_MS = 1500;
@@ -41,7 +41,7 @@ export interface CteEmissionProcessorDeps {
     downloadCtePdf: typeof downloadCtePdf;
     buildCteEmissionInputForJob: typeof buildCteEmissionInputForJob;
     uploadBase64Object: typeof uploadBase64Object;
-    cteEmissionQueue: Pick<typeof cteEmissionQueue, 'pause'>;
+    cteEmissionQueue: Pick<ReturnType<typeof getCteEmissionQueue>, 'pause'>;
     createSystemAlert: typeof createSystemAlert;
 }
 
@@ -57,7 +57,11 @@ export const defaultCteEmissionProcessorDeps: CteEmissionProcessorDeps = {
     downloadCtePdf,
     buildCteEmissionInputForJob,
     uploadBase64Object,
-    cteEmissionQueue,
+    // getter: só constrói a Queue/conexão Redis reais quando algo de fato acessa
+    // `deps.cteEmissionQueue` (ex.: pausa por cota) — nunca na importação deste módulo.
+    get cteEmissionQueue() {
+        return getCteEmissionQueue();
+    },
     createSystemAlert,
 };
 

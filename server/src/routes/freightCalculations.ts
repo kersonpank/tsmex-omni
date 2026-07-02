@@ -19,6 +19,8 @@ import { getBrandingForFiscalEmitter } from '../services/visualIdentityService.j
 import { getFiscalDocModeForFreight } from '../services/fiscal/fiscalDocPolicy.js';
 import { resolveCteCfopCstForEmission } from '../services/fiscal/cteEmitterDefaults.js';
 import { buildCteEmissionInputFromRecords } from '../services/fiscal/cteEmissionInputBuilder.js';
+import { getAcbrProviderDecision } from '../services/acbr/acbrConfig.js';
+import { enqueueCteEmissionJob } from '../services/queues/cteEmissionQueue.js';
 
 const router = Router({ mergeParams: true });
 
@@ -77,8 +79,10 @@ const CTE_PROVIDER_HAPPY_PATH_MODE: CteProviderMode = 'simulate-authorized';
 const FISCAL_LOCKED_STATUSES = [
     'CTE_READY',
     'CTE_SENT',
+    'CTE_PROCESSING',
     'CTE_AUTHORIZED',
     'CTE_CANCELLED',
+    'CTE_PENDING_RECONCILIATION',
     'DCE_READY',
     'DCE_SENT',
     'DCE_AUTHORIZED',
@@ -1072,6 +1076,34 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
             },
         });
 
+        const acbrDecision = getAcbrProviderDecision(calc.fiscalEmitter?.provider ?? null);
+
+        if (acbrDecision.willUseAcbrHttp) {
+            // Caminho real ACBr: assíncrono. Cria o job de emissão e enfileira — nunca chama a ACBr aqui.
+            const emissionJob = await prisma.cteEmissionJob.create({
+                data: { calcId, phase: 'QUEUED' },
+            });
+            const queueJobId = await enqueueCteEmissionJob({ calcId, cteEmissionJobId: emissionJob.id, phaseHint: 'submit' });
+            await prisma.cteEmissionJob.update({ where: { id: emissionJob.id }, data: { queueJobId } });
+
+            const updated = await prisma.orderFreightCalculation.findUniqueOrThrow({
+                where: { id: calcId },
+                include: {
+                    emissor: { select: { id: true, name: true, code: true, person: { select: { document: true, legalName: true } } } },
+                    pricingTable: { select: { id: true, description: true } },
+                },
+            });
+
+            res.status(202).json({
+                success: true,
+                data: updated,
+                job: { id: emissionJob.id, phase: emissionJob.phase },
+                message: 'CT-e enviado para processamento assíncrono. Acompanhe o status do cálculo.',
+            });
+            return;
+        }
+
+        // Modo simulado local (sem ACBr real): continua síncrono, rápido, sem custo — comportamento preservado.
         const providerResult = await authorizeCteWithProvider(cteInput, {
             mode: providerMode,
             fiscalEmitterProvider: calc.fiscalEmitter?.provider ?? null,

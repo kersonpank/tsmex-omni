@@ -2,7 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
-import { cteEmissionQueue } from '../services/queues/cteEmissionQueue.js';
+import { getCteEmissionQueue } from '../services/queues/cteEmissionQueue.js';
 
 const router = Router();
 
@@ -39,7 +39,7 @@ router.post('/:id/resume-cte-queue', authenticate, authorize('ADMIN'), async (re
         if (alert.category !== 'FISCAL_PROVIDER_QUOTA') {
             throw new AppError('Este alerta não está associado à fila de emissão de CT-e.', 400);
         }
-        await cteEmissionQueue.resume();
+        await getCteEmissionQueue().resume();
         const updated = await prisma.systemAlert.update({
             where: { id: alert.id },
             data: { status: 'RESOLVED', resolvedAt: new Date() },

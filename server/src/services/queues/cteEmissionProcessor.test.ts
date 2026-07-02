@@ -1,25 +1,18 @@
 import assert from 'node:assert/strict';
-import { after, describe, it, mock } from 'node:test';
+import { describe, it, mock } from 'node:test';
 import { DelayedError, type Job } from 'bullmq';
 
 import { processCteEmissionJob, type CteEmissionProcessorDeps } from './cteEmissionProcessor.js';
-import { cteEmissionQueue, type CteEmissionJobData } from './cteEmissionQueue.js';
-import { redisConnection } from '../../lib/redis.js';
+import type { CteEmissionJobData } from './cteEmissionQueue.js';
 import { AcbrHttpError } from '../acbr/acbrHttp.js';
 import type { CteEmissionInput, CteProviderResult } from '../cteService.js';
 import type { CtePollOutcome, FiscalEmitterContext } from '../acbr/acbrCteEmit.js';
 
-// Todos os testes abaixo injetam `deps` com mocks — nunca tocam a fila/Redis reais. Mas
-// importar `cteEmissionProcessor.ts` traz `defaultCteEmissionProcessorDeps`, que referencia
-// o `cteEmissionQueue` REAL (BullMQ `Queue` + conexão `ioredis` de verdade) no escopo do
-// módulo. Essa conexão fica aberta e, sem fechá-la, o processo nunca sai sozinho depois dos
-// testes (fica preso reconectando indefinidamente caso o host `redis`/porta não sejam
-// alcançáveis fora do Docker). Fechar aqui é só housekeeping do processo de teste — não
-// afeta nenhum código de produção.
-after(async () => {
-    await cteEmissionQueue.close();
-    redisConnection.disconnect();
-});
+// Todos os testes abaixo injetam `deps` com mocks (ver `cteEmissionQueue: { pause: ... }`
+// nos casos de teste) — nunca tocam a fila/Redis reais nem `defaultCteEmissionProcessorDeps`.
+// `getCteEmissionQueue()` (cteEmissionQueue.ts) só constrói a Queue/conexão real sob demanda,
+// então simplesmente importar `cteEmissionProcessor.ts` aqui não abre nenhum socket — não há
+// handle real pra fechar neste arquivo.
 
 type FakeJobRecord = {
     id: string;
