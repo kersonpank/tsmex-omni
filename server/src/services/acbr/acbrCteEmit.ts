@@ -1,7 +1,7 @@
 import type { CteEmissionInput, CteProviderResult } from '../cteService.js';
 import { getAcbrAccessToken } from './acbrAuth.js';
 import { buildAcbrCteEmitBody } from './acbrCteMapper.js';
-import { getAcbrApiBaseUrlForEnvironment } from './acbrConfig.js';
+import { getAcbrApiBaseUrlForEnvironment, type AcbrFiscalEnvironment } from './acbrConfig.js';
 import { acbrFetchJson } from './acbrHttp.js';
 import { ensureEmpresaRegistered, type EnsureEmpresaInput } from './acbrEmpresa.js';
 
@@ -55,15 +55,22 @@ function mapDocToResult(doc: Record<string, unknown>, id: string, baseUrl: strin
     };
 }
 
-export async function emitCteViaAcbr(
+/** Status normalizado de UM poll — não decide timeout nem retry, isso é responsabilidade do processor. */
+export type CtePollOutcome =
+    | { kind: 'AUTHORIZED'; result: CteProviderResult; providerDocId: string }
+    | { kind: 'REJECTED'; result: CteProviderResult }
+    | { kind: 'PENDING' };
+
+/**
+ * Faz o `POST /cte` (com auto-provisionamento de empresa se necessário) UMA ÚNICA VEZ.
+ * Chamador é responsável por nunca invocar isto de novo para o mesmo `CteEmissionJob`
+ * depois que `providerDocId` tiver sido persistido.
+ */
+export async function submitCteToAcbr(
     input: CteEmissionInput,
     referencia: string,
     fiscalEmitter?: FiscalEmitterContext | null,
-): Promise<CteProviderResult> {
-    const apiEnv = input.ambiente;
-    const baseUrl = getAcbrApiBaseUrlForEnvironment(apiEnv);
-
-    // ── Just-in-time: ensure empresa is registered on ACBr before POST /cte ──
+): Promise<{ providerDocId: string } | { rejected: CteProviderResult }> {
     if (fiscalEmitter) {
         const ensureInput: EnsureEmpresaInput = {
             environment: fiscalEmitter.environment,
@@ -75,10 +82,12 @@ export async function emitCteViaAcbr(
         const ensureResult = await ensureEmpresaRegistered(ensureInput);
         if (!ensureResult.ok) {
             return {
-                status: 'REJECTED',
-                rejectionCode: 'ACBR_EMPRESA',
-                rejectionReason: ensureResult.message ?? 'Falha ao registrar empresa na ACBr antes da emissão.',
-                rawResponse: { provider: 'acbr', ensureEmpresa: ensureResult },
+                rejected: {
+                    status: 'REJECTED',
+                    rejectionCode: 'ACBR_EMPRESA',
+                    rejectionReason: ensureResult.message ?? 'Falha ao registrar empresa na ACBr antes da emissão.',
+                    rawResponse: { provider: 'acbr', ensureEmpresa: ensureResult },
+                },
             };
         }
     }
@@ -88,56 +97,118 @@ export async function emitCteViaAcbr(
         method: 'POST',
         body: JSON.stringify(body),
         scopes: ['empresa', 'cte'],
-        apiEnvironment: apiEnv,
+        apiEnvironment: input.ambiente,
     });
     const id = String(created.id ?? '');
     if (!id) {
         return {
-            status: 'REJECTED',
-            rejectionCode: 'ACBR',
-            rejectionReason: 'Resposta sem id de documento na ACBr.',
-            rawResponse: created,
+            rejected: {
+                status: 'REJECTED',
+                rejectionCode: 'ACBR',
+                rejectionReason: 'Resposta sem id de documento na ACBr.',
+                rawResponse: created,
+            },
         };
     }
+    return { providerDocId: id };
+}
+
+/**
+ * Uma única checagem de status (`GET /cte/{id}`, com `sincronizar` esporádico).
+ * Não decide o que fazer com timeout/erro — isso é o processor da fila que decide,
+ * porque só ele sabe a `attemptCount`/`maxAttempts` do `CteEmissionJob`.
+ */
+export async function pollCteStatusOnce(
+    providerDocId: string,
+    ambiente: AcbrFiscalEnvironment,
+    attempt: number,
+): Promise<CtePollOutcome> {
+    const baseUrl = getAcbrApiBaseUrlForEnvironment(ambiente);
+
+    if (attempt >= 5 && attempt % 3 === 0) {
+        try {
+            await acbrFetchJson(`/cte/${providerDocId}/sincronizar`, { method: 'POST', scopes: ['empresa', 'cte'], apiEnvironment: ambiente });
+        } catch {
+            /* sync opcional — não deve derrubar o polling */
+        }
+    }
+
+    const doc = await acbrFetchJson<Record<string, unknown>>(`/cte/${providerDocId}`, {
+        method: 'GET',
+        scopes: ['empresa', 'cte'],
+        apiEnvironment: ambiente,
+    });
+    const st = norm(doc.status);
+    const auth = (doc.autorizacao ?? {}) as Record<string, unknown>;
+    const authSt = norm(auth.status);
+
+    if (authSt.includes('autorizado') || st === 'autorizado') {
+        return { kind: 'AUTHORIZED', result: mapDocToResult(doc, providerDocId, baseUrl), providerDocId };
+    }
+    if (st.includes('rejeit') || st.includes('erro') || authSt.includes('rejeit')) {
+        return { kind: 'REJECTED', result: mapDocToResult(doc, providerDocId, baseUrl) };
+    }
+    return { kind: 'PENDING' };
+}
+
+/** Baixa o XML autorizado — chamar só quando ainda não foi baixado (idempotência é responsabilidade do chamador). */
+export async function downloadCteXml(providerDocId: string, ambiente: AcbrFiscalEnvironment): Promise<string> {
+    const baseUrl = getAcbrApiBaseUrlForEnvironment(ambiente);
+    const token = await getAcbrAccessToken(['empresa', 'cte']);
+    const res = await fetch(`${baseUrl}/cte/${providerDocId}/xml`, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) throw new Error(`ACBr /cte/${providerDocId}/xml HTTP ${res.status}`);
+    return res.text();
+}
+
+/** Baixa o PDF (DACTE) autorizado — chamar só quando ainda não foi baixado. */
+export async function downloadCtePdf(providerDocId: string, ambiente: AcbrFiscalEnvironment): Promise<Buffer> {
+    const baseUrl = getAcbrApiBaseUrlForEnvironment(ambiente);
+    const token = await getAcbrAccessToken(['empresa', 'cte']);
+    const res = await fetch(`${baseUrl}/cte/${providerDocId}/pdf`, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) throw new Error(`ACBr /cte/${providerDocId}/pdf HTTP ${res.status}`);
+    return Buffer.from(await res.arrayBuffer());
+}
+
+/**
+ * Fluxo síncrono ORIGINAL, preservado só para o modo simulado local (`cteService.ts`
+ * chama isto quando `willUseAcbrHttp` é true mas ainda em modo de desenvolvimento sem
+ * fila). Novas integrações reais devem usar `submitCteToAcbr`/`pollCteStatusOnce` via
+ * `cteEmissionProcessor.ts`, não esta função.
+ */
+export async function emitCteViaAcbr(
+    input: CteEmissionInput,
+    referencia: string,
+    fiscalEmitter?: FiscalEmitterContext | null,
+): Promise<CteProviderResult> {
+    const submitted = await submitCteToAcbr(input, referencia, fiscalEmitter);
+    if ('rejected' in submitted) return submitted.rejected;
+    const { providerDocId } = submitted;
 
     for (let attempt = 0; attempt < 24; attempt++) {
         if (attempt > 0) await new Promise((r) => setTimeout(r, 1500));
-        
-        // Apenas sincroniza com a SEFAZ se já tivermos tentado algumas vezes (ex.: após 5ª tentativa) e de forma espaçada
-        if (attempt >= 5 && attempt % 3 === 0) {
-            try {
-                await acbrFetchJson(`/cte/${id}/sincronizar`, { method: 'POST', scopes: ['empresa', 'cte'], apiEnvironment: apiEnv });
-            } catch {
-                /* sync opcional */
-            }
-        }
-        const doc = await acbrFetchJson<Record<string, unknown>>(`/cte/${id}`, { method: 'GET', scopes: ['empresa', 'cte'], apiEnvironment: apiEnv });
-        const st = norm(doc.status);
-        const auth = (doc.autorizacao ?? {}) as Record<string, unknown>;
-        const authSt = norm(auth.status);
-        if (authSt.includes('autorizado') || st === 'autorizado') {
+        const outcome = await pollCteStatusOnce(providerDocId, input.ambiente, attempt);
+        if (outcome.kind === 'AUTHORIZED') {
             let xml: string | undefined;
             try {
-                const token = await getAcbrAccessToken(['empresa', 'cte']);
-                const xmlRes = await fetch(`${baseUrl}/cte/${id}/xml`, {
-                    headers: { Authorization: `Bearer ${token}` },
-                });
-                if (xmlRes.ok) xml = await xmlRes.text();
+                xml = await downloadCteXml(providerDocId, input.ambiente);
             } catch {
-                /* opcional */
+                /* opcional no fluxo síncrono legado */
             }
-            const ok = mapDocToResult(doc, id, baseUrl);
-            return { ...ok, xml: xml ?? ok.xml };
+            return { ...outcome.result, xml: xml ?? outcome.result.xml };
         }
-        if (st.includes('rejeit') || st.includes('erro') || authSt.includes('rejeit')) {
-            return mapDocToResult(doc, id, baseUrl);
-        }
+        if (outcome.kind === 'REJECTED') return outcome.result;
     }
 
     return {
         status: 'REJECTED',
         rejectionCode: 'TIMEOUT',
         rejectionReason: 'Timeout aguardando retorno da SEFAZ via ACBr.',
-        rawResponse: { id },
+        rawResponse: { id: providerDocId },
     };
 }
