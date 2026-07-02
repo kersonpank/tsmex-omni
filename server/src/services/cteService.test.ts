@@ -173,6 +173,37 @@ describe('validateCteReadiness', () => {
     });
 });
 
+describe('validateCteReadiness — RNTRC', () => {
+    it('bloqueia RNTRC com formato inválido (7 dígitos)', () => {
+        const result = validateCteReadiness({
+            ...completeInput,
+            hub: { ...completeInput.hub, rntrc: '1234567' },
+        });
+
+        assert.equal(result.ok, false);
+        assert.ok(result.issues.some((issue) => issue.includes('RNTRC')));
+    });
+
+    it('bloqueia RNTRC ausente', () => {
+        const result = validateCteReadiness({
+            ...completeInput,
+            hub: { ...completeInput.hub, rntrc: null },
+        });
+
+        assert.equal(result.ok, false);
+        assert.ok(result.issues.some((issue) => issue.includes('RNTRC')));
+    });
+
+    it('aceita RNTRC com 8 dígitos numéricos', () => {
+        const result = validateCteReadiness({
+            ...completeInput,
+            hub: { ...completeInput.hub, rntrc: '12345678' },
+        });
+
+        assert.ok(!result.issues.some((issue) => issue.includes('RNTRC')));
+    });
+});
+
 describe('authorizeCteWithProvider', () => {
     function restoreAcbrEnv(snapshot: Record<string, string | undefined>): void {
         for (const [key, value] of Object.entries(snapshot)) {

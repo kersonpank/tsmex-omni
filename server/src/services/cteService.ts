@@ -2,6 +2,7 @@ import { buildCtePayload } from './freightEmission.js';
 import { getAcbrProviderDecision } from './acbr/acbrConfig.js';
 import { emitCteViaAcbr, type FiscalEmitterContext } from './acbr/acbrCteEmit.js';
 import { validateCteTaxSelection } from './fiscal/cteTaxRules.js';
+import { validateRntrcFormat } from './fiscal/rntrcValidation.js';
 
 export type CteEnvironment = 'HOMOLOGACAO' | 'PRODUCAO';
 
@@ -122,7 +123,11 @@ export function validateCteReadiness(input: CteEmissionInput): CteReadinessResul
     const issues: string[] = [];
     const tomador = getTomador(input);
 
-    if (!present(input.hub.rntrc)) issues.push('Hub emissor precisa de RNTRC para CT-e.');
+    if (!present(input.hub.rntrc)) {
+        issues.push('Hub emissor precisa de RNTRC para CT-e.');
+    } else if (!validateRntrcFormat(input.hub.rntrc)) {
+        issues.push('RNTRC do Hub emissor inválido: precisa ter exatamente 8 dígitos numéricos.');
+    }
 
     function validateParticipant(person: CtePerson | null | undefined, roleName: string, isEmitente = false): void {
         if (!person) {
