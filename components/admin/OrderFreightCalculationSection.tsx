@@ -42,7 +42,9 @@ const STATUS_LABELS: Record<string, string> = {
   CALCULATED: 'Calculado',
   CTE_READY: 'CT-e pronto',
   CTE_SENT: 'CT-e enviado',
+  CTE_PROCESSING: 'CT-e em processamento (aguardando SEFAZ)',
   CTE_REJECTED: 'CT-e rejeitado',
+  CTE_PENDING_RECONCILIATION: 'CT-e em alerta — aguardando conciliação',
   MINUTA_EMITTED: 'Minuta emitida',
   CTE_AUTHORIZED: 'CT-e autorizado',
   CTE_CANCELLED: 'CT-e cancelado',
@@ -56,6 +58,8 @@ const STATUS_LABELS: Record<string, string> = {
 const FISCAL_LOCKED_STATUSES = new Set([
   'CTE_READY',
   'CTE_SENT',
+  'CTE_PROCESSING',
+  'CTE_PENDING_RECONCILIATION',
   'CTE_AUTHORIZED',
   'CTE_CANCELLED',
   'DCE_READY',
@@ -385,6 +389,14 @@ function OrderFreightCard({
     if (calc.documentType !== 'CTE') return;
     void refreshCtePreflight();
   }, [orderId, calc.id, calc.documentType, calc.status, calc.cfop, calc.cst, calc.fiscalEmitterId, calc.freightTotal]);
+
+  useEffect(() => {
+    if (calc.status !== 'CTE_SENT' && calc.status !== 'CTE_PROCESSING') return;
+    const interval = setInterval(() => {
+      onCalculate();
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [calc.status, onCalculate]);
 
   const headerLabel =
     calc.documentType === 'CTE'
