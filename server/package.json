@@ -5,6 +5,8 @@
     "main": "dist/index.js",
     "scripts": {
         "dev": "tsx watch src/index.ts",
+        "worker:dev": "tsx watch src/worker.ts",
+        "worker": "node dist/worker.js",
         "build": "tsc",
         "typecheck": "tsc --noEmit",
         "test": "node --import tsx --test \"src/**/*.test.ts\"",

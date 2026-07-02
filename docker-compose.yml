@@ -100,6 +100,49 @@ services:
     networks:
       - tsmex-network
 
+  # CT-e emission worker (processa a fila BullMQ em background, isolado da API)
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    image: ghcr.io/${GITHUB_REPOSITORY:-local/tsmex}/tsmex-api:${IMAGE_TAG:-local}
+    container_name: tsmex-worker
+    restart: unless-stopped
+    command: ["node", "dist/worker.js"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/tsmex?schema=public}
+      NODE_ENV: ${NODE_ENV:-production}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      ACBR_CLIENT_ID: ${ACBR_CLIENT_ID:-}
+      ACBR_CLIENT_SECRET: ${ACBR_CLIENT_SECRET:-}
+      ACBR_TOKEN_URL: ${ACBR_TOKEN_URL:-}
+      ACBR_API_BASE_URL: ${ACBR_API_BASE_URL:-}
+      ACBR_FALLBACK_CMUN: ${ACBR_FALLBACK_CMUN:-}
+      FISCAL_CTE_PROVIDER: ${FISCAL_CTE_PROVIDER:-}
+      FISCAL_PROVIDER: ${FISCAL_PROVIDER:-}
+      FISCAL_SECRET_KEY: ${FISCAL_SECRET_KEY:-}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+      S3_REGION: ${S3_REGION:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-}
+      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-}
+      S3_SIGNED_URL_PUBLIC_HOST: ${S3_SIGNED_URL_PUBLIC_HOST:-}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-}
+      MINIO_REGION: ${MINIO_REGION:-}
+      MINIO_BUCKET: ${MINIO_BUCKET:-}
+      MINIO_PUBLIC_BASE_URL: ${MINIO_PUBLIC_BASE_URL:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - tsmex-network
+
   # Database migrations and seed (runs once then exits)
   migrate:
     build:
