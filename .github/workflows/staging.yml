@@ -90,8 +90,9 @@ jobs:
             API_SVC=${STACK_PREFIX}_api
             WEB_SVC=${STACK_PREFIX}_web
             MIGRATE_SVC=${STACK_PREFIX}_migrate
+            WORKER_SVC=${STACK_PREFIX}_worker
 
-            for svc in "$API_SVC" "$WEB_SVC" "$MIGRATE_SVC"; do
+            for svc in "$API_SVC" "$WEB_SVC" "$MIGRATE_SVC" "$WORKER_SVC"; do
               if ! docker service inspect "$svc" >/dev/null 2>&1; then
                 echo "❌ Serviço não encontrado: $svc"
                 echo "Serviços disponíveis no Swarm:"
@@ -125,5 +126,6 @@ jobs:
             done
 
             docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-api:staging --with-registry-auth --force "$API_SVC"
+            docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-api:staging --with-registry-auth --force "$WORKER_SVC"
             docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-web:staging --with-registry-auth --force "$WEB_SVC"
             echo "Staging deploy OK: ${{ steps.vars.outputs.SHA_TAG }}"
