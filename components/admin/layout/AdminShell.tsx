@@ -4,6 +4,7 @@ import PageHeader from '../../ui/PageHeader';
 import { useLayoutStore } from '../../../store/layoutStore';
 import type { AdminNavSection } from './adminNavModel';
 import GestaoActionBar from './GestaoActionBar';
+import SystemAlertBanner from '../SystemAlertBanner';
 
 export type { AdminNavSection } from './adminNavModel';
 
@@ -88,6 +89,7 @@ const AdminShell: React.FC<AdminShellProps> = ({
 
   return (
     <div className="admin-shell-bg admin-grain min-h-[calc(100vh-4rem)]">
+      <SystemAlertBanner />
       <div className="mx-auto flex max-w-[1600px] gap-0 lg:flex-row-reverse lg:gap-8">
         {/* Conteúdo */}
         <div className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:py-8">

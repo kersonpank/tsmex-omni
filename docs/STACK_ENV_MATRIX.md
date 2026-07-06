@@ -41,6 +41,23 @@ Estas variáveis habilitam e configuram a comunicação com os endpoints fiscais
   - `deploy` (`prisma migrate deploy`): aplica migrations rastreadas — obrigatório em produção para zero downtime e rollback seguro.
   - Valor já fixo nos stack files: staging=`push`, prod=`deploy`. Não precisa definir no Portainer.
 
+## Serviço `worker` (fila de emissão CT-e assíncrona)
+
+O serviço `worker` roda a **mesma imagem** `tsmex-api` (`command: ["node", "dist/worker.js"]`),
+consumindo a fila BullMQ `cte-emission` via Redis. Reutiliza todas as envs do serviço `api`
+listadas acima (`DATABASE_URL`, `S3_*`, `ACBR_*`, `FISCAL_*`), **exceto**:
+
+- `PORT`, `CORS_ORIGIN`, `JWT_SECRET`, `JWT_EXPIRES_IN` — o worker não sobe servidor HTTP
+  nem autentica requisições, essas variáveis não são lidas por `server/src/worker.ts`.
+
+Variável adicional:
+
+- `REDIS_URL` — (Opcional) string de conexão do Redis usada pelo BullMQ.
+  Default: `redis://redis:6379` (hostname do próprio serviço `redis` do stack — não precisa
+  configurar no Portainer a menos que o Redis esteja fora do stack).
+
+Se `api` já está configurado no Portainer, `worker` não exige nenhuma variável nova.
+
 ## Variáveis recomendadas com default
 
 - `S3_REGION` (default `us-east-1`)

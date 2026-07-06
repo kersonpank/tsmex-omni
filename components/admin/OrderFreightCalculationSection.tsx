@@ -42,7 +42,9 @@ const STATUS_LABELS: Record<string, string> = {
   CALCULATED: 'Calculado',
   CTE_READY: 'CT-e pronto',
   CTE_SENT: 'CT-e enviado',
+  CTE_PROCESSING: 'CT-e em processamento (aguardando SEFAZ)',
   CTE_REJECTED: 'CT-e rejeitado',
+  CTE_PENDING_RECONCILIATION: 'CT-e em alerta — aguardando conciliação',
   MINUTA_EMITTED: 'Minuta emitida',
   CTE_AUTHORIZED: 'CT-e autorizado',
   CTE_CANCELLED: 'CT-e cancelado',
@@ -56,6 +58,8 @@ const STATUS_LABELS: Record<string, string> = {
 const FISCAL_LOCKED_STATUSES = new Set([
   'CTE_READY',
   'CTE_SENT',
+  'CTE_PROCESSING',
+  'CTE_PENDING_RECONCILIATION',
   'CTE_AUTHORIZED',
   'CTE_CANCELLED',
   'DCE_READY',
@@ -386,6 +390,14 @@ function OrderFreightCard({
     void refreshCtePreflight();
   }, [orderId, calc.id, calc.documentType, calc.status, calc.cfop, calc.cst, calc.fiscalEmitterId, calc.freightTotal]);
 
+  useEffect(() => {
+    if (calc.status !== 'CTE_SENT' && calc.status !== 'CTE_PROCESSING') return;
+    const interval = setInterval(() => {
+      onCalculate();
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [calc.status, onCalculate]);
+
   const headerLabel =
     calc.documentType === 'CTE'
       ? 'CT-e'
@@ -475,6 +487,24 @@ function OrderFreightCard({
       setCteInlineError(e.response?.data?.error ?? e.response?.data?.message ?? e.message ?? 'Erro ao emitir CT-e');
     } finally {
       setEmittingCte(false);
+    }
+  };
+
+  const [downloadingDoc, setDownloadingDoc] = useState<'xml' | 'pdf' | null>(null);
+
+  const handleDownloadCteDocument = async (type: 'xml' | 'pdf') => {
+    setDownloadingDoc(type);
+    try {
+      const result = await ordersFreightApi.getCteDocumentUrl(orderId, calc.id, type);
+      if (result.success && result.data?.downloadUrl) {
+        window.open(result.data.downloadUrl, '_blank', 'noopener,noreferrer');
+      } else {
+        window.alert(result.error ?? 'Documento ainda não disponível.');
+      }
+    } catch (e: any) {
+      window.alert(e.response?.data?.error ?? e.message ?? 'Erro ao obter documento.');
+    } finally {
+      setDownloadingDoc(null);
     }
   };
 
@@ -717,10 +747,24 @@ function OrderFreightCard({
               <span className="font-medium">Protocolo:</span> {calc.cteProtocol}
             </div>
           )}
-          {(calc.ctePdfUrl || calc.cteXmlUrl) && (
+          {calc.status === 'CTE_AUTHORIZED' && (
             <div className="flex gap-3 mt-1">
-              {calc.ctePdfUrl && <a href={calc.ctePdfUrl} className="text-brand-600 dark:text-brand-400 hover:underline" target="_blank" rel="noreferrer">PDF</a>}
-              {calc.cteXmlUrl && <a href={calc.cteXmlUrl} className="text-brand-600 dark:text-brand-400 hover:underline" target="_blank" rel="noreferrer">XML</a>}
+              <button
+                type="button"
+                onClick={() => handleDownloadCteDocument('pdf')}
+                disabled={downloadingDoc === 'pdf'}
+                className="text-brand-600 dark:text-brand-400 hover:underline disabled:opacity-50"
+              >
+                {downloadingDoc === 'pdf' ? 'Abrindo…' : 'PDF'}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDownloadCteDocument('xml')}
+                disabled={downloadingDoc === 'xml'}
+                className="text-brand-600 dark:text-brand-400 hover:underline disabled:opacity-50"
+              >
+                {downloadingDoc === 'xml' ? 'Abrindo…' : 'XML'}
+              </button>
             </div>
           )}
           {calc.dceNumber && (

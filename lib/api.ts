@@ -1077,6 +1077,15 @@ export const ordersFreightApi = {
         }>(`/orders/${orderId}/freight-calculations/${calcId}/print-preview`);
         return response.data;
     },
+
+    getCteDocumentUrl: async (orderId: string, calcId: string, type: 'xml' | 'pdf') => {
+        const response = await api.get<{
+            success: boolean;
+            data?: { downloadUrl: string; expiresInSeconds: number };
+            error?: string;
+        }>(`/orders/${orderId}/freight-calculations/${calcId}/cte-document`, { params: { type } });
+        return response.data;
+    },
 };
 
 export const ordersApi = {
@@ -1311,6 +1320,21 @@ export const nfeApi = {
       emitenteBairro: string | null;
       modelo: string;
     } }>(`/nfe/${encodeURIComponent(chave)}`),
+};
+
+// ========== SYSTEM ALERTS API ==========
+
+export const systemAlertsApi = {
+    listOpen: async () => {
+        const response = await api.get<{ success: boolean; data: Array<{
+            id: string; category: string; severity: 'INFO' | 'WARNING' | 'CRITICAL'; title: string; message: string; createdAt: string;
+        }> }>('/system-alerts', { params: { status: 'OPEN' } });
+        return response.data;
+    },
+    resumeCteQueue: async (alertId: string) => {
+        const response = await api.post<{ success: boolean; message?: string }>(`/system-alerts/${alertId}/resume-cte-queue`);
+        return response.data;
+    },
 };
 
 export default api;

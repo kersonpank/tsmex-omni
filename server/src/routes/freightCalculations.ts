@@ -17,8 +17,11 @@ import { authorizeCteWithProvider, type CteEmissionInput, type CteEnvironment, t
 import { authorizeDceWithProvider, validateDceReadiness } from '../services/dceService.js';
 import { getBrandingForFiscalEmitter } from '../services/visualIdentityService.js';
 import { getFiscalDocModeForFreight } from '../services/fiscal/fiscalDocPolicy.js';
-import { buildCtePreflightResult, type CtePreflightResult } from '../services/fiscal/ctePreflight.js';
 import { resolveCteCfopCstForEmission } from '../services/fiscal/cteEmitterDefaults.js';
+import { buildCteEmissionInputFromRecords } from '../services/fiscal/cteEmissionInputBuilder.js';
+import { getAcbrProviderDecision } from '../services/acbr/acbrConfig.js';
+import { enqueueCteEmissionJob } from '../services/queues/cteEmissionQueue.js';
+import { getObjectDownloadUrl } from '../lib/objectStorage.js';
 
 const router = Router({ mergeParams: true });
 
@@ -77,8 +80,10 @@ const CTE_PROVIDER_HAPPY_PATH_MODE: CteProviderMode = 'simulate-authorized';
 const FISCAL_LOCKED_STATUSES = [
     'CTE_READY',
     'CTE_SENT',
+    'CTE_PROCESSING',
     'CTE_AUTHORIZED',
     'CTE_CANCELLED',
+    'CTE_PENDING_RECONCILIATION',
     'DCE_READY',
     'DCE_SENT',
     'DCE_AUTHORIZED',
@@ -332,98 +337,6 @@ async function validateFiscalEmitterSelection(params: {
     if (params.user?.roles.includes('HUB') && fiscalEmitter.hubId && fiscalEmitter.hubId !== params.user.hubId) {
         throw new AppError('Você não pode usar emitente credenciado de outro Hub', 403);
     }
-}
-
-type CteInputBuildResult = {
-    input: CteEmissionInput | null;
-    preflight: CtePreflightResult;
-};
-
-function buildCteEmissionInputFromRecords(params: {
-    order: any;
-    calc: any;
-    hub: any;
-    numero?: number;
-}): CteInputBuildResult {
-    const { order, calc, hub } = params;
-    const ambiente = (calc.fiscalEmitter?.environment ?? calc.cteEnvironment ?? 'HOMOLOGACAO') as CteEnvironment;
-    const serie = calc.fiscalEmitter?.cteSeries ?? calc.cteSeries ?? 1;
-    const additionalIssues: string[] = [];
-    const additionalMissingFields: string[] = [];
-
-    if (calc.documentType !== 'CTE') {
-        additionalIssues.push('Este cálculo não é do tipo CT-e.');
-    }
-    if ((calc.freightTotal ?? 0) <= 0) {
-        additionalIssues.push('CT-e precisa de valor de frete maior que zero.');
-        additionalMissingFields.push('freightTotal');
-    }
-    if (!calc.fiscalEmitterId || !calc.fiscalEmitter || !calc.fiscalEmitter.active) {
-        additionalIssues.push('É obrigatório vincular um emitente credenciado ativo a este cálculo para emitir CT-e.');
-        additionalMissingFields.push('fiscalEmitterId');
-    }
-    if (calc.fiscalEmitter && !calc.fiscalEmitter.person) {
-        additionalIssues.push('Emitente credenciado sem pessoa jurídica vinculada.');
-        additionalMissingFields.push('fiscalEmitterId');
-    }
-
-    const emitterPerson = calc.fiscalEmitter?.person ?? hub?.person ?? null;
-    const rntrc = calc.fiscalEmitter?.rntrc ?? hub?.rntrc ?? null;
-    const canBuildInput = calc.documentType === 'CTE' && Boolean(hub && emitterPerson);
-    const effectiveTax = resolveCteCfopCstForEmission(calc, calc.fiscalEmitter);
-
-    const input = canBuildInput
-        ? {
-            calc: {
-                id: calc.id,
-                originCity: calc.originCity,
-                destCity: calc.destCity,
-                cfop: effectiveTax.cfop,
-                cst: effectiveTax.cst,
-                tipoFrete: calc.tipoFrete,
-                observacoes: calc.observacoes,
-                volumes: calc.volumes,
-                weight: calc.weight,
-                effectiveWeight: calc.effectiveWeight,
-                cubage: calc.cubage,
-                nfValue: calc.nfValue,
-                commodity: calc.commodity,
-                freightTotal: calc.freightTotal,
-                breakdown: calc.breakdown,
-                icmsValue: calc.icmsValue,
-            },
-            order: {
-                freightTerm: order.freightTerm,
-                remetentePerson: order.remetentePerson,
-                destinatarioPerson: order.destinatarioPerson,
-                consignatarioPerson: order.consignatarioPerson,
-                expedidorPerson: order.expedidorPerson,
-                invoicesRel: order.invoicesRel,
-                collectionData: order.collectionData,
-            },
-            hub: {
-                id: hub.id,
-                name: calc.fiscalEmitter?.displayName ?? emitterPerson.legalName ?? hub.name,
-                code: hub.code,
-                phone: calc.fiscalEmitter?.hub?.phone ?? hub.phone,
-                rntrc,
-            },
-            person: emitterPerson,
-            numero: params.numero ?? 0,
-            serie,
-            ambiente,
-        } satisfies CteEmissionInput
-        : null;
-
-    return {
-        input,
-        preflight: buildCtePreflightResult(input, {
-            environment: ambiente,
-            provider: calc.fiscalEmitter?.provider ?? null,
-            additionalIssues,
-            additionalMissingFields,
-        }),
-    };
 }
 
 // ==================== ROUTES ====================
@@ -769,6 +682,48 @@ router.get('/:calcId/cte-preflight', authenticate, authorize('ADMIN', 'HUB'), as
 
         const { preflight } = buildCteEmissionInputFromRecords({ order, calc, hub });
         res.json({ success: true, data: preflight });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// GET .../cte-document?type=xml|pdf — única forma do frontend obter o documento. NUNCA expõe URL da ACBr.
+router.get('/:calcId/cte-document', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const orderId = req.params.orderId as string;
+        const calcId = req.params.calcId as string;
+        const type = req.query.type === 'xml' ? 'xml' : 'pdf';
+
+        const order = await prisma.order.findUnique({ where: { id: orderId }, select: { currentHubId: true } });
+        if (!order) throw new AppError('Order not found', 404);
+        if (req.user!.roles.includes('HUB') && (!req.user!.hubId || order.currentHubId !== req.user!.hubId)) {
+            throw new AppError('Not authorized to access this document', 403);
+        }
+
+        const calc = await prisma.orderFreightCalculation.findFirst({
+            where: { id: calcId, orderId },
+            select: { cteXmlStorageKey: true, ctePdfStorageKey: true, status: true },
+        });
+        if (!calc) throw new AppError('Cálculo de frete não encontrado', 404);
+
+        const key = type === 'xml' ? calc.cteXmlStorageKey : calc.ctePdfStorageKey;
+        if (key) {
+            const downloadUrl = await getObjectDownloadUrl(key, 300);
+            res.json({ success: true, data: { downloadUrl, expiresInSeconds: 300 } });
+            return;
+        }
+
+        if (calc.status !== 'CTE_AUTHORIZED') {
+            throw new AppError('Documento ainda não disponível — CT-e não autorizado.', 404);
+        }
+
+        // CT-e autorizado antes desta mudança, sem storage key ainda: nunca expor a URL crua da ACBr.
+        // Sinaliza "em migração" — o script de backfill (Task 14) deve rodar antes de habilitar isto em produção,
+        // então este caminho só deve ser alcançado em cenários residuais.
+        res.status(202).json({
+            success: false,
+            error: 'Documento ainda está sendo migrado para o repositório interno. Tente novamente em alguns instantes.',
+        });
     } catch (error) {
         next(error);
     }
@@ -1164,6 +1119,81 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
             },
         });
 
+        const acbrDecision = getAcbrProviderDecision(calc.fiscalEmitter?.provider ?? null);
+
+        if (acbrDecision.willUseAcbrHttp) {
+            // Caminho real ACBr: assíncrono. Cria o job de emissão e enfileira — nunca chama a ACBr aqui.
+            // Este bloco fica isolado num try/catch próprio: o calc já foi marcado CTE_SENT acima e
+            // CTE_SENT está em FISCAL_LOCKED_STATUSES (bloqueia recálculo/reemissão). Se criar o job,
+            // enfileirar ou persistir o queueJobId falhar (ex.: blip do Redis), o calc NÃO pode ficar
+            // preso em CTE_SENT — isso seria um estado órfão sem nenhuma saída via API (nem reconcile,
+            // que só aceita CTE_PENDING_RECONCILIATION, nem reemissão, bloqueada por FISCAL_LOCKED_STATUSES).
+            // Por isso, qualquer falha aqui reclassifica o calc para CTE_PENDING_RECONCILIATION — o
+            // mesmo estado "precisa de atenção humana" já usado pelo processor (markPendingReconciliation
+            // em cteEmissionProcessor.ts) — e relança o erro original para o caller ver a falha (500).
+            let emissionJob: Awaited<ReturnType<typeof prisma.cteEmissionJob.create>> | null = null;
+            try {
+                emissionJob = await prisma.cteEmissionJob.create({
+                    data: { calcId, phase: 'QUEUED' },
+                });
+                const queueJobId = await enqueueCteEmissionJob({ calcId, cteEmissionJobId: emissionJob.id, phaseHint: 'submit' });
+                await prisma.cteEmissionJob.update({ where: { id: emissionJob.id }, data: { queueJobId } });
+            } catch (enqueueError) {
+                const errMessage = enqueueError instanceof Error ? enqueueError.message : String(enqueueError);
+                // Nenhum documento chega a ser submetido à ACBr neste bloco (isso só acontece depois,
+                // no worker), então o `providerDocId` do job nunca existe aqui — ou seja, mesmo a
+                // reconciliação (/emit-cte/reconcile) não consegue agir sozinha neste estado exato
+                // (ela exige um job com `providerDocId` já preenchido). E reemitir via este mesmo
+                // endpoint também não é possível a partir de CTE_PENDING_RECONCILIATION, que está em
+                // FISCAL_LOCKED_STATUSES. Por isso a mensagem não promete "refaça a emissão" — só
+                // deixa claro que precisa de intervenção do suporte/administrador.
+                //
+                // As duas escritas abaixo usam `updateMany` com um filtro de estado (compare-and-swap)
+                // em vez de `update`: é possível que `enqueueCteEmissionJob` tenha de fato colocado o
+                // job na fila (BullMQ) antes de o `queueJobId` falhar ao persistir — nesse caso um
+                // worker pode já estar processando o job concorrentemente com este catch. Sem o
+                // filtro, escreveríamos CTE_PENDING_RECONCILIATION por cima de um resultado real
+                // (ex.: CTE_PROCESSING/CTE_AUTHORIZED/CTE_REJECTED) que o worker já persistiu.
+                await prisma.orderFreightCalculation.updateMany({
+                    where: { id: calcId, status: 'CTE_SENT' },
+                    data: {
+                        status: 'CTE_PENDING_RECONCILIATION',
+                        cteStatusReason: 'Falha ao enfileirar a emissão assíncrona do CT-e. Nenhum documento foi enviado à ACBr — contate o suporte técnico para reprocessar este cálculo.',
+                    },
+                });
+                if (emissionJob) {
+                    try {
+                        await prisma.cteEmissionJob.updateMany({
+                            where: { id: emissionJob.id, phase: 'QUEUED' },
+                            data: { phase: 'PENDING_RECONCILIATION', lastError: errMessage },
+                        });
+                    } catch {
+                        // Best-effort: não deixa uma falha secundária ao marcar o job mascarar o erro original.
+                    }
+                }
+                throw enqueueError;
+            }
+
+            const updated = await prisma.orderFreightCalculation.findUniqueOrThrow({
+                where: { id: calcId },
+                include: {
+                    emissor: { select: { id: true, name: true, code: true, person: { select: { document: true, legalName: true } } } },
+                    pricingTable: { select: { id: true, description: true } },
+                },
+            });
+
+            res.status(202).json({
+                success: true,
+                data: updated,
+                // Não-nulo aqui: o catch acima sempre relança (nunca cai para fora do try/catch
+                // deixando `emissionJob` como null quando o bloco todo teve sucesso).
+                job: { id: emissionJob!.id, phase: emissionJob!.phase },
+                message: 'CT-e enviado para processamento assíncrono. Acompanhe o status do cálculo.',
+            });
+            return;
+        }
+
+        // Modo simulado local (sem ACBr real): continua síncrono, rápido, sem custo — comportamento preservado.
         const providerResult = await authorizeCteWithProvider(cteInput, {
             mode: providerMode,
             fiscalEmitterProvider: calc.fiscalEmitter?.provider ?? null,
@@ -1241,6 +1271,37 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
                 ? 'CT-e autorizado pelo provider fiscal configurado.'
                 : 'CT-e rejeitado pelo provider fiscal configurado.',
         });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// POST .../emit-cte/reconcile — só permite a partir de CTE_PENDING_RECONCILIATION.
+// Reenfileira em modo 'poll-only': NUNCA refaz POST /cte, só consulta o status já existente.
+router.post('/:calcId/emit-cte/reconcile', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const orderId = req.params.orderId as string;
+        const calcId = req.params.calcId as string;
+
+        const calc = await prisma.orderFreightCalculation.findFirst({
+            where: { id: calcId, orderId },
+            include: { cteEmissionJobs: { orderBy: { createdAt: 'desc' }, take: 1 } },
+        });
+        if (!calc) throw new AppError('Cálculo de frete não encontrado', 404);
+        if (calc.status !== 'CTE_PENDING_RECONCILIATION') {
+            throw new AppError('Reconciliação só é permitida quando o CT-e está em estado de alerta/conciliação.', 400);
+        }
+        const lastJob = calc.cteEmissionJobs[0];
+        if (!lastJob?.providerDocId) {
+            throw new AppError('Nenhum documento foi submetido à ACBr ainda para este cálculo — não é possível reconciliar, refaça a emissão.', 400);
+        }
+
+        await prisma.cteEmissionJob.update({ where: { id: lastJob.id }, data: { phase: 'POLLING', attemptCount: 0, pausedForQuota: false } });
+        const queueJobId = await enqueueCteEmissionJob({ calcId, cteEmissionJobId: lastJob.id, phaseHint: 'poll-only' });
+        await prisma.cteEmissionJob.update({ where: { id: lastJob.id }, data: { queueJobId } });
+        await prisma.orderFreightCalculation.update({ where: { id: calcId }, data: { status: 'CTE_PROCESSING', cteStatusReason: null } });
+
+        res.status(202).json({ success: true, message: 'Reconciliação reenfileirada — apenas consulta de status, sem novo envio à ACBr.' });
     } catch (error) {
         next(error);
     }

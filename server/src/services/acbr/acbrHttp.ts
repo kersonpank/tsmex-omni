@@ -7,7 +7,79 @@ export type AcbrRequestInit = Omit<RequestInit, 'headers'> & {
     headers?: Record<string, string>;
     /** Homologação/produção: define o host hom.acbr vs prod.acbr. Omitir = `ACBR_API_BASE_URL` ou hom.acbr por padrão. */
     apiEnvironment?: AcbrFiscalEnvironment;
+    /** Timeout individual da requisição, em ms. Default 15s — a SEFAZ pode ficar instável, não travar pra sempre. */
+    timeoutMs?: number;
 };
+
+export class AcbrHttpError extends Error {
+    httpStatus: number;
+    retryAfterSeconds?: number;
+    retryInSeconds?: number;
+    quotaErrorCode?: string;
+
+    constructor(message: string, httpStatus: number, extra: { retryAfterSeconds?: number; retryInSeconds?: number; quotaErrorCode?: string } = {}) {
+        super(message);
+        this.name = 'AcbrHttpError';
+        this.httpStatus = httpStatus;
+        this.retryAfterSeconds = extra.retryAfterSeconds;
+        this.retryInSeconds = extra.retryInSeconds;
+        this.quotaErrorCode = extra.quotaErrorCode;
+    }
+}
+
+function parseRetryHeaders(res: Response): { retryAfterSeconds?: number; retryInSeconds?: number } {
+    const retryAfterRaw = res.headers.get('Retry-After');
+    const retryInRaw = res.headers.get('X-Retry-In');
+    const retryAfterSeconds = retryAfterRaw ? Number(retryAfterRaw) : undefined;
+    // X-Retry-In vem como string tipo "1.003928397s" — parseFloat já ignora o sufixo "s".
+    const retryInSeconds = retryInRaw ? Number.parseFloat(retryInRaw) : undefined;
+    return {
+        retryAfterSeconds: Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : undefined,
+        retryInSeconds: Number.isFinite(retryInSeconds) ? retryInSeconds : undefined,
+    };
+}
+
+/**
+ * Classifica uma resposta HTTP não-2xx da ACBr num `AcbrHttpError` tipado (com
+ * `httpStatus`/`retryAfterSeconds`/`retryInSeconds`/`quotaErrorCode`) e lança.
+ *
+ * Compartilhado entre `acbrFetchJson` (chamadas JSON) e os downloads de arquivo
+ * (`downloadCteXml`/`downloadCtePdf` em `acbrCteEmit.ts`, que usam `fetch` puro porque
+ * precisam de corpo texto/binário, não JSON) — assim um 402/429 durante o download do
+ * XML/PDF autorizado é classificado exatamente igual a um 402/429 em qualquer outra
+ * chamada, e o processor da fila (`cteEmissionProcessor.ts`) reage do mesmo jeito.
+ *
+ * O parse do corpo como JSON é best-effort: corpos de erro de download muitas vezes não
+ * são JSON, e isso NUNCA deve mascarar o erro HTTP original com um erro secundário de parse.
+ */
+export async function classifyAcbrErrorResponse(res: Response, path: string, bodyForMessage: string): Promise<never> {
+    let json: unknown;
+    try {
+        json = bodyForMessage ? JSON.parse(bodyForMessage) : undefined;
+    } catch {
+        json = undefined;
+    }
+    const msg = typeof json === 'object' && json && 'message' in json ? String((json as { message: unknown }).message) : bodyForMessage;
+    console.warn(
+        JSON.stringify({
+            level: 'warn',
+            source: 'acbrHttp',
+            path,
+            httpStatus: res.status,
+            messagePreview: msg.slice(0, 200),
+        }),
+    );
+    const { retryAfterSeconds, retryInSeconds } = parseRetryHeaders(res);
+    const quotaErrorCode =
+        res.status === 402 && typeof json === 'object' && json && 'error' in json
+            ? String((json as { error: unknown }).error)
+            : undefined;
+    throw new AcbrHttpError(`ACBr ${path} HTTP ${res.status}: ${msg.slice(0, 800)}`, res.status, {
+        retryAfterSeconds,
+        retryInSeconds,
+        quotaErrorCode,
+    });
+}
 
 export async function acbrFetchJson<T = unknown>(path: string, init: AcbrRequestInit): Promise<T> {
     const scopes = init.scopes;
@@ -20,27 +92,37 @@ export async function acbrFetchJson<T = unknown>(path: string, init: AcbrRequest
         ...(init.headers ?? {}),
     };
     if (init.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
-    const { scopes: _s, apiEnvironment: _e, ...rest } = init;
-    const res = await fetch(url, { ...rest, headers });
+    const { scopes: _s, apiEnvironment: _e, timeoutMs, ...rest } = init;
+
+    const effectiveTimeoutMs = timeoutMs ?? 15_000;
+    // Nota: usamos um AbortController + setTimeout manual (em vez de AbortSignal.timeout)
+    // porque o timer interno de AbortSignal.timeout é unref'd pelo Node — em produção isso
+    // não é um problema (a conexão fetch real mantém o event loop vivo), mas um setTimeout
+    // comum garante que o timeout dispare de forma previsível e é limpo assim que a
+    // requisição resolve, evitando handles pendurados.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new DOMException('Timeout', 'TimeoutError')), effectiveTimeoutMs);
+    let res: Response;
+    try {
+        res = await fetch(url, { ...rest, headers, signal: controller.signal });
+    } catch (err) {
+        if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+            throw new Error(`ACBr ${path}: timeout após ${effectiveTimeoutMs}ms aguardando resposta.`);
+        }
+        throw err;
+    } finally {
+        clearTimeout(timer);
+    }
+
     const text = await res.text();
+    if (!res.ok) {
+        await classifyAcbrErrorResponse(res, path, text);
+    }
     let json: unknown;
     try {
         json = text ? JSON.parse(text) : {};
     } catch {
         throw new Error(`ACBr resposta não-JSON (${res.status}): ${text.slice(0, 400)}`);
-    }
-    if (!res.ok) {
-        const msg = typeof json === 'object' && json && 'message' in json ? String((json as { message: unknown }).message) : text;
-        console.warn(
-            JSON.stringify({
-                level: 'warn',
-                source: 'acbrHttp',
-                path,
-                httpStatus: res.status,
-                messagePreview: msg.slice(0, 200),
-            }),
-        );
-        throw new Error(`ACBr ${path} HTTP ${res.status}: ${msg.slice(0, 800)}`);
     }
     return json as T;
 }

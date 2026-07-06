@@ -4,8 +4,8 @@
 
 1. `docker network ls` contém `ProxyGM`.
 2. Serviços existentes no Swarm:
-   - Staging: `staging-tsmex-dev_{postgres,redis,minio,migrate,api,web}`
-   - Produção: `tsmexomni-prod_{postgres,redis,minio,migrate,api,web}`
+   - Staging: `staging-tsmex-dev_{postgres,redis,minio,migrate,api,web,worker}`
+   - Produção: `tsmexomni-prod_{postgres,redis,minio,migrate,api,web,worker}`
 3. Se o stack ainda não existir no Portainer, criá-lo **uma vez** seguindo [docs/VPS_SETUP.md](docs/VPS_SETUP.md) com o YAML (`docker-stack.staging.yml` ou `docker-stack.prod.yml`) do repositório. O CI **não** faz bootstrap — apenas atualiza imagens via `docker service update`.
 4. Variáveis conferidas no Portainer conforme [docs/STACK_ENV_MATRIX.md](docs/STACK_ENV_MATRIX.md).
 5. MinIO bucket do ambiente criado e política da app aplicada.

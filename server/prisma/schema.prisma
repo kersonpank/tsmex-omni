@@ -284,12 +284,12 @@ model Hub {
 
   // Relationships
   manifests            Manifest[]
-  manifestsDestination Manifest[] @relation("ManifestDestHub")
-  ordersAtHub            Order[] // Orders com status AT_HUB neste hub (currentHubId)
-  expectedDemands        Demand[] @relation("DemandExpectedHub")
-  users               User[] // Usuários que operam este hub (role HUB)
-  freightCalculations OrderFreightCalculation[]
-  fiscalEmitters      FiscalEmitter[]
+  manifestsDestination Manifest[]                @relation("ManifestDestHub")
+  ordersAtHub          Order[] // Orders com status AT_HUB neste hub (currentHubId)
+  expectedDemands      Demand[]                  @relation("DemandExpectedHub")
+  users                User[] // Usuários que operam este hub (role HUB)
+  freightCalculations  OrderFreightCalculation[]
+  fiscalEmitters       FiscalEmitter[]
   commissionAgreements HubCommissionAgreement[]
 
   // Management
@@ -364,8 +364,8 @@ model Link {
   whatsappPhone String?
   whatsappOptIn Boolean @default(false)
 
-  manifests  Manifest[]
-  onboarding LinkOnboarding?
+  manifests         Manifest[]
+  onboarding        LinkOnboarding?
   pricingAgreements LinkPricingAgreement[]
 
   createdAt DateTime @default(now())
@@ -576,14 +576,14 @@ model Demand {
 
   // Intake / pré-entrada universal (PR002+)
   documentType       DemandDocumentType?
-  documentKey          String?
-  externalReference    String?
-  expectedHubId        String?
-  expectedHub          Hub?              @relation("DemandExpectedHub", fields: [expectedHubId], references: [id], onDelete: SetNull)
-  intakeCompleteness   CompletenessLevel @default(INCOMPLETE)
-  missingFields        String[]          @default([])
-  declarationData      Json?
-  rawInputData         Json?
+  documentKey        String?
+  externalReference  String?
+  expectedHubId      String?
+  expectedHub        Hub?                @relation("DemandExpectedHub", fields: [expectedHubId], references: [id], onDelete: SetNull)
+  intakeCompleteness CompletenessLevel   @default(INCOMPLETE)
+  missingFields      String[]            @default([])
+  declarationData    Json?
+  rawInputData       Json?
 
   // Order relationship
   order Order?
@@ -873,9 +873,9 @@ model ManifestFiscalDocument {
 // ========================================
 
 model ConsolidationFeedback {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   adminId     String?
-  admin       Admin?   @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  admin       Admin?    @relation(fields: [adminId], references: [id], onDelete: Cascade)
   actorUserId String?
   actorRole   UserRole?
 
@@ -1544,7 +1544,9 @@ enum FreightCalcStatus {
   CALCULATED // Calculado
   CTE_READY // CT-e validado e pronto para envio fiscal
   CTE_SENT // CT-e enviado ao provedor fiscal / SEFAZ
+  CTE_PROCESSING // Worker confirmou POST /cte e está fazendo polling assíncrono
   CTE_REJECTED // CT-e rejeitado com pendências recuperáveis
+  CTE_PENDING_RECONCILIATION // Timeout de polling OU fila pausada por crédito — precisa de ação manual, NUNCA é rejeição automática
   MINUTA_EMITTED // Minuta emitida
   CTE_AUTHORIZED // CT-e autorizado SEFAZ
   CTE_CANCELLED // CT-e cancelado
@@ -1590,28 +1592,30 @@ model OrderFreightCalculation {
   icmsValue       Float?
   effectiveWeight Float?
 
-  minutaNumber    String?
-  cteNumber       String?
-  cteSeries       Int?
-  cteEnvironment  String?
-  cteAccessKey    String?
-  cteProtocol     String?
-  cteStatusReason String?           @db.Text
-  cteXml          String?           @db.Text
-  cteXmlUrl       String?
-  ctePdfUrl       String?
-  cteAuthorizedAt DateTime?
-  cteRejectedAt   DateTime?
-  cteCancelledAt  DateTime?
-  status          FreightCalcStatus @default(DRAFT)
+  minutaNumber     String?
+  cteNumber        String?
+  cteSeries        Int?
+  cteEnvironment   String?
+  cteAccessKey     String?
+  cteProtocol      String?
+  cteStatusReason  String?           @db.Text
+  cteXml           String?           @db.Text
+  cteXmlUrl        String?
+  ctePdfUrl        String?
+  cteXmlStorageKey String?
+  ctePdfStorageKey String?
+  cteAuthorizedAt  DateTime?
+  cteRejectedAt    DateTime?
+  cteCancelledAt   DateTime?
+  status           FreightCalcStatus @default(DRAFT)
 
   dceNumber       String?
   dceSeries       Int?
   dceEnvironment  String?
   dceAccessKey    String?
   dceProtocol     String?
-  dceStatusReason String?           @db.Text
-  dceXml          String?           @db.Text
+  dceStatusReason String?   @db.Text
+  dceXml          String?   @db.Text
   dcePdfUrl       String?
   dceAuthorizedAt DateTime?
   dceRejectedAt   DateTime?
@@ -1619,6 +1623,8 @@ model OrderFreightCalculation {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  cteEmissionJobs CteEmissionJob[]
 
   @@index([orderId])
   @@index([emissorId])
@@ -1628,10 +1634,10 @@ model OrderFreightCalculation {
 
 // Último NSU Distribuição DF-e (ACBr) por CNPJ/CPF + ambiente
 model FiscalDistribuicaoCheckpoint {
-  id        String @id @default(uuid())
+  id        String   @id @default(uuid())
   cpfCnpj   String // só dígitos
   ambiente  String // homologacao | producao
-  ultimoNsu String @default("0") // NSU como string para suportar inteiros grandes
+  ultimoNsu String   @default("0") // NSU como string para suportar inteiros grandes
   updatedAt DateTime @updatedAt
 
   @@unique([cpfCnpj, ambiente])
@@ -1750,21 +1756,21 @@ model PipelineColumn {
 // ========================================
 
 model OrderLeg {
-  id          String     @id @default(uuid())
-  orderId     String
-  order       Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  manifestId  String
-  manifest    Manifest   @relation(fields: [manifestId], references: [id], onDelete: Cascade)
-  sequence    Int        // ordem na jornada (1, 2, 3...)
-  legType     LegType    // COLETA | TRANSFERENCIA | ENTREGA
-  executedBy  ExecutedBy // HUB | LINK
-  originHubId String?    // hub de origem da perna (null na coleta na ponta)
-  destHubId   String?    // hub de destino da perna (null na entrega final)
-  startedAt   DateTime?
-  completedAt DateTime?
+  id            String     @id @default(uuid())
+  orderId       String
+  order         Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  manifestId    String
+  manifest      Manifest   @relation(fields: [manifestId], references: [id], onDelete: Cascade)
+  sequence      Int // ordem na jornada (1, 2, 3...)
+  legType       LegType // COLETA | TRANSFERENCIA | ENTREGA
+  executedBy    ExecutedBy // HUB | LINK
+  originHubId   String? // hub de origem da perna (null na coleta na ponta)
+  destHubId     String? // hub de destino da perna (null na entrega final)
+  startedAt     DateTime?
+  completedAt   DateTime?
   allocatedCost Float?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
 
   @@unique([orderId, manifestId])
   @@index([orderId])
@@ -1795,10 +1801,10 @@ model LinkPricingAgreement {
   link            Link         @relation(fields: [linkId], references: [id], onDelete: Cascade)
   originCity      String
   destinationCity String
-  vehicleTypeCode String       // Code referencing VehicleType
+  vehicleTypeCode String // Code referencing VehicleType
   flatRate        Float
-  ratePerM3       Float?       // Opcional: adicional por metro cúbico
-  ratePerKg       Float?       // Opcional: adicional por kg
+  ratePerM3       Float? // Opcional: adicional por metro cúbico
+  ratePerKg       Float? // Opcional: adicional por kg
   costMode        LinkCostMode @default(FLAT)
   active          Boolean      @default(true)
   createdAt       DateTime     @default(now())
@@ -1809,14 +1815,14 @@ model LinkPricingAgreement {
 }
 
 model HubCommissionAgreement {
-  id                    String      @id @default(uuid())
-  hubId                 String
-  hub                   Hub         @relation(fields: [hubId], references: [id], onDelete: Cascade)
-  handlingFeePerOrder   Float       @default(0) // taxa de manuseio físico fixa por pedido
-  percentOfFreight      Float?      // comissão em % sobre o frete cobrado do cliente
-  active                Boolean     @default(true)
-  createdAt             DateTime    @default(now())
-  updatedAt             DateTime    @updatedAt
+  id                  String   @id @default(uuid())
+  hubId               String
+  hub                 Hub      @relation(fields: [hubId], references: [id], onDelete: Cascade)
+  handlingFeePerOrder Float    @default(0) // taxa de manuseio físico fixa por pedido
+  percentOfFreight    Float? // comissão em % sobre o frete cobrado do cliente
+  active              Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   @@index([hubId])
 }
@@ -1825,4 +1831,76 @@ enum LinkCostMode {
   FLAT
   PER_M3
   PER_KG
+}
+
+enum CteEmissionJobPhase {
+  QUEUED
+  EMPRESA_ENSURING
+  SUBMITTED
+  POLLING
+  DOWNLOADING_FILES
+  DONE
+  FAILED
+  PENDING_RECONCILIATION
+}
+
+model CteEmissionJob {
+  id     String                  @id @default(uuid())
+  calcId String
+  calc   OrderFreightCalculation @relation(fields: [calcId], references: [id], onDelete: Cascade)
+
+  queueJobId      String?             @unique
+  providerDocId   String?             @unique
+  phase           CteEmissionJobPhase @default(QUEUED)
+  attemptCount    Int                 @default(0)
+  maxAttempts     Int                 @default(24)
+  lastPolledAt    DateTime?
+  nextPollAt      DateTime?
+  lastHttpStatus  Int?
+  lastError       String?             @db.Text
+  pausedForQuota  Boolean             @default(false)
+  xmlDownloadedAt DateTime?
+  pdfDownloadedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([calcId])
+  @@index([phase, nextPollAt])
+}
+
+enum SystemAlertCategory {
+  FISCAL_PROVIDER_QUOTA
+  FISCAL_PROVIDER_ERROR
+  GENERIC
+}
+
+enum SystemAlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum SystemAlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+model SystemAlert {
+  id       String              @id @default(uuid())
+  category SystemAlertCategory
+  severity SystemAlertSeverity @default(WARNING)
+  status   SystemAlertStatus   @default(OPEN)
+  title    String
+  message  String              @db.Text
+  context  Json?
+
+  createdAt            DateTime  @default(now())
+  acknowledgedAt       DateTime?
+  acknowledgedByUserId String?
+  resolvedAt           DateTime?
+
+  @@index([status])
+  @@index([category])
 }

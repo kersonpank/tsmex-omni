@@ -131,6 +131,42 @@ services:
         - "traefik.http.routers.tsmex-prod-api.tls.certresolver=letsencryptresolver"
         - "traefik.http.services.tsmex-prod-api.loadbalancer.server.port=3002"
 
+  worker:
+    image: ghcr.io/${GITHUB_REPOSITORY}/tsmex-api:latest
+    command: ["node", "dist/worker.js"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      NODE_ENV: production
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      S3_ENDPOINT: ${S3_ENDPOINT:-https://${MINIO_HOST}}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-https://${MINIO_HOST}}
+      S3_SIGNED_URL_PUBLIC_HOST: ${S3_SIGNED_URL_PUBLIC_HOST:-https://${MINIO_HOST}}
+      UPLOAD_MAX_SIZE_BYTES: ${UPLOAD_MAX_SIZE_BYTES:-10485760}
+      ACBR_CLIENT_ID: ${ACBR_CLIENT_ID:-}
+      ACBR_CLIENT_SECRET: ${ACBR_CLIENT_SECRET:-}
+      ACBR_TOKEN_URL: ${ACBR_TOKEN_URL:-}
+      ACBR_API_BASE_URL: ${ACBR_API_BASE_URL:-}
+      ACBR_FALLBACK_CMUN: ${ACBR_FALLBACK_CMUN:-}
+      FISCAL_CTE_PROVIDER: ${FISCAL_CTE_PROVIDER:-}
+      FISCAL_PROVIDER: ${FISCAL_PROVIDER:-}
+      FISCAL_SECRET_KEY: ${FISCAL_SECRET_KEY:-}
+    # Mesma imagem do `api`, mas roda o worker BullMQ (fila de emissão de CT-e) — não sobe
+    # HTTP, então o HEALTHCHECK da imagem (GET /health) sempre falharia; desabilitado aqui.
+    healthcheck:
+      disable: true
+    networks:
+      - tsmex-prod-internal
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+
   web:
     image: ghcr.io/${GITHUB_REPOSITORY}/tsmex-web:latest
     environment:

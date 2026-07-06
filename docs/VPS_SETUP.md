@@ -77,10 +77,10 @@ docker service ls
 
 Confirme que os serviços esperados existem:
 
-- `staging-tsmex-dev_api`, `staging-tsmex-dev_web`, `staging-tsmex-dev_migrate`, `staging-tsmex-dev_postgres`, `staging-tsmex-dev_redis`, `staging-tsmex-dev_minio`
-- `tsmexomni-prod_api`, `tsmexomni-prod_web`, `tsmexomni-prod_migrate`, `tsmexomni-prod_postgres`, `tsmexomni-prod_redis`, `tsmexomni-prod_minio`
+- `staging-tsmex-dev_api`, `staging-tsmex-dev_web`, `staging-tsmex-dev_migrate`, `staging-tsmex-dev_worker`, `staging-tsmex-dev_postgres`, `staging-tsmex-dev_redis`, `staging-tsmex-dev_minio`
+- `tsmexomni-prod_api`, `tsmexomni-prod_web`, `tsmexomni-prod_migrate`, `tsmexomni-prod_worker`, `tsmexomni-prod_postgres`, `tsmexomni-prod_redis`, `tsmexomni-prod_minio`
 
-Modelo operacional: **Portainer é dono do stack**. O workflow apenas faz `docker service update --image ... --force` nos 3 serviços construídos pelo CI (`api`, `web`, `migrate`). Não depende de nenhum arquivo em `/opt/tsmex`.
+Modelo operacional: **Portainer é dono do stack**. O workflow apenas faz `docker service update --image ... --force` nos serviços `api`, `web`, `migrate` (construídos pelo CI) e `worker` (reusa a imagem `api`, sem build próprio). Não depende de nenhum arquivo em `/opt/tsmex`.
 
 Se os serviços ainda não existirem, criar o stack **uma vez** no Portainer (ver passo 5) usando `docker-stack.staging.yml` ou `docker-stack.prod.yml` do repositório. MinIO sobe como parte do stack; ajustar a imagem ou envs é feito via Portainer.
 
