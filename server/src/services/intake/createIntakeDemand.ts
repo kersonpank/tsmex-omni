@@ -22,7 +22,7 @@ import {
 } from './intakeDemandPolicy.js';
 
 export interface CreateIntakeDemandInput {
-    sourceType: Extract<DemandSource, 'MANUAL_HUB' | 'DECLARATION' | 'NFE_KEY'>;
+    sourceType: Extract<DemandSource, 'MANUAL_HUB' | 'DECLARATION' | 'NFE_KEY' | 'DFE_ACBR'>;
     clientId: string;
     expectedHubId?: string | null;
     externalReference?: string | null;
@@ -49,6 +49,8 @@ export interface CreateIntakeFromNfeKeyInput {
     clientId: string;
     expectedHubId?: string | null;
     rawInputData?: Prisma.InputJsonValue;
+    /** Origem da Demanda: bipagem manual (default) ou triagem da Distribuição NF-e automática. */
+    sourceType?: Extract<DemandSource, 'NFE_KEY' | 'DFE_ACBR'>;
 }
 
 export interface NfeKeyLookupData {
@@ -67,7 +69,7 @@ function buildIdempotencyRef(
     documentKey: string | null | undefined,
     externalReference: string | null | undefined,
 ): string | null {
-    if (sourceType === 'NFE_KEY' && documentKey) {
+    if ((sourceType === 'NFE_KEY' || sourceType === 'DFE_ACBR') && documentKey) {
         return normalizeExternalReference(documentKey);
     }
     return normalizeExternalReference(externalReference);
@@ -276,7 +278,7 @@ export async function createIntakeDemandFromNfeKey(
     );
 
     const demand = await createIntakeDemand({
-        sourceType: 'NFE_KEY',
+        sourceType: input.sourceType ?? 'NFE_KEY',
         clientId: input.clientId,
         expectedHubId: input.expectedHubId,
         documentType: 'NFE',
