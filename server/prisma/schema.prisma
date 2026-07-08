@@ -591,6 +591,9 @@ model Demand {
   // Invoices
   invoices Invoice[]
 
+  // Origem em documento descoberto via Distribuição NF-e (triagem, sourceType DFE_ACBR)
+  nfeDistribuicaoOrigin NfeDistribuicaoDocumento[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -822,9 +825,14 @@ model FiscalEmitter {
 
   active        Boolean @default(true)
   defaultForHub Boolean @default(false)
+  /// Opt-in explícito: liga a varredura automática 2x/dia da Distribuição NF-e para este CNPJ como destinatário.
+  /// Nunca ligar sem antes semear FiscalDistribuicaoCheckpoint.ultimoNsu (ver bootstrap-nsu) — o coordenador
+  /// e o processor recusam-se a rodar dist-nsu a partir de NSU=0 (custo retroativo de ~90 dias em créditos).
+  distribuicaoNfeEnabled Boolean @default(false)
 
-  freightCalculations     OrderFreightCalculation[]
-  manifestFiscalDocuments ManifestFiscalDocument[]
+  freightCalculations       OrderFreightCalculation[]
+  manifestFiscalDocuments   ManifestFiscalDocument[]
+  nfeDistribuicaoDocumentos NfeDistribuicaoDocumento[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1872,6 +1880,8 @@ model CteEmissionJob {
 enum SystemAlertCategory {
   FISCAL_PROVIDER_QUOTA
   FISCAL_PROVIDER_ERROR
+  FISCAL_DISTRIBUICAO_NFE_QUOTA
+  FISCAL_DISTRIBUICAO_NFE_NOT_SEEDED
   GENERIC
 }
 
@@ -1903,4 +1913,63 @@ model SystemAlert {
 
   @@index([status])
   @@index([category])
+}
+
+// ========================================
+// DISTRIBUIÇÃO NF-E (ACBr) — varredura de NSU + triagem manual
+// ========================================
+
+enum NfeDistribuicaoDocumentoTipo {
+  RESUMO // resNFe — resumo do documento (não é o nfeProc completo)
+  NFE_PROC // nfeProc — NF-e completa autorizada
+  EVENTO // procEventoNFe — evento (cancelamento, CCe, etc.)
+  DESCONHECIDO // schema não reconhecido — cai em PENDING_RECONCILIATION pra revisão manual
+}
+
+enum NfeDistribuicaoDocumentoStatus {
+  DISCOVERED // Descoberto via dist-nsu, ainda não manifestado
+  MANIFESTED // Ciência da Operação (evento 210210) confirmada
+  READY_FOR_TRIAGE // XML baixado e persistido — pronto pra Hub/Admin decidir
+  CONVERTED // Hub/Admin confirmou: virou Demand
+  DISCARDED // Hub/Admin confirmou: não é carga nossa, descartado
+  FAILED // Erro definitivo (schema desconhecido, chave inválida, etc.)
+  PENDING_RECONCILIATION // 429 esgotou tentativas ou 402 — precisa de ação manual/reprocesso
+}
+
+model NfeDistribuicaoDocumento {
+  id  String @id @default(uuid())
+  nsu String // NSU da distribuição em que este documento apareceu
+
+  accessKey    String                       @unique // chave de acesso, 44 dígitos
+  tipo         NfeDistribuicaoDocumentoTipo
+  cnpjEmitente String // só dígitos — fornecedor/emitente da NF-e
+  ambiente     String // homologacao | producao (mesmo domínio de FiscalDistribuicaoCheckpoint)
+
+  fiscalEmitterId String // nosso CNPJ destinatário monitorado
+  fiscalEmitter   FiscalEmitter @relation(fields: [fiscalEmitterId], references: [id], onDelete: Restrict)
+
+  resumoRaw Json // payload bruto retornado pela distribuição (schema varia por tipo)
+
+  status          NfeDistribuicaoDocumentoStatus @default(DISCOVERED)
+  manifestedAt    DateTime?
+  xmlDownloadedAt DateTime?
+  xmlStorageKey   String?
+
+  attemptCount   Int      @default(0)
+  lastHttpStatus Int?
+  lastError      String?  @db.Text
+  pausedForQuota Boolean  @default(false)
+
+  convertedDemandId String?
+  convertedDemand   Demand?   @relation(fields: [convertedDemandId], references: [id], onDelete: SetNull)
+  convertedAt       DateTime?
+  discardedAt       DateTime?
+  discardedByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([fiscalEmitterId, status])
+  @@index([status])
+  @@index([cnpjEmitente])
 }

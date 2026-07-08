@@ -2,6 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
+import prisma from '../lib/prisma.js';
 import {
     getUltimoNsuStored,
     listarDocumentosDistribuicao,
@@ -61,6 +62,40 @@ router.get('/distribuicao-nfe/documentos', async (req: AuthRequest, res: Respons
         const data = await listarDocumentosDistribuicao({ top, skip });
         res.json({ success: true, data });
     } catch (e) {
+        next(e);
+    }
+});
+
+const bootstrapNsuSchema = z.object({
+    nsu: z.string().regex(/^\d+$/, 'NSU deve conter apenas dígitos'),
+});
+
+/**
+ * Semeia o NSU inicial de um emitente SEM chamar a ACBr. Existe porque `dist-nsu` com
+ * ultNSU=0 faz a SEFAZ devolver o histórico retroativo (~90 dias) inteiro, e cada documento
+ * retornado consome 1 crédito — um CNPJ com milhares de notas emitidas nesse período pode
+ * estourar milhares de créditos em segundos só de habilitar a varredura automática. O valor
+ * de `nsu` é decidido por um humano (consulta manual de ultNSU, ou aceitar conscientemente o
+ * custo de uma consulta inicial). ADMIN-only: é uma ação com efeito financeiro direto.
+ */
+router.post('/distribuicao-nfe/emitters/:fiscalEmitterId/bootstrap-nsu', authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const parsed = bootstrapNsuSchema.parse(req.body);
+        const emitter = await prisma.fiscalEmitter.findUnique({
+            where: { id: req.params.fiscalEmitterId as string },
+            include: { person: true },
+        });
+        if (!emitter) throw new AppError('Emitente credenciado não encontrado', 404);
+
+        const ambiente = emitter.environment === 'PRODUCAO' ? 'producao' : 'homologacao';
+        await setUltimoNsuStored(emitter.person.document, ambiente, parsed.nsu);
+
+        res.json({
+            success: true,
+            data: { fiscalEmitterId: emitter.id, cpfCnpj: emitter.person.document, ambiente, ultimoNsu: parsed.nsu },
+        });
+    } catch (e) {
+        if (e instanceof z.ZodError) return next(new AppError(e.errors[0]?.message ?? 'Payload inválido', 400));
         next(e);
     }
 });
