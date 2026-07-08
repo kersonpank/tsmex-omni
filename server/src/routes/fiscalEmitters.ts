@@ -74,6 +74,7 @@ const fiscalEmitterShape = z.object({
     providerStatus: z.enum(['NOT_CONFIGURED', 'PENDING', 'READY', 'ERROR']).optional(),
     active: z.boolean().optional(),
     defaultForHub: z.boolean().optional(),
+    distribuicaoNfeEnabled: z.boolean().optional(),
     defaultCteCfop: nullableCteTaxString,
     defaultCteCst: nullableCteTaxString,
 });

@@ -52,6 +52,7 @@ type FormState = {
   provider: FiscalProvider;
   active: boolean;
   defaultForHub: boolean;
+  distribuicaoNfeEnabled: boolean;
   defaultCteCfop: string;
   defaultCteCst: string;
 };
@@ -75,6 +76,7 @@ const emptyForm: FormState = {
   provider: 'SIMULATED',
   active: true,
   defaultForHub: false,
+  distribuicaoNfeEnabled: false,
   defaultCteCfop: '',
   defaultCteCst: '',
 };
@@ -112,6 +114,7 @@ function emitterToForm(emitter: FiscalEmitter): FormState {
     provider: emitter.provider ?? 'SIMULATED',
     active: emitter.active,
     defaultForHub: emitter.defaultForHub,
+    distribuicaoNfeEnabled: emitter.distribuicaoNfeEnabled ?? false,
     defaultCteCfop: emitter.defaultCteCfop ?? '',
     defaultCteCst: emitter.defaultCteCst ?? '',
   };
@@ -353,6 +356,7 @@ const IdentidadeVisualTab: React.FC = () => {
         provider: form.provider,
         active: form.active,
         defaultForHub: form.defaultForHub,
+        distribuicaoNfeEnabled: form.distribuicaoNfeEnabled,
         defaultCteCfop: form.defaultCteCfop.trim() || null,
         defaultCteCst: form.defaultCteCst.trim() || null,
       };
@@ -725,6 +729,29 @@ const IdentidadeVisualTab: React.FC = () => {
                 <div className="text-xs text-tower-500 dark:text-tower-400">Emissão e cadastro de empresa/certificado na ACBr (requer ACBR_CLIENT_ID / ACBR_CLIENT_SECRET no servidor).</div>
               </div>
             </label>
+
+            <label className="mt-3 flex cursor-pointer items-center gap-3 rounded-lg border border-tower-200 bg-tower-50/80 px-4 py-3 dark:border-tower-600 dark:bg-tower-950/40">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-tower-300 text-brand-600 focus:ring-brand-500"
+                checked={form.distribuicaoNfeEnabled}
+                onChange={(e) => update('distribuicaoNfeEnabled', e.target.checked)}
+              />
+              <div>
+                <div className="text-sm font-semibold text-tower-800 dark:text-tower-100">Varredura automática de Distribuição NF-e (2x/dia)</div>
+                <div className="text-xs text-tower-500 dark:text-tower-400">
+                  Descobre automaticamente NF-e de compra/entrada destinadas a este CNPJ, envia Ciência da Operação e baixa o XML — sem criar Demanda sozinho (a triagem final é manual, no painel do Hub).
+                </div>
+              </div>
+            </label>
+            {form.distribuicaoNfeEnabled && (
+              <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+                ⚠️ Antes de salvar com isto ligado pela primeira vez, configure o <strong>NSU inicial</strong> deste CNPJ
+                (endpoint <code className="rounded bg-tower-100 px-1 dark:bg-tower-800">bootstrap-nsu</code>). Sem isso, o
+                sistema recusa a primeira varredura automática — buscar a partir do NSU 0 traria o histórico retroativo
+                de ~90 dias da SEFAZ, consumindo 1 crédito ACBr por documento retornado.
+              </p>
+            )}
           </EmitterAccordion>
 
           <EmitterAccordion title="Numerações" defaultOpen={false}>

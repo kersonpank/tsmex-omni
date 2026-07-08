@@ -201,6 +201,8 @@ export interface FiscalEmitter {
     defaultCteCfop?: string | null;
     /** Padrão fiscal do CT-e/DC-e quando o cálculo de frete não informa CST. */
     defaultCteCst?: string | null;
+    /** Opt-in: liga a varredura automática 2x/dia da Distribuição NF-e para este CNPJ como destinatário. */
+    distribuicaoNfeEnabled: boolean;
     readiness?: FiscalEmitterReadiness;
     createdAt: string;
     updatedAt: string;
