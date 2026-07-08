@@ -7,6 +7,7 @@ import EntradaTab from '../admin/EntradaTab';
 import ThemeToggle from '../ui/ThemeToggle';
 import BottomNav, { type BottomNavItem } from './BottomNav';
 import HubAwaitingArrivalTab from './HubAwaitingArrivalTab';
+import NfeDistribuicaoTriagemTab from './NfeDistribuicaoTriagemTab';
 import { HubNavIconHome, HubNavIconInbox, HubNavIconManifest, HubNavIconOrders, HubNavIconPlus } from './hubNavIcons';
 
 type Tab = 'inicio' | 'recebimento' | 'entrada' | 'pedidos' | 'manifestos';
@@ -443,13 +444,16 @@ const HubHome: React.FC = () => {
         {loading && <div className="py-16 text-center text-sm text-tower-600 dark:text-tower-300">Carregando...</div>}
 
         {!loading && tab === 'recebimento' && (
-          <HubAwaitingArrivalTab
-            onGoEntrada={() => setTab('entrada')}
-            onConfirmed={() => void load()}
-            onViewOrder={(orderId) => {
-              window.location.hash = `#/orders/${orderId}`;
-            }}
-          />
+          <div className="space-y-6">
+            <HubAwaitingArrivalTab
+              onGoEntrada={() => setTab('entrada')}
+              onConfirmed={() => void load()}
+              onViewOrder={(orderId) => {
+                window.location.hash = `#/orders/${orderId}`;
+              }}
+            />
+            <NfeDistribuicaoTriagemTab onConverted={() => void load()} />
+          </div>
         )}
 
         {!loading && tab === 'inicio' && (

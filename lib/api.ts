@@ -330,6 +330,41 @@ export const intakeDemandsApi = {
     },
 };
 
+// ========== NF-E DISTRIBUIÇÃO (varredura automática de NSU) — TRIAGEM API ==========
+
+export interface NfeDistribuicaoTriagemDocumento {
+    id: string;
+    accessKey: string;
+    cnpjEmitente: string;
+    tipo: string;
+    status: string;
+    resumoRaw: Record<string, unknown>;
+    createdAt: string;
+}
+
+export const nfeDistribuicaoTriagemApi = {
+    list: async (params?: { hubId?: string }) => {
+        const response = await api.get<ApiResponse<NfeDistribuicaoTriagemDocumento[]>>(
+            '/fiscal/distribuicao-nfe/triagem',
+            { params },
+        );
+        return response.data;
+    },
+
+    converter: async (id: string, clientId?: string) => {
+        const response = await api.post<ApiResponse<{ demand: Demand }>>(
+            `/fiscal/distribuicao-nfe/triagem/${id}/converter`,
+            clientId ? { clientId } : {},
+        );
+        return response.data;
+    },
+
+    descartar: async (id: string) => {
+        const response = await api.post<ApiResponse<null>>(`/fiscal/distribuicao-nfe/triagem/${id}/descartar`);
+        return response.data;
+    },
+};
+
 // ========== MANIFESTS API ==========
 
 export const manifestsApi = {
