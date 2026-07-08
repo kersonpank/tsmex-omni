@@ -3,6 +3,7 @@ import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { getCteEmissionQueue } from '../services/queues/cteEmissionQueue.js';
+import { getDistribuicaoNfeQueue } from '../services/queues/distribuicaoNfeQueue.js';
 
 const router = Router();
 
@@ -45,6 +46,24 @@ router.post('/:id/resume-cte-queue', authenticate, authorize('ADMIN'), async (re
             data: { status: 'RESOLVED', resolvedAt: new Date() },
         });
         res.json({ success: true, data: updated, message: 'Fila de emissão de CT-e retomada.' });
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.post('/:id/resume-distribuicao-nfe-queue', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const alert = await prisma.systemAlert.findUnique({ where: { id: req.params.id as string } });
+        if (!alert) throw new AppError('Alerta não encontrado', 404);
+        if (alert.category !== 'FISCAL_DISTRIBUICAO_NFE_QUOTA') {
+            throw new AppError('Este alerta não está associado à fila de distribuição de NF-e.', 400);
+        }
+        await getDistribuicaoNfeQueue().resume();
+        const updated = await prisma.systemAlert.update({
+            where: { id: alert.id },
+            data: { status: 'RESOLVED', resolvedAt: new Date() },
+        });
+        res.json({ success: true, data: updated, message: 'Fila de distribuição de NF-e retomada.' });
     } catch (error) {
         next(error);
     }

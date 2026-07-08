@@ -28,10 +28,19 @@ export default function SystemAlertBanner() {
     return () => clearInterval(interval);
   }, []);
 
-  const handleResume = async (alertId: string) => {
+  // Categorias que pausam uma fila BullMQ e têm uma rota de "retomar" própria. Cada categoria
+  // nova que pausa fila (ex.: futuras integrações fiscais) só precisa de uma entrada aqui.
+  const RESUME_ACTION_BY_CATEGORY: Record<string, (alertId: string) => Promise<unknown>> = {
+    FISCAL_PROVIDER_QUOTA: systemAlertsApi.resumeCteQueue,
+    FISCAL_DISTRIBUICAO_NFE_QUOTA: systemAlertsApi.resumeDistribuicaoNfeQueue,
+  };
+
+  const handleResume = async (alertId: string, category: string) => {
+    const resumeAction = RESUME_ACTION_BY_CATEGORY[category];
+    if (!resumeAction) return;
     setResolving(alertId);
     try {
-      await systemAlertsApi.resumeCteQueue(alertId);
+      await resumeAction(alertId);
       await load();
     } catch (e: any) {
       window.alert(e.response?.data?.error ?? e.message ?? 'Erro ao retomar a fila.');
@@ -47,10 +56,10 @@ export default function SystemAlertBanner() {
       {alerts.map((alert) => (
         <div key={alert.id} className="flex items-center justify-between gap-4">
           <span><strong>{alert.title}</strong> — {alert.message}</span>
-          {alert.category === 'FISCAL_PROVIDER_QUOTA' && (
+          {RESUME_ACTION_BY_CATEGORY[alert.category] && (
             <button
               type="button"
-              onClick={() => handleResume(alert.id)}
+              onClick={() => handleResume(alert.id, alert.category)}
               disabled={resolving === alert.id}
               className="bg-white text-red-700 px-3 py-1 rounded text-xs font-medium disabled:opacity-50"
             >
