@@ -1,6 +1,7 @@
 import prisma from '../../lib/prisma.js';
-import type { AcbrFiscalEnvironment } from './acbrConfig.js';
-import { acbrFetchJson } from './acbrHttp.js';
+import { getAcbrAccessToken } from './acbrAuth.js';
+import { getAcbrApiBaseUrlForEnvironment, type AcbrFiscalEnvironment } from './acbrConfig.js';
+import { acbrFetchJson, classifyAcbrErrorResponse } from './acbrHttp.js';
 
 function ambienteDistribToApiEnv(amb: 'homologacao' | 'producao'): AcbrFiscalEnvironment {
     return amb === 'producao' ? 'PRODUCAO' : 'HOMOLOGACAO';
@@ -45,6 +46,33 @@ export async function getDistribuicaoById(id: string): Promise<Record<string, un
         method: 'GET',
         scopes: ['empresa', 'nfe', 'distribuicao'],
     });
+}
+
+/**
+ * TODO (mesmo bloqueio de schema não confirmado das Tasks 3/9 — sem credenciais ACBr neste
+ * ambiente e o OpenAPI exige autenticação): baixa o XML de um documento da Distribuição NF-e
+ * via `GET /distribuicao/nfe/documentos/{id}/xml`. O `documentoId` esperado aqui é o campo
+ * `id` do payload retornado por `dist-nsu` — mesma convenção já confirmada em produção para
+ * CT-e (`downloadCteXml` em `acbrCteEmit.ts` usa `created.id` da resposta de `POST /cte`).
+ * Reusa `classifyAcbrErrorResponse` (mesma função usada por `downloadCteXml`/`downloadCtePdf`)
+ * para que 429/402 nesta chamada sejam tratados exatamente como qualquer outra do pipeline.
+ */
+export async function baixarXmlDocumentoDistribuicao(
+    documentoId: string,
+    ambiente: 'homologacao' | 'producao',
+): Promise<string> {
+    const apiEnvironment = ambienteDistribToApiEnv(ambiente);
+    const baseUrl = getAcbrApiBaseUrlForEnvironment(apiEnvironment);
+    const token = await getAcbrAccessToken(['empresa', 'nfe', 'distribuicao']);
+    const path = `/distribuicao/nfe/documentos/${encodeURIComponent(documentoId)}/xml`;
+    const res = await fetch(`${baseUrl}${path}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) {
+        await classifyAcbrErrorResponse(res, path, await res.text());
+    }
+    return res.text();
 }
 
 /** Lê ou inicializa NSU armazenado para o CNPJ. */
