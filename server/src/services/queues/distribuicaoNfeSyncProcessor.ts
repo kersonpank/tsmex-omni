@@ -107,9 +107,10 @@ async function handlePaymentRequired(deps: SyncProcessorDeps, doc: { id: string 
 }
 
 /**
- * TODO (mesmo bloqueio de schema não confirmado — ver Task 3/`acbrManifestacao.ts`): o nome do
- * campo com o array de documentos retornados por `POST /distribuicao/nfe` não está confirmado.
- * `ultimo_nsu` já é usado com confiança (código pré-existente em `fiscalDistribuicao.ts`).
+ * TODO (schema ainda não confirmado — diferente do bloqueio de `acbrManifestacao.ts`, já
+ * resolvido): o nome do campo com o array de documentos retornados por `POST /distribuicao/nfe`
+ * não está confirmado. `ultimo_nsu` já é usado com confiança (código pré-existente em
+ * `fiscalDistribuicao.ts`). Validar contra um payload real antes de habilitar em produção.
  */
 function extractDocumentos(data: Record<string, unknown>): Record<string, unknown>[] {
     const candidate = data.documentos ?? data.docs;

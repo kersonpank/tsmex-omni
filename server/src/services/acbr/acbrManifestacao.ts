@@ -2,14 +2,19 @@ import { acbrFetchJson, type AcbrRequestInit } from './acbrHttp.js';
 import type { AcbrFiscalEnvironment } from './acbrConfig.js';
 
 /**
- * TODO (Task 3 do plano de Distribuição NF-e — BLOQUEADO, não confirmado ainda):
- * Os nomes de campo abaixo (`chave_nfe`, `tipo_evento`, `cpf_cnpj`, `ambiente`) são a melhor
- * hipótese com base no padrão de outras chamadas ACBr já implementadas no projeto
- * (`DistribuicaoNfeRequestBody` em `acbrDistribuicaoNfe.ts` usa `cpf_cnpj`/`ambiente` em
- * snake_case) — NÃO foram confirmados contra a documentação real (o OpenAPI da ACBr exige
- * autenticação e não há credenciais ACBr configuradas neste ambiente pra testar ao vivo).
- * Antes de habilitar `distribuicaoNfeEnabled` em qualquer FiscalEmitter de produção,
- * confirmar este body contra console.acbr.api.br/Postman e ajustar aqui se divergir.
+ * Schema de `POST /distribuicao/nfe/manifestacoes` (objeto `DistribuicaoNfePedidoManifestacao`
+ * da ACBr) — CONFIRMADO pelo usuário em 2026-07-08 (bloqueio da Task 3 resolvido; o OpenAPI da
+ * ACBr exige autenticação e este ambiente não tinha credenciais pra validar ao vivo):
+ *   { cpf_cnpj, ambiente, chNFe, tpEvento, xJust? }
+ * - `chNFe`: chave de acesso de 44 dígitos, só números.
+ * - `tpEvento`: código SEFAZ como string — `210210` para Ciência da Operação. Nunca usar um
+ *   enum tipo "CIENCIA"; a API espera exatamente o código.
+ * - `xJust`: OMITIR por completo para 210210. Só é exigido pela SEFAZ para eventos como
+ *   Desconhecimento (210220) ou Operação não Realizada (210240) — não implementados aqui.
+ * Custo: 1 crédito ACBr por chamada. Chamador é responsável por já ter checado no banco que o
+ * documento está `DISCOVERED` (não `MANIFESTED`) antes de invocar isto — nunca manifestar a
+ * mesma `chNFe` duas vezes (ver `distribuicaoNfeSyncProcessor.ts`, que só chama esta função
+ * quando `status === 'DISCOVERED'`, e `markManifested`, que é compare-and-swap).
  */
 export const CIENCIA_DA_OPERACAO_EVENTO = '210210';
 
@@ -31,10 +36,11 @@ function digitsOnly(s: string): string {
 
 export function buildManifestacaoBody(input: ManifestacaoInput): Record<string, unknown> {
     return {
-        chave_nfe: digitsOnly(input.chaveAcesso),
         cpf_cnpj: digitsOnly(input.cpfCnpj),
         ambiente: input.ambiente,
-        tipo_evento: CIENCIA_DA_OPERACAO_EVENTO,
+        chNFe: digitsOnly(input.chaveAcesso),
+        tpEvento: CIENCIA_DA_OPERACAO_EVENTO,
+        // xJust omitido de propósito — não exigido/aceito pra 210210 (Ciência da Operação).
     };
 }
 

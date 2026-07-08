@@ -3,13 +3,18 @@ import { describe, it } from 'node:test';
 import { buildManifestacaoBody, CIENCIA_DA_OPERACAO_EVENTO, manifestarCienciaOperacao } from './acbrManifestacao.js';
 
 describe('buildManifestacaoBody', () => {
-    it('monta o body para Ciência da Operação (evento 210210)', () => {
+    it('monta o body para Ciência da Operação (evento 210210) com o schema confirmado da ACBr', () => {
         const body = buildManifestacaoBody({ chaveAcesso: '3'.repeat(44), cpfCnpj: '12345678000199', ambiente: 'homologacao' });
-        assert.equal(body.tipo_evento, CIENCIA_DA_OPERACAO_EVENTO);
-        assert.equal(body.tipo_evento, '210210');
-        assert.equal(body.chave_nfe, '3'.repeat(44));
+        assert.equal(body.tpEvento, CIENCIA_DA_OPERACAO_EVENTO);
+        assert.equal(body.tpEvento, '210210');
+        assert.equal(body.chNFe, '3'.repeat(44));
         assert.equal(body.cpf_cnpj, '12345678000199');
         assert.equal(body.ambiente, 'homologacao');
+    });
+
+    it('nunca inclui xJust para Ciência da Operação (SEFAZ só exige pra outros eventos)', () => {
+        const body = buildManifestacaoBody({ chaveAcesso: '3'.repeat(44), cpfCnpj: '12345678000199', ambiente: 'homologacao' });
+        assert.equal('xJust' in body, false);
     });
 
     it('normaliza a chave e o cpf_cnpj pra apenas dígitos', () => {
@@ -18,7 +23,7 @@ describe('buildManifestacaoBody', () => {
             cpfCnpj: '12.345.678/0001-99',
             ambiente: 'producao',
         });
-        assert.equal(/^\d+$/.test(body.chave_nfe as string), true);
+        assert.equal(/^\d+$/.test(body.chNFe as string), true);
         assert.equal(body.cpf_cnpj, '12345678000199');
     });
 });
