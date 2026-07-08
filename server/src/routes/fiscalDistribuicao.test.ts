@@ -154,3 +154,76 @@ describe('fiscalDistribuicao routes — bootstrap-nsu (guarda FinOps)', () => {
         assert.equal(res.status, 403);
     });
 });
+
+// Nota: assim como em `systemAlerts.test.ts`, não testamos aqui o caminho feliz (202 + jobId),
+// pois isso chamaria `enqueueSyncEmitterJob` → `getDistribuicaoNfeQueue().add(...)`, que abre
+// uma conexão Redis real sob demanda. Os testes abaixo cobrem os ramos de validação que
+// retornam ANTES de enfileirar, que é o que precisa de cobertura nesta rota.
+describe('fiscalDistribuicao routes — sync-now (validação)', () => {
+    const jwtSecret = `it-secret-fiscal-distribuicao-sync-now-${Date.now()}`;
+    const enabledEmitterId = 'fe-enabled';
+    const disabledEmitterId = 'fe-disabled';
+    let token = '';
+    let baseUrl = '';
+    let server: ReturnType<express.Express['listen']> | null = null;
+
+    const original = {
+        userFindUnique: prisma.user.findUnique,
+        fiscalEmitterFindUnique: prisma.fiscalEmitter.findUnique,
+    };
+
+    before(async () => {
+        process.env.JWT_SECRET = jwtSecret;
+
+        prisma.user.findUnique = (async () => ({
+            id: 'admin-user-1',
+            email: 'admin@tsmex.com',
+            roles: ['ADMIN'],
+            active: true,
+            hubId: null,
+            permissions: [],
+            admin: { id: 'adm-1' },
+            client: null,
+            link: null,
+        })) as any;
+
+        prisma.fiscalEmitter.findUnique = (async ({ where }: any) => {
+            if (where.id === enabledEmitterId) return { id: enabledEmitterId, distribuicaoNfeEnabled: true };
+            if (where.id === disabledEmitterId) return { id: disabledEmitterId, distribuicaoNfeEnabled: false };
+            return null;
+        }) as any;
+
+        const { fiscalDistribuicaoRouter } = await import('./fiscalDistribuicao.js');
+        const app = express();
+        app.use(express.json());
+        app.use('/api/fiscal', fiscalDistribuicaoRouter);
+        app.use(errorHandler);
+        server = app.listen(0);
+        await new Promise<void>((resolve) => server!.once('listening', () => resolve()));
+        const addr = server.address();
+        if (!addr || typeof addr === 'string') throw new Error('Falha ao obter porta de teste.');
+        baseUrl = `http://127.0.0.1:${addr.port}`;
+
+        token = jwt.sign({ userId: 'admin-user-1' }, jwtSecret);
+    });
+
+    after(async () => {
+        if (server) {
+            await new Promise<void>((resolve, reject) => server!.close((err) => (err ? reject(err) : resolve())));
+        }
+        prisma.user.findUnique = original.userFindUnique;
+        prisma.fiscalEmitter.findUnique = original.fiscalEmitterFindUnique;
+    });
+
+    it('retorna 404 para emitente inexistente', async () => {
+        const res = await httpPost<{ success: boolean }>(baseUrl, '/api/fiscal/distribuicao-nfe/emitters/nao-existe/sync-now', {}, token);
+        assert.equal(res.status, 404);
+        assert.equal(res.body.success, false);
+    });
+
+    it('retorna 400 quando o emitente não tem distribuicaoNfeEnabled', async () => {
+        const res = await httpPost<{ success: boolean }>(baseUrl, `/api/fiscal/distribuicao-nfe/emitters/${disabledEmitterId}/sync-now`, {}, token);
+        assert.equal(res.status, 400);
+        assert.equal(res.body.success, false);
+    });
+});

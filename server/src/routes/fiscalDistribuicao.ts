@@ -11,6 +11,7 @@ import {
     type DistribuicaoNfeRequestBody,
 } from '../services/acbr/acbrDistribuicaoNfe.js';
 import { isAcbrCredentialsConfigured } from '../services/acbr/acbrConfig.js';
+import { enqueueSyncEmitterJob } from '../services/queues/distribuicaoNfeQueue.js';
 
 const router = Router();
 
@@ -96,6 +97,26 @@ router.post('/distribuicao-nfe/emitters/:fiscalEmitterId/bootstrap-nsu', authori
         });
     } catch (e) {
         if (e instanceof z.ZodError) return next(new AppError(e.errors[0]?.message ?? 'Payload inválido', 400));
+        next(e);
+    }
+});
+
+/**
+ * Força uma sincronização agora (fora do agendamento 2x/dia), enfileirando o mesmo job que o
+ * coordenador dispararia. Não chama a ACBr diretamente aqui — o processor da fila decide
+ * (inclusive a guarda de NSU=0), então isto é seguro mesmo se `distribuicaoNfeEnabled` for
+ * desligado ou o NSU não estiver semeado (o job apenas será pulado com alerta).
+ */
+router.post('/distribuicao-nfe/emitters/:fiscalEmitterId/sync-now', async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const emitter = await prisma.fiscalEmitter.findUnique({ where: { id: req.params.fiscalEmitterId as string } });
+        if (!emitter) throw new AppError('Emitente credenciado não encontrado', 404);
+        if (!emitter.distribuicaoNfeEnabled) {
+            throw new AppError('Este emitente não tem a varredura de Distribuição NF-e habilitada.', 400);
+        }
+        const jobId = await enqueueSyncEmitterJob(emitter.id);
+        res.status(202).json({ success: true, data: { jobId } });
+    } catch (e) {
         next(e);
     }
 });
