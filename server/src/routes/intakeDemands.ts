@@ -14,6 +14,12 @@ import { extractChaveFromInput } from '../lib/nfeChaveIntake.js';
 import { INTAKE_SOURCE_TYPES, isIntakeSource } from '../services/intake/intakeDemandPolicy.js';
 import { resolveIntakeByNfeKey } from '../services/intake/resolveIntakeByNfeKey.js';
 import { resolveIntakeClientByDocument } from '../services/intake/resolveIntakeClientByDocument.js';
+import {
+    getCargoDataFromDistribuicaoDocument,
+    defaultGetCargoDataDeps,
+    type GetCargoDataDeps,
+} from '../services/fiscal/nfeDistribuicaoCargoData.js';
+import type { ParsedNfeCargo } from '../services/acbr/nfeXmlParser.js';
 
 const router = Router();
 
@@ -75,6 +81,34 @@ const confirmArrivalSchema = z.object({
     remetentePersonId: z.string().uuid().optional(),
     freightTerm: z.enum(['CIF', 'FOB', 'REDESPACHO']).optional(),
 });
+
+/**
+ * Se a chave bipada já tiver sido descoberta pelo pipeline de Distribuição NF-e (ACBr) e o XML
+ * completo já baixado, reaproveita os dados reais de carga em vez de forçar preenchimento manual.
+ * Falha ao ler/parsear o XML não deve bloquear a criação da Demand — degrada pro comportamento
+ * de placeholder atual (operador preenche manualmente, como sempre foi).
+ */
+export async function findCargoDataForChave(
+    chave: string,
+    cargoDeps: GetCargoDataDeps = defaultGetCargoDataDeps,
+): Promise<ParsedNfeCargo | undefined> {
+    const digits = extractChaveFromInput(chave);
+    if (digits.length !== 44) return undefined;
+
+    const doc = await prisma.nfeDistribuicaoDocumento.findUnique({
+        where: { accessKey: digits },
+        select: { tipo: true, xmlStorageKey: true },
+    });
+    if (!doc) return undefined;
+
+    try {
+        const cargo = await getCargoDataFromDistribuicaoDocument(doc, cargoDeps);
+        return cargo ?? undefined;
+    } catch (err) {
+        console.warn(`[intake] Falha ao ler XML da Distribuição NF-e pra chave ${digits}:`, err);
+        return undefined;
+    }
+}
 
 function resolveExpectedHubId(req: AuthRequest, bodyHubId?: string): string | null {
     if (req.user!.roles.includes('HUB')) {
@@ -317,12 +351,14 @@ router.post('/demands/from-nfe-key', async (req: AuthRequest, res: Response, nex
     try {
         const data = fromNfeKeySchema.parse(req.body);
         const expectedHubId = requireResolvedHubId(resolveExpectedHubId(req, data.expectedHubId));
+        const cargoData = await findCargoDataForChave(data.chave);
 
         const { demand, lookup } = await createIntakeDemandFromNfeKey({
             chave: data.chave,
             clientId: data.clientId,
             expectedHubId,
             rawInputData: data.rawInputData as Prisma.InputJsonValue | undefined,
+            cargoData,
         });
 
         res.status(201).json({ success: true, data: demand, lookup });

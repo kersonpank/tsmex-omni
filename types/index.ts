@@ -666,6 +666,13 @@ export interface IntakeDemandSummary {
     client?: { id: string; companyName: string; document?: string | null };
 }
 
+export interface DistribuicaoMatchSummary {
+    id: string;
+    status: string;
+    tipo: string;
+    xmlStorageKey: string | null;
+}
+
 export interface ResolveIntakeByNfeKeyResult {
     resolution: IntakeNfeKeyResolution;
     chaveNormalized: string;
@@ -674,6 +681,8 @@ export interface ResolveIntakeByNfeKeyResult {
     orderId?: string;
     demand?: IntakeDemandSummary;
     demands?: IntakeDemandSummary[];
+    /** Presente só quando resolution === 'not_found' e já existe nota descoberta via Distribuição NF-e (ACBr). */
+    distribuicaoMatch?: DistribuicaoMatchSummary;
 }
 
 export type ResolveIntakeClientStatus = 'found' | 'not_found';

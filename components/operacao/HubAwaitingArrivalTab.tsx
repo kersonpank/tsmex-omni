@@ -41,6 +41,8 @@ interface CreatePanelState {
   clientId: string;
   companyName: string;
   document: string;
+  /** true quando a chave já foi descoberta pelo pipeline de Distribuição NF-e (ACBr) — dados de carga serão preenchidos automaticamente ao criar. */
+  distribuicaoMatch?: boolean;
 }
 
 interface SuccessState {
@@ -208,6 +210,7 @@ const HubAwaitingArrivalTab: React.FC<HubAwaitingArrivalTabProps> = ({
             clientId: clientData.client.id,
             companyName: clientData.client.companyName,
             document: clientData.client.document,
+            distribuicaoMatch: Boolean(data.distribuicaoMatch),
           });
           setCandidates([]);
           break;
@@ -384,6 +387,12 @@ const HubAwaitingArrivalTab: React.FC<HubAwaitingArrivalTabProps> = ({
             <p className="text-xs font-semibold uppercase tracking-wide text-brand-700 dark:text-brand-300">
               Criar demanda por esta NF-e
             </p>
+            {createPanel.distribuicaoMatch && (
+              <p className="rounded-lg bg-green-500/10 px-3 py-2 text-xs text-green-800 dark:bg-green-900/20 dark:text-green-300">
+                Nota já localizada via Distribuição NF-e (ACBr) — peso, valor e produtos serão
+                preenchidos automaticamente. Confira antes de confirmar.
+              </p>
+            )}
             <div className="text-sm text-tower-800 dark:text-tower-100">
               <p className="font-semibold">{createPanel.companyName}</p>
               <p className="font-mono text-xs text-tower-600 dark:text-tower-400">

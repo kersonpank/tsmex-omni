@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client';
+import type { NfeDistribuicaoDocumentoStatus, NfeDistribuicaoDocumentoTipo, Prisma } from '@prisma/client';
 import prisma from '../../lib/prisma.js';
 import { extractChaveFromInput, parseChaveNfe } from '../../lib/nfeChaveIntake.js';
 import { INTAKE_SOURCE_TYPES } from './intakeDemandPolicy.js';
@@ -26,6 +26,13 @@ export interface ResolveIntakeByNfeKeyInput {
     actingHubId?: string | null;
 }
 
+export interface DistribuicaoMatchSummary {
+    id: string;
+    status: NfeDistribuicaoDocumentoStatus;
+    tipo: NfeDistribuicaoDocumentoTipo;
+    xmlStorageKey: string | null;
+}
+
 export interface ResolveIntakeByNfeKeyResult {
     resolution: IntakeNfeKeyResolution;
     chaveNormalized: string;
@@ -34,6 +41,23 @@ export interface ResolveIntakeByNfeKeyResult {
     orderId?: string;
     demand?: IntakeDemandSummary;
     demands?: IntakeDemandSummary[];
+    /**
+     * Presente só quando `resolution === 'not_found'` e já existe um documento descoberto pelo
+     * pipeline de Distribuição NF-e (ACBr) para essa chave — sinaliza pro caller que dá pra
+     * reaproveitar o XML já baixado em vez de pedir preenchimento manual. Campo aditivo: não
+     * introduz novo valor em `resolution` pra não quebrar a guarda de idempotência em
+     * `nfeDistribuicaoTriagem.ts` (que só checa `resolution !== 'not_found' && !== 'invalid_key'`).
+     */
+    distribuicaoMatch?: DistribuicaoMatchSummary;
+}
+
+async function findDistribuicaoMatch(accessKey: string): Promise<DistribuicaoMatchSummary | undefined> {
+    if (accessKey.length !== 44) return undefined;
+    const doc = await prisma.nfeDistribuicaoDocumento.findUnique({
+        where: { accessKey },
+        select: { id: true, status: true, tipo: true, xmlStorageKey: true },
+    });
+    return doc ?? undefined;
 }
 
 const BLOCKED_STATUSES = new Set([
@@ -125,6 +149,7 @@ export async function resolveIntakeByNfeKey(
             resolution: 'not_found',
             chaveNormalized: digits.length === 44 ? digits : chaveNormalized,
             cnpjEmit: parsed?.cnpjEmit,
+            distribuicaoMatch: await findDistribuicaoMatch(digits),
         };
     }
 
@@ -197,5 +222,6 @@ export async function resolveIntakeByNfeKey(
         resolution: 'not_found',
         chaveNormalized: digits.length === 44 ? digits : chaveNormalized,
         cnpjEmit: parsed?.cnpjEmit,
+        distribuicaoMatch: await findDistribuicaoMatch(digits),
     };
 }

@@ -4,6 +4,7 @@ import axios from 'axios';
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { createIntakeDemand, createIntakeDemandFromNfeKey } from './createIntakeDemand.js';
+import type { ParsedNfeCargo } from '../acbr/nfeXmlParser.js';
 
 const CLIENT_ID = '550e8400-e29b-41d4-a716-446655440001';
 const HUB_ID = '550e8400-e29b-41d4-a716-446655440002';
@@ -297,5 +298,59 @@ describe('createIntakeDemandFromNfeKey — sourceType', () => {
         const second = await createIntakeDemandFromNfeKey({ chave: CHAVE44, clientId: CLIENT_ID, sourceType: 'DFE_ACBR' });
         assert.equal(first.demand.id, second.demand.id);
         assert.equal(store.demands.size, 1);
+    });
+
+    const cargoData: ParsedNfeCargo = {
+        chave: CHAVE44,
+        emitente: { cnpj: '12345678000190', razaoSocial: 'Fornecedor XML LTDA', municipio: 'Imperatriz', uf: 'MA' },
+        destinatario: { cnpj: '10256071000103', razaoSocial: 'F C C ABREU LTDA' },
+        produtos: [
+            { descricao: 'Caixa de parafusos', ncm: '73181500', quantidade: 10, valorUnitario: 25.5, valorTotal: 255 },
+            { descricao: 'Chapa de aço', ncm: '72091700', quantidade: 2, valorUnitario: 450, valorTotal: 900 },
+        ],
+        pesoBruto: 125,
+        pesoLiquido: 118.5,
+        quantidadeVolumes: 3,
+        valorTotalNota: 1155,
+    };
+
+    it('com cargoData (XML já baixado): usa nfValue, origin, commodity, weight, units reais em vez de placeholder', async () => {
+        const { demand } = await createIntakeDemandFromNfeKey({ chave: CHAVE44, clientId: CLIENT_ID, cargoData });
+
+        assert.equal(demand.nfValue, 1155);
+        assert.equal(demand.weight, 125);
+        assert.equal(demand.units, 3);
+        assert.equal(demand.origin, 'Fornecedor XML LTDA - Imperatriz, MA');
+        assert.equal(demand.commodity, 'Caixa de parafusos e mais 1 item');
+
+        const missing = demand.missingFields as string[];
+        assert.ok(!missing.includes('weight'), 'weight não deveria estar em missingFields');
+        assert.ok(!missing.includes('nfValue'), 'nfValue não deveria estar em missingFields');
+        assert.ok(!missing.includes('produtos'), 'produtos não deveria estar em missingFields');
+        assert.ok(missing.includes('destination'), 'destination continua missing (não vem do XML)');
+        assert.ok(missing.includes('volume'), 'volume continua missing (XML não tem m³)');
+        assert.ok(missing.includes('cubagem'), 'cubagem continua missing');
+        assert.ok(missing.includes('destinatario'), 'destinatario continua missing');
+    });
+
+    it('sem cargoData: mantém placeholders (comportamento atual, sem regressão)', async () => {
+        const { demand } = await createIntakeDemandFromNfeKey({ chave: CHAVE44, clientId: CLIENT_ID });
+
+        assert.equal(demand.nfValue, 0.01);
+        assert.equal(demand.weight, 1);
+        assert.equal(demand.units, 1);
+        assert.equal(demand.commodity, 'A definir');
+
+        const missing = demand.missingFields as string[];
+        assert.ok(missing.includes('weight'));
+        assert.ok(missing.includes('nfValue'));
+        assert.ok(missing.includes('produtos'));
+    });
+
+    it('cargoData guarda o parse completo em rawInputData.nfeXmlData pra auditoria', async () => {
+        const { demand } = await createIntakeDemandFromNfeKey({ chave: CHAVE44, clientId: CLIENT_ID, cargoData });
+        const raw = demand.rawInputData as { nfeXmlData?: ParsedNfeCargo };
+        assert.equal(raw.nfeXmlData?.valorTotalNota, 1155);
+        assert.equal(raw.nfeXmlData?.destinatario.cnpj, '10256071000103');
     });
 });

@@ -20,6 +20,7 @@ import {
     intakeEventDescription,
     normalizeExternalReference,
 } from './intakeDemandPolicy.js';
+import type { ParsedNfeCargo } from '../acbr/nfeXmlParser.js';
 
 export interface CreateIntakeDemandInput {
     sourceType: Extract<DemandSource, 'MANUAL_HUB' | 'DECLARATION' | 'NFE_KEY' | 'DFE_ACBR'>;
@@ -51,6 +52,13 @@ export interface CreateIntakeFromNfeKeyInput {
     rawInputData?: Prisma.InputJsonValue;
     /** Origem da Demanda: bipagem manual (default) ou triagem da Distribuição NF-e automática. */
     sourceType?: Extract<DemandSource, 'NFE_KEY' | 'DFE_ACBR'>;
+    /**
+     * Dados reais de carga extraídos do XML já baixado pela Distribuição NF-e (ACBr), quando a
+     * chave bipada já tinha sido descoberta pelo pipeline automático. Presente → nfValue/origin/
+     * commodity/weight/units usam valores reais em vez de placeholder. Ausente → comportamento
+     * idêntico ao atual (placeholders, tudo pra preenchimento manual).
+     */
+    cargoData?: ParsedNfeCargo;
 }
 
 export interface NfeKeyLookupData {
@@ -246,6 +254,20 @@ export async function lookupNfeKeyEmitente(cnpj: string): Promise<{
     }
 }
 
+function describeOrigemFromCargo(emitente: ParsedNfeCargo['emitente']): string {
+    const localidade = [emitente.municipio, emitente.uf].filter((p) => p && p.trim()).join(', ');
+    const parts = [emitente.razaoSocial, localidade].filter((p) => p && p.trim());
+    return parts.length > 0 ? parts.join(' - ') : PLACEHOLDER_ORIGIN;
+}
+
+function describeCommodityFromCargo(produtos: ParsedNfeCargo['produtos']): string {
+    if (produtos.length === 0) return PLACEHOLDER_COMMODITY;
+    const [first, ...rest] = produtos;
+    const descricao = first.descricao?.trim() || PLACEHOLDER_COMMODITY;
+    if (rest.length === 0) return descricao;
+    return `${descricao} e mais ${rest.length} ${rest.length === 1 ? 'item' : 'itens'}`;
+}
+
 export async function createIntakeDemandFromNfeKey(
     input: CreateIntakeFromNfeKeyInput,
 ): Promise<{ demand: Demand; lookup: NfeKeyLookupData }> {
@@ -256,25 +278,49 @@ export async function createIntakeDemandFromNfeKey(
     }
 
     const emitente = await lookupNfeKeyEmitente(parsed.cnpjEmit);
-    const origin =
-        emitente.emitenteMunicipio && parsed.uf
+    const cargoData = input.cargoData;
+
+    const origin = cargoData
+        ? describeOrigemFromCargo(cargoData.emitente)
+        : emitente.emitenteMunicipio && parsed.uf
             ? `${emitente.emitenteMunicipio}, ${parsed.uf}`
             : parsed.uf || PLACEHOLDER_ORIGIN;
+
+    const commodity = cargoData ? describeCommodityFromCargo(cargoData.produtos) : PLACEHOLDER_COMMODITY;
+
+    const pesoCargo = cargoData ? cargoData.pesoBruto ?? cargoData.pesoLiquido ?? 0 : 0;
+    const weight = pesoCargo > 0 ? pesoCargo : 1;
+
+    const unidadesCargo = cargoData?.quantidadeVolumes ?? 0;
+    const units = unidadesCargo > 0 ? unidadesCargo : 1;
+
+    const nfValueCargo = cargoData?.valorTotalNota ?? 0;
+    const nfValue = nfValueCargo > 0 ? nfValueCargo : 0.01;
+
+    // destination/volume/cubagem/destinatario nunca vêm do XML padrão da NF-e (destinatário
+    // fiscal somos nós mesmos, não o destino físico da carga; XML não tem m³ nativo) — sempre
+    // ficam pra conferência manual, com ou sem cargoData.
+    const forcedMissing = NFE_KEY_ALWAYS_MISSING.filter((field) => {
+        if (field === 'weight' && pesoCargo > 0) return false;
+        if (field === 'nfValue' && nfValueCargo > 0) return false;
+        if (field === 'produtos' && (cargoData?.produtos.length ?? 0) > 0) return false;
+        return true;
+    });
 
     const missingFields = mergeMissingFields(
         computeMissingFields({
             nfNumber: parsed.nnf,
-            nfValue: 0,
+            nfValue,
             origin,
             destination: PLACEHOLDER_DEST,
-            commodity: PLACEHOLDER_COMMODITY,
-            weight: 0,
+            commodity,
+            weight,
             volume: 0,
-            units: 1,
+            units,
             documentType: 'NFE',
             documentKey: parsed.chave,
         }),
-        NFE_KEY_ALWAYS_MISSING,
+        forcedMissing,
     );
 
     const demand = await createIntakeDemand({
@@ -284,13 +330,13 @@ export async function createIntakeDemandFromNfeKey(
         documentType: 'NFE',
         documentKey: parsed.chave,
         nfNumber: parsed.nnf,
-        nfValue: 0.01,
+        nfValue,
         origin,
         destination: PLACEHOLDER_DEST,
-        commodity: PLACEHOLDER_COMMODITY,
-        weight: 1,
+        commodity,
+        weight,
         volume: 0.001,
-        units: 1,
+        units,
         extraMissingFields: missingFields,
         rawInputData: JSON.parse(
             JSON.stringify({
@@ -298,6 +344,7 @@ export async function createIntakeDemandFromNfeKey(
                     ? input.rawInputData
                     : {}),
                 nfeKeyLookup: { parsed, emitente },
+                ...(cargoData ? { nfeXmlData: cargoData } : {}),
             }),
         ) as Prisma.InputJsonValue,
     });
