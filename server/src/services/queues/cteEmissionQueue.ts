@@ -39,8 +39,28 @@ export function getCteEmissionQueue(): Queue<CteEmissionJobData> {
     return queueInstance;
 }
 
-export async function enqueueCteEmissionJob(data: CteEmissionJobData): Promise<string> {
-    const job = await getCteEmissionQueue().add('emit', data);
+/**
+ * `jobId` é sempre `data.cteEmissionJobId` (UUID já único, gerado pelo Postgres em
+ * `cteEmissionJob.create`) — nunca deixar o BullMQ gerar um automaticamente. Sem `jobId`
+ * explícito, o BullMQ usa um contador incremental próprio guardado no Redis
+ * (`bull:cte-emission:id`, `INCR`); se esse contador for perdido (Redis reiniciado sem volume
+ * persistido, ou reagendado pro Swarm em outro node com volume `local` vazio), ele volta a
+ * `1, 2, 3...` — valores que já existem como `CteEmissionJob.queueJobId` (`@unique`) de jobs
+ * antigos no Postgres, e o `.update()` em `freightCalculations.ts` quebra com
+ * `P2002 Unique constraint failed on the fields: (queueJobId)`. Usar um UUID nosso elimina essa
+ * classe de colisão inteira, e como bônus torna o enqueue idempotente: o BullMQ não duplica
+ * nem lança erro ao chamar `add()` de novo com o mesmo `jobId` — essencial pro fluxo de
+ * "recover from enqueue failure" já documentado em `freightCalculations.ts` (o retry depois de
+ * uma falha de persistência não arrisca enfileirar o mesmo cálculo duas vezes).
+ *
+ * `queue` é injetável (mesmo padrão de DI de `cteEmissionProcessor.ts`/
+ * `distribuicaoNfeSyncProcessor.ts`) pra permitir testar sem tocar Redis de verdade.
+ */
+export async function enqueueCteEmissionJob(
+    data: CteEmissionJobData,
+    queue: Pick<Queue<CteEmissionJobData>, 'add'> = getCteEmissionQueue(),
+): Promise<string> {
+    const job = await queue.add('emit', data, { jobId: data.cteEmissionJobId });
     if (!job.id) throw new Error('BullMQ não retornou id para o job enfileirado.');
     return job.id;
 }
