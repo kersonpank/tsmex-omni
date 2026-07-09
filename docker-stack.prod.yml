@@ -110,6 +110,7 @@ services:
       FISCAL_CTE_PROVIDER: ${FISCAL_CTE_PROVIDER:-}
       FISCAL_PROVIDER: ${FISCAL_PROVIDER:-}
       FISCAL_SECRET_KEY: ${FISCAL_SECRET_KEY:-}
+      SINTEGRA_TOKEN: ${SINTEGRA_TOKEN:-}
     networks:
       - tsmex-prod-internal
       - ProxyGM
