@@ -354,8 +354,8 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
     }
 });
 
-// POST /api/persons - Create person (Admin only)
-router.post('/', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+// POST /api/persons - Create person (Admin ou Hub)
+router.post('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const body = createPersonSchema.parse(req.body);
         validateDocument(body.documentType, body.document);
