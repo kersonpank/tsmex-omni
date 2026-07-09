@@ -49,15 +49,14 @@ export async function getDistribuicaoById(id: string): Promise<Record<string, un
 }
 
 /**
- * TODO (schema ainda não confirmado — sem credenciais ACBr neste ambiente e o OpenAPI exige
- * autenticação; diferente do bloqueio de manifestação em `acbrManifestacao.ts`, já resolvido):
- * baixa o XML de um documento da Distribuição NF-e via `GET /distribuicao/nfe/documentos/{id}/xml`.
- * O `documentoId` esperado aqui é o campo `id` do payload retornado por `dist-nsu` — mesma
- * convenção já confirmada em produção para CT-e (`downloadCteXml` em `acbrCteEmit.ts` usa
- * `created.id` da resposta de `POST /cte`). Validar contra um payload real antes de habilitar
- * em produção. Reusa `classifyAcbrErrorResponse` (mesma função usada por
- * `downloadCteXml`/`downloadCtePdf`) para que 429/402 nesta chamada sejam tratados exatamente
- * como qualquer outra do pipeline.
+ * Baixa o XML de um documento da Distribuição NF-e via `GET /distribuicao/nfe/documentos/{id}/xml`.
+ * CONFIRMADO: `documentoId` é o identificador interno alfanumérico da própria ACBr pra aquele
+ * `DistribuicaoNfeDocumento` (formato tipo `nfe_3a196d092d3a42c3a1f83706a47eb64c`) — NUNCA a
+ * chave de acesso SEFAZ de 44 dígitos nem o NSU. O chamador (`distribuicaoNfeSyncProcessor.ts`)
+ * extrai esse `id` do payload de cada documento descoberto (`extractDocumentoId`); a chave de
+ * acesso só serve pra identidade local (`accessKey`) e idempotência, nunca pra montar esta URL.
+ * Reusa `classifyAcbrErrorResponse` (mesma função usada por `downloadCteXml`/`downloadCtePdf`)
+ * para que 429/402 nesta chamada sejam tratados exatamente como qualquer outra do pipeline.
  */
 export async function baixarXmlDocumentoDistribuicao(
     documentoId: string,

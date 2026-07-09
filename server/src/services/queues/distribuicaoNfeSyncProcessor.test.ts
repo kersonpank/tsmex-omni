@@ -71,7 +71,7 @@ function makeDeps(overrides: Partial<SyncProcessorDeps> = {}): {
         }) as any,
         solicitarDistribuicaoNfe: (async (...args: unknown[]) => {
             calls.solicitarDistribuicaoNfe.push(args);
-            return { ultimo_nsu: 100, documentos: [] };
+            return { ultimo_nsu: 100, data: [] };
         }) as any,
         manifestarCienciaOperacao: (async (...args: unknown[]) => {
             calls.manifestarCienciaOperacao.push(args);
@@ -141,10 +141,10 @@ describe('processDistribuicaoNfeSyncJob — guarda de emitente e NSU', () => {
 });
 
 describe('processDistribuicaoNfeSyncJob — discovery', () => {
-    it('descobre documentos novos, grava e avança o checkpoint', async () => {
-        const rawDoc = { resNFe: { chNFe: '3'.repeat(44), CNPJ: '11111111000111' }, nsu: '101' };
+    it('descobre documentos novos (array na propriedade "data"), grava e avança o checkpoint', async () => {
+        const rawDoc = { id: 'nfe_abc123', resNFe: { chNFe: '3'.repeat(44), CNPJ: '11111111000111' }, nsu: '101' };
         const { deps, calls } = makeDeps({
-            solicitarDistribuicaoNfe: (async () => ({ ultimo_nsu: 105, documentos: [rawDoc] })) as any,
+            solicitarDistribuicaoNfe: (async () => ({ ultimo_nsu: 105, data: [rawDoc] })) as any,
         });
         const { job } = makeJob('fe-1');
         await processDistribuicaoNfeSyncJob(job, deps);
@@ -154,13 +154,32 @@ describe('processDistribuicaoNfeSyncJob — discovery', () => {
         const [, , novoNsu] = calls.setUltimoNsuStored[0] as [string, string, string];
         assert.equal(novoNsu, '105');
     });
+
+    it('GUARDA de schema: se "data" não é array, aborta o job inteiro sem lançar erro e sem chamar manifestação/download', async () => {
+        const docs = [{ id: 'doc-1', accessKey: '1'.repeat(44), status: 'DISCOVERED', xmlDownloadedAt: null, resumoRaw: { id: 'nfe_x' } }];
+        const { deps, calls } = makeDeps({
+            solicitarDistribuicaoNfe: (async () => ({ ultimo_nsu: 105, documentos: ['formato-antigo-inesperado'] })) as any,
+            prisma: {
+                fiscalEmitter: { findUnique: (async () => BASE_EMITTER) as any },
+                nfeDistribuicaoDocumento: { findMany: (async () => docs) as any },
+            },
+        });
+        const { job } = makeJob('fe-1');
+
+        await processDistribuicaoNfeSyncJob(job, deps); // não deve lançar
+
+        assert.equal(calls.upsertDiscovered.length, 0);
+        assert.equal(calls.setUltimoNsuStored.length, 0, 'não confia em ultimo_nsu de um payload com shape não reconhecido');
+        assert.equal(calls.manifestarCienciaOperacao.length, 0, 'fases 2/3 não rodam quando o schema não bate');
+        assert.equal(calls.baixarXmlDocumentoDistribuicao.length, 0);
+    });
 });
 
 describe('processDistribuicaoNfeSyncJob — manifestação e download (throttle)', () => {
     it('manifesta DISCOVERED e baixa XML de MANIFESTED, nunca em paralelo (throttle serial)', async () => {
         const docs = [
-            { id: 'doc-1', accessKey: '1'.repeat(44), status: 'DISCOVERED', xmlDownloadedAt: null },
-            { id: 'doc-2', accessKey: '2'.repeat(44), status: 'MANIFESTED', xmlDownloadedAt: null },
+            { id: 'doc-1', accessKey: '1'.repeat(44), status: 'DISCOVERED', xmlDownloadedAt: null, resumoRaw: { id: 'nfe_aaa111' } },
+            { id: 'doc-2', accessKey: '2'.repeat(44), status: 'MANIFESTED', xmlDownloadedAt: null, resumoRaw: { id: 'nfe_bbb222' } },
         ];
         const { deps, calls } = makeDeps({
             prisma: {
@@ -174,12 +193,13 @@ describe('processDistribuicaoNfeSyncJob — manifestação e download (throttle)
         assert.equal(calls.manifestarCienciaOperacao.length, 1, 'só o doc DISCOVERED deve ser manifestado');
         assert.equal(calls.markManifested.length, 1);
         assert.equal(calls.baixarXmlDocumentoDistribuicao.length, 2, 'ambos os docs (recém-manifestado e já-manifestado) devem baixar XML');
+        assert.deepEqual(calls.baixarXmlDocumentoDistribuicao[0], ['nfe_aaa111', 'homologacao'], 'deve usar o id interno da ACBr, nunca a accessKey');
         assert.equal(calls.uploadBase64Object.length, 2);
         assert.ok(calls.sleepCalls.length > 0, 'deve haver throttle (sleep) entre chamadas seriais');
     });
 
-    it('não rebaixa XML de doc que já tem xmlDownloadedAt (idempotência)', async () => {
-        const docs = [{ id: 'doc-1', accessKey: '1'.repeat(44), status: 'MANIFESTED', xmlDownloadedAt: new Date('2026-01-01') }];
+    it('não rebaixa XML de doc que já tem xmlDownloadedAt (idempotência — sobrevive a crash/restart)', async () => {
+        const docs = [{ id: 'doc-1', accessKey: '1'.repeat(44), status: 'MANIFESTED', xmlDownloadedAt: new Date('2026-01-01'), resumoRaw: { id: 'nfe_ccc333' } }];
         const { deps, calls } = makeDeps({
             prisma: {
                 fiscalEmitter: { findUnique: (async () => BASE_EMITTER) as any },
@@ -189,6 +209,20 @@ describe('processDistribuicaoNfeSyncJob — manifestação e download (throttle)
         const { job } = makeJob('fe-1');
         await processDistribuicaoNfeSyncJob(job, deps);
         assert.equal(calls.baixarXmlDocumentoDistribuicao.length, 0);
+    });
+
+    it('NUNCA usa accessKey como id interno: doc MANIFESTED sem id na ACBr é pulado (não baixa, não marca)', async () => {
+        const docs = [{ id: 'doc-1', accessKey: '1'.repeat(44), status: 'MANIFESTED', xmlDownloadedAt: null, resumoRaw: { algumOutroCampo: true } }];
+        const { deps, calls } = makeDeps({
+            prisma: {
+                fiscalEmitter: { findUnique: (async () => BASE_EMITTER) as any },
+                nfeDistribuicaoDocumento: { findMany: (async () => docs) as any },
+            },
+        });
+        const { job } = makeJob('fe-1');
+        await processDistribuicaoNfeSyncJob(job, deps);
+        assert.equal(calls.baixarXmlDocumentoDistribuicao.length, 0);
+        assert.equal(calls.markXmlDownloaded.length, 0);
     });
 });
 
@@ -212,7 +246,7 @@ describe('processDistribuicaoNfeSyncJob — 429/402', () => {
     });
 
     it('402 durante download de XML → pausa a fila, marca pausedForQuota, cria alerta crítico', async () => {
-        const docs = [{ id: 'doc-1', accessKey: '1'.repeat(44), status: 'MANIFESTED', xmlDownloadedAt: null }];
+        const docs = [{ id: 'doc-1', accessKey: '1'.repeat(44), status: 'MANIFESTED', xmlDownloadedAt: null, resumoRaw: { id: 'nfe_ddd444' } }];
         const err = new AcbrHttpError('sem creditos', 402, { quotaErrorCode: 'InsufficientCredits' });
         const markPausedForQuotaCalls: unknown[] = [];
         const { deps, calls } = makeDeps({

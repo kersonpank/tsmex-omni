@@ -107,35 +107,48 @@ async function handlePaymentRequired(deps: SyncProcessorDeps, doc: { id: string 
 }
 
 /**
- * TODO (schema ainda não confirmado — diferente do bloqueio de `acbrManifestacao.ts`, já
- * resolvido): o nome do campo com o array de documentos retornados por `POST /distribuicao/nfe`
- * não está confirmado. `ultimo_nsu` já é usado com confiança (código pré-existente em
- * `fiscalDistribuicao.ts`). Validar contra um payload real antes de habilitar em produção.
+ * CONFIRMADO: a ACBr API embrulha respostas de lista na propriedade `data` (schema
+ * `DistribuicaoNfe`, cujos elementos são `DistribuicaoNfeDocumento`). `POST /distribuicao/nfe`
+ * retorna `{ data: DistribuicaoNfeDocumento[], ultimo_nsu, ... }` — nunca `documentos`/`docs`.
+ * Retorna `null` (em vez de `[]`) quando `data` não é um array — isso é um shape inesperado
+ * (contrato da API mudou ou nossa suposição está errada), diferente de uma página vazia
+ * legítima (`[]`, quando já estamos em dia com o NSU). O chamador trata os dois casos de
+ * forma diferente: `[]` é normal; `null` aborta a execução sem lançar erro (ver
+ * `runDiscoveryPhase`), pra não arriscar processar um payload que não entendemos.
  */
-function extractDocumentos(data: Record<string, unknown>): Record<string, unknown>[] {
-    const candidate = data.documentos ?? data.docs;
-    return Array.isArray(candidate) ? (candidate as Record<string, unknown>[]) : [];
+function extractDocumentos(payload: Record<string, unknown>): Record<string, unknown>[] | null {
+    const candidate = payload.data;
+    return Array.isArray(candidate) ? (candidate as Record<string, unknown>[]) : null;
 }
 
-function extractUltimoNsu(data: Record<string, unknown>): number | null {
-    const raw = data.ultimo_nsu;
+function extractUltimoNsu(payload: Record<string, unknown>): number | null {
+    const raw = payload.ultimo_nsu;
     if (typeof raw === 'number') return raw;
     if (typeof raw === 'string' && /^\d+$/.test(raw)) return Number(raw);
     return null;
 }
 
+/**
+ * CONFIRMADO: o `id` de um `DistribuicaoNfeDocumento` é o identificador interno alfanumérico
+ * da ACBr (formato tipo `nfe_3a196d092d3a42c3a1f83706a47eb64c`) — NUNCA a chave de acesso de
+ * 44 dígitos (`chNFe`) nem o NSU. É esse `id` (não a chave) que vai na URL de
+ * `GET /distribuicao/nfe/documentos/{id}/xml`. A chave de acesso só serve pra identidade local
+ * (coluna `accessKey`, idempotência) — nunca pra montar a URL de download.
+ */
 function extractDocumentoId(raw: unknown): string | null {
     if (!raw || typeof raw !== 'object') return null;
     const id = (raw as Record<string, unknown>).id;
-    return typeof id === 'string' ? id : null;
+    return typeof id === 'string' && id.length > 0 ? id : null;
 }
+
+type DiscoveryOutcome = 'ok' | 'nsu-not-seeded' | 'schema-mismatch';
 
 async function runDiscoveryPhase(
     deps: SyncProcessorDeps,
     fiscalEmitterId: string,
     cpfCnpj: string,
     ambiente: 'homologacao' | 'producao',
-): Promise<void> {
+): Promise<DiscoveryOutcome> {
     const ultimoNsuStr = await deps.getUltimoNsuStored(cpfCnpj, ambiente);
 
     // Segunda camada de defesa contra o "Big Bang" de custo do NSU=0 — a primeira é o
@@ -149,7 +162,7 @@ async function runDiscoveryPhase(
             message: `Guarda de segurança: o emitente ${fiscalEmitterId} (CNPJ ${cpfCnpj}, ${ambiente}) tentou sincronizar sem NSU semeado. Use o endpoint bootstrap-nsu antes de tentar de novo.`,
             context: { fiscalEmitterId, cpfCnpj, ambiente },
         });
-        return;
+        return 'nsu-not-seeded';
     }
 
     const body: DistribuicaoNfeRequestBody = {
@@ -161,6 +174,23 @@ async function runDiscoveryPhase(
     const response = await deps.solicitarDistribuicaoNfe(body);
 
     const docs = extractDocumentos(response);
+    if (docs === null) {
+        // Shape inesperado — não confiamos em mais nada deste payload (nem em ultimo_nsu).
+        // Loga as chaves exatas pra facilitar o ajuste do DTO e aborta SEM lançar erro: o job
+        // termina normalmente (não é uma falha transitória pra dar retry), só não avança nada
+        // até alguém revisar o log e corrigir o parser.
+        console.error(
+            JSON.stringify({
+                level: 'error',
+                source: 'distribuicaoNfeSyncProcessor',
+                message: 'Payload de dist-nsu com shape inesperado (esperava array em "data") — abortando sem falhar o job.',
+                fiscalEmitterId,
+                responseKeys: Object.keys(response),
+            }),
+        );
+        return 'schema-mismatch';
+    }
+
     const novoUltimoNsu = extractUltimoNsu(response);
 
     for (const raw of docs) {
@@ -182,6 +212,8 @@ async function runDiscoveryPhase(
     if (novoUltimoNsu != null && String(novoUltimoNsu) !== ultimoNsuStr) {
         await deps.setUltimoNsuStored(cpfCnpj, ambiente, String(novoUltimoNsu));
     }
+
+    return 'ok';
 }
 
 /**
@@ -218,9 +250,30 @@ async function runManifestacaoEDownloadPhases(
             await deps.sleep(THROTTLE_MS);
         }
 
+        // FinOps: `doc` vem fresco do banco (`nfeDistribuicaoDocumento`, identidade única por
+        // `accessKey`) e só entra neste bloco quando `!doc.xmlDownloadedAt` — ou seja, a
+        // checagem de idempotência já consultou o banco pela chave local ANTES de cogitar
+        // chamar a ACBr. Se o worker cair e reiniciar no meio do processamento, o próximo run
+        // relê esse mesmo campo do banco e nunca rebaixa o XML do mesmo `id` interno duas
+        // vezes (2ª chamada de download do mesmo arquivo custa 1 crédito ACBr).
         if (status === 'MANIFESTED' && !doc.xmlDownloadedAt) {
+            const documentoId = extractDocumentoId(doc.resumoRaw);
+            if (!documentoId) {
+                // Nunca usar accessKey/NSU como substituto do id interno da ACBr — a URL de
+                // download exige especificamente o `id` alfanumérico. Sem ele, pula este
+                // documento nesta execução (fica MANIFESTED, tenta de novo na próxima).
+                console.error(
+                    JSON.stringify({
+                        level: 'error',
+                        source: 'distribuicaoNfeSyncProcessor',
+                        message: 'DistribuicaoNfeDocumento sem id interno da ACBr — pulando download de XML nesta execução.',
+                        nfeDistribuicaoDocumentoId: doc.id,
+                        accessKey: doc.accessKey,
+                    }),
+                );
+                continue;
+            }
             calledAcbrOnce = true;
-            const documentoId = extractDocumentoId(doc.resumoRaw) ?? doc.accessKey;
             const xml = await deps.baixarXmlDocumentoDistribuicao(documentoId, ambiente);
             const uploaded = await deps.uploadBase64Object({
                 base64: Buffer.from(xml, 'utf-8').toString('base64'),
@@ -256,7 +309,14 @@ export async function processDistribuicaoNfeSyncJob(
         const ambiente: 'homologacao' | 'producao' = emitter.environment === 'PRODUCAO' ? 'producao' : 'homologacao';
         const cpfCnpj = emitter.person.document;
 
-        await runDiscoveryPhase(deps, fiscalEmitterId, cpfCnpj, ambiente);
+        const discoveryOutcome = await runDiscoveryPhase(deps, fiscalEmitterId, cpfCnpj, ambiente);
+        // 'schema-mismatch': não confiamos em mais nada da resposta da ACBr neste momento —
+        // aborta o job inteiro (sem lançar erro, sem retry automático) até alguém revisar o
+        // log com as chaves do payload e ajustar o parser. Fases 2/3 (manifestação/download)
+        // não rodam nesta execução por segurança; voltam a rodar normalmente assim que o
+        // parser for corrigido. 'nsu-not-seeded' já é tratado dentro da própria fase (não
+        // bloqueia manifestação/download de documentos já descobertos anteriormente).
+        if (discoveryOutcome === 'schema-mismatch') return;
 
         // Rastreia qual documento estava em processamento quando um erro estourar, pra poder
         // marcá-lo corretamente no catch (402) sem precisar recarregar o estado.
