@@ -13,6 +13,7 @@ import { buildCteEmissionInputForJob } from './cteEmissionJobInput.js';
 import { uploadBase64Object } from '../../lib/objectStorage.js';
 import { getCteEmissionQueue, type CteEmissionJobData } from './cteEmissionQueue.js';
 import { createSystemAlert, createOrMergeSystemAlert } from '../systemAlertService.js';
+import { pendingReconciliationRecoveryHint } from './cteReconciliationMessages.js';
 
 const POLL_DELAY_MS = 1500;
 const RATE_LIMIT_BACKOFF_CAP_MS = 5 * 60 * 1000;
@@ -89,14 +90,17 @@ async function markPendingReconciliation(
     calcId: string,
     emissionJobId: string,
     reason: string,
+    providerDocId: string | null = null,
 ): Promise<void> {
+    const fullReason = `${reason}${pendingReconciliationRecoveryHint(providerDocId)}`;
     await deps.prisma.$transaction([
         deps.prisma.orderFreightCalculation.update({
             where: { id: calcId },
-            data: { status: 'CTE_PENDING_RECONCILIATION', cteStatusReason: reason },
+            data: { status: 'CTE_PENDING_RECONCILIATION', cteStatusReason: fullReason },
         }),
         deps.prisma.cteEmissionJob.update({
             where: { id: emissionJobId },
+            // lastError fica cru, sem o hint de recuperação — é log técnico, não texto pra UI.
             data: { phase: 'PENDING_RECONCILIATION', lastError: reason },
         }),
     ]);
@@ -107,6 +111,7 @@ async function handlePaymentRequired(
     calcId: string,
     emissionJobId: string,
     err: AcbrHttpError,
+    providerDocId: string | null,
 ): Promise<void> {
     await deps.cteEmissionQueue.pause();
     await deps.prisma.cteEmissionJob.update({
@@ -118,6 +123,7 @@ async function handlePaymentRequired(
         calcId,
         emissionJobId,
         'Fila de emissão pausada: créditos ACBr insuficientes ou cota excedida. Aguardando ação de um administrador.',
+        providerDocId,
     );
     await deps.createSystemAlert({
         category: 'FISCAL_PROVIDER_QUOTA',
@@ -264,7 +270,7 @@ export async function processCteEmissionJob(
         // polling tenha desistido; só reconciliação manual pode confirmar isso.
         const nextAttempt = emissionJob.attemptCount + 1;
         if (nextAttempt >= emissionJob.maxAttempts) {
-            await markPendingReconciliation(deps, calcId, cteEmissionJobId, 'Timeout aguardando retorno da SEFAZ via ACBr após o número máximo de tentativas.');
+            await markPendingReconciliation(deps, calcId, cteEmissionJobId, 'Timeout aguardando retorno da SEFAZ via ACBr após o número máximo de tentativas.', emissionJob.providerDocId);
             return;
         }
         await deps.prisma.cteEmissionJob.update({
@@ -283,7 +289,7 @@ export async function processCteEmissionJob(
             return;
         }
         if (err instanceof AcbrHttpError && err.httpStatus === 402) {
-            await handlePaymentRequired(deps, calcId, cteEmissionJobId, err);
+            await handlePaymentRequired(deps, calcId, cteEmissionJobId, err, emissionJob?.providerDocId ?? null);
             return;
         }
 
@@ -305,7 +311,7 @@ export async function processCteEmissionJob(
         // fiscal em `buildCteEmissionInputForJob`): NÃO é rejeição definitiva.
         const nextAttempt = emissionJob.attemptCount + 1;
         if (nextAttempt >= emissionJob.maxAttempts) {
-            await markPendingReconciliation(deps, calcId, cteEmissionJobId, `Falha de comunicação persistente com a ACBr: ${err instanceof Error ? err.message : String(err)}`);
+            await markPendingReconciliation(deps, calcId, cteEmissionJobId, `Falha de comunicação persistente com a ACBr: ${err instanceof Error ? err.message : String(err)}`, emissionJob.providerDocId);
             return;
         }
         await deps.prisma.cteEmissionJob.update({
@@ -337,11 +343,14 @@ export async function handleCteJobExhausted(
         return;
     }
 
+    const providerDocId = emissionJob?.providerDocId ?? null;
+
     await markPendingReconciliation(
         deps,
         calcId,
         cteEmissionJobId,
         `Job esgotou todas as tentativas automáticas da fila: ${err.message}`,
+        providerDocId,
     );
 
     await deps.createOrMergeSystemAlert({
@@ -349,6 +358,6 @@ export async function handleCteJobExhausted(
         severity: 'WARNING',
         title: 'Emissão de CT-e travada — tentativas automáticas esgotadas',
         message: `Cálculo ${calcId} não concluiu a emissão assíncrona após todas as tentativas automáticas. Reconciliação manual necessária.`,
-        context: { calcId, cteEmissionJobId, lastError: err.message },
+        context: { calcId, cteEmissionJobId, providerDocId, lastError: err.message },
     });
 }

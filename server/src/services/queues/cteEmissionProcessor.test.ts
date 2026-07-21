@@ -147,6 +147,11 @@ describe('processCteEmissionJob', () => {
         assert.equal(prismaBundle.calcState.status, 'CTE_PENDING_RECONCILIATION');
         assert.notEqual(prismaBundle.calcState.status, 'CTE_REJECTED');
         assert.equal(prismaBundle.jobState.phase, 'PENDING_RECONCILIATION');
+        assert.match(
+            prismaBundle.calcState.cteStatusReason as string,
+            /só reconciliação/,
+            '(Onda 3) providerDocId já existia (doc-1) — hint deve dizer que só reconciliação é permitida, não reemissão',
+        );
     });
 
     it('3. AcbrHttpError 402 durante o poll → fila pausada, SystemAlert criado, calc CTE_PENDING_RECONCILIATION', async () => {
@@ -392,6 +397,21 @@ describe('processCteEmissionJob', () => {
         assert.equal(prismaBundle.jobState.providerDocId, 'doc-from-previous-attempt');
         assert.equal(prismaBundle.calcState.status, 'CTE_PROCESSING');
     });
+
+    it('(Onda 3) markPendingReconciliation anota que reemissão é segura quando o job nunca teve providerDocId (reproduz o cenário dos jobs mortos pré-submit)', async () => {
+        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: null, phase: 'QUEUED', attemptCount: 4, maxAttempts: 5 }));
+        const { job } = makeJob(jobData);
+        const deps = makeDeps({
+            buildCteEmissionInputForJob: mock.fn(async () => {
+                throw new Error('preflight fiscal indisponível');
+            }),
+        }, prismaBundle);
+
+        await processCteEmissionJob(job, deps);
+
+        assert.equal(prismaBundle.calcState.status, 'CTE_PENDING_RECONCILIATION');
+        assert.match(prismaBundle.calcState.cteStatusReason as string, /reemissão automática está disponível/);
+    });
 });
 
 describe('handleCteJobExhausted', () => {
@@ -407,9 +427,15 @@ describe('handleCteJobExhausted', () => {
         assert.equal(prismaBundle.jobState.phase, 'PENDING_RECONCILIATION');
         assert.equal(prismaBundle.calcState.status, 'CTE_PENDING_RECONCILIATION');
         assert.equal(alertMock.mock.callCount(), 1);
-        const alertArgs = alertMock.mock.calls[0].arguments[0] as { category: string; context?: { calcId?: string } };
+        const alertArgs = alertMock.mock.calls[0].arguments[0] as { category: string; context?: { calcId?: string; providerDocId?: string | null } };
         assert.equal(alertArgs.category, 'FISCAL_PROVIDER_ERROR');
         assert.equal(alertArgs.context?.calcId, 'calc-1');
+        assert.equal(alertArgs.context?.providerDocId, 'doc-1', '(Onda 3) providerDocId deve aparecer no context do alerta pra admin ver sem abrir o calc');
+        assert.match(
+            prismaBundle.calcState.cteStatusReason as string,
+            /só reconciliação/,
+            '(Onda 3) providerDocId já existia (doc-1) — hint deve dizer que só reconciliação é permitida',
+        );
     });
 
     it('não faz nada se o job já está em fase terminal (DONE) — evita sobrescrever um resultado já concluído', async () => {
@@ -422,5 +448,18 @@ describe('handleCteJobExhausted', () => {
         assert.equal(prismaBundle.jobState.phase, 'DONE');
         assert.equal(prismaBundle.calcState.status, 'CTE_AUTHORIZED');
         assert.equal(alertMock.mock.callCount(), 0);
+    });
+
+    it('(Onda 3) anota reemissão segura quando providerDocId é null — reproduz o cenário real dos jobs mortos antes do submit (fase QUEUED)', async () => {
+        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: null, phase: 'QUEUED' }));
+        const alertMock = mock.fn(async (_params: Parameters<CteEmissionProcessorDeps['createOrMergeSystemAlert']>[0]) => {});
+        const deps = makeDeps({ createOrMergeSystemAlert: alertMock as unknown as CteEmissionProcessorDeps['createOrMergeSystemAlert'] }, prismaBundle);
+
+        await handleCteJobExhausted(jobDataExhausted, new Error('crash antes do submit'), deps);
+
+        assert.equal(prismaBundle.calcState.status, 'CTE_PENDING_RECONCILIATION');
+        assert.match(prismaBundle.calcState.cteStatusReason as string, /reemissão automática está disponível/);
+        const alertArgs = alertMock.mock.calls[0].arguments[0] as { context?: { providerDocId?: string | null } };
+        assert.equal(alertArgs.context?.providerDocId, null);
     });
 });

@@ -30,6 +30,8 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
     const calcValidId = 'calc-valid';
     const calcInvalidId = 'calc-invalid';
     const calcPendingId = 'calc-pending';
+    const calcPendingReconciliationNoDocId = 'calc-pending-reconciliation-no-doc';
+    const calcPendingReconciliationWithDocId = 'calc-pending-reconciliation-with-doc';
     let token = '';
     let baseUrl = '';
     let server: ReturnType<express.Express['listen']> | null = null;
@@ -205,6 +207,66 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
             breakdown: null,
             icmsValue: 0,
         }],
+        [calcPendingReconciliationNoDocId, {
+            id: calcPendingReconciliationNoDocId,
+            orderId,
+            documentType: 'CTE',
+            emissorId: hubId,
+            status: 'CTE_PENDING_RECONCILIATION',
+            fiscalEmitterId: 'fe-1',
+            fiscalEmitter: mockFiscalEmitter,
+            cteEnvironment: 'HOMOLOGACAO',
+            cteSeries: 1,
+            cteAccessKey: null,
+            cteProtocol: null,
+            cteAuthorizedAt: null,
+            freightTotal: 100,
+            originCity: 'Imperatriz',
+            destCity: 'São Luís',
+            cfop: null, // força falha de preflight — prova que passou do gate de status sem precisar mockar o pipeline ACBr inteiro
+            cst: '00',
+            tipoFrete: 'Normal',
+            observacoes: null,
+            volumes: 1,
+            weight: 120,
+            effectiveWeight: 120,
+            cubage: null,
+            nfValue: 1000,
+            commodity: 'Medicamentos',
+            breakdown: null,
+            icmsValue: 0,
+            cteEmissionJobs: [{ providerDocId: null }],
+        }],
+        [calcPendingReconciliationWithDocId, {
+            id: calcPendingReconciliationWithDocId,
+            orderId,
+            documentType: 'CTE',
+            emissorId: hubId,
+            status: 'CTE_PENDING_RECONCILIATION',
+            fiscalEmitterId: 'fe-1',
+            fiscalEmitter: mockFiscalEmitter,
+            cteEnvironment: 'HOMOLOGACAO',
+            cteSeries: 1,
+            cteAccessKey: null,
+            cteProtocol: null,
+            cteAuthorizedAt: null,
+            freightTotal: 100,
+            originCity: 'Imperatriz',
+            destCity: 'São Luís',
+            cfop: '6352',
+            cst: '00',
+            tipoFrete: 'Normal',
+            observacoes: null,
+            volumes: 1,
+            weight: 120,
+            effectiveWeight: 120,
+            cubage: null,
+            nfValue: 1000,
+            commodity: 'Medicamentos',
+            breakdown: null,
+            icmsValue: 0,
+            cteEmissionJobs: [{ providerDocId: 'ACBR-DOC-123' }],
+        }],
     ]);
 
     before(async () => {
@@ -243,6 +305,11 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
             const id = args?.where?.id as string;
             const calc = calcById.get(id);
             if (!calc) return { count: 0 } as any;
+            // Respeita o filtro de status do CAS (compare-and-swap) — sem isso o mock mascararia
+            // um bug real no gate de elegibilidade (ex.: esquecer de estender a lista de status
+            // aceitos), sempre retornando sucesso independente do filtro pedido pela rota.
+            const allowedStatuses: string[] | undefined = args?.where?.status?.in;
+            if (allowedStatuses && !allowedStatuses.includes(calc.status)) return { count: 0 } as any;
             calc.status = args?.data?.status ?? calc.status;
             return { count: 1 } as any;
         }) as unknown) as typeof prisma.orderFreightCalculation.updateMany;
@@ -342,5 +409,57 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
         assert.ok(response.body.preflight.issues.includes('CT-e precisa de CFOP.'));
         assert.ok(response.body.preflight.missingFields.includes('cfop'));
         assert.equal(calcById.get(calcPendingId)?.status, 'DRAFT');
+    });
+
+    it('(Onda 3) POST /emit-cte permite reemissão quando CTE_PENDING_RECONCILIATION mas o último job nunca teve providerDocId', async () => {
+        const response = await httpJson<{ success: boolean; error: string; preflight?: { ok: boolean } }>(
+            baseUrl,
+            `/api/orders/${orderId}/freight-calculations/${calcPendingReconciliationNoDocId}/emit-cte`,
+            token,
+            { method: 'POST', body: '{}' },
+        );
+
+        // Não é rejeitado pelo gate de status (que responderia sem a chave `preflight`) — chega
+        // até a validação de preflight normal, provando que o beco sem saída foi eliminado.
+        assert.equal(response.status, 400);
+        assert.match(response.body.error, /CT-e com pendências fiscais:/);
+        assert.ok(response.body.preflight, 'deveria ter passado do gate de status e chegado ao preflight');
+    });
+
+    it('(Onda 3) POST /emit-cte continua bloqueado quando CTE_PENDING_RECONCILIATION e o último job já tem providerDocId', async () => {
+        const response = await httpJson<{ success: boolean; error: string; preflight?: unknown }>(
+            baseUrl,
+            `/api/orders/${orderId}/freight-calculations/${calcPendingReconciliationWithDocId}/emit-cte`,
+            token,
+            { method: 'POST', body: '{}' },
+        );
+
+        assert.equal(response.status, 400);
+        assert.ok(!response.body.preflight, 'não deveria ter chegado ao preflight — bloqueado antes, no gate de status');
+        assert.match(response.body.error, /reconcile/i);
+    });
+
+    it('(Onda 3) POST /emit-cte/reconcile rejeita quando status não é CTE_PENDING_RECONCILIATION', async () => {
+        const response = await httpJson<{ success: boolean; error: string }>(
+            baseUrl,
+            `/api/orders/${orderId}/freight-calculations/${calcValidId}/emit-cte/reconcile`,
+            token,
+            { method: 'POST', body: '{}' },
+        );
+
+        assert.equal(response.status, 400);
+        assert.match(response.body.error, /Reconciliação só é permitida/);
+    });
+
+    it('(Onda 3) POST /emit-cte/reconcile orienta reemissão via /emit-cte (mensagem agora verdadeira) quando não há providerDocId', async () => {
+        const response = await httpJson<{ success: boolean; error: string }>(
+            baseUrl,
+            `/api/orders/${orderId}/freight-calculations/${calcPendingReconciliationNoDocId}/emit-cte/reconcile`,
+            token,
+            { method: 'POST', body: '{}' },
+        );
+
+        assert.equal(response.status, 400);
+        assert.match(response.body.error, /emit-cte/);
     });
 });

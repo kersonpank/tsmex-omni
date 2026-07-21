@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { pendingReconciliationRecoveryHint } from '../src/services/queues/cteReconciliationMessages.js';
 
 const prisma = new PrismaClient();
 
@@ -29,6 +30,7 @@ async function main() {
     }
 
     for (const job of stuck) {
+        const cteStatusReason = RECONCILE_REASON + pendingReconciliationRecoveryHint(job.providerDocId);
         await prisma.$transaction([
             prisma.cteEmissionJob.update({
                 where: { id: job.id },
@@ -36,7 +38,7 @@ async function main() {
             }),
             prisma.orderFreightCalculation.update({
                 where: { id: job.calcId },
-                data: { status: 'CTE_PENDING_RECONCILIATION', cteStatusReason: RECONCILE_REASON },
+                data: { status: 'CTE_PENDING_RECONCILIATION', cteStatusReason },
             }),
         ]);
         console.log(`  [ok] calc ${job.calcId} (job ${job.id}, fase anterior ${job.phase}, providerDocId=${job.providerDocId ?? 'nenhum'}, parado desde ${job.updatedAt.toISOString()}) → CTE_PENDING_RECONCILIATION`);

@@ -1,5 +1,6 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import type { FreightCalcStatus } from '@prisma/client';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
@@ -89,6 +90,22 @@ const FISCAL_LOCKED_STATUSES = [
     'DCE_AUTHORIZED',
     'DCE_CANCELLED',
 ] as const;
+
+/**
+ * CTE_PENDING_RECONCILIATION normalmente fica em FISCAL_LOCKED_STATUSES pela mesma razão de
+ * CTE_SENT/CTE_PROCESSING: evita reenvio duplicado quando pode haver documento já submetido à
+ * ACBr. Mas existe um caso em que o calc chega nesse status SEM nenhuma submissão real ter
+ * acontecido — job morreu antes do primeiro submitCteToAcbr (exceção no preflight, timeout ao
+ * enfileirar, ou o bug pré-retry automático onde uma exceção bem no início do processor escapava
+ * sem tratamento). Nesse caso específico reemitir do zero é seguro: nada foi enviado à ACBr, não
+ * há risco de duplicidade/cobrança dupla.
+ */
+function isPendingReconciliationWithoutSubmission(calc: {
+    status: string;
+    cteEmissionJobs?: { providerDocId: string | null }[];
+}): boolean {
+    return calc.status === 'CTE_PENDING_RECONCILIATION' && !calc.cteEmissionJobs?.[0]?.providerDocId;
+}
 
 function extractQrCodeUrlFromXml(xml: string | null): string | null {
     if (!xml) return null;
@@ -1051,7 +1068,11 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
 
         const calc = await prisma.orderFreightCalculation.findFirst({
             where: { id: calcId, orderId },
-            include: { emissor: true, fiscalEmitter: { include: { person: true, hub: true } } },
+            include: {
+                emissor: true,
+                fiscalEmitter: { include: { person: true, hub: true } },
+                cteEmissionJobs: { orderBy: { createdAt: 'desc' }, take: 1 },
+            },
         });
 
         if (!calc) throw new AppError('Cálculo de frete não encontrado', 404);
@@ -1060,8 +1081,15 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
             throw new AppError('Este cálculo não é do tipo CT-e. Use emit-minuta para Minuta.', 400);
         }
 
-        if (FISCAL_LOCKED_STATUSES.includes(calc.status as typeof FISCAL_LOCKED_STATUSES[number])) {
-            throw new AppError('CT-e já está preparado, enviado, autorizado ou cancelado para este cálculo.', 400);
+        const pendingReconciliationWithoutSubmission = isPendingReconciliationWithoutSubmission(calc);
+        if (
+            FISCAL_LOCKED_STATUSES.includes(calc.status as typeof FISCAL_LOCKED_STATUSES[number])
+            && !pendingReconciliationWithoutSubmission
+        ) {
+            const message = calc.status === 'CTE_PENDING_RECONCILIATION'
+                ? 'CT-e já tem um documento submetido à ACBr, aguardando reconciliação — use POST .../emit-cte/reconcile (consulta de status); reemissão está bloqueada aqui para evitar duplicidade.'
+                : 'CT-e já está preparado, enviado, autorizado ou cancelado para este cálculo.';
+            throw new AppError(message, 400);
         }
 
         if (calc.freightTotal <= 0) {
@@ -1087,12 +1115,22 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
         const ambiente = cteBaseInput.ambiente;
         const serie = cteBaseInput.serie;
 
+        const allowedStatusesForEmit: FreightCalcStatus[] = ['DRAFT', 'CALCULATED', 'CTE_REJECTED'];
+        if (pendingReconciliationWithoutSubmission) {
+            // Já verificamos acima que o último job deste calc está em fase terminal
+            // PENDING_RECONCILIATION e nunca teve providerDocId — esse job nunca mais roda no
+            // BullMQ (attempts exauridos), então o valor não muda entre esta leitura e o
+            // updateMany abaixo. O filtro de status sozinho já serializa contra uma segunda
+            // chamada concorrente a este endpoint, sem precisar de filtro relacional no CAS.
+            allowedStatusesForEmit.push('CTE_PENDING_RECONCILIATION');
+        }
+
         const ready = await prisma.orderFreightCalculation.updateMany({
             where: {
                 id: calcId,
                 orderId,
                 documentType: 'CTE',
-                status: { in: ['DRAFT', 'CALCULATED', 'CTE_REJECTED'] },
+                status: { in: allowedStatusesForEmit },
             },
             data: {
                 status: 'CTE_READY',
@@ -1188,7 +1226,9 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
                 // Não-nulo aqui: o catch acima sempre relança (nunca cai para fora do try/catch
                 // deixando `emissionJob` como null quando o bloco todo teve sucesso).
                 job: { id: emissionJob!.id, phase: emissionJob!.phase },
-                message: 'CT-e enviado para processamento assíncrono. Acompanhe o status do cálculo.',
+                message: pendingReconciliationWithoutSubmission
+                    ? 'CT-e reenviado para processamento assíncrono — a tentativa anterior não chegou a submeter nenhum documento à ACBr, então este é um envio novo, sem risco de duplicidade.'
+                    : 'CT-e enviado para processamento assíncrono. Acompanhe o status do cálculo.',
             });
             return;
         }
@@ -1293,7 +1333,10 @@ router.post('/:calcId/emit-cte/reconcile', authenticate, authorize('ADMIN'), asy
         }
         const lastJob = calc.cteEmissionJobs[0];
         if (!lastJob?.providerDocId) {
-            throw new AppError('Nenhum documento foi submetido à ACBr ainda para este cálculo — não é possível reconciliar, refaça a emissão.', 400);
+            throw new AppError(
+                'Nenhum documento foi submetido à ACBr ainda para este cálculo — reconciliação (consulta de status) não se aplica aqui. Use POST .../emit-cte para reemitir do zero: é seguro, pois nada chegou a ser enviado à ACBr.',
+                400,
+            );
         }
 
         await prisma.cteEmissionJob.update({ where: { id: lastJob.id }, data: { phase: 'POLLING', attemptCount: 0, pausedForQuota: false } });
