@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it, mock } from 'node:test';
 import { DelayedError, type Job } from 'bullmq';
 
-import { processCteEmissionJob, type CteEmissionProcessorDeps } from './cteEmissionProcessor.js';
+import { processCteEmissionJob, handleCteJobExhausted, type CteEmissionProcessorDeps } from './cteEmissionProcessor.js';
 import type { CteEmissionJobData } from './cteEmissionQueue.js';
 import { AcbrHttpError } from '../acbr/acbrHttp.js';
 import type { CteEmissionInput, CteProviderResult } from '../cteService.js';
@@ -70,14 +70,18 @@ function makeFakePrisma(initialJob: FakeJobRecord, initialCalc: Record<string, u
     return { prisma, jobState, calcState, findUniqueOrThrow, jobUpdate, calcUpdate, $transaction };
 }
 
-function makeJob(data: CteEmissionJobData): { job: Job<CteEmissionJobData>; moveToDelayed: ReturnType<typeof mock.fn> } {
+function makeJob(data: CteEmissionJobData): { job: Job<CteEmissionJobData>; moveToDelayed: ReturnType<typeof mock.fn>; updateData: ReturnType<typeof mock.fn> } {
     const moveToDelayed = mock.fn(async (_ts: number, _token?: string) => {});
+    const updateData = mock.fn(async (newData: CteEmissionJobData) => {
+        Object.assign(job.data, newData);
+    });
     const job = {
         data,
         token: 'lock-token-1',
         moveToDelayed,
+        updateData,
     } as unknown as Job<CteEmissionJobData>;
-    return { job, moveToDelayed };
+    return { job, moveToDelayed, updateData };
 }
 
 function makeInput(): CteEmissionInput {
@@ -100,6 +104,9 @@ function makeDeps(overrides: Partial<CteEmissionProcessorDeps> = {}, prismaBundl
         uploadBase64Object: mock.fn(async ({ keyPrefix }: { keyPrefix: string }) => ({ storageKey: `${keyPrefix}/stored` })) as unknown as CteEmissionProcessorDeps['uploadBase64Object'],
         cteEmissionQueue: { pause: mock.fn(async () => {}) },
         createSystemAlert: mock.fn(async () => {}),
+        createOrMergeSystemAlert: mock.fn(
+            async (_params: Parameters<CteEmissionProcessorDeps['createOrMergeSystemAlert']>[0]) => {},
+        ) as unknown as CteEmissionProcessorDeps['createOrMergeSystemAlert'],
         ...overrides,
     } as CteEmissionProcessorDeps;
 }
@@ -359,5 +366,61 @@ describe('processCteEmissionJob', () => {
         await assert.doesNotReject(processCteEmissionJob(job, deps));
 
         assert.equal(prismaBundle.calcState.status, 'CTE_PENDING_RECONCILIATION');
+    });
+
+    it('Onda 0 — retry com providerDocIdPending já gravado no job.data (Redis) NUNCA rechama submitCteToAcbr, só completa a persistência no Postgres', async () => {
+        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: null, phase: 'QUEUED', attemptCount: 0, maxAttempts: 5 }));
+        const { job } = makeJob({
+            calcId: 'calc-1',
+            cteEmissionJobId: 'job-1',
+            phaseHint: 'submit',
+            providerDocIdPending: 'doc-from-previous-attempt',
+        });
+        const submitMock = mock.fn(async () => ({ providerDocId: 'should-never-be-used' }));
+        const pollMock = mock.fn(async (_providerDocId: string, _ambiente: string, _attempt: number): Promise<CtePollOutcome> => ({ kind: 'PENDING' }));
+        const deps = makeDeps(
+            {
+                submitCteToAcbr: submitMock as unknown as CteEmissionProcessorDeps['submitCteToAcbr'],
+                pollCteStatusOnce: pollMock as unknown as CteEmissionProcessorDeps['pollCteStatusOnce'],
+            },
+            prismaBundle,
+        );
+
+        await assert.rejects(processCteEmissionJob(job, deps), (err) => err instanceof DelayedError);
+
+        assert.equal(submitMock.mock.callCount(), 0, 'não deve rechamar a ACBr — o doc já tinha sido confirmado antes do blip do Postgres');
+        assert.equal(prismaBundle.jobState.providerDocId, 'doc-from-previous-attempt');
+        assert.equal(prismaBundle.calcState.status, 'CTE_PROCESSING');
+    });
+});
+
+describe('handleCteJobExhausted', () => {
+    const jobDataExhausted: CteEmissionJobData = { calcId: 'calc-1', cteEmissionJobId: 'job-1' };
+
+    it('marca PENDING_RECONCILIATION e cria um SystemAlert na primeira ocorrência', async () => {
+        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: 'doc-1', phase: 'POLLING' }));
+        const alertMock = mock.fn(async (_params: Parameters<CteEmissionProcessorDeps['createOrMergeSystemAlert']>[0]) => {});
+        const deps = makeDeps({ createOrMergeSystemAlert: alertMock as unknown as CteEmissionProcessorDeps['createOrMergeSystemAlert'] }, prismaBundle);
+
+        await handleCteJobExhausted(jobDataExhausted, new Error('todas as tentativas do BullMQ esgotadas'), deps);
+
+        assert.equal(prismaBundle.jobState.phase, 'PENDING_RECONCILIATION');
+        assert.equal(prismaBundle.calcState.status, 'CTE_PENDING_RECONCILIATION');
+        assert.equal(alertMock.mock.callCount(), 1);
+        const alertArgs = alertMock.mock.calls[0].arguments[0] as { category: string; context?: { calcId?: string } };
+        assert.equal(alertArgs.category, 'FISCAL_PROVIDER_ERROR');
+        assert.equal(alertArgs.context?.calcId, 'calc-1');
+    });
+
+    it('não faz nada se o job já está em fase terminal (DONE) — evita sobrescrever um resultado já concluído', async () => {
+        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: 'doc-1', phase: 'DONE' }), { status: 'CTE_AUTHORIZED' });
+        const alertMock = mock.fn(async (_params: Parameters<CteEmissionProcessorDeps['createOrMergeSystemAlert']>[0]) => {});
+        const deps = makeDeps({ createOrMergeSystemAlert: alertMock as unknown as CteEmissionProcessorDeps['createOrMergeSystemAlert'] }, prismaBundle);
+
+        await handleCteJobExhausted(jobDataExhausted, new Error('não deveria importar'), deps);
+
+        assert.equal(prismaBundle.jobState.phase, 'DONE');
+        assert.equal(prismaBundle.calcState.status, 'CTE_AUTHORIZED');
+        assert.equal(alertMock.mock.callCount(), 0);
     });
 });

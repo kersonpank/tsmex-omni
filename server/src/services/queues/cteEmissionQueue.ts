@@ -8,6 +8,13 @@ export interface CteEmissionJobData {
     cteEmissionJobId: string;
     /** 'poll-only' é usado pela reconciliação manual: nunca refaz POST /cte, só consulta status. */
     phaseHint?: 'submit' | 'poll-only';
+    /**
+     * Marcador durável no Redis (job.data sobrevive a um blip do Postgres): grava o
+     * providerDocId assim que a ACBr confirma sucesso, ANTES de tentar persistir no Postgres.
+     * Fecha a janela de duplicidade — um retry (automático ou reconciliação manual) que ache
+     * esse valor pula direto pra persistência, nunca rechama submitCteToAcbr.
+     */
+    providerDocIdPending?: string;
 }
 
 let queueInstance: Queue<CteEmissionJobData> | null = null;
@@ -25,6 +32,10 @@ export function getCteEmissionQueue(): Queue<CteEmissionJobData> {
         queueInstance = new Queue<CteEmissionJobData>(CTE_EMISSION_QUEUE_NAME, {
             connection: redisConnection,
             defaultJobOptions: {
+                // Seguro só por causa do marcador providerDocIdPending acima: um retry nunca
+                // rechama a ACBr se o submit anterior já tinha sido confirmado.
+                attempts: 5,
+                backoff: { type: 'exponential', delay: 5000 },
                 removeOnComplete: { age: 60 * 60 * 24 * 7 }, // 7 dias de histórico pra auditoria
                 removeOnFail: { age: 60 * 60 * 24 * 30 }, // 30 dias — falhas ficam mais tempo pra investigação
             },

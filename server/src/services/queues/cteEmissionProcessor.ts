@@ -12,7 +12,7 @@ import type { CteEmissionInput } from '../cteService.js';
 import { buildCteEmissionInputForJob } from './cteEmissionJobInput.js';
 import { uploadBase64Object } from '../../lib/objectStorage.js';
 import { getCteEmissionQueue, type CteEmissionJobData } from './cteEmissionQueue.js';
-import { createSystemAlert } from '../systemAlertService.js';
+import { createSystemAlert, createOrMergeSystemAlert } from '../systemAlertService.js';
 
 const POLL_DELAY_MS = 1500;
 const RATE_LIMIT_BACKOFF_CAP_MS = 5 * 60 * 1000;
@@ -43,6 +43,7 @@ export interface CteEmissionProcessorDeps {
     uploadBase64Object: typeof uploadBase64Object;
     cteEmissionQueue: Pick<ReturnType<typeof getCteEmissionQueue>, 'pause'>;
     createSystemAlert: typeof createSystemAlert;
+    createOrMergeSystemAlert: typeof createOrMergeSystemAlert;
 }
 
 export const defaultCteEmissionProcessorDeps: CteEmissionProcessorDeps = {
@@ -63,6 +64,7 @@ export const defaultCteEmissionProcessorDeps: CteEmissionProcessorDeps = {
         return getCteEmissionQueue();
     },
     createSystemAlert,
+    createOrMergeSystemAlert,
 };
 
 function retryDelayFromHeaders(err: AcbrHttpError): number {
@@ -188,25 +190,35 @@ export async function processCteEmissionJob(
         // Fase 1: submit — só acontece se ainda não temos providerDocId. Nunca reenvia depois disso
         // (POST /cte custa 1 crédito ACBr por chamada; reenviar duplicaria o documento fiscal).
         if (!emissionJob.providerDocId && phaseHint !== 'poll-only') {
-            const submitted = await deps.submitCteToAcbr(input, calcId, fiscalEmitterContext);
-            if ('rejected' in submitted) {
-                await deps.prisma.$transaction([
-                    deps.prisma.orderFreightCalculation.update({
-                        where: { id: calcId },
-                        data: { status: 'CTE_REJECTED', cteStatusReason: submitted.rejected.rejectionReason ?? 'Rejeitado pela ACBr.' },
-                    }),
-                    deps.prisma.cteEmissionJob.update({ where: { id: cteEmissionJobId }, data: { phase: 'FAILED', lastError: submitted.rejected.rejectionReason } }),
-                ]);
-                return;
+            // job.data sobrevive no Redis independente do Postgres — usar como marcador de
+            // "já confirmado pela ACBr, só falta persistir localmente" pra nunca reenviar.
+            let providerDocId = job.data.providerDocIdPending;
+
+            if (!providerDocId) {
+                const submitted = await deps.submitCteToAcbr(input, calcId, fiscalEmitterContext);
+                if ('rejected' in submitted) {
+                    await deps.prisma.$transaction([
+                        deps.prisma.orderFreightCalculation.update({
+                            where: { id: calcId },
+                            data: { status: 'CTE_REJECTED', cteStatusReason: submitted.rejected.rejectionReason ?? 'Rejeitado pela ACBr.' },
+                        }),
+                        deps.prisma.cteEmissionJob.update({ where: { id: cteEmissionJobId }, data: { phase: 'FAILED', lastError: submitted.rejected.rejectionReason } }),
+                    ]);
+                    return;
+                }
+                providerDocId = submitted.providerDocId;
+                // Grava no Redis ANTES de tentar o Postgres — fecha a janela de duplicidade.
+                await job.updateData({ ...job.data, providerDocIdPending: providerDocId });
             }
+
             await deps.prisma.$transaction([
                 deps.prisma.cteEmissionJob.update({
                     where: { id: cteEmissionJobId },
-                    data: { phase: 'SUBMITTED', providerDocId: submitted.providerDocId },
+                    data: { phase: 'SUBMITTED', providerDocId },
                 }),
                 deps.prisma.orderFreightCalculation.update({ where: { id: calcId }, data: { status: 'CTE_PROCESSING' } }),
             ]);
-            emissionJob.providerDocId = submitted.providerDocId;
+            emissionJob.providerDocId = providerDocId;
         }
 
         if (!emissionJob.providerDocId) {
@@ -303,4 +315,40 @@ export async function processCteEmissionJob(
         await rescheduleJob(job, POLL_DELAY_MS);
         return;
     }
+}
+
+/**
+ * Chamada pelo worker (`worker.ts`) só na tentativa FINAL do BullMQ (todos os `attempts`
+ * esgotados) — nunca marcar reconciliação/alerta numa tentativa intermediária que ainda vai
+ * ser retentada automaticamente.
+ */
+export async function handleCteJobExhausted(
+    jobData: CteEmissionJobData,
+    err: Error,
+    deps: CteEmissionProcessorDeps = defaultCteEmissionProcessorDeps,
+): Promise<void> {
+    const { calcId, cteEmissionJobId } = jobData;
+
+    const emissionJob = await deps.prisma.cteEmissionJob
+        .findUniqueOrThrow({ where: { id: cteEmissionJobId } })
+        .catch(() => null);
+
+    if (emissionJob && ['DONE', 'FAILED', 'PENDING_RECONCILIATION'].includes(emissionJob.phase)) {
+        return;
+    }
+
+    await markPendingReconciliation(
+        deps,
+        calcId,
+        cteEmissionJobId,
+        `Job esgotou todas as tentativas automáticas da fila: ${err.message}`,
+    );
+
+    await deps.createOrMergeSystemAlert({
+        category: 'FISCAL_PROVIDER_ERROR',
+        severity: 'WARNING',
+        title: 'Emissão de CT-e travada — tentativas automáticas esgotadas',
+        message: `Cálculo ${calcId} não concluiu a emissão assíncrona após todas as tentativas automáticas. Reconciliação manual necessária.`,
+        context: { calcId, cteEmissionJobId, lastError: err.message },
+    });
 }
