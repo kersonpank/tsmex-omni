@@ -53,6 +53,10 @@ export type ManifestTripType = 'TRANSFER' | 'DELIVERY' | 'REGIONAL_DISTRIBUTION'
 
 export type LinkApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
 
+export type LinkCarrierType = 'TAC' | 'ETC' | 'CTC' | 'FROTA';
+
+export type CiotTipoViagem = 'PADRAO' | 'FRACIONADO' | 'TAC_AGREGADO';
+
 export type FreightUnit = 'RS_KG' | 'PERCENT' | 'RS_M3' | 'RS_UNIT';
 
 export type MinFreightUnit = 'RS' | 'KG';
@@ -385,6 +389,8 @@ export interface Link {
     vehicleType?: VehicleType;
     vehiclePlate: string;
     vehicleYear?: number;
+    trailerPlate?: string | null;
+    vehicleAxles?: number | null;
     homeBase: string;
     coverageStates: string[];
     score: number;
@@ -393,6 +399,29 @@ export interface Link {
     approvalStatus: LinkApprovalStatus;
     active: boolean;
     onboarding?: LinkOnboarding;
+    drivers?: Driver[];
+
+    // CIOT / ANTT
+    rntrc?: string | null;
+    carrierType?: LinkCarrierType | null;
+    vehicleOwnerDocument?: string | null;
+    vehicleOwnerName?: string | null;
+    vehicleChassi?: string | null;
+    vehicleRenavam?: string | null;
+    vehicleBodyType?: string | null;
+    vehicleWheelType?: string | null;
+}
+
+export interface Driver {
+    id: string;
+    linkId: string;
+    name: string;
+    document: string;
+    phone: string;
+    birthDate?: string | null;
+    cnhNumber?: string | null;
+    cnhExpiry?: string | null;
+    active: boolean;
 }
 
 export interface DemandEvent {
@@ -448,6 +477,11 @@ export interface Manifest {
     destHub?: Hub;
     linkId?: string;
     link?: Link;
+    driverId?: string | null;
+    driver?: Driver | null;
+    ciotTipoViagemOverride?: CiotTipoViagem | null;
+    ciotDispensado?: boolean;
+    ciotDispensadoMotivo?: string | null;
     hubId?: string;
     hub?: Hub;
     vehicleTypeId: string;
@@ -542,6 +576,75 @@ export interface ManifestFiscalDocument {
     cancelledAt?: string | null;
     createdAt: string;
     updatedAt: string;
+}
+
+export type CiotEmissionJobPhase = 'QUEUED' | 'CADASTROS_ENSURING' | 'SUBMITTED' | 'POLLING' | 'DONE' | 'FAILED' | 'PENDING_RECONCILIATION';
+
+export interface CiotEmissionJob {
+    id: string;
+    manifestId: string;
+    idOperacaoCliente: string;
+    codigoIdentificacaoOperacao?: string | null;
+    tipoViagem: CiotTipoViagem;
+    phase: CiotEmissionJobPhase;
+    attemptCount: number;
+    lastError?: string | null;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface CiotTipoViagemSuggestion {
+    tipoViagem: 'PADRAO' | 'FRACIONADO';
+    clientDocuments: string[];
+    override?: CiotTipoViagem | null;
+}
+
+export interface CiotEndereco {
+    bairro: string;
+    cep: string;
+    codigoMunicipio: number;
+    rua: string;
+    numero: string;
+    complemento?: string;
+}
+
+export interface CiotPagamentoInput {
+    idPagamentoCliente: string;
+    dataLiberacao: string;
+    valor: number;
+    tipoPagamento: 'TransferenciaBancaria' | 'eFRETE' | 'DepositoAgendado';
+    categoria: 'Adiantamento' | 'Estadia' | 'Quitacao' | 'SemCategoria';
+    cpfCnpjCreditado: string;
+    indicadorPagamento: 'Avista' | 'Aprazo';
+    numeroParcela?: number;
+    pix?: { tipoChave: 'CpfOuCnpj' | 'Email' | 'TelefoneCelular' | 'ChaveAleatoria' | 'IdentificadorPix'; valorChave: string; identificadorPix?: string };
+    informacoesBancarias?: { instituicaoBancaria: string; agencia: string; conta: string; tipoConta: string };
+}
+
+export interface CiotRequestDataInput {
+    documentoViagem: string;
+    distanciaPercorrida: number;
+    dataInicioViagem?: string;
+    dataFimViagem: string;
+    codigoNcmNaturezaCarga?: string;
+    pesoCarga?: number;
+    codigoTipoCarga?: number;
+    tipoEmbalagem?: string;
+    altoDesempenho: boolean;
+    retornoVazio?: boolean;
+    composicaoVeicular: boolean;
+    tipoPagamento: 'TransferenciaBancaria' | 'eFRETE' | 'DepositoAgendado';
+    entregaDocumentacao: 'RedeCredenciada' | 'Cliente';
+    valores: { totalOperacao: number; totalViagem: number; totalAdiantamento: number; totalQuitacao: number; combustivel?: number; pedagio?: number; seguro?: number };
+    impostos: { irrf?: number; sestSenat?: number; inss?: number; issqn?: number; outrosImpostos?: number; descricaoOutrosImpostos?: string };
+    pagamentos: CiotPagamentoInput[];
+    destinatario: { nomeOuRazaoSocial: string; cpfOuCnpj: string; endereco: CiotEndereco; responsavelPeloPagamento?: boolean };
+}
+
+export interface EmitCiotRequest {
+    tipoViagemOverride?: CiotTipoViagem;
+    contratantesCargaFracionada?: string[];
+    requestData: CiotRequestDataInput;
 }
 
 export interface PricingRoute {

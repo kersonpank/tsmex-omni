@@ -22,8 +22,11 @@ export async function createSystemAlert(params: {
 const DEFAULT_DEDUP_WINDOW_MS = 15 * 60 * 1000;
 
 /**
- * Evita fadiga de painel: se um incidente amplo derruba N jobs ao mesmo tempo, não cria N
- * alertas — funde no mesmo alerta OPEN da categoria dentro da janela de dedup.
+ * Como `createSystemAlert`, mas evita poluir o painel quando um único incidente de infra
+ * (Postgres/Redis fora do ar por alguns minutos) derruba muitos jobs ao mesmo tempo: se já
+ * existe um alerta `OPEN` da mesma categoria criado dentro da janela de dedup, só atualiza
+ * esse alerta (acumula contagem em `context.occurrences`) em vez de criar uma linha nova por
+ * ocorrência.
  */
 export async function createOrMergeSystemAlert(params: {
     category: SystemAlertCategory;
@@ -34,7 +37,6 @@ export async function createOrMergeSystemAlert(params: {
     dedupWindowMs?: number;
 }): Promise<void> {
     const since = new Date(Date.now() - (params.dedupWindowMs ?? DEFAULT_DEDUP_WINDOW_MS));
-
     const existing = await prisma.systemAlert.findFirst({
         where: { category: params.category, status: 'OPEN', createdAt: { gte: since } },
         orderBy: { createdAt: 'desc' },
@@ -45,17 +47,16 @@ export async function createOrMergeSystemAlert(params: {
         return;
     }
 
-    const previousContext = (existing.context as Record<string, unknown> | null) ?? {};
-    const occurrences = (typeof previousContext.occurrences === 'number' ? previousContext.occurrences : 1) + 1;
-
+    const prevContext = (existing.context as Record<string, unknown> | null) ?? {};
+    const prevOccurrences = typeof prevContext.occurrences === 'number' ? prevContext.occurrences : 1;
     await prisma.systemAlert.update({
         where: { id: existing.id },
         data: {
-            message: params.message,
+            message: `${params.message} (ocorrências agrupadas neste incidente: ${prevOccurrences + 1})`,
             context: {
-                ...previousContext,
+                ...prevContext,
                 ...params.context,
-                occurrences,
+                occurrences: prevOccurrences + 1,
                 lastOccurrenceAt: new Date().toISOString(),
             } as Prisma.InputJsonValue,
         },

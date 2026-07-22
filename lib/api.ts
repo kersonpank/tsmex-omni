@@ -14,6 +14,10 @@ import type {
     CreateManifestRequest,
     Hub,
     Link,
+    Driver,
+    CiotEmissionJob,
+    CiotTipoViagemSuggestion,
+    EmitCiotRequest,
     VehicleType,
     Client,
     Person,
@@ -428,8 +432,28 @@ export const manifestsApi = {
         return response.data;
     },
 
-    ciotPlaceholder: async (id: string) => {
-        const response = await api.post<ApiResponse<Manifest>>(`/manifests/${id}/ciot-placeholder`, {});
+    setDriver: async (id: string, driverId: string) => {
+        const response = await api.patch<ApiResponse<Manifest>>(`/manifests/${id}/driver`, { driverId });
+        return response.data;
+    },
+
+    ciotSuggestion: async (id: string) => {
+        const response = await api.get<ApiResponse<CiotTipoViagemSuggestion>>(`/manifests/${id}/ciot-suggestion`);
+        return response.data;
+    },
+
+    ciotStatus: async (id: string) => {
+        const response = await api.get<ApiResponse<CiotEmissionJob | null>>(`/manifests/${id}/ciot-status`);
+        return response.data;
+    },
+
+    emitCiot: async (id: string, data: EmitCiotRequest) => {
+        const response = await api.post<ApiResponse<CiotEmissionJob>>(`/manifests/${id}/emit-ciot`, data);
+        return response.data;
+    },
+
+    cancelCiotTrip: async (id: string, justificativa: string) => {
+        const response = await api.post<ApiResponse<{ mdfeRequiresManualCancellation: { id: string; accessKey: string | null } | null }>>(`/manifests/${id}/cancel-ciot-trip`, { justificativa });
         return response.data;
     },
 };
@@ -553,6 +577,26 @@ export const linksApi = {
 
     reject: async (id: string, reason: string) => {
         const response = await api.patch<ApiResponse<Link>>(`/links/${id}/reject`, { reason });
+        return response.data;
+    },
+
+    updateFiscal: async (id: string, data: Partial<Pick<Link, 'rntrc' | 'carrierType' | 'trailerPlate' | 'vehicleAxles' | 'vehicleOwnerDocument' | 'vehicleOwnerName' | 'vehicleChassi' | 'vehicleRenavam' | 'vehicleBodyType' | 'vehicleWheelType'>>) => {
+        const response = await api.patch<ApiResponse<Link>>(`/links/${id}/fiscal`, data);
+        return response.data;
+    },
+
+    getDrivers: async (linkId: string) => {
+        const response = await api.get<ApiResponse<Driver[]>>(`/links/${linkId}/drivers`);
+        return response.data;
+    },
+
+    createDriver: async (linkId: string, data: { name: string; document: string; phone: string; birthDate?: string; cnhNumber?: string; cnhExpiry?: string }) => {
+        const response = await api.post<ApiResponse<Driver>>(`/links/${linkId}/drivers`, data);
+        return response.data;
+    },
+
+    updateDriver: async (linkId: string, driverId: string, data: Partial<{ name: string; document: string; phone: string; birthDate: string; cnhNumber: string; cnhExpiry: string }>) => {
+        const response = await api.patch<ApiResponse<Driver>>(`/links/${linkId}/drivers/${driverId}`, data);
         return response.data;
     },
 };

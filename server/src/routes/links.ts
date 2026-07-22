@@ -338,6 +338,120 @@ router.patch('/:id/reject', authenticate, authorize('ADMIN'), async (req: AuthRe
     }
 });
 
+// PATCH /api/links/:id/fiscal - Dados CIOT/ANTT do transportador contratado (Admin ou HUB)
+const patchLinkFiscalSchema = z.object({
+    rntrc: z.string().min(8).max(9).optional(),
+    carrierType: z.enum(['TAC', 'ETC', 'CTC', 'FROTA']).optional(),
+    trailerPlate: z.string().optional(),
+    vehicleAxles: z.number().int().positive().optional(),
+    vehicleOwnerDocument: z.string().optional(),
+    vehicleOwnerName: z.string().optional(),
+    vehicleChassi: z.string().length(17).optional(),
+    vehicleRenavam: z.string().optional(),
+    vehicleBodyType: z.enum(['NaoAplicavel', 'Aberta', 'FechadaOuBau', 'Granelera', 'PortaContainer', 'Sider']).optional(),
+    vehicleWheelType: z.enum(['NaoAplicavel', 'Truck', 'Toco', 'Cavalo']).optional(),
+});
+router.patch('/:id/fiscal', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const id = req.params.id as string;
+        const body = patchLinkFiscalSchema.parse(req.body);
+        const link = await prisma.link.update({ where: { id }, data: body });
+        res.json({ success: true, data: link });
+    } catch (error) {
+        if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
+        next(error);
+    }
+});
+
+// GET /api/links/:id/drivers - Motoristas do Link (papel separado, para CIOT/eFrete).
+// TAC autônomo sem nenhum Driver ainda: cria 1 automaticamente espelhando o próprio Link
+// (cnhNumber/birthDate podem ficar vazios — completar depois via PATCH antes de emitir CIOT).
+router.get('/:id/drivers', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const id = req.params.id as string;
+        const link = await prisma.link.findUnique({ where: { id } });
+        if (!link) throw new AppError('Link not found', 404);
+
+        let drivers = await prisma.driver.findMany({ where: { linkId: id }, orderBy: { createdAt: 'asc' } });
+        if (drivers.length === 0) {
+            const created = await prisma.driver.create({
+                data: {
+                    linkId: id,
+                    personId: link.personId,
+                    name: link.name,
+                    document: link.document,
+                    phone: link.phone,
+                    cnhNumber: link.cnhNumber,
+                    cnhExpiry: link.cnhExpiry,
+                },
+            });
+            drivers = [created];
+        }
+        res.json({ success: true, data: drivers });
+    } catch (error) {
+        next(error);
+    }
+});
+
+const driverSchema = z.object({
+    name: z.string().min(1),
+    document: z.string().min(11),
+    phone: z.string().min(10),
+    birthDate: z.string().optional(),
+    cnhNumber: z.string().optional(),
+    cnhExpiry: z.string().optional(),
+});
+
+router.post('/:id/drivers', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const id = req.params.id as string;
+        const link = await prisma.link.findUnique({ where: { id } });
+        if (!link) throw new AppError('Link not found', 404);
+        const body = driverSchema.parse(req.body);
+
+        const driver = await prisma.driver.create({
+            data: {
+                linkId: id,
+                name: body.name,
+                document: body.document.replace(/\D/g, ''),
+                phone: body.phone,
+                birthDate: body.birthDate ? new Date(body.birthDate) : undefined,
+                cnhNumber: body.cnhNumber,
+                cnhExpiry: body.cnhExpiry ? new Date(body.cnhExpiry) : undefined,
+            },
+        });
+        res.status(201).json({ success: true, data: driver });
+    } catch (error) {
+        if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
+        next(error);
+    }
+});
+
+router.patch('/:id/drivers/:driverId', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const { id, driverId } = req.params as { id: string; driverId: string };
+        const existing = await prisma.driver.findUnique({ where: { id: driverId } });
+        if (!existing || existing.linkId !== id) throw new AppError('Driver not found for this link', 404);
+
+        const body = driverSchema.partial().parse(req.body);
+        const driver = await prisma.driver.update({
+            where: { id: driverId },
+            data: {
+                ...(body.name !== undefined ? { name: body.name } : {}),
+                ...(body.document !== undefined ? { document: body.document.replace(/\D/g, '') } : {}),
+                ...(body.phone !== undefined ? { phone: body.phone } : {}),
+                ...(body.birthDate !== undefined ? { birthDate: new Date(body.birthDate) } : {}),
+                ...(body.cnhNumber !== undefined ? { cnhNumber: body.cnhNumber } : {}),
+                ...(body.cnhExpiry !== undefined ? { cnhExpiry: new Date(body.cnhExpiry) } : {}),
+            },
+        });
+        res.json({ success: true, data: driver });
+    } catch (error) {
+        if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
+        next(error);
+    }
+});
+
 // GET /api/links/:id/manifests - Get link's manifests
 router.get('/:id/manifests', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {

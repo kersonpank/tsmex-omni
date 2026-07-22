@@ -9,10 +9,12 @@ export interface CteEmissionJobData {
     /** 'poll-only' é usado pela reconciliação manual: nunca refaz POST /cte, só consulta status. */
     phaseHint?: 'submit' | 'poll-only';
     /**
-     * Marcador durável no Redis (job.data sobrevive a um blip do Postgres): grava o
-     * providerDocId assim que a ACBr confirma sucesso, ANTES de tentar persistir no Postgres.
-     * Fecha a janela de duplicidade — um retry (automático ou reconciliação manual) que ache
-     * esse valor pula direto pra persistência, nunca rechama submitCteToAcbr.
+     * `providerDocId` retornado pela ACBr logo após um `POST /cte` bem-sucedido, gravado via
+     * `job.updateData(...)` (persiste no Redis) ANTES de qualquer escrita no Postgres. Existe
+     * pra fechar uma janela de duplicidade: se a persistência no Postgres falhar depois do
+     * `POST /cte` já ter sido aceito (ex.: connection reset), uma retentativa (automática via
+     * `attempts` ou reconciliação manual) precisa achar esse id aqui e NUNCA rechamar
+     * `submitCteToAcbr` — o Redis sobrevive independente do estado do Postgres.
      */
     providerDocIdPending?: string;
 }
@@ -32,8 +34,12 @@ export function getCteEmissionQueue(): Queue<CteEmissionJobData> {
         queueInstance = new Queue<CteEmissionJobData>(CTE_EMISSION_QUEUE_NAME, {
             connection: redisConnection,
             defaultJobOptions: {
-                // Seguro só por causa do marcador providerDocIdPending acima: um retry nunca
-                // rechama a ACBr se o submit anterior já tinha sido confirmado.
+                // Rede de segurança pra exceções genuinamente não classificadas (ex.: connection
+                // reset do Postgres numa escrita que já está dentro do catch-all do processor) —
+                // sem isso o BullMQ mata o job na 1ª falha (default attempts:1) e o calc fica
+                // preso sem chance de reconciliação. Seguro contra duplicidade de emissão porque
+                // `providerDocIdPending` (job.data, Redis) garante que uma retentativa nunca
+                // rechama `submitCteToAcbr` se a ACBr já tiver confirmado sucesso antes.
                 attempts: 5,
                 backoff: { type: 'exponential', delay: 5000 },
                 removeOnComplete: { age: 60 * 60 * 24 * 7 }, // 7 dias de histórico pra auditoria

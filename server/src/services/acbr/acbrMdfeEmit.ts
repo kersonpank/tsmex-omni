@@ -59,6 +59,17 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
         return { ok: false, error: 'Nenhum CT-e autorizado vinculado aos pedidos deste manifesto.' };
     }
 
+    // CIOT é pré-requisito do MDF-e (exceto frota própria contratada ou dispensa explícita e
+    // auditada pelo Hub/Admin) — sem isso, o transportador executor da viagem fica sem cobertura
+    // ANTT. Ver .cursor/skills/tsmex-efrete-ciot/SKILL.md.
+    const ciotDoc = await prisma.manifestFiscalDocument.findFirst({
+        where: { manifestId, documentType: 'CIOT', status: 'AUTHORIZED' },
+        orderBy: { createdAt: 'desc' },
+    });
+    if (!ciotDoc && manifest.link.carrierType !== 'FROTA' && !manifest.ciotDispensado) {
+        return { ok: false, error: 'CIOT ainda não emitido para este manifesto. Emita o CIOT antes do MDF-e (ou registre dispensa justificada).' };
+    }
+
     const emit = manifest.hub.person;
     const emitCmun = await resolveIbgeMunicipio(emit.city, emit.state, emit.cityIbgeCode);
     const ufIni = (emit.state ?? 'SP').slice(0, 2).toUpperCase();
@@ -85,7 +96,12 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
         return { ok: false, error: 'Emitente MDF-e deve ser CNPJ (Hub).' };
     }
 
-    const rntrc = digits(manifest.hub.rntrc ?? '').padStart(8, '0').slice(0, 8) || '00000000';
+    let rntrcSource = manifest.link.rntrc;
+    if (!rntrcSource) {
+        console.warn(JSON.stringify({ level: 'warn', source: 'acbrMdfeEmit', message: 'Link sem RNTRC próprio — usando RNTRC do Hub como fallback (deveria estar cadastrado no Link).', manifestId }));
+        rntrcSource = manifest.hub.rntrc;
+    }
+    const rntrc = digits(rntrcSource ?? '').padStart(8, '0').slice(0, 8) || '00000000';
     const ld = digits(manifest.link.document);
     const prop =
         ld.length === 11
@@ -134,7 +150,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
         infModal: {
             versaoModal: '3.00',
             rodo: {
-                infANTT: { RNTRC: rntrc },
+                infANTT: { RNTRC: rntrc, ...(ciotDoc?.number ? { infCIOT: [{ CIOT: ciotDoc.number }] } : {}) },
                 veicTracao: {
                     cInt: '1',
                     placa: manifest.link.vehiclePlate.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 7),

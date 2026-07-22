@@ -157,6 +157,7 @@ model Person {
   users          User[]
   hubs           Hub[]
   fiscalEmitters FiscalEmitter[]
+  drivers        Driver[]
 
   // Orders (partes)
   ordersAsRemetente     Order[] @relation("OrderRemetente")
@@ -340,12 +341,24 @@ model Link {
   vehicleType   VehicleType? @relation(fields: [vehicleTypeId], references: [id])
   vehiclePlate  String
   vehicleYear   Int?
+  trailerPlate  String? // Carreta/reboque (composição veicular, CIOT)
+  vehicleAxles  Int? // Número de eixos — crítico para cálculo de piso mínimo ANTT
 
   // Documents
   cnhNumber String?
   cnhExpiry DateTime?
   crlvUrl   String?
   photoUrl  String?
+
+  // CIOT / ANTT (transportador contratado)
+  rntrc                String? // Registro ANTT do transportador
+  carrierType          LinkCarrierType?
+  vehicleOwnerDocument String? // CPF/CNPJ do proprietário do veículo, se diferente do próprio Link
+  vehicleOwnerName     String?
+  vehicleChassi        String? // Obrigatório no Gravar Veículo da eFrete
+  vehicleRenavam       String?
+  vehicleBodyType      String? // TipoCarroceria eFrete: Aberta | FechadaOuBau | Granelera | PortaContainer | Sider | NaoAplicavel
+  vehicleWheelType     String? // TipoRodado eFrete: Truck | Toco | Cavalo | NaoAplicavel
 
   // Coverage areas
   homeBase       String // Base city
@@ -367,9 +380,46 @@ model Link {
   manifests         Manifest[]
   onboarding        LinkOnboarding?
   pricingAgreements LinkPricingAgreement[]
+  drivers           Driver[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+enum LinkCarrierType {
+  TAC // Transportador Autônomo de Carga
+  ETC // Empresa de Transporte de Cargas
+  CTC // Cooperativa de Transporte de Cargas
+  FROTA // Frota própria contratada
+}
+
+// Motorista — papel vinculado a um Link (transportador contratado). Um TAC autônomo
+// tem exatamente 1 Driver (espelhando os próprios dados); ETC/CTC podem ter N.
+model Driver {
+  id     String @id @default(uuid())
+  linkId String
+  link   Link   @relation(fields: [linkId], references: [id], onDelete: Cascade)
+
+  // Endereço do motorista (obrigatório no Gravar Motorista da eFrete) — reaproveita Person
+  // em vez de duplicar campos; TAC autônomo aponta pro mesmo Person do próprio Link.
+  personId String?
+  person   Person? @relation(fields: [personId], references: [id], onDelete: SetNull)
+
+  name      String
+  document  String    @unique // CPF
+  phone     String
+  birthDate DateTime? // Obrigatório no Gravar Motorista da eFrete
+  cnhNumber String?
+  cnhExpiry DateTime?
+
+  active Boolean @default(true)
+
+  manifests Manifest[] @relation("ManifestDriver")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([linkId])
 }
 
 // Onboarding data for Link (documents, contacts, vehicle photos, bank, video)
@@ -680,6 +730,15 @@ model Manifest {
   hubId  String?
   hub    Hub?    @relation(fields: [hubId], references: [id], onDelete: SetNull)
 
+  // Motorista da viagem (passo "Definir Motorista", separado do Link/transportador contratado)
+  driverId String?
+  driver   Driver? @relation("ManifestDriver", fields: [driverId], references: [id], onDelete: SetNull)
+
+  // CIOT
+  ciotTipoViagemOverride CiotTipoViagem?
+  ciotDispensado         Boolean         @default(false)
+  ciotDispensadoMotivo   String?
+
   // Vehicle type
   vehicleTypeId String
   vehicleType   VehicleType @relation(fields: [vehicleTypeId], references: [id])
@@ -720,7 +779,14 @@ model Manifest {
   updatedAt DateTime @updatedAt
 
   // Fiscal travel documents (MDF-e, CIOT and future trip-level docs)
-  fiscalDocuments ManifestFiscalDocument[]
+  fiscalDocuments  ManifestFiscalDocument[]
+  ciotEmissionJobs CiotEmissionJob[]
+}
+
+enum CiotTipoViagem {
+  PADRAO // Lotação — 1 contratante, valida piso mínimo, não permite retificação
+  FRACIONADO // Composição de carga multi-cliente (modelo Teia)
+  TAC_AGREGADO // Múltiplas viagens com o mesmo TAC em até 30 dias
 }
 
 enum ManifestStatus {
@@ -823,8 +889,8 @@ model FiscalEmitter {
   certificateFingerprint       String?
   certificateStatus            FiscalCertificateStatus @default(MISSING)
 
-  active        Boolean @default(true)
-  defaultForHub Boolean @default(false)
+  active                 Boolean @default(true)
+  defaultForHub          Boolean @default(false)
   /// Opt-in explícito: liga a varredura automática 2x/dia da Distribuição NF-e para este CNPJ como destinatário.
   /// Nunca ligar sem antes semear FiscalDistribuicaoCheckpoint.ultimoNsu (ver bootstrap-nsu) — o coordenador
   /// e o processor recusam-se a rodar dist-nsu a partir de NSU=0 (custo retroativo de ~90 dias em créditos).
@@ -1877,6 +1943,46 @@ model CteEmissionJob {
   @@index([phase, nextPollAt])
 }
 
+enum CiotEmissionJobPhase {
+  QUEUED
+  CADASTROS_ENSURING // Gravar Motorista/Proprietário/Veículo
+  SUBMITTED
+  POLLING
+  DONE
+  FAILED
+  PENDING_RECONCILIATION
+}
+
+// Emissão de CIOT via eFrete é assíncrona (fila) — API externa pode dar timeout, e reenvio
+// direto do request HTTP geraria CIOT duplicado (multa ANTT). idOperacaoCliente é a chave
+// de idempotência: antes de qualquer POST, o worker consulta se ela já existe no eFrete.
+model CiotEmissionJob {
+  id         String   @id @default(uuid())
+  manifestId String
+  manifest   Manifest @relation(fields: [manifestId], references: [id], onDelete: Cascade)
+
+  queueJobId                  String?              @unique
+  idOperacaoCliente           String               @unique // "CIOT-<manifestId>"
+  codigoIdentificacaoOperacao String?              @unique // CIOT retornado pela eFrete
+  tipoViagem                  CiotTipoViagem
+  // "Carta Frete": valores/impostos/distância digitados pelo Hub/Admin no momento da emissão
+  // (não tem lugar fixo no schema do Manifest — é dado pontual da operação de transporte).
+  requestData                 Json
+  phase                       CiotEmissionJobPhase @default(QUEUED)
+  attemptCount                Int                  @default(0)
+  maxAttempts                 Int                  @default(24)
+  lastPolledAt                DateTime?
+  nextPollAt                  DateTime?
+  lastHttpStatus              Int?
+  lastError                   String?              @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([manifestId])
+  @@index([phase, nextPollAt])
+}
+
 enum SystemAlertCategory {
   FISCAL_PROVIDER_QUOTA
   FISCAL_PROVIDER_ERROR
@@ -1955,10 +2061,10 @@ model NfeDistribuicaoDocumento {
   xmlDownloadedAt DateTime?
   xmlStorageKey   String?
 
-  attemptCount   Int      @default(0)
+  attemptCount   Int     @default(0)
   lastHttpStatus Int?
-  lastError      String?  @db.Text
-  pausedForQuota Boolean  @default(false)
+  lastError      String? @db.Text
+  pausedForQuota Boolean @default(false)
 
   convertedDemandId String?
   convertedDemand   Demand?   @relation(fields: [convertedDemandId], references: [id], onDelete: SetNull)

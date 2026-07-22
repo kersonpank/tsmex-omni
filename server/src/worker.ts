@@ -6,6 +6,8 @@ import { processCteEmissionJob, handleCteJobExhausted } from './services/queues/
 import { DISTRIBUICAO_NFE_QUEUE_NAME, ensureDistribuicaoNfeSchedule, type DistribuicaoNfeJobData } from './services/queues/distribuicaoNfeQueue.js';
 import { processCoordinatorJob } from './services/queues/distribuicaoNfeCoordinatorProcessor.js';
 import { processDistribuicaoNfeSyncJob } from './services/queues/distribuicaoNfeSyncProcessor.js';
+import { CIOT_EMISSION_QUEUE_NAME } from './services/queues/ciotEmissionQueue.js';
+import { processCiotEmissionJob, handleCiotJobExhausted } from './services/queues/ciotEmissionProcessor.js';
 
 dotenv.config();
 
@@ -42,6 +44,7 @@ worker.on('failed', (job, err) => {
 
 worker.on('error', (err) => {
     console.error(JSON.stringify({ level: 'error', source: 'cteEmissionWorker', message: 'Worker error', error: err instanceof Error ? err.message : String(err) }));
+<<<<<<< Updated upstream
 });
 
 // Sem estes 3 listeners, os logs não distinguem "job nunca foi retirado da fila" (ex.: fila
@@ -98,6 +101,38 @@ distribuicaoNfeWorker.on('ready', () => {
     console.log(JSON.stringify({ level: 'info', source: 'distribuicaoNfeWorker', message: 'Worker pronto, consumindo fila distribuicao-nfe.' }));
 });
 
+const ciotWorker = new Worker(CIOT_EMISSION_QUEUE_NAME, (job) => processCiotEmissionJob(job), {
+    connection: redisConnection,
+    concurrency: 3,
+});
+
+ciotWorker.on('failed', (job, err) => {
+    console.error(JSON.stringify({ level: 'error', source: 'ciotEmissionWorker', jobId: job?.id, error: err.message }));
+
+    if (!job) return;
+    const maxAttempts = job.opts.attempts ?? 1;
+    const isFinalAttempt = job.attemptsMade + 1 >= maxAttempts;
+    if (isFinalAttempt) {
+        void handleCiotJobExhausted(job.data, err).catch((handlerErr) => {
+            console.error(JSON.stringify({
+                level: 'error',
+                source: 'ciotEmissionWorker',
+                message: 'handleCiotJobExhausted falhou ao marcar reconciliação após esgotar tentativas.',
+                jobId: job.id,
+                error: handlerErr instanceof Error ? handlerErr.message : String(handlerErr),
+            }));
+        });
+    }
+});
+
+ciotWorker.on('error', (err) => {
+    console.error(JSON.stringify({ level: 'error', source: 'ciotEmissionWorker', message: 'Worker error', error: err instanceof Error ? err.message : String(err) }));
+});
+
+ciotWorker.on('ready', () => {
+    console.log(JSON.stringify({ level: 'info', source: 'ciotEmissionWorker', message: 'Worker pronto, consumindo fila ciot-emission.' }));
+});
+
 // Garante o repeatable job 2x/dia assim que o worker sobe (idempotente — BullMQ deduplica
 // repeatables com o mesmo jobId/opções). CJS não permite top-level await (sem "type":"module"
 // no package.json deste projeto), daí a IIFE em vez de `await` direto no topo do módulo.
@@ -110,6 +145,6 @@ void (async () => {
 })();
 
 process.on('SIGTERM', async () => {
-    await Promise.all([worker.close(), distribuicaoNfeWorker.close()]);
+    await Promise.all([worker.close(), distribuicaoNfeWorker.close(), ciotWorker.close()]);
     process.exit(0);
 });

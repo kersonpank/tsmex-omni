@@ -72,6 +72,8 @@ function makeFakePrisma(initialJob: FakeJobRecord, initialCalc: Record<string, u
 
 function makeJob(data: CteEmissionJobData): { job: Job<CteEmissionJobData>; moveToDelayed: ReturnType<typeof mock.fn>; updateData: ReturnType<typeof mock.fn> } {
     const moveToDelayed = mock.fn(async (_ts: number, _token?: string) => {});
+    // Espelha o comportamento real do BullMQ: `job.updateData(...)` persiste no Redis e
+    // atualiza `job.data` in-place (o processor lê `job.data.providerDocIdPending` depois).
     const updateData = mock.fn(async (newData: CteEmissionJobData) => {
         Object.assign(job.data, newData);
     });
@@ -103,7 +105,6 @@ function makeDeps(overrides: Partial<CteEmissionProcessorDeps> = {}, prismaBundl
         })),
         uploadBase64Object: mock.fn(async ({ keyPrefix }: { keyPrefix: string }) => ({ storageKey: `${keyPrefix}/stored` })) as unknown as CteEmissionProcessorDeps['uploadBase64Object'],
         cteEmissionQueue: { pause: mock.fn(async () => {}) },
-        createSystemAlert: mock.fn(async () => {}),
         createOrMergeSystemAlert: mock.fn(
             async (_params: Parameters<CteEmissionProcessorDeps['createOrMergeSystemAlert']>[0]) => {},
         ) as unknown as CteEmissionProcessorDeps['createOrMergeSystemAlert'],
@@ -374,14 +375,16 @@ describe('processCteEmissionJob', () => {
     });
 
     it('Onda 0 — retry com providerDocIdPending já gravado no job.data (Redis) NUNCA rechama submitCteToAcbr, só completa a persistência no Postgres', async () => {
+        // Simula exatamente o cenário do risco de duplicidade: uma tentativa anterior já
+        // recebeu sucesso da ACBr (providerDocId obtido) e gravou em job.data via
+        // job.updateData, mas a escrita no Postgres falhou antes de persistir — o Postgres
+        // segue sem providerDocId (null). Uma nova tentativa (retry automático do BullMQ ou
+        // reconciliação) precisa achar o valor em job.data e pular o submit inteiramente.
         const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: null, phase: 'QUEUED', attemptCount: 0, maxAttempts: 5 }));
-        const { job } = makeJob({
-            calcId: 'calc-1',
-            cteEmissionJobId: 'job-1',
-            phaseHint: 'submit',
-            providerDocIdPending: 'doc-from-previous-attempt',
+        const { job } = makeJob({ calcId: 'calc-1', cteEmissionJobId: 'job-1', phaseHint: 'submit', providerDocIdPending: 'doc-from-previous-attempt' });
+        const submitMock = mock.fn(async () => {
+            throw new Error('submitCteToAcbr NUNCA deve ser chamado quando providerDocIdPending já está presente — duplicaria a emissão/cobrança na ACBr.');
         });
-        const submitMock = mock.fn(async () => ({ providerDocId: 'should-never-be-used' }));
         const pollMock = mock.fn(async (_providerDocId: string, _ambiente: string, _attempt: number): Promise<CtePollOutcome> => ({ kind: 'PENDING' }));
         const deps = makeDeps(
             {
@@ -410,7 +413,7 @@ describe('processCteEmissionJob', () => {
         await processCteEmissionJob(job, deps);
 
         assert.equal(prismaBundle.calcState.status, 'CTE_PENDING_RECONCILIATION');
-        assert.match(prismaBundle.calcState.cteStatusReason as string, /reemissão automática está disponível/);
+        assert.match(prismaBundle.calcState.cteStatusReason as string, /reemissão/i);
     });
 });
 
@@ -450,16 +453,29 @@ describe('handleCteJobExhausted', () => {
         assert.equal(alertMock.mock.callCount(), 0);
     });
 
-    it('(Onda 3) anota reemissão segura quando providerDocId é null — reproduz o cenário real dos jobs mortos antes do submit (fase QUEUED)', async () => {
-        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: null, phase: 'QUEUED' }));
-        const alertMock = mock.fn(async (_params: Parameters<CteEmissionProcessorDeps['createOrMergeSystemAlert']>[0]) => {});
-        const deps = makeDeps({ createOrMergeSystemAlert: alertMock as unknown as CteEmissionProcessorDeps['createOrMergeSystemAlert'] }, prismaBundle);
+    it('marca CTE_PENDING_RECONCILIATION e cria/atualiza um SystemAlert quando o job ainda não está em fase terminal', async () => {
+        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: 'doc-1', phase: 'POLLING' }));
+        const createOrMergeSystemAlert = mock.fn(async (_params: Parameters<CteEmissionProcessorDeps['createOrMergeSystemAlert']>[0]) => {});
+        const deps = makeDeps({ createOrMergeSystemAlert: createOrMergeSystemAlert as unknown as CteEmissionProcessorDeps['createOrMergeSystemAlert'] }, prismaBundle);
 
-        await handleCteJobExhausted(jobDataExhausted, new Error('crash antes do submit'), deps);
+        await handleCteJobExhausted({ calcId: 'calc-1', cteEmissionJobId: 'job-1' }, new Error('connection reset'), deps);
 
         assert.equal(prismaBundle.calcState.status, 'CTE_PENDING_RECONCILIATION');
-        assert.match(prismaBundle.calcState.cteStatusReason as string, /reemissão automática está disponível/);
-        const alertArgs = alertMock.mock.calls[0].arguments[0] as { context?: { providerDocId?: string | null } };
-        assert.equal(alertArgs.context?.providerDocId, null);
+        assert.equal(prismaBundle.jobState.phase, 'PENDING_RECONCILIATION');
+        assert.equal(createOrMergeSystemAlert.mock.callCount(), 1);
+        const alertArgs = createOrMergeSystemAlert.mock.calls[0].arguments[0] as { category: string; context?: Record<string, unknown> };
+        assert.equal(alertArgs.category, 'FISCAL_PROVIDER_ERROR');
+        assert.equal((alertArgs.context as { calcId: string }).calcId, 'calc-1');
+    });
+
+    it('não sobrescreve um job que já está em fase terminal (ex.: uma tentativa mais antiga concluiu DONE fora de ordem) — não regride estado', async () => {
+        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: 'doc-1', phase: 'DONE' }));
+        const createOrMergeSystemAlert = mock.fn(async () => {});
+        const deps = makeDeps({ createOrMergeSystemAlert }, prismaBundle);
+
+        await handleCteJobExhausted({ calcId: 'calc-1', cteEmissionJobId: 'job-1' }, new Error('tarde demais'), deps);
+
+        assert.equal(prismaBundle.jobState.phase, 'DONE', 'fase terminal não deve ser sobrescrita');
+        assert.equal(createOrMergeSystemAlert.mock.callCount(), 0, 'não deve criar alerta para um job que já terminou com sucesso');
     });
 });

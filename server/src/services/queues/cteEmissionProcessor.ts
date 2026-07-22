@@ -207,8 +207,13 @@ export async function processCteEmissionJob(
         // Fase 1: submit — só acontece se ainda não temos providerDocId. Nunca reenvia depois disso
         // (POST /cte custa 1 crédito ACBr por chamada; reenviar duplicaria o documento fiscal).
         if (!emissionJob.providerDocId && phaseHint !== 'poll-only') {
-            // job.data sobrevive no Redis independente do Postgres — usar como marcador de
-            // "já confirmado pela ACBr, só falta persistir localmente" pra nunca reenviar.
+            // `job.data` sobrevive no Redis independente do estado do Postgres. Se uma
+            // tentativa anterior JÁ recebeu sucesso da ACBr mas não conseguiu persistir
+            // `providerDocId` no Postgres (ex.: connection reset bem entre as duas etapas),
+            // `providerDocIdPending` guarda esse valor — e esta tentativa NUNCA rechama
+            // `submitCteToAcbr` quando ele está presente, só completa a persistência que
+            // faltou. Sem isso, `attempts`/retry automático da fila poderia causar uma
+            // segunda cobrança de crédito + rejeição por duplicidade na SEFAZ.
             let providerDocId = job.data.providerDocIdPending;
 
             if (!providerDocId) {
@@ -224,7 +229,8 @@ export async function processCteEmissionJob(
                     return;
                 }
                 providerDocId = submitted.providerDocId;
-                // Grava no Redis ANTES de tentar o Postgres — fecha a janela de duplicidade.
+                // Grava no Redis ANTES de qualquer escrita no Postgres — fecha a janela de
+                // duplicidade descrita acima.
                 await job.updateData({ ...job.data, providerDocIdPending: providerDocId });
             }
 
@@ -294,6 +300,16 @@ export async function processCteEmissionJob(
         await rescheduleJob(job, POLL_DELAY_MS);
     } catch (err) {
         if (err instanceof DelayedError) throw err;
+        console.error(
+            JSON.stringify({
+                level: 'error',
+                source: 'processCteEmissionJob',
+                calcId,
+                cteEmissionJobId,
+                attempt: (emissionJob?.attemptCount ?? 0) + 1,
+                error: err instanceof Error ? err.message : String(err),
+            }),
+        );
 
         if (err instanceof AcbrHttpError && err.httpStatus === 429) {
             if (emissionJob) {
@@ -338,9 +354,21 @@ export async function processCteEmissionJob(
 }
 
 /**
+<<<<<<< Updated upstream
  * Chamada pelo worker (`worker.ts`) só na tentativa FINAL do BullMQ (todos os `attempts`
  * esgotados) — nunca marcar reconciliação/alerta numa tentativa intermediária que ainda vai
  * ser retentada automaticamente.
+=======
+ * Chamado pelo `worker.ts` no `.on('failed', ...)` do worker `cte-emission`, e SÓ quando o
+ * BullMQ esgotou de vez todas as `attempts` configuradas (não vai retentar mais este job) —
+ * nunca em falhas intermediárias que ainda serão retentadas automaticamente (ver o cálculo de
+ * "última tentativa" em `worker.ts`, verificado contra o código-fonte do BullMQ).
+ *
+ * Fecha o buraco final do pipeline: sem isso, um job que morre de vez por uma exceção não
+ * classificada (ex.: o próprio catch-all falhando ao escrever no Postgres) deixaria o calc
+ * preso em `CTE_SENT`/`CTE_PROCESSING` pra sempre — sem sequer poder ser reconciliado
+ * manualmente, já que `/emit-cte/reconcile` exige `CTE_PENDING_RECONCILIATION`.
+>>>>>>> Stashed changes
  */
 export async function handleCteJobExhausted(
     jobData: CteEmissionJobData,
@@ -353,18 +381,18 @@ export async function handleCteJobExhausted(
         .findUniqueOrThrow({ where: { id: cteEmissionJobId } })
         .catch(() => null);
 
+    // Se o job já chegou num estado terminal por outro caminho (ex.: uma tentativa anterior
+    // na verdade concluiu com sucesso antes deste evento 'failed' de uma tentativa mais velha
+    // ser processado fora de ordem), não sobrescrever — evita regressão de estado.
     if (emissionJob && ['DONE', 'FAILED', 'PENDING_RECONCILIATION'].includes(emissionJob.phase)) {
         return;
     }
-
-    const providerDocId = emissionJob?.providerDocId ?? null;
-
     await markPendingReconciliation(
         deps,
         calcId,
         cteEmissionJobId,
         `Job esgotou todas as tentativas automáticas da fila: ${err.message}`,
-        providerDocId,
+        emissionJob?.providerDocId ?? null,
     );
 
     await deps.createOrMergeSystemAlert({
@@ -372,6 +400,6 @@ export async function handleCteJobExhausted(
         severity: 'WARNING',
         title: 'Emissão de CT-e travada — tentativas automáticas esgotadas',
         message: `Cálculo ${calcId} não concluiu a emissão assíncrona após todas as tentativas automáticas. Reconciliação manual necessária.`,
-        context: { calcId, cteEmissionJobId, providerDocId, lastError: err.message },
+        context: { calcId, cteEmissionJobId, providerDocId: emissionJob?.providerDocId ?? null, lastError: err.message },
     });
 }

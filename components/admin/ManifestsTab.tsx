@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAuthStore } from '../../store/authStore';
 import { manifestsApi, vehicleTypesApi, linksApi, demandsApi, hubsApi } from '../../lib/api';
-import type { Manifest, ManifestTripType, VehicleType, Link, Demand, Hub } from '../../types/index';
+import type { Manifest, ManifestTripType, VehicleType, Link, Demand, Hub, Driver, CiotTipoViagemSuggestion, CiotEmissionJob, EmitCiotRequest, CiotTipoViagem } from '../../types/index';
 import type { StatusTone } from '../../lib/demandStatusUi';
 import EmptyState from '../ui/EmptyState';
 import InlineNotice from '../ui/InlineNotice';
@@ -59,6 +59,48 @@ const ManifestsTab: React.FC = () => {
   });
   const [assignLinkId, setAssignLinkId] = useState('');
   const [fiscalBusyId, setFiscalBusyId] = useState<string | null>(null);
+
+  // Definir Motorista (Driver, separado do Link/transportador)
+  const [showDriverAssign, setShowDriverAssign] = useState<string | null>(null);
+  const [driversForLink, setDriversForLink] = useState<Driver[]>([]);
+  const [assignDriverId, setAssignDriverId] = useState('');
+  const [newDriverForm, setNewDriverForm] = useState({ name: '', document: '', phone: '', birthDate: '', cnhNumber: '' });
+  const [showNewDriverForm, setShowNewDriverForm] = useState(false);
+
+  // Emitir CIOT (eFrete)
+  const [showCiotForm, setShowCiotForm] = useState<string | null>(null);
+  const [ciotSuggestion, setCiotSuggestion] = useState<CiotTipoViagemSuggestion | null>(null);
+  const [ciotOverride, setCiotOverride] = useState<CiotTipoViagem | ''>('');
+  const [ciotJobStatus, setCiotJobStatus] = useState<CiotEmissionJob | null>(null);
+  const emptyCiotForm = {
+    documentoViagem: '',
+    distanciaPercorrida: '',
+    dataInicioViagem: '',
+    dataFimViagem: '',
+    codigoNcmNaturezaCarga: '',
+    pesoCarga: '',
+    codigoTipoCarga: '2',
+    altoDesempenho: false,
+    retornoVazio: false,
+    composicaoVeicular: false,
+    tipoPagamento: 'TransferenciaBancaria' as const,
+    entregaDocumentacao: 'RedeCredenciada' as const,
+    totalOperacao: '',
+    totalViagem: '',
+    totalAdiantamento: '',
+    totalQuitacao: '',
+    pedagio: '',
+    combustivel: '',
+    destNome: '',
+    destCpfCnpj: '',
+    destBairro: '',
+    destCep: '',
+    destCodigoMunicipio: '',
+    destRua: '',
+    destNumero: '',
+  };
+  const [ciotForm, setCiotForm] = useState(emptyCiotForm);
+  const [ciotContratadoDocument, setCiotContratadoDocument] = useState('');
   const [selectedDemandId, setSelectedDemandId] = useState('');
   const [gestaoFilterOpen, setGestaoFilterOpen] = useState(false);
   const [filterStatus, setFilterStatus] = useState('');
@@ -223,16 +265,177 @@ const ManifestsTab: React.FC = () => {
     }
   };
 
-  const handleCiotPlaceholder = async (manifestId: string) => {
+  const getCiotAuthorizedDoc = (m: Manifest) => m.fiscalDocuments?.find((d) => d.documentType === 'CIOT' && d.status === 'AUTHORIZED') ?? null;
+  const getMdfeAuthorizedDoc = (m: Manifest) => m.fiscalDocuments?.find((d) => d.documentType === 'MDFE' && d.status === 'AUTHORIZED') ?? null;
+
+  const openDriverAssign = async (manifestId: string, linkId: string) => {
+    setShowDriverAssign(manifestId);
+    setAssignDriverId('');
+    setShowNewDriverForm(false);
+    setNewDriverForm({ name: '', document: '', phone: '', birthDate: '', cnhNumber: '' });
+    try {
+      const res = await linksApi.getDrivers(linkId);
+      setDriversForLink(((res as any)?.data ?? []) as Driver[]);
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Erro ao carregar motoristas do Link');
+      setDriversForLink([]);
+    }
+  };
+
+  const handleAssignDriver = async () => {
+    if (!showDriverAssign || !assignDriverId) return;
+    setError(null);
+    try {
+      await manifestsApi.setDriver(showDriverAssign, assignDriverId);
+      setSuccess('Motorista definido.');
+      setShowDriverAssign(null);
+      load();
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Erro ao definir motorista');
+    }
+  };
+
+  const handleCreateDriver = async (linkId: string) => {
+    if (!newDriverForm.name.trim() || !newDriverForm.document.trim() || !newDriverForm.phone.trim()) {
+      setError('Preencha nome, documento e celular do motorista.');
+      return;
+    }
+    setError(null);
+    try {
+      const res = await linksApi.createDriver(linkId, {
+        name: newDriverForm.name,
+        document: newDriverForm.document,
+        phone: newDriverForm.phone,
+        birthDate: newDriverForm.birthDate || undefined,
+        cnhNumber: newDriverForm.cnhNumber || undefined,
+      });
+      const created = (res as any)?.data as Driver;
+      setDriversForLink((prev) => [...prev, created]);
+      setAssignDriverId(created.id);
+      setShowNewDriverForm(false);
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Erro ao cadastrar motorista');
+    }
+  };
+
+  const openCiotForm = async (m: Manifest) => {
+    setShowCiotForm(m.id);
+    setCiotOverride(m.ciotTipoViagemOverride ?? '');
+    setCiotJobStatus(null);
+    setCiotForm({ ...emptyCiotForm, documentoViagem: `OS-${m.id.slice(0, 8)}`, composicaoVeicular: Boolean(m.link?.trailerPlate) });
+    setCiotContratadoDocument(m.link?.document ?? '');
+    try {
+      const res = await manifestsApi.ciotSuggestion(m.id);
+      setCiotSuggestion((res as any)?.data ?? null);
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Erro ao calcular sugestão de tipo de CIOT');
+      setCiotSuggestion(null);
+    }
+  };
+
+  const pollCiotStatus = (manifestId: string, attemptsLeft = 20) => {
+    const tick = async () => {
+      try {
+        const res = await manifestsApi.ciotStatus(manifestId);
+        const job = (res as any)?.data as CiotEmissionJob | null;
+        setCiotJobStatus(job);
+        if (job && ['DONE', 'FAILED', 'PENDING_RECONCILIATION'].includes(job.phase)) {
+          load();
+          if (job.phase === 'DONE') {
+            setSuccess(`CIOT autorizado: ${job.codigoIdentificacaoOperacao}`);
+            setTimeout(() => setSuccess(null), 6000);
+          }
+          return;
+        }
+      } catch {
+        /* silencioso — próxima tentativa tenta de novo */
+      }
+      if (attemptsLeft > 1) setTimeout(() => pollCiotStatus(manifestId, attemptsLeft - 1), 3000);
+    };
+    void tick();
+  };
+
+  const handleEmitCiot = async (manifestId: string) => {
+    const f = ciotForm;
+    if (!f.distanciaPercorrida || !f.dataFimViagem || !f.destNome || !f.destCpfCnpj || !f.destCodigoMunicipio || !f.destCep || !f.destRua || !f.destNumero || !f.destBairro) {
+      setError('Preencha distância, data fim de viagem e os dados do destinatário (obrigatórios para o CIOT).');
+      return;
+    }
     setError(null);
     setFiscalBusyId(manifestId);
     try {
-      await manifestsApi.ciotPlaceholder(manifestId);
-      setSuccess('Registro CIOT (placeholder) criado — integração ANTEF em sprint dedicada.');
-      load();
-      setTimeout(() => setSuccess(null), 4000);
+      const isTacAgregado = ciotOverride === 'TAC_AGREGADO';
+      const payload: EmitCiotRequest = {
+        tipoViagemOverride: ciotOverride || undefined,
+        requestData: {
+          documentoViagem: f.documentoViagem || `OS-${manifestId.slice(0, 8)}`,
+          distanciaPercorrida: Number(f.distanciaPercorrida),
+          ...(isTacAgregado ? {} : { dataInicioViagem: f.dataInicioViagem || undefined }),
+          dataFimViagem: f.dataFimViagem,
+          ...(isTacAgregado
+            ? {}
+            : {
+                codigoNcmNaturezaCarga: f.codigoNcmNaturezaCarga || undefined,
+                pesoCarga: f.pesoCarga ? Number(f.pesoCarga) : undefined,
+                codigoTipoCarga: f.codigoTipoCarga ? Number(f.codigoTipoCarga) : undefined,
+              }),
+          altoDesempenho: f.altoDesempenho,
+          ...(isTacAgregado ? {} : { retornoVazio: f.retornoVazio }),
+          composicaoVeicular: f.composicaoVeicular,
+          tipoPagamento: f.tipoPagamento,
+          entregaDocumentacao: f.entregaDocumentacao,
+          valores: {
+            totalOperacao: Number(f.totalOperacao || 0),
+            totalViagem: Number(f.totalViagem || 0),
+            totalAdiantamento: Number(f.totalAdiantamento || 0),
+            totalQuitacao: Number(f.totalQuitacao || 0),
+            pedagio: Number(f.pedagio || 0),
+            combustivel: Number(f.combustivel || 0),
+          },
+          impostos: {},
+          pagamentos: [
+            {
+              idPagamentoCliente: `PAG-${manifestId.slice(0, 8)}-1`,
+              dataLiberacao: f.dataFimViagem,
+              valor: Number(f.totalViagem || 0),
+              tipoPagamento: f.tipoPagamento,
+              categoria: 'SemCategoria',
+              cpfCnpjCreditado: ciotContratadoDocument,
+              indicadorPagamento: 'Avista',
+              pix: { tipoChave: 'CpfOuCnpj', valorChave: ciotContratadoDocument },
+            },
+          ],
+          destinatario: {
+            nomeOuRazaoSocial: f.destNome,
+            cpfOuCnpj: f.destCpfCnpj,
+            endereco: { bairro: f.destBairro, cep: f.destCep, codigoMunicipio: Number(f.destCodigoMunicipio), rua: f.destRua, numero: f.destNumero },
+          },
+        },
+      };
+      await manifestsApi.emitCiot(manifestId, payload);
+      setSuccess('Emissão de CIOT enfileirada — acompanhando status…');
+      pollCiotStatus(manifestId);
     } catch (e: any) {
-      setError(e.response?.data?.error || e.message || 'Erro ao registrar CIOT placeholder');
+      setError(e.response?.data?.error || e.message || 'Erro ao emitir CIOT');
+    } finally {
+      setFiscalBusyId(null);
+    }
+  };
+
+  const handleCancelCiotTrip = async (manifestId: string) => {
+    const justificativa = window.prompt('Justificativa do cancelamento do CIOT:');
+    if (!justificativa) return;
+    setError(null);
+    setFiscalBusyId(manifestId);
+    try {
+      const res = await manifestsApi.cancelCiotTrip(manifestId, justificativa);
+      const mdfeFlag = (res as any)?.data?.mdfeRequiresManualCancellation;
+      setSuccess(mdfeFlag ? 'CIOT cancelado. MDF-e vinculado precisa ser cancelado manualmente na SEFAZ (Lotação não permite retificação).' : 'CIOT cancelado.');
+      load();
+      setTimeout(() => setSuccess(null), 8000);
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Erro ao cancelar CIOT');
     } finally {
       setFiscalBusyId(null);
     }
@@ -489,6 +692,189 @@ const ManifestsTab: React.FC = () => {
         </div>
       )}
 
+      {showDriverAssign && (
+        <div className="mb-6 bg-white dark:bg-tower-900 border border-tower-200 dark:border-tower-800 rounded-xl p-6 shadow-sm dark:shadow-none">
+          <h3 className="text-base font-bold text-tower-800 dark:text-tower-100 mb-4">Definir motorista da viagem</h3>
+          <div className="flex gap-2 items-end">
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Motorista</label>
+              <select
+                value={assignDriverId}
+                onChange={(e) => setAssignDriverId(e.target.value)}
+                className="w-full px-3 py-2 border border-tower-200 rounded-lg"
+              >
+                <option value="">Selecione</option>
+                {driversForLink.map((d) => (
+                  <option key={d.id} value={d.id}>{d.name} ({d.document}){!d.cnhNumber || !d.birthDate ? ' — CNH/nascimento pendente' : ''}</option>
+                ))}
+              </select>
+            </div>
+            <button type="button" onClick={handleAssignDriver} disabled={!assignDriverId} className="px-4 py-2 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50">Definir</button>
+            <button type="button" onClick={() => setShowNewDriverForm((v) => !v)} className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg">+ Novo</button>
+            <button type="button" onClick={() => setShowDriverAssign(null)} className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg">Fechar</button>
+          </div>
+          {showNewDriverForm && (
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3 border-t border-tower-100 dark:border-tower-800 pt-4">
+              <input placeholder="Nome" value={newDriverForm.name} onChange={(e) => setNewDriverForm((f) => ({ ...f, name: e.target.value }))} className="px-3 py-2 border border-tower-200 rounded-lg" />
+              <input placeholder="CPF" value={newDriverForm.document} onChange={(e) => setNewDriverForm((f) => ({ ...f, document: e.target.value }))} className="px-3 py-2 border border-tower-200 rounded-lg" />
+              <input placeholder="Celular (DDD+número)" value={newDriverForm.phone} onChange={(e) => setNewDriverForm((f) => ({ ...f, phone: e.target.value }))} className="px-3 py-2 border border-tower-200 rounded-lg" />
+              <input type="date" placeholder="Nascimento" value={newDriverForm.birthDate} onChange={(e) => setNewDriverForm((f) => ({ ...f, birthDate: e.target.value }))} className="px-3 py-2 border border-tower-200 rounded-lg" />
+              <input placeholder="CNH" value={newDriverForm.cnhNumber} onChange={(e) => setNewDriverForm((f) => ({ ...f, cnhNumber: e.target.value }))} className="px-3 py-2 border border-tower-200 rounded-lg" />
+              <button
+                type="button"
+                onClick={() => {
+                  const m = manifests.find((mm) => mm.id === showDriverAssign);
+                  if (m?.linkId) handleCreateDriver(m.linkId);
+                }}
+                className="px-4 py-2 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700"
+              >
+                Cadastrar motorista
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {showCiotForm && (
+        <div className="mb-6 bg-white dark:bg-tower-900 border border-tower-200 dark:border-tower-800 rounded-xl p-6 shadow-sm dark:shadow-none">
+          <h3 className="text-base font-bold text-tower-800 dark:text-tower-100 mb-1">Emitir CIOT (eFrete)</h3>
+          {ciotSuggestion && (
+            <p className="text-sm text-tower-600 dark:text-tower-400 mb-4">
+              Sugestão: <strong>{ciotSuggestion.tipoViagem === 'FRACIONADO' ? 'Fracionado' : 'Lotação (Padrão)'}</strong>
+              {ciotSuggestion.clientDocuments.length >= 2 ? ` — ${ciotSuggestion.clientDocuments.length} clientes distintos na composição.` : ''}
+              {' · '}
+              <a href="https://transparencia.antt.gov.br/w/piso-minimo" target="_blank" rel="noreferrer" className="underline">Calculadora ANTT (piso mínimo)</a>
+            </p>
+          )}
+          {ciotJobStatus && (
+            <div className="mb-4">
+              <InlineNotice
+                variant={ciotJobStatus.phase === 'FAILED' || ciotJobStatus.phase === 'PENDING_RECONCILIATION' ? 'error' : ciotJobStatus.phase === 'DONE' ? 'success' : 'info'}
+                message={`Status: ${ciotJobStatus.phase}${ciotJobStatus.lastError ? ' — ' + ciotJobStatus.lastError : ''}`}
+              />
+            </div>
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Tipo de viagem</label>
+              <select value={ciotOverride} onChange={(e) => setCiotOverride(e.target.value as CiotTipoViagem | '')} className="w-full px-3 py-2 border border-tower-200 rounded-lg">
+                <option value="">Automático ({ciotSuggestion?.tipoViagem === 'FRACIONADO' ? 'Fracionado' : 'Lotação'})</option>
+                <option value="PADRAO">Lotação (Padrão)</option>
+                <option value="FRACIONADO">Fracionado</option>
+                <option value="TAC_AGREGADO">TAC Agregado</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Documento da viagem</label>
+              <input value={ciotForm.documentoViagem} onChange={(e) => setCiotForm((f) => ({ ...f, documentoViagem: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Distância percorrida (km)*</label>
+              <input type="number" min={0} value={ciotForm.distanciaPercorrida} onChange={(e) => setCiotForm((f) => ({ ...f, distanciaPercorrida: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+            </div>
+            {ciotOverride !== 'TAC_AGREGADO' && (
+              <div>
+                <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Início da viagem</label>
+                <input type="datetime-local" value={ciotForm.dataInicioViagem} onChange={(e) => setCiotForm((f) => ({ ...f, dataInicioViagem: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+              </div>
+            )}
+            <div>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Fim da viagem*</label>
+              <input type="datetime-local" value={ciotForm.dataFimViagem} onChange={(e) => setCiotForm((f) => ({ ...f, dataFimViagem: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+            </div>
+            {ciotOverride !== 'TAC_AGREGADO' && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">NCM natureza da carga</label>
+                  <input value={ciotForm.codigoNcmNaturezaCarga} onChange={(e) => setCiotForm((f) => ({ ...f, codigoNcmNaturezaCarga: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Peso da carga (kg)</label>
+                  <input type="number" min={0} value={ciotForm.pesoCarga} onChange={(e) => setCiotForm((f) => ({ ...f, pesoCarga: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Código tipo de carga (1-12)</label>
+                  <input type="number" min={1} max={12} value={ciotForm.codigoTipoCarga} onChange={(e) => setCiotForm((f) => ({ ...f, codigoTipoCarga: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+                </div>
+              </>
+            )}
+            <div>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Tipo de pagamento</label>
+              <select value={ciotForm.tipoPagamento} onChange={(e) => setCiotForm((f) => ({ ...f, tipoPagamento: e.target.value as any }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg">
+                <option value="TransferenciaBancaria">Transferência bancária</option>
+                <option value="eFRETE">eFRETE</option>
+                <option value="DepositoAgendado">Depósito agendado</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Entrega de documentação</label>
+              <select value={ciotForm.entregaDocumentacao} onChange={(e) => setCiotForm((f) => ({ ...f, entregaDocumentacao: e.target.value as any }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg">
+                <option value="RedeCredenciada">Rede credenciada</option>
+                <option value="Cliente">Cliente</option>
+              </select>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-tower-700 dark:text-tower-200 mt-6">
+              <input type="checkbox" checked={ciotForm.altoDesempenho} onChange={(e) => setCiotForm((f) => ({ ...f, altoDesempenho: e.target.checked }))} /> Alto desempenho
+            </label>
+            {ciotOverride !== 'TAC_AGREGADO' && (
+              <label className="flex items-center gap-2 text-sm text-tower-700 dark:text-tower-200 mt-6">
+                <input type="checkbox" checked={ciotForm.retornoVazio} onChange={(e) => setCiotForm((f) => ({ ...f, retornoVazio: e.target.checked }))} /> Retorno vazio
+              </label>
+            )}
+            <label className="flex items-center gap-2 text-sm text-tower-700 dark:text-tower-200 mt-6">
+              <input type="checkbox" checked={ciotForm.composicaoVeicular} onChange={(e) => setCiotForm((f) => ({ ...f, composicaoVeicular: e.target.checked }))} /> Composição veicular (com carreta)
+            </label>
+          </div>
+
+          <div className="mt-4 border-t border-tower-100 dark:border-tower-800 pt-4">
+            <span className="text-xs font-semibold text-tower-500 uppercase">Carta Frete</span>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-2">
+              <div>
+                <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Frete bruto (total)</label>
+                <input type="number" min={0} value={ciotForm.totalViagem} onChange={(e) => setCiotForm((f) => ({ ...f, totalViagem: e.target.value, totalOperacao: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Adiantamento</label>
+                <input type="number" min={0} value={ciotForm.totalAdiantamento} onChange={(e) => setCiotForm((f) => ({ ...f, totalAdiantamento: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Quitação</label>
+                <input type="number" min={0} value={ciotForm.totalQuitacao} onChange={(e) => setCiotForm((f) => ({ ...f, totalQuitacao: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Pedágio</label>
+                <input type="number" min={0} value={ciotForm.pedagio} onChange={(e) => setCiotForm((f) => ({ ...f, pedagio: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 border-t border-tower-100 dark:border-tower-800 pt-4">
+            <span className="text-xs font-semibold text-tower-500 uppercase">Destinatário</span>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-2">
+              <input placeholder="Nome/Razão social*" value={ciotForm.destNome} onChange={(e) => setCiotForm((f) => ({ ...f, destNome: e.target.value }))} className="px-3 py-2 border border-tower-200 rounded-lg" />
+              <input placeholder="CPF/CNPJ*" value={ciotForm.destCpfCnpj} onChange={(e) => setCiotForm((f) => ({ ...f, destCpfCnpj: e.target.value }))} className="px-3 py-2 border border-tower-200 rounded-lg" />
+              <input placeholder="Bairro*" value={ciotForm.destBairro} onChange={(e) => setCiotForm((f) => ({ ...f, destBairro: e.target.value }))} className="px-3 py-2 border border-tower-200 rounded-lg" />
+              <input placeholder="CEP*" value={ciotForm.destCep} onChange={(e) => setCiotForm((f) => ({ ...f, destCep: e.target.value }))} className="px-3 py-2 border border-tower-200 rounded-lg" />
+              <input placeholder="Rua*" value={ciotForm.destRua} onChange={(e) => setCiotForm((f) => ({ ...f, destRua: e.target.value }))} className="px-3 py-2 border border-tower-200 rounded-lg" />
+              <input placeholder="Número*" value={ciotForm.destNumero} onChange={(e) => setCiotForm((f) => ({ ...f, destNumero: e.target.value }))} className="px-3 py-2 border border-tower-200 rounded-lg" />
+              <input placeholder="Código IBGE do município*" value={ciotForm.destCodigoMunicipio} onChange={(e) => setCiotForm((f) => ({ ...f, destCodigoMunicipio: e.target.value }))} className="px-3 py-2 border border-tower-200 rounded-lg" />
+            </div>
+          </div>
+
+          <div className="mt-4 flex gap-2">
+            <button
+              type="button"
+              disabled={fiscalBusyId === showCiotForm}
+              onClick={() => handleEmitCiot(showCiotForm)}
+              className="px-4 py-2 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50"
+            >
+              {fiscalBusyId === showCiotForm ? 'Emitindo…' : 'Emitir CIOT'}
+            </button>
+            <button type="button" onClick={() => setShowCiotForm(null)} className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg">Fechar</button>
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <LoadingPanel label="Carregando viagens…" />
       ) : manifests.length === 0 ? (
@@ -607,31 +993,66 @@ const ManifestsTab: React.FC = () => {
                       Concluir viagem
                     </button>
                   )}
+                  {m.linkId && canShowFiscalActions(m.status) && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openDriverAssign(m.id, m.linkId!);
+                      }}
+                      className="rounded-lg border border-tower-300 bg-white px-3 py-1.5 text-sm text-tower-800 hover:bg-tower-50 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100 dark:hover:bg-tower-700"
+                    >
+                      {m.driver ? `Motorista: ${m.driver.name}` : 'Definir motorista'}
+                    </button>
+                  )}
                   {canShowFiscalActions(m.status) && (
                     <>
+                      {getCiotAuthorizedDoc(m) ? (
+                        <>
+                          <span className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm text-emerald-900 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-100">
+                            CIOT #{getCiotAuthorizedDoc(m)!.number}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={fiscalBusyId === m.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCancelCiotTrip(m.id);
+                            }}
+                            className="rounded-lg border border-red-300 bg-white px-3 py-1.5 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-700 dark:bg-tower-800 dark:text-red-300"
+                          >
+                            Cancelar CIOT
+                          </button>
+                        </>
+                      ) : m.ciotDispensado ? (
+                        <span className="rounded-lg border border-tower-300 bg-tower-50 px-3 py-1.5 text-sm text-tower-700 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-300" title={m.ciotDispensadoMotivo ?? ''}>
+                          CIOT dispensado
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={!m.driverId || fiscalBusyId === m.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openCiotForm(m);
+                          }}
+                          className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100 dark:hover:bg-amber-900/50"
+                          title={!m.driverId ? 'Defina o motorista antes de emitir o CIOT' : 'Emitir CIOT via eFrete'}
+                        >
+                          Emitir CIOT
+                        </button>
+                      )}
                       <button
                         type="button"
-                        disabled={fiscalBusyId === m.id}
+                        disabled={fiscalBusyId === m.id || (!getCiotAuthorizedDoc(m) && !m.ciotDispensado)}
                         onClick={(e) => {
                           e.stopPropagation();
                           handleEmitMdfe(m.id);
                         }}
                         className="rounded-lg border border-tower-300 bg-white px-3 py-1.5 text-sm text-tower-800 hover:bg-tower-50 disabled:opacity-50 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100 dark:hover:bg-tower-700"
-                        title="Requer credenciais ACBr e CT-es autorizados vinculados à viagem"
+                        title={!getCiotAuthorizedDoc(m) && !m.ciotDispensado ? 'Emita o CIOT antes do MDF-e' : 'Requer credenciais ACBr e CT-es autorizados vinculados à viagem'}
                       >
-                        {fiscalBusyId === m.id ? '…' : 'MDF-e (ACBr)'}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={fiscalBusyId === m.id}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleCiotPlaceholder(m.id);
-                        }}
-                        className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100 dark:hover:bg-amber-900/50"
-                        title="Placeholder até integração ANTEF / compliance"
-                      >
-                        CIOT (rascunho)
+                        {fiscalBusyId === m.id ? '…' : getMdfeAuthorizedDoc(m) ? 'MDF-e emitido' : 'MDF-e (ACBr)'}
                       </button>
                     </>
                   )}
