@@ -1,7 +1,17 @@
 import { PrismaClient } from '@prisma/client';
-import { getCteEmissionQueue } from '../src/services/queues/cteEmissionQueue.js';
+import { Queue } from 'bullmq';
+import IORedis from 'ioredis';
 
 const prisma = new PrismaClient();
+
+// Autocontido de propósito: a imagem `migrate` (onde este script roda) só copia `server/prisma`
+// no build (ver Dockerfile.migrate) — nunca `server/src`. Importar de `../src/...` quebra em
+// runtime com MODULE_NOT_FOUND. Mesmo padrão já seguido por `repair-stuck-cte-jobs.ts` (só usa
+// `@prisma/client`); aqui duplicamos a config mínima de fila/Redis em vez de importar de `src/`.
+const CTE_EMISSION_QUEUE_NAME = 'cte-emission';
+const REDIS_URL = process.env.REDIS_URL?.trim() || 'redis://redis:6379';
+const connection = new IORedis(REDIS_URL, { maxRetriesPerRequest: null, lazyConnect: true });
+const queue = new Queue(CTE_EMISSION_QUEUE_NAME, { connection });
 
 /**
  * Diagnóstico read-only (não altera nada): responde a única pergunta que os logs atuais não
@@ -15,7 +25,6 @@ const prisma = new PrismaClient();
 async function main() {
     const calcIds = process.argv.slice(2);
 
-    const queue = getCteEmissionQueue();
     const [isPaused, waiting, active, delayed, failed, completed] = await Promise.all([
         queue.isPaused(),
         queue.getWaitingCount(),
@@ -87,5 +96,6 @@ main()
     })
     .finally(async () => {
         await prisma.$disconnect();
-        await getCteEmissionQueue().close();
+        await queue.close();
+        connection.disconnect();
     });
