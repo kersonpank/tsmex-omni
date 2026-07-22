@@ -44,7 +44,6 @@ worker.on('failed', (job, err) => {
 
 worker.on('error', (err) => {
     console.error(JSON.stringify({ level: 'error', source: 'cteEmissionWorker', message: 'Worker error', error: err instanceof Error ? err.message : String(err) }));
-<<<<<<< Updated upstream
 });
 
 // Sem estes 3 listeners, os logs não distinguem "job nunca foi retirado da fila" (ex.: fila

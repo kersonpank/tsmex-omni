@@ -354,11 +354,6 @@ export async function processCteEmissionJob(
 }
 
 /**
-<<<<<<< Updated upstream
- * Chamada pelo worker (`worker.ts`) só na tentativa FINAL do BullMQ (todos os `attempts`
- * esgotados) — nunca marcar reconciliação/alerta numa tentativa intermediária que ainda vai
- * ser retentada automaticamente.
-=======
  * Chamado pelo `worker.ts` no `.on('failed', ...)` do worker `cte-emission`, e SÓ quando o
  * BullMQ esgotou de vez todas as `attempts` configuradas (não vai retentar mais este job) —
  * nunca em falhas intermediárias que ainda serão retentadas automaticamente (ver o cálculo de
@@ -368,7 +363,6 @@ export async function processCteEmissionJob(
  * classificada (ex.: o próprio catch-all falhando ao escrever no Postgres) deixaria o calc
  * preso em `CTE_SENT`/`CTE_PROCESSING` pra sempre — sem sequer poder ser reconciliado
  * manualmente, já que `/emit-cte/reconcile` exige `CTE_PENDING_RECONCILIATION`.
->>>>>>> Stashed changes
  */
 export async function handleCteJobExhausted(
     jobData: CteEmissionJobData,
