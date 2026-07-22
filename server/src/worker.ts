@@ -112,7 +112,7 @@ ciotWorker.on('failed', (job, err) => {
     const maxAttempts = job.opts.attempts ?? 1;
     const isFinalAttempt = job.attemptsMade + 1 >= maxAttempts;
     if (isFinalAttempt) {
-        void handleCiotJobExhausted(job.data, err).catch((handlerErr) => {
+        void handleCiotJobExhausted(job.data, err).catch((handlerErr: unknown) => {
             console.error(JSON.stringify({
                 level: 'error',
                 source: 'ciotEmissionWorker',
