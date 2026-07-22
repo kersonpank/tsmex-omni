@@ -33,6 +33,38 @@ router.post('/:id/acknowledge', authenticate, authorize('ADMIN'), async (req: Au
     }
 });
 
+// GET .../cte-queue-status — visibilidade direta do estado da fila, sem depender de um
+// SystemAlert existir. O pause() em si vive no Redis, desacoplado do ciclo de vida do alerta no
+// Postgres — se o alerta que causou a pausa for reconhecido/resolvido sem o resume() ter sido
+// de fato chamado, a fila fica pausada indefinidamente sem nenhum sinal visível hoje.
+router.get('/cte-queue-status', authenticate, authorize('ADMIN'), async (_req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const queue = getCteEmissionQueue();
+        const [paused, waiting, active, delayed, failed] = await Promise.all([
+            queue.isPaused(),
+            queue.getWaitingCount(),
+            queue.getActiveCount(),
+            queue.getDelayedCount(),
+            queue.getFailedCount(),
+        ]);
+        res.json({ success: true, data: { paused, counts: { waiting, active, delayed, failed } } });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// POST .../cte-queue/resume — resume incondicional, não exige um SystemAlert FISCAL_PROVIDER_QUOTA
+// existente/OPEN. Via de escape quando o alerta original que causou a pausa já não existe mais
+// (ex.: foi resolvido manualmente sem confirmar que a fila de fato retomou).
+router.post('/cte-queue/resume', authenticate, authorize('ADMIN'), async (_req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        await getCteEmissionQueue().resume();
+        res.json({ success: true, message: 'Fila de emissão de CT-e retomada.' });
+    } catch (error) {
+        next(error);
+    }
+});
+
 router.post('/:id/resume-cte-queue', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const alert = await prisma.systemAlert.findUnique({ where: { id: req.params.id as string } });

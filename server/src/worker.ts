@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import { Worker } from 'bullmq';
 import { redisConnection } from './lib/redis.js';
-import { CTE_EMISSION_QUEUE_NAME } from './services/queues/cteEmissionQueue.js';
+import { CTE_EMISSION_QUEUE_NAME, getCteEmissionQueue } from './services/queues/cteEmissionQueue.js';
 import { processCteEmissionJob, handleCteJobExhausted } from './services/queues/cteEmissionProcessor.js';
 import { DISTRIBUICAO_NFE_QUEUE_NAME, ensureDistribuicaoNfeSchedule, type DistribuicaoNfeJobData } from './services/queues/distribuicaoNfeQueue.js';
 import { processCoordinatorJob } from './services/queues/distribuicaoNfeCoordinatorProcessor.js';
@@ -44,8 +44,33 @@ worker.on('error', (err) => {
     console.error(JSON.stringify({ level: 'error', source: 'cteEmissionWorker', message: 'Worker error', error: err instanceof Error ? err.message : String(err) }));
 });
 
+// Sem estes 3 listeners, os logs não distinguem "job nunca foi retirado da fila" (ex.: fila
+// pausada silenciosamente — ver Onda 4) de "job foi pego e travou em algum ponto do
+// processamento". `active`/`completed` dão rastro positivo mínimo; `stalled` denuncia um job
+// que o BullMQ considerou perdido (worker morreu no meio do processamento).
+worker.on('active', (job) => {
+    console.log(JSON.stringify({ level: 'info', source: 'cteEmissionWorker', event: 'active', jobId: job.id, calcId: job.data.calcId }));
+});
+
+worker.on('completed', (job) => {
+    console.log(JSON.stringify({ level: 'info', source: 'cteEmissionWorker', event: 'completed', jobId: job.id, calcId: job.data.calcId }));
+});
+
+worker.on('stalled', (jobId) => {
+    console.error(JSON.stringify({ level: 'error', source: 'cteEmissionWorker', event: 'stalled', jobId }));
+});
+
 worker.on('ready', () => {
     console.log(JSON.stringify({ level: 'info', source: 'cteEmissionWorker', message: 'Worker pronto, consumindo fila cte-emission.' }));
+
+    // Todo boot deixa rastro se a fila subiu pausada — sem isso, um pause() antigo (ex.: 402 da
+    // ACBr cujo alerta associado foi resolvido sem o resume() ter sido de fato chamado)
+    // sobrevive silenciosamente a qualquer reinício de container, indefinidamente.
+    void getCteEmissionQueue().isPaused().then((paused) => {
+        console.log(JSON.stringify({ level: paused ? 'error' : 'info', source: 'cteEmissionWorker', message: `Estado da fila no boot: paused=${paused}` }));
+    }).catch((err) => {
+        console.error(JSON.stringify({ level: 'error', source: 'cteEmissionWorker', message: 'Falha ao checar isPaused() no boot.', error: err instanceof Error ? err.message : String(err) }));
+    });
 });
 
 const distribuicaoNfeWorker = new Worker<DistribuicaoNfeJobData>(

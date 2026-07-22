@@ -18,6 +18,15 @@ import { pendingReconciliationRecoveryHint } from './cteReconciliationMessages.j
 const POLL_DELAY_MS = 1500;
 const RATE_LIMIT_BACKOFF_CAP_MS = 5 * 60 * 1000;
 
+/**
+ * Rastro mínimo de observabilidade: sem isso, os logs do container não distinguem "job nunca
+ * foi retirado da fila" (ex.: fila pausada silenciosamente) de "job foi pego e travou em algum
+ * ponto do processamento" — a única forma de saber era consultar Postgres/Redis diretamente.
+ */
+function logProcessorEvent(event: string, details: Record<string, unknown>): void {
+    console.log(JSON.stringify({ level: 'info', source: 'cteEmissionProcessor', event, ...details }));
+}
+
 type CteEmissionJobRecord = Awaited<ReturnType<typeof prisma.cteEmissionJob.findUniqueOrThrow>>;
 
 /**
@@ -189,6 +198,8 @@ export async function processCteEmissionJob(
     // trava silenciosamente sem nenhum sinal pro operador.
     let emissionJob: CteEmissionJobRecord | null = null;
 
+    logProcessorEvent('job-picked-up', { calcId, cteEmissionJobId, phaseHint: phaseHint ?? null });
+
     try {
         emissionJob = await deps.prisma.cteEmissionJob.findUniqueOrThrow({ where: { id: cteEmissionJobId } });
         const { input, fiscalEmitterContext } = await deps.buildCteEmissionInputForJob(calcId);
@@ -225,6 +236,7 @@ export async function processCteEmissionJob(
                 deps.prisma.orderFreightCalculation.update({ where: { id: calcId }, data: { status: 'CTE_PROCESSING' } }),
             ]);
             emissionJob.providerDocId = providerDocId;
+            logProcessorEvent('submit-accepted', { calcId, cteEmissionJobId, providerDocId });
         }
 
         if (!emissionJob.providerDocId) {
@@ -234,6 +246,7 @@ export async function processCteEmissionJob(
         // Fase 2: poll — uma tentativa por execução do job; reagenda via delay do BullMQ, nunca bloqueia
         // o worker com um sleep local (isso liberaria o processo pra outros jobs da fila).
         const outcome = await deps.pollCteStatusOnce(emissionJob.providerDocId, input.ambiente, emissionJob.attemptCount);
+        logProcessorEvent('poll-outcome', { calcId, cteEmissionJobId, kind: outcome.kind, attemptCount: emissionJob.attemptCount });
 
         if (outcome.kind === 'AUTHORIZED') {
             await deps.prisma.cteEmissionJob.update({ where: { id: cteEmissionJobId }, data: { phase: 'DOWNLOADING_FILES' } });
@@ -251,6 +264,7 @@ export async function processCteEmissionJob(
                 }),
                 deps.prisma.cteEmissionJob.update({ where: { id: cteEmissionJobId }, data: { phase: 'DONE' } }),
             ]);
+            logProcessorEvent('done', { calcId, cteEmissionJobId });
             return;
         }
 
