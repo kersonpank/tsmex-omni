@@ -32,6 +32,18 @@ Estas variáveis habilitam e configuram a comunicação com os endpoints fiscais
 - `FISCAL_PROVIDER` — Definir como `acbr` para uso fiscal geral.
 - `FISCAL_SECRET_KEY` — Chave simétrica de criptografia usada para proteger a senha do certificado PFX do emitente no banco de dados.
 
+> **`ACBR_CLIENT_ID`/`ACBR_CLIENT_SECRET` em staging**: além de configurados no painel "Environment
+> variables" do Portainer, esses dois **também vivem como GitHub Secret** (`Settings → Secrets and
+> variables → Actions`) e são reaplicados diretamente nos serviços `api`/`worker` via
+> `docker service update --env-add` a cada deploy (`.github/workflows/staging.yml`). Isso existe
+> porque o painel do Portainer não reaplica esses valores de forma confiável quando o stack inteiro
+> é apagado e recriado (o build method usado é "Web editor" — a definição do compose é colada
+> manualmente, e reaplicar as env vars digitadas exige uma ação de deploy específica que nem
+> sempre acontece). Se o serviço `worker`/`api` aparecer com `ACBR_CLIENT_ID`/`SECRET` vazios
+> mesmo com o painel do Portainer preenchido, rode o workflow "Deploy Staging" manualmente
+> (`Actions → Deploy Staging → Run workflow`) — ele corrige sozinho, sem precisar mexer no
+> Portainer. Para trocar o valor, atualize o GitHub Secret, não só o painel do Portainer.
+
 ## Variáveis opcionais (somente imagem `tsmex-migrate`)
 
 - `POSTGRES_HOST` (default `postgres`) — host TCP usado pela espera antes do Prisma (deve bater com o hostname em `DATABASE_URL`).

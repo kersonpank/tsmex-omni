@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - develop
+  # Permite reaplicar credenciais (ACBR_CLIENT_ID/SECRET) manualmente pelo botão "Run workflow"
+  # no GitHub Actions, sem precisar de um commit novo — cobre o caso de o usuário ter apagado
+  # os serviços e recriado o stack pelo Portainer (cujo painel de env vars já provou não ser
+  # confiável nessa reaplicação).
+  workflow_dispatch: {}
 
 env:
   # github.repository = "kersonpank/tsmex-omni" → imagem: ghcr.io/kersonpank/tsmex-omni/tsmex-api:staging
@@ -125,7 +130,22 @@ jobs:
               sleep 5
             done
 
-            docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-api:staging --with-registry-auth --force "$API_SVC"
-            docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-api:staging --with-registry-auth --force "$WORKER_SVC"
+            # Reaplica ACBR_CLIENT_ID/SECRET direto no Swarm a cada deploy, a partir dos GitHub
+            # Secrets — nunca depende do painel "Environment variables" do Portainer, que já
+            # demonstrou não reaplicar de forma confiável quando o stack é recriado do zero.
+            # Guarda: só inclui --env-add se os secrets estiverem cadastrados, pra nunca
+            # sobrescrever um valor bom do serviço com uma string vazia.
+            ACBR_ID_VAL="${{ secrets.ACBR_CLIENT_ID }}"
+            ACBR_SECRET_VAL="${{ secrets.ACBR_CLIENT_SECRET }}"
+            EXTRA_ENV_ARGS=()
+            if [ -n "$ACBR_ID_VAL" ] && [ -n "$ACBR_SECRET_VAL" ]; then
+              EXTRA_ENV_ARGS=(--env-add "ACBR_CLIENT_ID=$ACBR_ID_VAL" --env-add "ACBR_CLIENT_SECRET=$ACBR_SECRET_VAL")
+              echo "✅ ACBR_CLIENT_ID/SECRET presentes nos GitHub Secrets — reaplicando em api/worker."
+            else
+              echo "⚠️  ACBR_CLIENT_ID/SECRET não configurados nos GitHub Secrets (Settings → Secrets and variables → Actions) — pulando --env-add, mantendo valor atual do serviço."
+            fi
+
+            docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-api:staging "${EXTRA_ENV_ARGS[@]}" --with-registry-auth --force "$API_SVC"
+            docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-api:staging "${EXTRA_ENV_ARGS[@]}" --with-registry-auth --force "$WORKER_SVC"
             docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-web:staging --with-registry-auth --force "$WEB_SVC"
             echo "Staging deploy OK: ${{ steps.vars.outputs.SHA_TAG }}"
