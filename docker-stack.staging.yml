@@ -91,7 +91,12 @@ services:
       PORT: 3002
       HOST: "0.0.0.0"
       NODE_ENV: production
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      # Nome qualificado do serviço Swarm, não o alias curto "redis": o container `api` também
+      # está na rede compartilhada `ProxyGM` (necessário para o Traefik rotear /api), e outro
+      # stack neste mesmo host (`resio-producao`) também registra o alias curto "redis" nessa
+      # rede compartilhada — isso fazia o DNS resolver "redis" para o Redis de PRODUÇÃO de outro
+      # cliente em vez do Redis deste stack. Ver docs/STACK_ROLLOUT_RUNBOOK.md.
+      REDIS_URL: ${REDIS_URL:-redis://staging-tsmex-dev_redis:6379}
       CORS_ORIGIN: https://tsm.mesquitagrupo.com.br
       S3_ENDPOINT: ${S3_ENDPOINT}
       S3_ACCESS_KEY: ${S3_ACCESS_KEY}
@@ -135,7 +140,9 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL}
       NODE_ENV: production
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      # Ver comentário equivalente no serviço `api` acima — mesmo motivo (colisão de DNS
+      # com o Redis de outro stack via a rede compartilhada ProxyGM).
+      REDIS_URL: ${REDIS_URL:-redis://staging-tsmex-dev_redis:6379}
       S3_ENDPOINT: ${S3_ENDPOINT}
       S3_ACCESS_KEY: ${S3_ACCESS_KEY}
       S3_SECRET_KEY: ${S3_SECRET_KEY}
@@ -153,10 +160,14 @@ services:
       FISCAL_CTE_PROVIDER: ${FISCAL_CTE_PROVIDER:-}
       FISCAL_PROVIDER: ${FISCAL_PROVIDER:-}
       FISCAL_SECRET_KEY: ${FISCAL_SECRET_KEY:-}
-    # Mesma imagem do `api`, mas roda o worker BullMQ (fila de emissão de CT-e) — não sobe
-    # HTTP, então o HEALTHCHECK da imagem (GET /health) sempre falharia; desabilitado aqui.
+    # Healthcheck ativo valida conectividade TCP com Redis e Postgres a cada 20s.
+    # Em caso de congelamento do socket TCP no Swarm, o container e auto-reiniciado.
     healthcheck:
-      disable: true
+      test: ["CMD", "node", "dist/workerHealth.js"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     networks:
       - tsmex-staging-internal
     deploy:

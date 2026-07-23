@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq';
-import { redisConnection } from '../../lib/redis.js';
+import { createRedisConnection } from '../../lib/redis.js';
 
 export const CIOT_EMISSION_QUEUE_NAME = 'ciot-emission';
 
@@ -13,7 +13,7 @@ let queueInstance: Queue<CiotEmissionJobData> | null = null;
 export function getCiotEmissionQueue(): Queue<CiotEmissionJobData> {
     if (!queueInstance) {
         queueInstance = new Queue<CiotEmissionJobData>(CIOT_EMISSION_QUEUE_NAME, {
-            connection: redisConnection,
+            connection: createRedisConnection(),
             defaultJobOptions: {
                 removeOnComplete: { age: 60 * 60 * 24 * 7 },
                 removeOnFail: { age: 60 * 60 * 24 * 30 },

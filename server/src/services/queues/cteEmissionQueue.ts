@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq';
-import { redisConnection } from '../../lib/redis.js';
+import { createRedisConnection } from '../../lib/redis.js';
 
 export const CTE_EMISSION_QUEUE_NAME = 'cte-emission';
 
@@ -32,7 +32,7 @@ let queueInstance: Queue<CteEmissionJobData> | null = null;
 export function getCteEmissionQueue(): Queue<CteEmissionJobData> {
     if (!queueInstance) {
         queueInstance = new Queue<CteEmissionJobData>(CTE_EMISSION_QUEUE_NAME, {
-            connection: redisConnection,
+            connection: createRedisConnection(),
             defaultJobOptions: {
                 // Rede de segurança pra exceções genuinamente não classificadas (ex.: connection
                 // reset do Postgres numa escrita que já está dentro do catch-all do processor) —

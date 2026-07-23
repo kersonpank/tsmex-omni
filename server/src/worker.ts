@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
 import { Worker } from 'bullmq';
-import { redisConnection } from './lib/redis.js';
+import { createRedisConnection } from './lib/redis.js';
 import { CTE_EMISSION_QUEUE_NAME, getCteEmissionQueue } from './services/queues/cteEmissionQueue.js';
 import { processCteEmissionJob, handleCteJobExhausted } from './services/queues/cteEmissionProcessor.js';
 import { DISTRIBUICAO_NFE_QUEUE_NAME, ensureDistribuicaoNfeSchedule, type DistribuicaoNfeJobData } from './services/queues/distribuicaoNfeQueue.js';
@@ -12,7 +12,7 @@ import { processCiotEmissionJob, handleCiotJobExhausted } from './services/queue
 dotenv.config();
 
 const worker = new Worker(CTE_EMISSION_QUEUE_NAME, (job) => processCteEmissionJob(job), {
-    connection: redisConnection,
+    connection: createRedisConnection(),
     concurrency: 3,
     // Cinto de segurança abaixo do rate-limit documentado da ACBr (240-360 req/min em endpoints protegidos).
     limiter: { max: 200, duration: 60_000 },
@@ -82,7 +82,7 @@ const distribuicaoNfeWorker = new Worker<DistribuicaoNfeJobData>(
             ? processCoordinatorJob()
             : processDistribuicaoNfeSyncJob(job as unknown as Parameters<typeof processDistribuicaoNfeSyncJob>[0]),
     {
-        connection: redisConnection,
+        connection: createRedisConnection(),
         concurrency: 2,
         limiter: { max: 200, duration: 60_000 },
     },
@@ -101,7 +101,7 @@ distribuicaoNfeWorker.on('ready', () => {
 });
 
 const ciotWorker = new Worker(CIOT_EMISSION_QUEUE_NAME, (job) => processCiotEmissionJob(job), {
-    connection: redisConnection,
+    connection: createRedisConnection(),
     concurrency: 3,
 });
 

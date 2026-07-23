@@ -300,6 +300,28 @@ export async function processCteEmissionJob(
         await rescheduleJob(job, POLL_DELAY_MS);
     } catch (err) {
         if (err instanceof DelayedError) throw err;
+
+        const isRecordNotFound =
+            err instanceof Error &&
+            (err.name === 'NotFoundError' ||
+                (err as { code?: string }).code === 'P2025' ||
+                err.message.includes('No CteEmissionJob found') ||
+                err.message.includes('Record to update not found') ||
+                err.message.includes('No OrderFreightCalculation found'));
+
+        if (isRecordNotFound) {
+            console.warn(
+                JSON.stringify({
+                    level: 'warn',
+                    source: 'processCteEmissionJob',
+                    calcId,
+                    cteEmissionJobId,
+                    message: 'Job ou cálculo não existe no PostgreSQL (job fantasma do Redis expurgado silenciosamente).',
+                }),
+            );
+            return;
+        }
+
         console.error(
             JSON.stringify({
                 level: 'error',
@@ -324,7 +346,7 @@ export async function processCteEmissionJob(
         }
 
         // `emissionJob` pode ser `null` aqui se o próprio `findUniqueOrThrow` inicial falhou
-        // (blip transitório de DB, job apagado, etc.) — sem um registro carregado não temos
+        // (blip transitório de DB) — sem um registro carregado não temos
         // `attemptCount`/`maxAttempts` pra decidir reagendar, então tratamos como
         // reconciliação imediata em vez de arriscar acessar propriedades de `null`.
         if (!emissionJob) {

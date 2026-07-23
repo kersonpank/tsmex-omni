@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq';
-import { redisConnection } from '../../lib/redis.js';
+import { createRedisConnection } from '../../lib/redis.js';
 
 export const DISTRIBUICAO_NFE_QUEUE_NAME = 'distribuicao-nfe';
 
@@ -13,7 +13,7 @@ let queueInstance: Queue<DistribuicaoNfeJobData> | null = null;
 export function getDistribuicaoNfeQueue(): Queue<DistribuicaoNfeJobData> {
     if (!queueInstance) {
         queueInstance = new Queue<DistribuicaoNfeJobData>(DISTRIBUICAO_NFE_QUEUE_NAME, {
-            connection: redisConnection,
+            connection: createRedisConnection(),
             defaultJobOptions: {
                 removeOnComplete: { age: 60 * 60 * 24 * 7 },
                 removeOnFail: { age: 60 * 60 * 24 * 30 },
