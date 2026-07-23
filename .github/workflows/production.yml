@@ -147,7 +147,11 @@ jobs:
               sleep 5
             done
 
-            docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-api:latest --with-registry-auth --force "$API_SVC"
-            docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-api:latest --with-registry-auth --force "$WORKER_SVC"
+            # REDIS_URL com o nome de serviço Swarm qualificado, não o alias curto "redis": esse
+            # alias colide com o de OUTROS stacks deste host na rede compartilhada ProxyGM (já
+            # causou o `api` de staging resolver pro Redis de outro cliente, silenciosamente).
+            # Não é secret — sempre reaplicado, mesmo padrão do fix equivalente em staging.yml.
+            docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-api:latest --env-add "REDIS_URL=redis://${STACK_PREFIX}_redis:6379" --with-registry-auth --force "$API_SVC"
+            docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-api:latest --env-add "REDIS_URL=redis://${STACK_PREFIX}_redis:6379" --with-registry-auth --force "$WORKER_SVC"
             docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-web:latest --with-registry-auth --force "$WEB_SVC"
             echo "Produção deploy OK: ${{ needs.build-and-push.outputs.sha_tag }}"

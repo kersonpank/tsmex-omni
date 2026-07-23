@@ -145,6 +145,13 @@ jobs:
               echo "⚠️  ACBR_CLIENT_ID/SECRET não configurados nos GitHub Secrets (Settings → Secrets and variables → Actions) — pulando --env-add, mantendo valor atual do serviço."
             fi
 
+            # Reaplica REDIS_URL com o nome de serviço Swarm qualificado a cada deploy — não o
+            # alias curto "redis", que colide com o alias "redis" de OUTROS stacks deste mesmo
+            # host na rede compartilhada ProxyGM (ex.: já causou o `api` resolver pro Redis de
+            # outro cliente em vez do próprio, silenciosamente). Não depende do painel do
+            # Portainer pelo mesmo motivo do bloco ACBR acima. Não é secret — sempre reaplicado.
+            EXTRA_ENV_ARGS+=(--env-add "REDIS_URL=redis://${STACK_PREFIX}_redis:6379")
+
             docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-api:staging "${EXTRA_ENV_ARGS[@]}" --with-registry-auth --force "$API_SVC"
             docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-api:staging "${EXTRA_ENV_ARGS[@]}" --with-registry-auth --force "$WORKER_SVC"
             docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-web:staging --with-registry-auth --force "$WEB_SVC"
