@@ -147,6 +147,14 @@ export interface OrderFreightCalculation {
     status: FreightCalcStatus;
     createdAt: string;
     updatedAt: string;
+    /** Só o job mais recente (join do backend) — usado pra mostrar progresso do polling assíncrono. */
+    cteEmissionJobs?: Array<{
+        phase: string;
+        attemptCount: number;
+        maxAttempts: number;
+        lastPolledAt: string | null;
+        nextPollAt: string | null;
+    }>;
 }
 
 export interface FiscalEmitterReadiness {

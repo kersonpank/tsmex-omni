@@ -584,6 +584,15 @@ function OrderFreightCard({
           }`}>
             {STATUS_LABELS[calc.status] ?? calc.status}
           </span>
+          {(calc.status === 'CTE_SENT' || calc.status === 'CTE_PROCESSING') && calc.cteEmissionJobs?.[0] && (
+            <div className="mt-1 text-xs text-tower-500 dark:text-tower-400 flex items-center gap-1.5">
+              <span className="inline-block w-2 h-2 rounded-full bg-brand-500 animate-pulse" />
+              Aguardando retorno da SEFAZ/ACBr — tentativa {calc.cteEmissionJobs[0].attemptCount}/{calc.cteEmissionJobs[0].maxAttempts}
+              {calc.cteEmissionJobs[0].lastPolledAt && (
+                <> · última consulta às {new Date(calc.cteEmissionJobs[0].lastPolledAt).toLocaleTimeString('pt-BR')}</>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex gap-2 flex-wrap">
           {calc.calculationMethod !== 'INFORMADO' && calc.status === 'DRAFT' && (

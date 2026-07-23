@@ -380,6 +380,14 @@ router.get('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest
                 emissor: { select: { id: true, name: true, code: true, person: { select: { document: true, legalName: true } } } },
                 fiscalEmitter: { include: { person: true, hub: true } },
                 pricingTable: { select: { id: true, description: true } },
+                // Só o job mais recente, só os campos que a UI usa pra mostrar progresso do
+                // polling assíncrono (attemptCount/maxAttempts) enquanto CTE_SENT/CTE_PROCESSING
+                // — sem isso a tela não tinha como distinguir "ainda processando" de "travado".
+                cteEmissionJobs: {
+                    orderBy: { createdAt: 'desc' },
+                    take: 1,
+                    select: { phase: true, attemptCount: true, maxAttempts: true, lastPolledAt: true, nextPollAt: true },
+                },
             },
             orderBy: { createdAt: 'asc' },
         });
