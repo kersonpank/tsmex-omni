@@ -1,6 +1,20 @@
-import { ACBR_TOKEN_URL } from './acbrConfig.js';
+import { ACBR_TOKEN_URL, type AcbrFiscalEnvironment } from './acbrConfig.js';
 
 type Cached = { token: string; expiresAtMs: number };
+
+/** Credenciais são por tipo (Sandbox vs Produção no console ACBr) — nunca a mesma. */
+function credentialsForEnvironment(environment: AcbrFiscalEnvironment): { clientId?: string; clientSecret?: string } {
+    if (environment === 'PRODUCAO') {
+        return {
+            clientId: process.env.ACBR_CLIENT_ID_PRODUCAO?.trim(),
+            clientSecret: process.env.ACBR_CLIENT_SECRET_PRODUCAO?.trim(),
+        };
+    }
+    return {
+        clientId: process.env.ACBR_CLIENT_ID?.trim(),
+        clientSecret: process.env.ACBR_CLIENT_SECRET?.trim(),
+    };
+}
 
 /**
  * Cache persistente de tokens já resolvidos, por escopo (chave = `scopeKey`).
@@ -36,17 +50,22 @@ export function clearAcbrTokenCache(): void {
     inFlightRequests.clear();
 }
 
-function scopeKey(scopes: string[]): string {
-    return [...scopes].sort().join(' ');
+function scopeKey(scopes: string[], environment: AcbrFiscalEnvironment): string {
+    return `${environment}:${[...scopes].sort().join(' ')}`;
 }
 
-export async function getAcbrAccessToken(scopes: string[]): Promise<string> {
-    const clientId = process.env.ACBR_CLIENT_ID?.trim();
-    const clientSecret = process.env.ACBR_CLIENT_SECRET?.trim();
+export async function getAcbrAccessToken(
+    scopes: string[],
+    environment: AcbrFiscalEnvironment = 'HOMOLOGACAO',
+): Promise<string> {
+    const { clientId, clientSecret } = credentialsForEnvironment(environment);
     if (!clientId || !clientSecret) {
-        throw new Error('ACBR_CLIENT_ID e ACBR_CLIENT_SECRET são obrigatórios para o provedor ACBr.');
+        const varNames = environment === 'PRODUCAO'
+            ? 'ACBR_CLIENT_ID_PRODUCAO e ACBR_CLIENT_SECRET_PRODUCAO'
+            : 'ACBR_CLIENT_ID e ACBR_CLIENT_SECRET';
+        throw new Error(`${varNames} são obrigatórios para o provedor ACBr (ambiente ${environment}).`);
     }
-    const sk = scopeKey(scopes);
+    const sk = scopeKey(scopes, environment);
     const now = Date.now();
     const cached = cachedByScopeKey.get(sk);
     if (cached && cached.expiresAtMs > now + 60_000) {

@@ -83,7 +83,7 @@ export async function classifyAcbrErrorResponse(res: Response, path: string, bod
 
 export async function acbrFetchJson<T = unknown>(path: string, init: AcbrRequestInit): Promise<T> {
     const scopes = init.scopes;
-    const token = await getAcbrAccessToken(scopes);
+    const token = await getAcbrAccessToken(scopes, init.apiEnvironment ?? 'HOMOLOGACAO');
     const base = getAcbrApiBaseUrlForEnvironment(init.apiEnvironment ?? null);
     const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
     const headers: Record<string, string> = {

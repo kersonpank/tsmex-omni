@@ -145,6 +145,18 @@ jobs:
               echo "⚠️  ACBR_CLIENT_ID/SECRET não configurados nos GitHub Secrets (Settings → Secrets and variables → Actions) — pulando --env-add, mantendo valor atual do serviço."
             fi
 
+            # Par de credencial de PRODUÇÃO (tipo diferente do Sandbox no console ACBr — nunca a
+            # mesma credencial). Só usado quando algum FiscalEmitter tem environment=PRODUCAO;
+            # opcional, mesma guarda condicional do bloco Sandbox acima.
+            ACBR_ID_PROD_VAL="${{ secrets.ACBR_CLIENT_ID_PRODUCAO }}"
+            ACBR_SECRET_PROD_VAL="${{ secrets.ACBR_CLIENT_SECRET_PRODUCAO }}"
+            if [ -n "$ACBR_ID_PROD_VAL" ] && [ -n "$ACBR_SECRET_PROD_VAL" ]; then
+              EXTRA_ENV_ARGS+=(--env-add "ACBR_CLIENT_ID_PRODUCAO=$ACBR_ID_PROD_VAL" --env-add "ACBR_CLIENT_SECRET_PRODUCAO=$ACBR_SECRET_PROD_VAL")
+              echo "✅ ACBR_CLIENT_ID_PRODUCAO/SECRET_PRODUCAO presentes nos GitHub Secrets — reaplicando em api/worker."
+            else
+              echo "⚠️  ACBR_CLIENT_ID_PRODUCAO/SECRET_PRODUCAO não configurados — pulando --env-add, mantendo valor atual do serviço."
+            fi
+
             # Reaplica REDIS_URL com o nome de serviço Swarm qualificado a cada deploy — não o
             # alias curto "redis", que colide com o alias "redis" de OUTROS stacks deste mesmo
             # host na rede compartilhada ProxyGM (ex.: já causou o `api` resolver pro Redis de

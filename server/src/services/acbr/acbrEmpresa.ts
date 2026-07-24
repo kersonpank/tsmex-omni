@@ -45,7 +45,7 @@ async function acbrJsonRequest(
         apiEnvironment: AcbrFiscalEnvironment;
     },
 ): Promise<{ status: number; json: Record<string, unknown> }> {
-    const token = await getAcbrAccessToken(init.scopes);
+    const token = await getAcbrAccessToken(init.scopes, init.apiEnvironment);
     const base = getAcbrApiBaseUrlForEnvironment(init.apiEnvironment);
     const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
     const headers: Record<string, string> = {

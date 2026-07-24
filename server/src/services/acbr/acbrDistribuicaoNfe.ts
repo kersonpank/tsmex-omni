@@ -79,7 +79,7 @@ export async function baixarXmlDocumentoDistribuicao(
 ): Promise<string> {
     const apiEnvironment = ambienteDistribToApiEnv(ambiente);
     const baseUrl = getAcbrApiBaseUrlForEnvironment(apiEnvironment);
-    const token = await getAcbrAccessToken(['empresa', 'nfe', 'distribuicao-nfe']);
+    const token = await getAcbrAccessToken(['empresa', 'nfe', 'distribuicao-nfe'], apiEnvironment);
     const path = `/distribuicao/nfe/documentos/${encodeURIComponent(documentoId)}/xml`;
     const res = await fetch(`${baseUrl}${path}`, {
         headers: { Authorization: `Bearer ${token}` },

@@ -161,7 +161,7 @@ export async function pollCteStatusOnce(
  */
 export async function downloadCteXml(providerDocId: string, ambiente: AcbrFiscalEnvironment): Promise<string> {
     const baseUrl = getAcbrApiBaseUrlForEnvironment(ambiente);
-    const token = await getAcbrAccessToken(['empresa', 'cte']);
+    const token = await getAcbrAccessToken(['empresa', 'cte'], ambiente);
     const path = `/cte/${providerDocId}/xml`;
     const res = await fetch(`${baseUrl}${path}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -179,7 +179,7 @@ export async function downloadCteXml(providerDocId: string, ambiente: AcbrFiscal
  */
 export async function downloadCtePdf(providerDocId: string, ambiente: AcbrFiscalEnvironment): Promise<Buffer> {
     const baseUrl = getAcbrApiBaseUrlForEnvironment(ambiente);
-    const token = await getAcbrAccessToken(['empresa', 'cte']);
+    const token = await getAcbrAccessToken(['empresa', 'cte'], ambiente);
     const path = `/cte/${providerDocId}/pdf`;
     const res = await fetch(`${baseUrl}${path}`, {
         headers: { Authorization: `Bearer ${token}` },

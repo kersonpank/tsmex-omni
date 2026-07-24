@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { describe, it, beforeEach, mock } from 'node:test';
+import { describe, it, beforeEach, after, mock } from 'node:test';
 
 import { getAcbrAccessToken, clearAcbrTokenCache } from './acbrAuth.js';
 
@@ -111,5 +111,59 @@ describe('getAcbrAccessToken — cache persistente é por escopo (não um slot �
         } finally {
             globalThis.fetch = originalFetch;
         }
+    });
+});
+
+describe('getAcbrAccessToken — credencial por ambiente (Sandbox vs Produção são pares diferentes)', () => {
+    const originalSandboxId = process.env.ACBR_CLIENT_ID;
+    const originalSandboxSecret = process.env.ACBR_CLIENT_SECRET;
+    const originalProdId = process.env.ACBR_CLIENT_ID_PRODUCAO;
+    const originalProdSecret = process.env.ACBR_CLIENT_SECRET_PRODUCAO;
+
+    beforeEach(() => {
+        clearAcbrTokenCache();
+        process.env.ACBR_CLIENT_ID = 'sandbox-client';
+        process.env.ACBR_CLIENT_SECRET = 'sandbox-secret';
+        process.env.ACBR_CLIENT_ID_PRODUCAO = 'prod-client';
+        process.env.ACBR_CLIENT_SECRET_PRODUCAO = 'prod-secret';
+    });
+
+    after(() => {
+        if (originalSandboxId === undefined) delete process.env.ACBR_CLIENT_ID; else process.env.ACBR_CLIENT_ID = originalSandboxId;
+        if (originalSandboxSecret === undefined) delete process.env.ACBR_CLIENT_SECRET; else process.env.ACBR_CLIENT_SECRET = originalSandboxSecret;
+        if (originalProdId === undefined) delete process.env.ACBR_CLIENT_ID_PRODUCAO; else process.env.ACBR_CLIENT_ID_PRODUCAO = originalProdId;
+        if (originalProdSecret === undefined) delete process.env.ACBR_CLIENT_SECRET_PRODUCAO; else process.env.ACBR_CLIENT_SECRET_PRODUCAO = originalProdSecret;
+    });
+
+    it('HOMOLOGACAO (padrão) usa ACBR_CLIENT_ID/SECRET; PRODUCAO usa as variantes _PRODUCAO — nunca mistura', async () => {
+        const originalFetch = globalThis.fetch;
+        const fetchMock = mock.fn(async (_url: string, init?: RequestInit) => {
+            const body = String(init?.body ?? '');
+            const clientId = new URLSearchParams(body).get('client_id') ?? '';
+            return new Response(JSON.stringify({ access_token: `tok-for-${clientId}`, expires_in: 3600 }), { status: 200 });
+        });
+        globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+        try {
+            const scopes = ['empresa', 'nfe', 'distribuicao-nfe'];
+            const tokenHom = await getAcbrAccessToken(scopes);
+            const tokenProd = await getAcbrAccessToken(scopes, 'PRODUCAO');
+
+            assert.equal(tokenHom, 'tok-for-sandbox-client');
+            assert.equal(tokenProd, 'tok-for-prod-client');
+            assert.equal(fetchMock.mock.callCount(), 2, 'ambientes diferentes não compartilham cache, mesmo com o mesmo escopo');
+        } finally {
+            globalThis.fetch = originalFetch;
+        }
+    });
+
+    it('PRODUCAO sem ACBR_CLIENT_ID_PRODUCAO/SECRET_PRODUCAO configurados lança erro claro, não tenta usar credencial sandbox', async () => {
+        delete process.env.ACBR_CLIENT_ID_PRODUCAO;
+        delete process.env.ACBR_CLIENT_SECRET_PRODUCAO;
+
+        await assert.rejects(
+            () => getAcbrAccessToken(['empresa', 'cte'], 'PRODUCAO'),
+            /ACBR_CLIENT_ID_PRODUCAO e ACBR_CLIENT_SECRET_PRODUCAO/,
+        );
     });
 });

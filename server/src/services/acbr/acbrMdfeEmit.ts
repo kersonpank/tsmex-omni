@@ -208,7 +208,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
             if (authSt.includes('autorizado') || st === 'autorizado' || chave.length === 44) {
                 let xml: string | undefined;
                 try {
-                    const token = await getAcbrAccessToken(['empresa', 'mdfe']);
+                    const token = await getAcbrAccessToken(['empresa', 'mdfe'], apiEnv);
                     const xmlRes = await fetch(`${baseUrl}/mdfe/${id}/xml`, {
                         headers: { Authorization: `Bearer ${token}` },
                     });
