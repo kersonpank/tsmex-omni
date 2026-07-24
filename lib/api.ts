@@ -205,6 +205,13 @@ export const fiscalDistribuicaoApi = {
         const response = await api.get<ApiResponse<unknown[]>>('/fiscal/distribuicao-nfe/documentos', { params });
         return response.data;
     },
+    /** Força uma varredura agora (fora do agendamento 2x/dia) — enfileira, não é síncrono. */
+    syncNow: async (fiscalEmitterId: string) => {
+        const response = await api.post<ApiResponse<{ jobId: string }>>(
+            `/fiscal/distribuicao-nfe/emitters/${fiscalEmitterId}/sync-now`,
+        );
+        return response.data;
+    },
 };
 
 // ========== DASHBOARD API ==========

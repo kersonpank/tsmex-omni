@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { nfeDistribuicaoTriagemApi } from '../../lib/api';
+import { fiscalDistribuicaoApi, fiscalEmittersApi, nfeDistribuicaoTriagemApi } from '../../lib/api';
 import type { NfeDistribuicaoTriagemDocumento } from '../../lib/api';
 
 function formatCnpj(digits: string): string {
@@ -27,6 +27,10 @@ const NfeDistribuicaoTriagemTab: React.FC<NfeDistribuicaoTriagemTabProps> = ({ o
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [emitterId, setEmitterId] = useState<string | null>(null);
+  const [distribuicaoEnabled, setDistribuicaoEnabled] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -43,7 +47,34 @@ const NfeDistribuicaoTriagemTab: React.FC<NfeDistribuicaoTriagemTabProps> = ({ o
 
   useEffect(() => {
     void load();
+    // Descobre o FiscalEmitter do próprio Hub (a API já escopa HUB pro próprio hub sozinha).
+    fiscalEmittersApi
+      .list()
+      .then((result) => {
+        if (result.success && result.data[0]) {
+          setEmitterId(result.data[0].id);
+          setDistribuicaoEnabled(result.data[0].distribuicaoNfeEnabled);
+        }
+      })
+      .catch(() => {
+        /* silencioso — botão "Buscar agora" só some, tela principal (triagem) segue funcionando */
+      });
   }, [load]);
+
+  const handleSyncNow = async () => {
+    if (!emitterId) return;
+    setSyncing(true);
+    setSyncMessage(null);
+    setActionError(null);
+    try {
+      await fiscalDistribuicaoApi.syncNow(emitterId);
+      setSyncMessage('Varredura solicitada — atualize a lista em alguns segundos.');
+    } catch (e: any) {
+      setActionError(e.response?.data?.error ?? e.message ?? 'Erro ao solicitar varredura.');
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const handleConverter = async (doc: NfeDistribuicaoTriagemDocumento) => {
     setBusyId(doc.id);
@@ -90,15 +121,32 @@ const NfeDistribuicaoTriagemTab: React.FC<NfeDistribuicaoTriagemTabProps> = ({ o
             Distribuição NF-e (varredura 2x/dia) — confirme quais viram Demanda.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void load()}
-          disabled={loading}
-          className="h-9 shrink-0 rounded-lg border border-tower-300 px-3 text-xs font-semibold text-tower-700 hover:bg-tower-50 disabled:opacity-50 dark:border-tower-600 dark:text-tower-200 dark:hover:bg-tower-800"
-        >
-          {loading ? 'Atualizando…' : 'Atualizar'}
-        </button>
+        <div className="flex shrink-0 gap-2">
+          <button
+            type="button"
+            onClick={() => void handleSyncNow()}
+            disabled={syncing || !emitterId || !distribuicaoEnabled}
+            title={!distribuicaoEnabled ? 'Varredura de Distribuição NF-e desligada — peça pro ADMIN ligar em Identidade Visual → Provedores.' : undefined}
+            className="h-9 rounded-lg bg-brand-600 px-3 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+          >
+            {syncing ? 'Solicitando…' : 'Buscar agora'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void load()}
+            disabled={loading}
+            className="h-9 rounded-lg border border-tower-300 px-3 text-xs font-semibold text-tower-700 hover:bg-tower-50 disabled:opacity-50 dark:border-tower-600 dark:text-tower-200 dark:hover:bg-tower-800"
+          >
+            {loading ? 'Atualizando…' : 'Atualizar'}
+          </button>
+        </div>
       </div>
+
+      {syncMessage && (
+        <div className="rounded-xl border border-brand-500/30 bg-brand-500/10 p-3 text-sm text-brand-700 dark:text-brand-300">
+          {syncMessage}
+        </div>
+      )}
 
       {error && (
         <div className="rounded-xl border border-brand-red-500/30 bg-brand-red-500/10 p-3 text-sm text-brand-red-600 dark:text-brand-red-400">
