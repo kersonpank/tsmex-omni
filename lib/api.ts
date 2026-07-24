@@ -1397,6 +1397,7 @@ export const nfeApi = {
       emitenteLogradouro: string | null;
       emitenteNumero: string | null;
       emitenteBairro: string | null;
+      emitenteIe: string | null;
       modelo: string;
     } }>(`/nfe/${encodeURIComponent(chave)}`),
 };

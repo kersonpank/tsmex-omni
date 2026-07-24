@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { parseNfeProcXml } from './nfeXmlParser.js';
 
-function buildNfeProcXml(opts: { multiplosItens?: boolean; multiplosVolumes?: boolean } = {}): string {
+function buildNfeProcXml(opts: { multiplosItens?: boolean; multiplosVolumes?: boolean; comIe?: boolean } = {}): string {
     const det1 = `
       <det nItem="1">
         <prod>
@@ -47,10 +47,12 @@ function buildNfeProcXml(opts: { multiplosItens?: boolean; multiplosVolumes?: bo
           <xMun>Sao Paulo</xMun>
           <UF>SP</UF>
         </enderEmit>
+        ${opts.comIe ? '<IE>110042490114</IE>' : ''}
       </emit>
       <dest>
         <CNPJ>10256071000103</CNPJ>
         <xNome>F C C ABREU LTDA</xNome>
+        ${opts.comIe ? '<IE>206283703315</IE>' : ''}
       </dest>
       ${det}
       <total>
@@ -82,12 +84,28 @@ describe('parseNfeProcXml', () => {
             razaoSocial: 'FORNECEDOR EXEMPLO LTDA',
             municipio: 'Sao Paulo',
             uf: 'SP',
+            ie: undefined,
         });
         assert.deepEqual(result.destinatario, {
             cnpj: '10256071000103',
             razaoSocial: 'F C C ABREU LTDA',
+            ie: undefined,
         });
         assert.equal(result.valorTotalNota, 1155.0);
+    });
+
+    it('extrai IE do emitente e do destinatário quando presentes no XML', () => {
+        const result = parseNfeProcXml(buildNfeProcXml({ comIe: true }));
+
+        assert.equal(result.emitente.ie, '110042490114');
+        assert.equal(result.destinatario.ie, '206283703315');
+    });
+
+    it('ie fica undefined quando ausente (indIEDest=2 isento ou 9 não contribuinte)', () => {
+        const result = parseNfeProcXml(buildNfeProcXml());
+
+        assert.equal(result.emitente.ie, undefined);
+        assert.equal(result.destinatario.ie, undefined);
     });
 
     it('normaliza um único <det> em array de 1 produto', () => {

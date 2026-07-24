@@ -367,6 +367,7 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
               ...(data.emitenteLogradouro ? { address: data.emitenteLogradouro } : {}),
               ...(data.emitenteNumero ? { number: data.emitenteNumero } : {}),
               ...(data.emitenteBairro ? { neighborhood: data.emitenteBairro } : {}),
+              ...(data.emitenteIe ? { stateRegistration: data.emitenteIe } : {}),
             });
             const newPerson: Person = (createRes as any)?.data ?? createRes;
             setPeopleForm((f) => ({ ...f, remetente: newPerson }));

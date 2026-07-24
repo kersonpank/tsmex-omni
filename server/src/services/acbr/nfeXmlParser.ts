@@ -13,11 +13,13 @@ export interface ParsedNfeEmitente {
     razaoSocial: string;
     municipio?: string;
     uf?: string;
+    ie?: string;
 }
 
 export interface ParsedNfeDestinatario {
     cnpj: string;
     razaoSocial: string;
+    ie?: string;
 }
 
 export interface ParsedNfeCargo {
@@ -114,10 +116,13 @@ export function parseNfeProcXml(xml: string): ParsedNfeCargo {
             razaoSocial: toText(emit?.xNome),
             municipio: enderEmit?.xMun ? toText(enderEmit.xMun) : undefined,
             uf: enderEmit?.UF ? toText(enderEmit.UF) : undefined,
+            ie: emit?.IE ? toText(emit.IE) : undefined,
         },
         destinatario: {
             cnpj: toText(dest?.CNPJ),
             razaoSocial: toText(dest?.xNome),
+            // Ausente quando indIEDest = 2 (isento) ou 9 (não contribuinte) — normal, não é erro de parsing.
+            ie: dest?.IE ? toText(dest.IE) : undefined,
         },
         produtos,
         pesoBruto,

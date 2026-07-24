@@ -15,6 +15,7 @@ export interface NfeLookupResult {
   emitenteLogradouro: string | null;
   emitenteNumero: string | null;
   emitenteBairro: string | null;
+  emitenteIe: string | null;
   modelo: string;
 }
 

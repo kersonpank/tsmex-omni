@@ -2,6 +2,8 @@ import { Router, Request, Response, NextFunction } from 'express';
 import axios from 'axios';
 import { authenticate } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { findCargoDataForChave } from './intakeDemands.js';
+import { resolveStateRegistration } from '../services/fiscal/resolveStateRegistration.js';
 
 const router = Router();
 
@@ -90,7 +92,8 @@ router.get('/:chave', authenticate, async (req: Request, res: Response, next: Ne
       throw new AppError('Não foi possível interpretar a chave NF-e', 400);
     }
 
-    // Busca razão social do emitente via BrasilAPI (gratuita, sem autenticação)
+    // Busca razão social do emitente via BrasilAPI (gratuita, sem autenticação) — cadastro
+    // FEDERAL (Receita Federal), não tem Inscrição Estadual (registro ESTADUAL).
     let emitenteRazaoSocial: string | null = null;
     let emitenteTradeName: string | null = null;
     let emitenteMunicipio: string | null = null;
@@ -114,6 +117,17 @@ router.get('/:chave', authenticate, async (req: Request, res: Response, next: Ne
       // BrasilAPI falhou — retorna sem razão social, não bloqueia operação
     }
 
+    // IE (Inscrição Estadual): resolve pela fonte mais barata — Person já cadastrado > XML da
+    // NF-e já baixado via Distribuição ACBr (grátis, já pago) > Sintegra (crédito, só se as
+    // duas anteriores não resolverem). Nunca bloqueia a resposta se qualquer etapa falhar.
+    let emitenteIe: string | undefined;
+    try {
+      const cargoData = await findCargoDataForChave(chave);
+      emitenteIe = await resolveStateRegistration(parsed.cnpjEmit, cargoData?.emitente?.ie);
+    } catch {
+      // Resolução de IE é best-effort — nunca bloqueia o lookup da NF-e.
+    }
+
     res.json({
       success: true,
       data: {
@@ -130,6 +144,7 @@ router.get('/:chave', authenticate, async (req: Request, res: Response, next: Ne
         emitenteLogradouro,
         emitenteNumero,
         emitenteBairro,
+        emitenteIe: emitenteIe ?? null,
         modelo: parsed.mod === '55' ? 'NF-e' : parsed.mod === '57' ? 'CT-e' : parsed.mod,
       },
     });
