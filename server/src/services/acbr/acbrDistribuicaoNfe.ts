@@ -91,6 +91,31 @@ export async function baixarXmlDocumentoDistribuicao(
     return res.text();
 }
 
+/**
+ * Configura a Distribuição NF-e da empresa na ACBr — pré-requisito obrigatório, separado do
+ * cadastro geral (`POST /empresas`): sem isso, QUALQUER chamada a `/distribuicao/nfe/*` falha
+ * com `ConfigDistNfeNotFound`. Descoberto ao testar `cons-chave` pela primeira vez contra a API
+ * real (nunca tinha sido exercitado antes). Mesmo padrão de `putAcbrEmpresaCteConfig`
+ * (`acbrEmpresa.ts`) — idempotente, seguro chamar de novo.
+ */
+export async function putAcbrEmpresaDistNfeConfig(
+    cpfCnpj: string,
+    ambiente: 'homologacao' | 'producao',
+): Promise<{ ok: boolean; message?: string }> {
+    const cnpj = digitsOnly(cpfCnpj);
+    try {
+        await acbrFetchJson<Record<string, unknown>>(`/empresas/${cnpj}/distnfe`, {
+            method: 'PUT',
+            body: JSON.stringify({ ambiente }),
+            scopes: ['empresa', 'distribuicao-nfe'],
+            apiEnvironment: ambienteDistribToApiEnv(ambiente),
+        });
+        return { ok: true };
+    } catch (err) {
+        return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+}
+
 /** Lê ou inicializa NSU armazenado para o CNPJ. */
 export async function getUltimoNsuStored(cpfCnpj: string, ambiente: string): Promise<string> {
     const doc = digitsOnly(cpfCnpj);

@@ -1,6 +1,6 @@
 import prisma from '../../lib/prisma.js';
 import { isAcbrCredentialsConfigured } from '../acbr/acbrConfig.js';
-import { solicitarEPersistirNsu } from '../acbr/acbrDistribuicaoNfe.js';
+import { solicitarEPersistirNsu, putAcbrEmpresaDistNfeConfig } from '../acbr/acbrDistribuicaoNfe.js';
 import { manifestarCienciaOperacao } from '../acbr/acbrManifestacao.js';
 import { baixarXmlDocumentoDistribuicao } from '../acbr/acbrDistribuicaoNfe.js';
 import { parseDistribuicaoDocumento } from '../acbr/distribuicaoNfeDocumentParser.js';
@@ -24,6 +24,7 @@ export interface FetchNfeCompletaDeps {
         person: { document: string };
     } | null>;
     setDistribuicaoNfeEnabled: (fiscalEmitterId: string) => Promise<void>;
+    putAcbrEmpresaDistNfeConfig: typeof putAcbrEmpresaDistNfeConfig;
     solicitarEPersistirNsu: typeof solicitarEPersistirNsu;
     manifestarCienciaOperacao: typeof manifestarCienciaOperacao;
     baixarXmlDocumentoDistribuicao: typeof baixarXmlDocumentoDistribuicao;
@@ -45,6 +46,7 @@ export const defaultFetchNfeCompletaDeps: FetchNfeCompletaDeps = {
     setDistribuicaoNfeEnabled: async (fiscalEmitterId: string) => {
         await prisma.fiscalEmitter.update({ where: { id: fiscalEmitterId }, data: { distribuicaoNfeEnabled: true } });
     },
+    putAcbrEmpresaDistNfeConfig,
     solicitarEPersistirNsu,
     manifestarCienciaOperacao,
     baixarXmlDocumentoDistribuicao,
@@ -91,6 +93,15 @@ export async function fetchNfeCompleta(
 
         const ambiente = ambienteFromEnvironment(emitter.environment);
 
+        // Pré-requisito descoberto na prática (ConfigDistNfeNotFound): a empresa precisa dessa
+        // configuração ANTES de qualquer chamada a /distribuicao/nfe/* funcionar — separado do
+        // cadastro geral (POST /empresas). Idempotente, sem custo (config, não consulta fiscal).
+        await deps.putAcbrEmpresaDistNfeConfig(cpfCnpj, ambiente);
+
+        if (!emitter.distribuicaoNfeEnabled) {
+            await deps.setDistribuicaoNfeEnabled(emitter.id);
+        }
+
         const response = await deps.solicitarEPersistirNsu({
             cpf_cnpj: cpfCnpj,
             ambiente,
@@ -106,10 +117,6 @@ export async function fetchNfeCompleta(
         const nsuDoDocumento = typeof raw.nsu === 'string' || typeof raw.nsu === 'number' ? String(raw.nsu) : String(ultimoNsu ?? '0');
         const parsed = parseDistribuicaoDocumento(raw, nsuDoDocumento);
         if (!parsed.accessKey || !parsed.cnpjEmitente) return null;
-
-        if (!emitter.distribuicaoNfeEnabled) {
-            await deps.setDistribuicaoNfeEnabled(emitter.id);
-        }
 
         const doc = await deps.upsertDiscovered({
             nsu: parsed.nsu,

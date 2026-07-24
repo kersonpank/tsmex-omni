@@ -25,6 +25,7 @@ function makeDeps(overrides: Partial<FetchNfeCompletaDeps> = {}): FetchNfeComple
             person: { document: '11222333000144' },
         })),
         setDistribuicaoNfeEnabled: mock.fn(async () => {}),
+        putAcbrEmpresaDistNfeConfig: mock.fn(async () => ({ ok: true })),
         solicitarEPersistirNsu: mock.fn(async () => ({ data: [], ultimo_nsu: 10 })),
         manifestarCienciaOperacao: mock.fn(async () => ({})),
         baixarXmlDocumentoDistribuicao: mock.fn(async () => '<xml/>'),
