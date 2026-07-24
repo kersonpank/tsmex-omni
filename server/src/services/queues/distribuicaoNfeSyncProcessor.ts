@@ -108,13 +108,19 @@ async function handlePaymentRequired(deps: SyncProcessorDeps, doc: { id: string 
 
 /**
  * CONFIRMADO: a ACBr API embrulha respostas de lista na propriedade `data` (schema
- * `DistribuicaoNfe`, cujos elementos são `DistribuicaoNfeDocumento`). `POST /distribuicao/nfe`
- * retorna `{ data: DistribuicaoNfeDocumento[], ultimo_nsu, ... }` — nunca `documentos`/`docs`.
- * Retorna `null` (em vez de `[]`) quando `data` não é um array — isso é um shape inesperado
- * (contrato da API mudou ou nossa suposição está errada), diferente de uma página vazia
- * legítima (`[]`, quando já estamos em dia com o NSU). O chamador trata os dois casos de
- * forma diferente: `[]` é normal; `null` aborta a execução sem lançar erro (ver
+ * `DistribuicaoNfe`, cujos elementos são `DistribuicaoNfeDocumento`) especificamente quando
+ * `tipo_consulta: 'dist-nsu'` (único usado neste módulo) — `{ data: DistribuicaoNfeDocumento[],
+ * ultimo_nsu, ... }`. Retorna `null` (em vez de `[]`) quando `data` não é um array — isso é um
+ * shape inesperado (contrato da API mudou ou nossa suposição está errada), diferente de uma
+ * página vazia legítima (`[]`, quando já estamos em dia com o NSU). O chamador trata os dois
+ * casos de forma diferente: `[]` é normal; `null` aborta a execução sem lançar erro (ver
  * `runDiscoveryPhase`), pra não arriscar processar um payload que não entendemos.
+ *
+ * NOTA: `tipo_consulta: 'cons-chave'` usa uma chave DIFERENTE (`documentos`, não `data`) —
+ * confirmado ao vivo, ver `extractDocumentosConsChave` em `fetchNfeCompleta.ts`. Não unificar
+ * essa função com aquela: são contratos de resposta genuinamente diferentes por tipo de
+ * consulta, e este módulo só fala `dist-nsu` — aceitar `documentos` aqui enfraqueceria a guarda
+ * de "shape não reconhecido" pra esse caminho específico.
  */
 export function extractDocumentos(payload: Record<string, unknown>): Record<string, unknown>[] | null {
     const candidate = payload.data;

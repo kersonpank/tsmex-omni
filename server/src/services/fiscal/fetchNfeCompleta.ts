@@ -4,7 +4,7 @@ import { solicitarEPersistirNsu, putAcbrEmpresaDistNfeConfig } from '../acbr/acb
 import { manifestarCienciaOperacao } from '../acbr/acbrManifestacao.js';
 import { baixarXmlDocumentoDistribuicao } from '../acbr/acbrDistribuicaoNfe.js';
 import { parseDistribuicaoDocumento } from '../acbr/distribuicaoNfeDocumentParser.js';
-import { extractDocumentos, extractDocumentoId, extractUltimoNsu } from '../queues/distribuicaoNfeSyncProcessor.js';
+import { extractDocumentoId, extractUltimoNsu } from '../queues/distribuicaoNfeSyncProcessor.js';
 import { upsertDiscovered, markManifested, markXmlDownloaded } from './nfeDistribuicaoRepo.js';
 import { uploadBase64Object } from '../../lib/objectStorage.js';
 import {
@@ -62,6 +62,21 @@ function ambienteFromEnvironment(environment: string): 'homologacao' | 'producao
 }
 
 /**
+ * CONFIRMADO ao vivo contra a API real: `POST /distribuicao/nfe` com `tipo_consulta:
+ * 'cons-chave'` embrulha a lista de documentos em `documentos`, não em `data`
+ * (`{ documentos: [...], codigo_status, motivo_status, ... }`) — diferente do que `dist-nsu`
+ * usa (`extractDocumentos` em `distribuicaoNfeSyncProcessor.ts`, que só aceita `data` de
+ * propósito). Aceita `data` como fallback só por segurança, caso a ACBr algum dia unifique.
+ */
+function extractDocumentosConsChave(payload: Record<string, unknown>): Record<string, unknown>[] | null {
+    const documentos = payload.documentos;
+    if (Array.isArray(documentos)) return documentos as Record<string, unknown>[];
+    const data = payload.data;
+    if (Array.isArray(data)) return data as Record<string, unknown>[];
+    return null;
+}
+
+/**
  * Busca os dados completos (emitente + destinatário + carga) de UMA NF-e específica, na
  * cascata pedida: (1) nossa base, já sincronizada, grátis; (2) ACBr sob demanda — `cons-chave`,
  * síncrono, reusando o MESMO pipeline testado do job em lote (`distribuicaoNfeSyncProcessor.ts`:
@@ -109,8 +124,14 @@ export async function fetchNfeCompleta(
             cons_chave: chave,
         });
 
-        const docs = extractDocumentos(response);
-        if (!docs || docs.length === 0) return null;
+        const docs = extractDocumentosConsChave(response);
+        if (!docs || docs.length === 0) {
+            const motivo = (response as { motivo_status?: string }).motivo_status;
+            if (motivo) {
+                console.warn(`[fetchNfeCompleta] SEFAZ não retornou documento pra ${chave} (${ambiente}): ${motivo}`);
+            }
+            return null;
+        }
 
         const ultimoNsu = extractUltimoNsu(response);
         const raw = docs[0];
