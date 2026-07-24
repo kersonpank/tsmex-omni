@@ -25,7 +25,7 @@ export async function solicitarDistribuicaoNfe(body: DistribuicaoNfeRequestBody)
     return acbrFetchJson<Record<string, unknown>>('/distribuicao/nfe', {
         method: 'POST',
         body: JSON.stringify(body),
-        scopes: ['empresa', 'nfe', 'distribuicao'],
+        scopes: ['empresa', 'nfe', 'distribuicao-nfe'],
         apiEnvironment: ambienteDistribToApiEnv(body.ambiente),
     });
 }
@@ -52,14 +52,14 @@ export async function listarDocumentosDistribuicao(params: { top?: number; skip?
     const qs = q.toString();
     return acbrFetchJson<Record<string, unknown>>(`/distribuicao/nfe/documentos${qs ? `?${qs}` : ''}`, {
         method: 'GET',
-        scopes: ['empresa', 'nfe', 'distribuicao'],
+        scopes: ['empresa', 'nfe', 'distribuicao-nfe'],
     });
 }
 
 export async function getDistribuicaoById(id: string): Promise<Record<string, unknown>> {
     return acbrFetchJson<Record<string, unknown>>(`/distribuicao/nfe/${encodeURIComponent(id)}`, {
         method: 'GET',
-        scopes: ['empresa', 'nfe', 'distribuicao'],
+        scopes: ['empresa', 'nfe', 'distribuicao-nfe'],
     });
 }
 
@@ -79,7 +79,7 @@ export async function baixarXmlDocumentoDistribuicao(
 ): Promise<string> {
     const apiEnvironment = ambienteDistribToApiEnv(ambiente);
     const baseUrl = getAcbrApiBaseUrlForEnvironment(apiEnvironment);
-    const token = await getAcbrAccessToken(['empresa', 'nfe', 'distribuicao']);
+    const token = await getAcbrAccessToken(['empresa', 'nfe', 'distribuicao-nfe']);
     const path = `/distribuicao/nfe/documentos/${encodeURIComponent(documentoId)}/xml`;
     const res = await fetch(`${baseUrl}${path}`, {
         headers: { Authorization: `Bearer ${token}` },

@@ -44,7 +44,7 @@ describe('manifestarCienciaOperacao', () => {
         const call = calls[0] as { path: string; init: { method: string; scopes: string[]; apiEnvironment: string; body: string } };
         assert.equal(call.path, '/distribuicao/nfe/manifestacoes');
         assert.equal(call.init.method, 'POST');
-        assert.deepEqual(call.init.scopes, ['empresa', 'nfe', 'distribuicao']);
+        assert.deepEqual(call.init.scopes, ['empresa', 'nfe', 'distribuicao-nfe']);
         assert.equal(call.init.apiEnvironment, 'HOMOLOGACAO');
         assert.deepEqual(result, { sucesso: true });
     });

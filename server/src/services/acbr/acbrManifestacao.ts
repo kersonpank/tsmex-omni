@@ -53,7 +53,7 @@ export async function manifestarCienciaOperacao(
     return deps.acbrFetchJson('/distribuicao/nfe/manifestacoes', {
         method: 'POST',
         body: JSON.stringify(buildManifestacaoBody(input)),
-        scopes: ['empresa', 'nfe', 'distribuicao'],
+        scopes: ['empresa', 'nfe', 'distribuicao-nfe'],
         apiEnvironment: env,
     });
 }
