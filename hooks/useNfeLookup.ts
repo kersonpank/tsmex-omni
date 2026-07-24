@@ -16,11 +16,12 @@ export interface NfeLookupResult {
   emitenteNumero: string | null;
   emitenteBairro: string | null;
   emitenteIe: string | null;
+  destinatario: { cnpj: string; razaoSocial: string | null; ie: string | null } | null;
   modelo: string;
 }
 
 interface UseNfeLookupReturn {
-  lookup: (chaveOrUrl: string) => Promise<NfeLookupResult | null>;
+  lookup: (chaveOrUrl: string, hubId?: string) => Promise<NfeLookupResult | null>;
   loading: boolean;
   error: string | null;
   clearError: () => void;
@@ -48,7 +49,7 @@ export function useNfeLookup(): UseNfeLookupReturn {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const lookup = useCallback(async (chaveOrUrl: string): Promise<NfeLookupResult | null> => {
+  const lookup = useCallback(async (chaveOrUrl: string, hubId?: string): Promise<NfeLookupResult | null> => {
     const chave = extractChave(chaveOrUrl);
 
     if (chave.length !== 44) {
@@ -59,7 +60,7 @@ export function useNfeLookup(): UseNfeLookupReturn {
     setLoading(true);
     setError(null);
     try {
-      const res = await nfeApi.lookup(chave);
+      const res = await nfeApi.lookup(chave, hubId);
       return res.data.data;
     } catch (err: any) {
       const msg = err.response?.data?.error ?? err.message ?? 'Erro ao consultar NF-e';

@@ -116,12 +116,12 @@ async function handlePaymentRequired(deps: SyncProcessorDeps, doc: { id: string 
  * forma diferente: `[]` é normal; `null` aborta a execução sem lançar erro (ver
  * `runDiscoveryPhase`), pra não arriscar processar um payload que não entendemos.
  */
-function extractDocumentos(payload: Record<string, unknown>): Record<string, unknown>[] | null {
+export function extractDocumentos(payload: Record<string, unknown>): Record<string, unknown>[] | null {
     const candidate = payload.data;
     return Array.isArray(candidate) ? (candidate as Record<string, unknown>[]) : null;
 }
 
-function extractUltimoNsu(payload: Record<string, unknown>): number | null {
+export function extractUltimoNsu(payload: Record<string, unknown>): number | null {
     const raw = payload.ultimo_nsu;
     if (typeof raw === 'number') return raw;
     if (typeof raw === 'string' && /^\d+$/.test(raw)) return Number(raw);
@@ -135,7 +135,7 @@ function extractUltimoNsu(payload: Record<string, unknown>): number | null {
  * `GET /distribuicao/nfe/documentos/{id}/xml`. A chave de acesso só serve pra identidade local
  * (coluna `accessKey`, idempotência) — nunca pra montar a URL de download.
  */
-function extractDocumentoId(raw: unknown): string | null {
+export function extractDocumentoId(raw: unknown): string | null {
     if (!raw || typeof raw !== 'object') return null;
     const id = (raw as Record<string, unknown>).id;
     return typeof id === 'string' && id.length > 0 ? id : null;

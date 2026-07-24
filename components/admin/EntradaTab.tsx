@@ -329,7 +329,8 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
     setShowPrescanQR(false);
     setPrescanError(null);
 
-    const data = await lookupNfe(rawScan);
+    const effectiveHubId = isHub ? hubId : peopleForm.hubId;
+    const data = await lookupNfe(rawScan, (effectiveHubId || '').trim() || undefined);
     if (!data) {
       setPrescanError('Não foi possível ler o QR Code. Tente manualmente ou insira a chave abaixo.');
       return;
@@ -378,6 +379,39 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
         }
       } catch {
         // silencioso — usuário seleciona Remetente manualmente
+      }
+    }
+
+    // Destinatário: mesmo padrão do remetente acima. Só vem preenchido quando a chave já foi
+    // resolvida via ACBr (Distribuição NF-e) — a BrasilAPI (fallback do emitente) não tem esse
+    // dado, só cadastro do CNPJ emitente. Sem isso, `doGravarPessoas` bloqueia o salvamento
+    // (exige remetente E destinatário) e o usuário tinha que digitar tudo na mão.
+    if (data.destinatario?.cnpj) {
+      const destinatario = data.destinatario;
+      try {
+        const res = await personsApi.search(destinatario.cnpj);
+        const persons: Person[] = (res as any)?.data ?? [];
+        const match = persons.find(
+          (p) => p.document.replace(/\D/g, '') === destinatario.cnpj.replace(/\D/g, '')
+        );
+        if (match) {
+          setPeopleForm((f) => ({ ...f, destinatario: match }));
+        } else if (destinatario.razaoSocial) {
+          try {
+            const createRes = await personsApi.create({
+              documentType: 'CNPJ',
+              document: destinatario.cnpj,
+              legalName: destinatario.razaoSocial,
+              ...(destinatario.ie ? { stateRegistration: destinatario.ie } : {}),
+            });
+            const newPerson: Person = (createRes as any)?.data ?? createRes;
+            setPeopleForm((f) => ({ ...f, destinatario: newPerson }));
+          } catch {
+            // silencioso — usuário seleciona Destinatário manualmente
+          }
+        }
+      } catch {
+        // silencioso — usuário seleciona Destinatário manualmente
       }
     }
   };

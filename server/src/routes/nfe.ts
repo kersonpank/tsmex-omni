@@ -2,8 +2,8 @@ import { Router, Request, Response, NextFunction } from 'express';
 import axios from 'axios';
 import { authenticate } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { findCargoDataForChave } from './intakeDemands.js';
 import { resolveStateRegistration } from '../services/fiscal/resolveStateRegistration.js';
+import { fetchNfeCompleta } from '../services/fiscal/fetchNfeCompleta.js';
 
 const router = Router();
 
@@ -117,13 +117,31 @@ router.get('/:chave', authenticate, async (req: Request, res: Response, next: Ne
       // BrasilAPI falhou — retorna sem razão social, não bloqueia operação
     }
 
+    // Cascata: nossa base (grátis) > ACBr sob demanda via cons-chave (síncrono, persiste pra
+    // próxima vez sair grátis também) > o que já temos da BrasilAPI acima. `hubId` decide qual
+    // FiscalEmitter/CNPJ usar pra falar com a ACBr — sem ele (ex.: ADMIN sem hub selecionado
+    // ainda), cai direto pro fallback parcial da BrasilAPI, sem erro.
+    const hubId = typeof req.query.hubId === 'string' ? req.query.hubId : undefined;
+    let cargoData: Awaited<ReturnType<typeof fetchNfeCompleta>> = null;
+    try {
+      cargoData = await fetchNfeCompleta(hubId, chave);
+    } catch {
+      // Busca completa é best-effort — nunca bloqueia o lookup da NF-e.
+    }
+
+    if (cargoData?.emitente?.razaoSocial) emitenteRazaoSocial = cargoData.emitente.razaoSocial;
+    if (cargoData?.emitente?.municipio) emitenteMunicipio = cargoData.emitente.municipio;
+
     // IE (Inscrição Estadual): resolve pela fonte mais barata — Person já cadastrado > XML da
     // NF-e já baixado via Distribuição ACBr (grátis, já pago) > Sintegra (crédito, só se as
     // duas anteriores não resolverem). Nunca bloqueia a resposta se qualquer etapa falhar.
     let emitenteIe: string | undefined;
+    let destinatarioIe: string | undefined;
     try {
-      const cargoData = await findCargoDataForChave(chave);
       emitenteIe = await resolveStateRegistration(parsed.cnpjEmit, cargoData?.emitente?.ie);
+      if (cargoData?.destinatario?.cnpj) {
+        destinatarioIe = await resolveStateRegistration(cargoData.destinatario.cnpj, cargoData.destinatario.ie);
+      }
     } catch {
       // Resolução de IE é best-effort — nunca bloqueia o lookup da NF-e.
     }
@@ -145,6 +163,13 @@ router.get('/:chave', authenticate, async (req: Request, res: Response, next: Ne
         emitenteNumero,
         emitenteBairro,
         emitenteIe: emitenteIe ?? null,
+        destinatario: cargoData?.destinatario?.cnpj
+          ? {
+              cnpj: cargoData.destinatario.cnpj,
+              razaoSocial: cargoData.destinatario.razaoSocial || null,
+              ie: destinatarioIe ?? null,
+            }
+          : null,
         modelo: parsed.mod === '55' ? 'NF-e' : parsed.mod === '57' ? 'CT-e' : parsed.mod,
       },
     });

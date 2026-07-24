@@ -1382,7 +1382,7 @@ export const uploadApi = {
 
 // NF-e Lookup
 export const nfeApi = {
-  lookup: (chave: string) =>
+  lookup: (chave: string, hubId?: string) =>
     api.get<{ success: boolean; data: {
       chave: string;
       uf: string;
@@ -1398,8 +1398,9 @@ export const nfeApi = {
       emitenteNumero: string | null;
       emitenteBairro: string | null;
       emitenteIe: string | null;
+      destinatario: { cnpj: string; razaoSocial: string | null; ie: string | null } | null;
       modelo: string;
-    } }>(`/nfe/${encodeURIComponent(chave)}`),
+    } }>(`/nfe/${encodeURIComponent(chave)}`, { params: hubId ? { hubId } : undefined }),
 };
 
 // ========== SYSTEM ALERTS API ==========
