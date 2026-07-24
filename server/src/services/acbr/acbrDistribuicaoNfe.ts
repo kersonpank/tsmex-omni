@@ -30,6 +30,21 @@ export async function solicitarDistribuicaoNfe(body: DistribuicaoNfeRequestBody)
     });
 }
 
+/**
+ * `solicitarDistribuicaoNfe` + persiste o `ultimo_nsu` da resposta como checkpoint — extraído do
+ * handler de `POST /distribuicao-nfe/solicitar` (`fiscalDistribuicao.ts`) pra ser reusável pelo
+ * bootstrap automático (`ensureDistribuicaoBootstrap.ts`), que precisa da mesma lógica fora do
+ * contexto de uma requisição HTTP.
+ */
+export async function solicitarEPersistirNsu(body: DistribuicaoNfeRequestBody): Promise<Record<string, unknown>> {
+    const data = await solicitarDistribuicaoNfe(body);
+    const ultimo = (data as { ultimo_nsu?: number }).ultimo_nsu;
+    if (typeof ultimo === 'number') {
+        await setUltimoNsuStored(body.cpf_cnpj, body.ambiente, String(ultimo));
+    }
+    return data;
+}
+
 export async function listarDocumentosDistribuicao(params: { top?: number; skip?: number } = {}): Promise<Record<string, unknown>> {
     const q = new URLSearchParams();
     if (params.top != null) q.set('$top', String(params.top));

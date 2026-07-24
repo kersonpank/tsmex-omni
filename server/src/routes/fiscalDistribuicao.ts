@@ -7,7 +7,7 @@ import {
     getUltimoNsuStored,
     listarDocumentosDistribuicao,
     setUltimoNsuStored,
-    solicitarDistribuicaoNfe,
+    solicitarEPersistirNsu,
     type DistribuicaoNfeRequestBody,
 } from '../services/acbr/acbrDistribuicaoNfe.js';
 import { isAcbrCredentialsConfigured } from '../services/acbr/acbrConfig.js';
@@ -40,11 +40,7 @@ router.post('/distribuicao-nfe/solicitar', async (req: AuthRequest, res: Respons
             const last = await getUltimoNsuStored(body.cpf_cnpj, body.ambiente);
             body.dist_nsu = parseInt(last, 10) || 0;
         }
-        const data = await solicitarDistribuicaoNfe(body);
-        const ultimo = (data as { ultimo_nsu?: number }).ultimo_nsu;
-        if (typeof ultimo === 'number') {
-            await setUltimoNsuStored(body.cpf_cnpj, body.ambiente, String(ultimo));
-        }
+        const data = await solicitarEPersistirNsu(body);
         res.json({ success: true, data });
     } catch (e) {
         if (e instanceof z.ZodError) return next(new AppError(e.errors[0]?.message ?? 'Payload inválido', 400));

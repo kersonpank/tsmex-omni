@@ -20,6 +20,7 @@ import {
     type GetCargoDataDeps,
 } from '../services/fiscal/nfeDistribuicaoCargoData.js';
 import type { ParsedNfeCargo } from '../services/acbr/nfeXmlParser.js';
+import { ensureDistribuicaoBootstrap } from '../services/fiscal/ensureDistribuicaoBootstrap.js';
 
 const router = Router();
 
@@ -352,6 +353,9 @@ router.post('/demands/from-nfe-key', async (req: AuthRequest, res: Response, nex
         const data = fromNfeKeySchema.parse(req.body);
         const expectedHubId = requireResolvedHubId(resolveExpectedHubId(req, data.expectedHubId));
         const cargoData = await findCargoDataForChave(data.chave);
+        // Best-effort: primeira chave real bipada pra um Hub sem Distribuição NF-e ativa já
+        // semeia o NSU e liga o pipeline sozinho — nunca bloqueia a criação da demanda.
+        await ensureDistribuicaoBootstrap(expectedHubId, data.chave);
 
         const { demand, lookup } = await createIntakeDemandFromNfeKey({
             chave: data.chave,
