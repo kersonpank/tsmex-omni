@@ -78,8 +78,18 @@ function makeFakePrisma(seed: FakeDoc[] = []) {
                         if (where.status && d.status !== where.status) return false;
                         if (where.fiscalEmitterId && d.fiscalEmitterId !== where.fiscalEmitterId) return false;
                         if (where.fiscalEmitter?.hubId && d.fiscalEmitter?.hubId !== where.fiscalEmitter.hubId) return false;
+                        if (where.cnpjEmitente && d.cnpjEmitente !== where.cnpjEmitente) return false;
                         return true;
                     });
+                }) as any,
+                count: (async ({ where }: any) => {
+                    return store.filter((d) => {
+                        if (where.status && d.status !== where.status) return false;
+                        if (where.fiscalEmitterId && d.fiscalEmitterId !== where.fiscalEmitterId) return false;
+                        if (where.fiscalEmitter?.hubId && d.fiscalEmitter?.hubId !== where.fiscalEmitter.hubId) return false;
+                        if (where.cnpjEmitente && d.cnpjEmitente !== where.cnpjEmitente) return false;
+                        return true;
+                    }).length;
                 }) as any,
             },
         },

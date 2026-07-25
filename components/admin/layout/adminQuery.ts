@@ -1,10 +1,10 @@
 export type Category = 'pessoas' | 'transport' | 'commercial' | 'fleet' | 'finance' | 'general';
-export type TransportSubTab = 'demands' | 'viagens' | 'pedidos' | 'motoristas' | 'rotas' | 'hubs' | 'entrada';
+export type TransportSubTab = 'demands' | 'viagens' | 'pedidos' | 'motoristas' | 'rotas' | 'hubs' | 'entrada' | 'nfe';
 export type CommercialSubTab = 'cotacoes' | 'clientes' | 'tarifas';
 export type GeneralSubTab = 'settings' | 'especies' | 'identidade';
 
 const CATEGORIES: Category[] = ['pessoas', 'transport', 'commercial', 'fleet', 'finance', 'general'];
-const TRANSPORT_SUBS: TransportSubTab[] = ['entrada', 'demands', 'viagens', 'pedidos', 'motoristas', 'rotas', 'hubs'];
+const TRANSPORT_SUBS: TransportSubTab[] = ['entrada', 'demands', 'viagens', 'pedidos', 'motoristas', 'rotas', 'hubs', 'nfe'];
 const COMMERCIAL_SUBS: CommercialSubTab[] = ['cotacoes', 'clientes', 'tarifas'];
 const GENERAL_SUBS: GeneralSubTab[] = ['settings', 'especies', 'identidade'];
 
@@ -221,6 +221,7 @@ export function getAdminBreadcrumbs(state: AdminNavState, isHub: boolean): { lab
       motoristas: 'Motoristas',
       rotas: 'Rotas',
       hubs: 'Hubs',
+      nfe: 'NF-e',
     };
     crumbs.push({ label: subLabels[state.transportSubTab] });
   } else if (state.category === 'commercial') {
@@ -284,6 +285,7 @@ export function getAdminPageTitle(state: AdminNavState, isHub: boolean): { title
       motoristas: { title: 'Motoristas', subtitle: 'Links, aprovação e suspensão.' },
       rotas: { title: 'Rotas', subtitle: 'Rotas de precificação e tarifas.' },
       hubs: { title: 'Hubs', subtitle: 'CDs, filiais e cadastro de depósitos.' },
+      nfe: { title: 'NF-e identificadas', subtitle: 'Notas que a SEFAZ confirmou serem do CNPJ de um emitente cadastrado — demandas previstas até virarem Pedido.' },
     };
     return m[state.transportSubTab];
   }

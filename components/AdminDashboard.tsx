@@ -16,6 +16,7 @@ import ClientesTab from './admin/ClientesTab';
 import MotoristasTab from './admin/MotoristasTab';
 import FrotaTab from './admin/FrotaTab';
 import FaturasTab from './admin/FaturasTab';
+import NfeDistribuicaoMonitorTab from './admin/NfeDistribuicaoMonitorTab';
 import EntradaTab from './admin/EntradaTab';
 import TarifasTab from './commercial/TarifasTab';
 import AdminShell from './admin/layout/AdminShell';
@@ -396,6 +397,7 @@ const AdminDashboard: React.FC = () => {
       {navState.category === 'transport' && navState.transportSubTab === 'motoristas' && <MotoristasTab />}
       {navState.category === 'transport' && navState.transportSubTab === 'rotas' && <TransportTab />}
       {navState.category === 'transport' && navState.transportSubTab === 'hubs' && <HubsTab />}
+      {navState.category === 'transport' && navState.transportSubTab === 'nfe' && <NfeDistribuicaoMonitorTab />}
       {navState.category === 'commercial' && navState.commercialSubTab === 'cotacoes' && <CommercialTab forceSubTab="pipeline" />}
       {navState.category === 'commercial' && navState.commercialSubTab === 'clientes' && <ClientesTab />}
       {navState.category === 'commercial' && navState.commercialSubTab === 'tarifas' && <TarifasTab />}

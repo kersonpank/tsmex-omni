@@ -12,6 +12,8 @@ import {
 } from '../services/acbr/acbrDistribuicaoNfe.js';
 import { isAcbrCredentialsConfigured } from '../services/acbr/acbrConfig.js';
 import { enqueueSyncEmitterJob } from '../services/queues/distribuicaoNfeQueue.js';
+import { listAllDocuments, countDocumentsByStatus } from '../services/fiscal/nfeDistribuicaoRepo.js';
+import type { NfeDistribuicaoDocumentoStatus } from '@prisma/client';
 
 const router = Router();
 
@@ -116,6 +118,25 @@ router.post('/distribuicao-nfe/emitters/:fiscalEmitterId/sync-now', authorize('A
         }
         const jobId = await enqueueSyncEmitterJob(emitter.id);
         res.status(202).json({ success: true, data: { jobId } });
+    } catch (e) {
+        next(e);
+    }
+});
+
+/**
+ * Visão ADMIN do pipeline inteiro de Distribuição NF-e (todos os status, não só
+ * READY_FOR_TRIAGE como `/triagem`) — cross-hub por natureza, ADMIN-only.
+ */
+router.get('/distribuicao-nfe/monitor', authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const status = typeof req.query.status === 'string' ? (req.query.status as NfeDistribuicaoDocumentoStatus) : undefined;
+        const fiscalEmitterId = typeof req.query.fiscalEmitterId === 'string' ? req.query.fiscalEmitterId : undefined;
+        const cnpjEmitente = typeof req.query.cnpjEmitente === 'string' ? req.query.cnpjEmitente : undefined;
+        const [documentos, counts] = await Promise.all([
+            listAllDocuments({ status, fiscalEmitterId, cnpjEmitente }),
+            countDocumentsByStatus({ fiscalEmitterId, cnpjEmitente }),
+        ]);
+        res.json({ success: true, data: { documentos, counts } });
     } catch (e) {
         next(e);
     }

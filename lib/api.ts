@@ -376,6 +376,30 @@ export const nfeDistribuicaoTriagemApi = {
     },
 };
 
+/** Visão ADMIN do pipeline inteiro (todos os status) — não confundir com a triagem acima. */
+export interface NfeDistribuicaoMonitorDocumento {
+    id: string;
+    accessKey: string;
+    cnpjEmitente: string;
+    tipo: string;
+    status: string;
+    lastError?: string | null;
+    convertedDemand?: { id: string; status: string } | null;
+    discardedAt?: string | null;
+    fiscalEmitter: { displayName: string | null; hub: { code: string; name: string } | null };
+    createdAt: string;
+}
+
+export const nfeDistribuicaoMonitorApi = {
+    list: async (params?: { status?: string; fiscalEmitterId?: string; cnpjEmitente?: string }) => {
+        const response = await api.get<ApiResponse<{ documentos: NfeDistribuicaoMonitorDocumento[]; counts: Record<string, number> }>>(
+            '/fiscal/distribuicao-nfe/monitor',
+            { params },
+        );
+        return response.data;
+    },
+};
+
 // ========== MANIFESTS API ==========
 
 export const manifestsApi = {

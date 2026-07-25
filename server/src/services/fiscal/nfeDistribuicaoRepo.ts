@@ -1,4 +1,4 @@
-import type { NfeDistribuicaoDocumentoTipo, Prisma } from '@prisma/client';
+import type { NfeDistribuicaoDocumentoStatus, NfeDistribuicaoDocumentoTipo, Prisma } from '@prisma/client';
 import prisma from '../../lib/prisma.js';
 
 /**
@@ -10,7 +10,7 @@ export interface NfeDistribuicaoRepoDeps {
     prisma: {
         nfeDistribuicaoDocumento: Pick<
             typeof prisma.nfeDistribuicaoDocumento,
-            'findUnique' | 'create' | 'updateMany' | 'update' | 'findMany'
+            'findUnique' | 'create' | 'updateMany' | 'update' | 'findMany' | 'count'
         >;
     };
 }
@@ -148,4 +148,57 @@ export async function markDiscarded(
         data: { status: 'DISCARDED', discardedAt: new Date(), discardedByUserId: userId },
     });
     return result.count > 0;
+}
+
+export interface ListAllDocumentsFilter {
+    status?: NfeDistribuicaoDocumentoStatus;
+    fiscalEmitterId?: string;
+    hubId?: string;
+    cnpjEmitente?: string;
+    limit?: number;
+}
+
+/**
+ * Visão administrativa de TODOS os status (não só READY_FOR_TRIAGE como `listReadyForTriage`) —
+ * pro painel ADMIN de monitoramento (`GET /distribuicao-nfe/monitor`), que precisa enxergar o
+ * pipeline inteiro (descoberta → manifestação → triagem → conversão/descarte → erro).
+ */
+export async function listAllDocuments(
+    filter: ListAllDocumentsFilter = {},
+    deps: NfeDistribuicaoRepoDeps = defaultNfeDistribuicaoRepoDeps,
+) {
+    return deps.prisma.nfeDistribuicaoDocumento.findMany({
+        where: {
+            ...(filter.status ? { status: filter.status } : {}),
+            ...(filter.fiscalEmitterId ? { fiscalEmitterId: filter.fiscalEmitterId } : {}),
+            ...(filter.hubId ? { fiscalEmitter: { hubId: filter.hubId } } : {}),
+            ...(filter.cnpjEmitente ? { cnpjEmitente: filter.cnpjEmitente.replace(/\D/g, '') } : {}),
+        },
+        orderBy: { createdAt: 'desc' },
+        take: filter.limit ?? 200,
+        include: {
+            fiscalEmitter: { select: { displayName: true, hub: { select: { code: true, name: true } } } },
+            convertedDemand: { select: { id: true, status: true } },
+        },
+    });
+}
+
+const ALL_STATUSES: NfeDistribuicaoDocumentoStatus[] = [
+    'DISCOVERED', 'MANIFESTED', 'READY_FOR_TRIAGE', 'CONVERTED', 'DISCARDED', 'FAILED', 'PENDING_RECONCILIATION',
+];
+
+/** Contagem por status — tira de "saúde do pipeline" no topo do painel ADMIN. */
+export async function countDocumentsByStatus(
+    filter: { fiscalEmitterId?: string; hubId?: string; cnpjEmitente?: string } = {},
+    deps: NfeDistribuicaoRepoDeps = defaultNfeDistribuicaoRepoDeps,
+): Promise<Record<NfeDistribuicaoDocumentoStatus, number>> {
+    const baseWhere = {
+        ...(filter.fiscalEmitterId ? { fiscalEmitterId: filter.fiscalEmitterId } : {}),
+        ...(filter.hubId ? { fiscalEmitter: { hubId: filter.hubId } } : {}),
+        ...(filter.cnpjEmitente ? { cnpjEmitente: filter.cnpjEmitente.replace(/\D/g, '') } : {}),
+    };
+    const counts = await Promise.all(
+        ALL_STATUSES.map((status) => deps.prisma.nfeDistribuicaoDocumento.count({ where: { ...baseWhere, status } })),
+    );
+    return Object.fromEntries(ALL_STATUSES.map((status, i) => [status, counts[i]])) as Record<NfeDistribuicaoDocumentoStatus, number>;
 }

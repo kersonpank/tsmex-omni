@@ -96,6 +96,7 @@ export function buildAdminNavSections({
         { id: 'mo', label: 'Motoristas', active: !onOrderDetailPage && category === 'transport' && transportSubTab === 'motoristas', onSelect: go({ category: 'transport', transportSubTab: 'motoristas' }) },
         { id: 'ro', label: 'Rotas', active: !onOrderDetailPage && category === 'transport' && transportSubTab === 'rotas', onSelect: go({ category: 'transport', transportSubTab: 'rotas' }) },
         { id: 'hu', label: 'Hubs', active: !onOrderDetailPage && category === 'transport' && transportSubTab === 'hubs', onSelect: go({ category: 'transport', transportSubTab: 'hubs' }) },
+        { id: 'nf', label: 'NF-e', active: !onOrderDetailPage && category === 'transport' && transportSubTab === 'nfe', onSelect: go({ category: 'transport', transportSubTab: 'nfe' }) },
       ],
     },
     { title: 'Cadastros', items: [{ id: 'pes', label: 'Pessoas', active: category === 'pessoas', onSelect: go({ category: 'pessoas' }) }] },
