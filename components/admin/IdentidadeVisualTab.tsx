@@ -729,7 +729,7 @@ const IdentidadeVisualTab: React.FC = () => {
             </div>
           </EmitterAccordion>
 
-          <EmitterAccordion title="Provedores" defaultOpen={false}>
+          <EmitterAccordion title="Provedores" defaultOpen>
             <p className="mb-4 text-xs text-tower-500 dark:text-tower-400">
               Credenciais OAuth ACBr ficam no Portainer. Aqui você define se este emitente usa a ACBr para emissão e cadastro.
             </p>
@@ -768,16 +768,22 @@ const IdentidadeVisualTab: React.FC = () => {
                 de ~90 dias da SEFAZ, consumindo 1 crédito ACBr por documento retornado.
               </p>
             )}
-            {isAdmin && selectedEmitterId && form.distribuicaoNfeEnabled && (
+            {isAdmin && selectedEmitterId && (
               <div className="mt-2">
                 <button
                   type="button"
                   onClick={() => void handleSyncDistribuicaoNow()}
-                  disabled={syncingDistribuicao}
+                  disabled={syncingDistribuicao || !form.distribuicaoNfeEnabled}
+                  title={!form.distribuicaoNfeEnabled ? 'Ligue "Varredura automática de Distribuição NF-e" acima antes de buscar manualmente.' : undefined}
                   className="admin-focus rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
                 >
                   {syncingDistribuicao ? 'Solicitando…' : 'Buscar agora'}
                 </button>
+                {!form.distribuicaoNfeEnabled && (
+                  <p className="mt-1 text-xs text-tower-500 dark:text-tower-400">
+                    Ligue a varredura automática acima pra habilitar a busca manual.
+                  </p>
+                )}
                 {syncDistribuicaoMessage && (
                   <p className="mt-2 text-xs text-tower-600 dark:text-tower-300">{syncDistribuicaoMessage}</p>
                 )}
