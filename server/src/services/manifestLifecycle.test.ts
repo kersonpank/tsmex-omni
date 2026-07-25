@@ -390,6 +390,12 @@ describe('manifestLifecycle', () => {
                         return { count: 1 };
                     }
                 },
+                manifestStop: {
+                    updateMany: async (args: any) => {
+                        txStartLog.push({ model: 'manifestStop', action: 'updateMany', args });
+                        return { count: 0 };
+                    }
+                },
                 orderHistory: {
                     create: async (args: { data: Record<string, unknown> }) => {
                         txStartLog.push({ model: 'orderHistory', action: 'create', args });

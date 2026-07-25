@@ -135,8 +135,6 @@ const ManifestModal: React.FC<{
   const [hubs, setHubs] = useState<HubOption[]>([]);
   const [linkId, setLinkId] = useState('');
   const [vehicleTypeId, setVehicleTypeId] = useState('');
-  const [notes, setNotes] = useState('');
-  const [scheduledDate, setScheduledDate] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -160,18 +158,30 @@ const ManifestModal: React.FC<{
     setSaving(true);
     setError(null);
     try {
-      const demandIds = selectedOrders.map((o) => o.demand?.id ?? o.demandId ?? o.id).filter(Boolean) as string[];
-      await manifestsApi.create({
+      const created = await manifestsApi.create({
         vehicleTypeId,
         origin,
         destination,
         tripType,
-        demandIds,
-        linkId,
         ...(tripType === 'TRANSFER' ? { destHubId } : {}),
-        ...(scheduledDate ? { scheduledDate } : {}),
-        ...(notes.trim() ? { notes: notes.trim() } : {}),
-      } as any);
+      });
+      const manifestId = (created as any)?.data?.id ?? (created as any)?.id;
+      if (!manifestId) throw new Error('Manifesto criado sem id retornado.');
+
+      const failedOrders: string[] = [];
+      for (const order of selectedOrders) {
+        try {
+          await manifestsApi.addDemand(manifestId, { orderId: order.id });
+        } catch {
+          failedOrders.push(order.nfNumber ?? order.demand?.nfNumber ?? order.id.slice(0, 8));
+        }
+      }
+
+      await manifestsApi.assignLink(manifestId, linkId);
+
+      if (failedOrders.length > 0) {
+        window.alert(`Manifesto criado, mas ${failedOrders.length} pedido(s) não entraram: ${failedOrders.join(', ')}. Adicione-os manualmente na tela de Admin.`);
+      }
       onCreated();
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Erro ao criar manifesto');
@@ -224,7 +234,7 @@ const ManifestModal: React.FC<{
             </label>
           )}
           <label className="block text-xs text-tower-600 dark:text-tower-300">
-            Motorista
+            Transportador (Link)
             <select value={linkId} onChange={(e) => setLinkId(e.target.value)} className="mt-1 w-full rounded-lg border border-tower-300 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800" required>
               <option value="">Selecione</option>
               {links.map((l) => <option key={l.id} value={l.id}>{l.name} - {l.vehiclePlate}</option>)}
@@ -237,14 +247,6 @@ const ManifestModal: React.FC<{
               {vehicleTypes.map((vt) => <option key={vt.id} value={vt.id}>{vt.name}</option>)}
             </select>
           </label>
-          <label className="block text-xs text-tower-600 dark:text-tower-300">
-            Data prevista
-            <input type="date" value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} className="mt-1 w-full rounded-lg border border-tower-300 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800" />
-          </label>
-          <label className="block text-xs text-tower-600 dark:text-tower-300">
-            Observações
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className="mt-1 w-full resize-none rounded-lg border border-tower-300 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800" />
-          </label>
           <button type="submit" disabled={saving} className="min-h-[44px] w-full rounded-xl bg-brand-600 py-3 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50">
             {saving ? 'Criando manifesto...' : 'Criar manifesto'}
           </button>
@@ -253,6 +255,41 @@ const ManifestModal: React.FC<{
     </div>
   );
 };
+
+const ManifestCard: React.FC<{ m: any; children?: React.ReactNode }> = ({ m, children }) => (
+  <div className="card-surface p-4">
+    <div className="flex items-start justify-between gap-2">
+      <div>
+        <p className="text-sm font-semibold text-tower-800 dark:text-tower-100">{m.link?.name ?? 'Sem motorista'}</p>
+        <p className="text-xs text-tower-600 dark:text-tower-400">{m.origin} → {m.destination}</p>
+      </div>
+      <span className={`rounded-full px-2 py-1 text-[11px] font-medium ${toneClassMap[MANIFEST_STATUS_TONE[m.status] ?? 'neutral']}`}>{MANIFEST_STATUS_LABEL[m.status] ?? m.status}</span>
+    </div>
+    {m.tripStops && m.tripStops.length > 0 && (
+      <ul className="mt-2 space-y-1 text-xs text-tower-600 dark:text-tower-300">
+        {m.tripStops.map((s: any) => (
+          <li key={s.id}>
+            #{s.sequence} — {s.destHub ? `${s.destHub.name} (${s.destHub.code})` : (s.destinationLabel ?? s.destCity ?? 'Parada')}
+            {s.completedAt ? ' · Concluída' : ' · Pendente'}
+          </li>
+        ))}
+      </ul>
+    )}
+    <div className="mt-3 flex items-center justify-between text-xs pt-2 border-t border-tower-100 dark:border-tower-800">
+      <span className="text-tower-500 dark:text-tower-400">Margem:</span>
+      {m.costComplete ? (
+        <span className={`font-semibold ${(m.margin ?? 0) >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(m.margin ?? 0)} ({m.marginPercent?.toFixed(1) ?? '0.0'}%)
+        </span>
+      ) : (
+        <span className="rounded bg-yellow-500/10 px-1.5 py-0.5 text-[10px] font-medium text-yellow-600 dark:text-yellow-400">
+          Custo não definido
+        </span>
+      )}
+    </div>
+    {children}
+  </div>
+);
 
 const HubHome: React.FC = () => {
   const { user, logout } = useAuthStore();
@@ -347,6 +384,15 @@ const HubHome: React.FC = () => {
   useEffect(() => { void load(); }, [load]);
 
   const manifestosAtivos = useMemo(() => manifestos.filter((m) => ACTIVE_MANIFEST_STATUSES.includes(m.status)), [manifestos]);
+  const myHubId = user?.hubId;
+  const manifestosSaindo = useMemo(() => manifestosAtivos.filter((m) => m.hubId === myHubId), [manifestosAtivos, myHubId]);
+  const manifestosChegando = useMemo(
+    () =>
+      manifestosAtivos.filter(
+        (m) => m.hubId !== myHubId && (m.destHubId === myHubId || (m.tripStops ?? []).some((s) => s.destHubId === myHubId))
+      ),
+    [manifestosAtivos, myHubId]
+  );
   const orderIdsInManifest = useMemo(() => new Set(manifestosAtivos.flatMap((m) => (m.demands ?? []).map((d) => d.id))), [manifestosAtivos]);
   const pedidosSemManifesto = useMemo(() => orders.filter((o) => !orderIdsInManifest.has(o.demand?.id ?? o.id)), [orders, orderIdsInManifest]);
   const selectedOrders = useMemo(() => orders.filter((o) => selectedOrderIds.has(o.id)), [orders, selectedOrderIds]);
@@ -401,6 +447,28 @@ const HubHome: React.FC = () => {
       setError(e.response?.data?.error || e.message || 'Erro ao anexar arquivo');
     } finally {
       setAttachmentUploadingOrderId(null);
+    }
+  };
+
+  const handleReceiveStop = async (manifestId: string, stopId: string) => {
+    if (!window.confirm('Confirmar recebimento desta carga no seu hub?')) return;
+    setError(null);
+    try {
+      await manifestsApi.completeStop(manifestId, stopId);
+      await load();
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Erro ao confirmar recebimento');
+    }
+  };
+
+  const handleReceiveManifest = async (manifestId: string) => {
+    if (!window.confirm('Confirmar recebimento desta viagem no seu hub?')) return;
+    setError(null);
+    try {
+      await manifestsApi.complete(manifestId);
+      await load();
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Erro ao confirmar recebimento');
     }
   };
 
@@ -615,32 +683,45 @@ const HubHome: React.FC = () => {
         )}
 
         {!loading && tab === 'manifestos' && (
-          <section className="space-y-3">
-            {manifestosAtivos.length === 0 && <div className="rounded-xl border border-dashed border-tower-300 p-6 text-center text-sm text-tower-600 dark:border-tower-600 dark:text-tower-300">Nenhum manifesto ativo.</div>}
-            {manifestos.map((m: any) => (
-              <div key={m.id} className="card-surface p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-semibold text-tower-800 dark:text-tower-100">{m.link?.name ?? 'Sem motorista'}</p>
-                    <p className="text-xs text-tower-600 dark:text-tower-400">{m.origin} → {m.destination}</p>
-                  </div>
-                  <span className={`rounded-full px-2 py-1 text-[11px] font-medium ${toneClassMap[MANIFEST_STATUS_TONE[m.status] ?? 'neutral']}`}>{MANIFEST_STATUS_LABEL[m.status] ?? m.status}</span>
-                </div>
-                
-                <div className="mt-3 flex items-center justify-between text-xs pt-2 border-t border-tower-100 dark:border-tower-800">
-                  <span className="text-tower-500 dark:text-tower-400">Margem:</span>
-                  {m.costComplete ? (
-                    <span className={`font-semibold ${(m.margin ?? 0) >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(m.margin ?? 0)} ({m.marginPercent?.toFixed(1) ?? '0.0'}%)
-                    </span>
-                  ) : (
-                    <span className="rounded bg-yellow-500/10 px-1.5 py-0.5 text-[10px] font-medium text-yellow-600 dark:text-yellow-400">
-                      Custo não definido
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
+          <section className="space-y-6">
+            <div className="space-y-3">
+              <h3 className="font-display text-sm font-semibold text-tower-800 dark:text-tower-100">Saindo do seu hub</h3>
+              {manifestosSaindo.length === 0 && <div className="rounded-xl border border-dashed border-tower-300 p-6 text-center text-sm text-tower-600 dark:border-tower-600 dark:text-tower-300">Nenhuma viagem saindo.</div>}
+              {manifestosSaindo.map((m: any) => (
+                <ManifestCard key={m.id} m={m} />
+              ))}
+            </div>
+
+            <div className="space-y-3">
+              <h3 className="font-display text-sm font-semibold text-tower-800 dark:text-tower-100">Chegando ao seu hub</h3>
+              {manifestosChegando.length === 0 && <div className="rounded-xl border border-dashed border-tower-300 p-6 text-center text-sm text-tower-600 dark:border-tower-600 dark:text-tower-300">Nenhuma viagem chegando.</div>}
+              {manifestosChegando.map((m: any) => {
+                const pendingStopHere = (m.tripStops ?? []).find((s: any) => s.destHubId === myHubId && !s.completedAt);
+                const canReceiveLegacy = (!m.tripStops || m.tripStops.length === 0) && m.status === 'IN_PROGRESS';
+                return (
+                  <ManifestCard key={m.id} m={m}>
+                    {m.status === 'IN_PROGRESS' && pendingStopHere && (
+                      <button
+                        type="button"
+                        onClick={() => handleReceiveStop(m.id, pendingStopHere.id)}
+                        className="mt-3 w-full rounded-lg bg-brand-600 py-2 text-sm font-semibold text-white hover:bg-brand-700"
+                      >
+                        Marcar recebido
+                      </button>
+                    )}
+                    {canReceiveLegacy && (
+                      <button
+                        type="button"
+                        onClick={() => handleReceiveManifest(m.id)}
+                        className="mt-3 w-full rounded-lg bg-brand-600 py-2 text-sm font-semibold text-white hover:bg-brand-700"
+                      >
+                        Marcar recebido
+                      </button>
+                    )}
+                  </ManifestCard>
+                );
+              })}
+            </div>
           </section>
         )}
       </main>

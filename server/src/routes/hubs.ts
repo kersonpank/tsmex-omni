@@ -75,12 +75,10 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
             ...(state ? { state: state as string } : {}),
         };
 
-        if (req.user!.roles.includes('HUB')) {
-            if (!req.user!.hubId) {
-                return res.json({ success: true, data: [] });
-            }
-            where.id = req.user!.hubId;
-        }
+        // Hub vê o diretório completo de hubs (todos pertencem à mesma transportadora TSM,
+        // não é fronteira multi-tenant) — precisa disso pra escolher hub destino ao criar uma
+        // viagem TRANSFER. A restrição por hubId é só pras entidades operacionais do próprio
+        // hub (pedidos, manifestos, demandas), não pro diretório de hubs em si.
 
         const hubs = await prisma.hub.findMany({
             where,

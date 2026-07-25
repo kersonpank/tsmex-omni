@@ -11,6 +11,8 @@ import type {
     QuoteDemandRequest,
     UpdateStatusRequest,
     Manifest,
+    ManifestStop,
+    ManifestFreightAgreement,
     CreateManifestRequest,
     Hub,
     Link,
@@ -418,8 +420,8 @@ export const manifestsApi = {
         return response.data;
     },
 
-    addDemand: async (manifestId: string, demandId: string) => {
-        const response = await api.post<ApiResponse<Manifest>>(`/manifests/${manifestId}/demands`, { demandId });
+    addDemand: async (manifestId: string, target: { orderId?: string; demandId?: string; stopId?: string }) => {
+        const response = await api.post<ApiResponse<Manifest>>(`/manifests/${manifestId}/demands`, target);
         return response.data;
     },
 
@@ -428,13 +430,18 @@ export const manifestsApi = {
         return response.data;
     },
 
-    assignLink: async (id: string, linkId: string) => {
-        const response = await api.patch<ApiResponse<Manifest>>(`/manifests/${id}/assign`, { linkId });
+    createStop: async (manifestId: string, data: { destHubId?: string; destinationLabel?: string; destCity?: string; destState?: string; plannedArrivalAt?: string }) => {
+        const response = await api.post<ApiResponse<ManifestStop>>(`/manifests/${manifestId}/stops`, data);
         return response.data;
     },
 
-    offerToLink: async (id: string) => {
-        const response = await api.post<ApiResponse<Manifest>>(`/manifests/${id}/offer`);
+    completeStop: async (manifestId: string, stopId: string) => {
+        const response = await api.patch<ApiResponse<{ allStopsCompleted: boolean }>>(`/manifests/${manifestId}/stops/${stopId}/complete`);
+        return response.data;
+    },
+
+    assignLink: async (id: string, linkId: string) => {
+        const response = await api.patch<ApiResponse<Manifest>>(`/manifests/${id}/assign`, { linkId });
         return response.data;
     },
 
@@ -448,13 +455,28 @@ export const manifestsApi = {
         return response.data;
     },
 
-    start: async (id: string) => {
-        const response = await api.patch<ApiResponse<Manifest>>(`/manifests/${id}/start`);
+    start: async (id: string, data?: { kmSaida?: number }) => {
+        const response = await api.patch<ApiResponse<Manifest>>(`/manifests/${id}/start`, data ?? {});
         return response.data;
     },
 
-    complete: async (id: string) => {
-        const response = await api.patch<ApiResponse<Manifest>>(`/manifests/${id}/complete`);
+    complete: async (id: string, data?: { kmChegada?: number }) => {
+        const response = await api.patch<ApiResponse<Manifest>>(`/manifests/${id}/complete`, data ?? {});
+        return response.data;
+    },
+
+    updateCapa: async (id: string, data: { fiscalEmitterId?: string; plannedDepartureAt?: string; plannedArrivalAt?: string; notes?: string; seloLacre?: string; liberacao?: string }) => {
+        const response = await api.patch<ApiResponse<Manifest>>(`/manifests/${id}/capa`, data);
+        return response.data;
+    },
+
+    getFreightAgreement: async (id: string) => {
+        const response = await api.get<ApiResponse<ManifestFreightAgreement | null>>(`/manifests/${id}/freight-agreement`);
+        return response.data;
+    },
+
+    upsertFreightAgreement: async (id: string, data: { freteBruto: number; adiantamento?: number; pedagio?: number; irrf?: number; inss?: number; issqn?: number; sestSenat?: number; outrosDescontos?: number; outrosDescontosDescricao?: string }) => {
+        const response = await api.put<ApiResponse<ManifestFreightAgreement>>(`/manifests/${id}/freight-agreement`, data);
         return response.data;
     },
 

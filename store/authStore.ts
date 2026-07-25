@@ -9,6 +9,7 @@ interface User {
     email: string;
     roles: UserRole[];
     profile?: any;
+    hubId?: string;
 }
 
 interface AuthState {

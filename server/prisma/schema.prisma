@@ -286,6 +286,7 @@ model Hub {
   // Relationships
   manifests            Manifest[]
   manifestsDestination Manifest[]                @relation("ManifestDestHub")
+  manifestStopsAsDest  ManifestStop[]            @relation("ManifestStopDestHub")
   ordersAtHub          Order[] // Orders com status AT_HUB neste hub (currentHubId)
   expectedDemands      Demand[]                  @relation("DemandExpectedHub")
   users                User[] // Usuários que operam este hub (role HUB)
@@ -341,7 +342,8 @@ model Link {
   vehicleType   VehicleType? @relation(fields: [vehicleTypeId], references: [id])
   vehiclePlate  String
   vehicleYear   Int?
-  trailerPlate  String? // Carreta/reboque (composição veicular, CIOT)
+  trailerPlate  String? // Carreta/reboque 1 (composição veicular, CIOT)
+  trailer2Plate String? // Carreta/reboque 2 (bitrem/rodotrem, composição veicular)
   vehicleAxles  Int? // Número de eixos — crítico para cálculo de piso mínimo ANTT
 
   // Documents
@@ -739,6 +741,18 @@ model Manifest {
   ciotDispensado         Boolean         @default(false)
   ciotDispensadoMotivo   String?
 
+  // Capa da viagem (Fatia C)
+  fiscalEmitterId    String?
+  fiscalEmitter      FiscalEmitter?            @relation("ManifestFiscalEmitter", fields: [fiscalEmitterId], references: [id], onDelete: SetNull)
+  plannedDepartureAt DateTime?
+  plannedArrivalAt   DateTime?
+  notes              String?                   @db.Text
+  seloLacre          String? // lacre(s) da carroceria, separados por vírgula quando houver mais de um
+  liberacao          String?
+  kmSaida            Float? // gravado no início real da viagem (startManifest)
+  kmChegada          Float? // gravado na conclusão da última parada
+  freightAgreement   ManifestFreightAgreement?
+
   // Vehicle type
   vehicleTypeId String
   vehicleType   VehicleType @relation(fields: [vehicleTypeId], references: [id])
@@ -746,7 +760,10 @@ model Manifest {
   // Route
   origin      String
   destination String
-  stops       Json? // Array of intermediate stops
+  stops       Json? // legado — nunca consumido pela lógica de pernas; ver ManifestStop (Fatia B)
+
+  // Paradas/descargas reais da viagem (Fatia B) — 1+ por manifesto, cada OrderLeg pertence a 1
+  tripStops ManifestStop[]
 
   // Occupancy
   totalWeight Float @default(0)
@@ -899,6 +916,7 @@ model FiscalEmitter {
   freightCalculations       OrderFreightCalculation[]
   manifestFiscalDocuments   ManifestFiscalDocument[]
   nfeDistribuicaoDocumentos NfeDistribuicaoDocumento[]
+  manifestsAsTripEmitter    Manifest[]                 @relation("ManifestFiscalEmitter")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1830,25 +1848,55 @@ model PipelineColumn {
 // ========================================
 
 model OrderLeg {
-  id            String     @id @default(uuid())
+  id            String        @id @default(uuid())
   orderId       String
-  order         Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
   manifestId    String
-  manifest      Manifest   @relation(fields: [manifestId], references: [id], onDelete: Cascade)
+  manifest      Manifest      @relation(fields: [manifestId], references: [id], onDelete: Cascade)
   sequence      Int // ordem na jornada (1, 2, 3...)
   legType       LegType // COLETA | TRANSFERENCIA | ENTREGA
   executedBy    ExecutedBy // HUB | LINK
   originHubId   String? // hub de origem da perna (null na coleta na ponta)
   destHubId     String? // hub de destino da perna (null na entrega final)
+  // Parada/descarga desta viagem a que a perna pertence (Fatia B). Null = parada única
+  // implícita (comportamento anterior à Fatia B, preservado sem migração de dado).
+  stopId        String?
+  stop          ManifestStop? @relation(fields: [stopId], references: [id], onDelete: SetNull)
   startedAt     DateTime?
   completedAt   DateTime?
   allocatedCost Float?
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
   @@unique([orderId, manifestId])
   @@index([orderId])
   @@index([manifestId])
+  @@index([stopId])
+}
+
+// Uma parada/descarga real dentro de uma viagem — permite manifesto TRANSFER visitando N
+// hubs ou DELIVERY com N clientes, cada um concluído independentemente (ver
+// completeManifestStop em manifestLifecycle.ts).
+model ManifestStop {
+  id               String     @id @default(uuid())
+  manifestId       String
+  manifest         Manifest   @relation(fields: [manifestId], references: [id], onDelete: Cascade)
+  sequence         Int // ordem da parada na viagem (1, 2, 3...)
+  destHubId        String? // TRANSFER: hub de destino desta parada
+  destHub          Hub?       @relation("ManifestStopDestHub", fields: [destHubId], references: [id], onDelete: SetNull)
+  destinationLabel String? // DELIVERY: rótulo/endereço livre do cliente desta parada
+  destCity         String? // necessário para infMunDescarga do MDF-e quando não há destHubId
+  destState        String?
+  plannedArrivalAt DateTime?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  legs             OrderLeg[]
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  @@unique([manifestId, sequence])
+  @@index([manifestId])
+  @@index([destHubId])
 }
 
 enum LegType {
@@ -1867,6 +1915,27 @@ enum HubRole {
   COLETA
   DISTRIBUICAO
   TRIAGEM
+}
+
+// Carta Frete estruturada (Fatia C) — valor real acordado com o Link/transportador para esta
+// viagem específica. Quando existe, é a fonte oficial de custo do Link (substitui a estimativa
+// de LinkPricingAgreement em calculateLinkCost/getManifestMargin).
+model ManifestFreightAgreement {
+  id                       String   @id @default(uuid())
+  manifestId               String   @unique
+  manifest                 Manifest @relation(fields: [manifestId], references: [id], onDelete: Cascade)
+  freteBruto               Float
+  adiantamento             Float    @default(0)
+  pedagio                  Float    @default(0)
+  irrf                     Float    @default(0)
+  inss                     Float    @default(0)
+  issqn                    Float    @default(0)
+  sestSenat                Float    @default(0)
+  outrosDescontos          Float    @default(0)
+  outrosDescontosDescricao String?
+  saldoLiquido             Float // sempre recalculado no backend — nunca aceitar input direto
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
 }
 
 model LinkPricingAgreement {
@@ -1988,6 +2057,7 @@ enum SystemAlertCategory {
   FISCAL_PROVIDER_ERROR
   FISCAL_DISTRIBUICAO_NFE_QUOTA
   FISCAL_DISTRIBUICAO_NFE_NOT_SEEDED
+  FISCAL_ENCERRAMENTO_PENDENTE
   GENERIC
 }
 

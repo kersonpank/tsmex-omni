@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "SystemAlertCategory" ADD VALUE 'FISCAL_ENCERRAMENTO_PENDENTE';

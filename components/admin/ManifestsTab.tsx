@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAuthStore } from '../../store/authStore';
-import { manifestsApi, vehicleTypesApi, linksApi, demandsApi, hubsApi } from '../../lib/api';
-import type { Manifest, ManifestTripType, VehicleType, Link, Demand, Hub, Driver, CiotTipoViagemSuggestion, CiotEmissionJob, EmitCiotRequest, CiotTipoViagem } from '../../types/index';
+import { manifestsApi, vehicleTypesApi, linksApi, ordersApi, hubsApi, fiscalEmittersApi } from '../../lib/api';
+import type { Manifest, ManifestTripType, VehicleType, Link, OrderListItem, Hub, Driver, CiotTipoViagemSuggestion, CiotEmissionJob, EmitCiotRequest, CiotTipoViagem, FiscalEmitter } from '../../types/index';
 import type { StatusTone } from '../../lib/demandStatusUi';
 import EmptyState from '../ui/EmptyState';
 import InlineNotice from '../ui/InlineNotice';
@@ -41,14 +41,23 @@ const ManifestsTab: React.FC = () => {
   const [manifests, setManifests] = useState<Manifest[]>([]);
   const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
   const [links, setLinks] = useState<Link[]>([]);
-  const [demandsAvailable, setDemandsAvailable] = useState<Demand[]>([]);
+  const [ordersAvailable, setOrdersAvailable] = useState<OrderListItem[]>([]);
   const [hubs, setHubs] = useState<Hub[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showAddDemand, setShowAddDemand] = useState<string | null>(null);
+  const [selectedStopId, setSelectedStopId] = useState('');
+  const [showAddStop, setShowAddStop] = useState<string | null>(null);
+  const [newStopForm, setNewStopForm] = useState({ destHubId: '', destinationLabel: '', destCity: '', destState: '' });
   const [showAssign, setShowAssign] = useState<string | null>(null);
+  const [showCapa, setShowCapa] = useState<string | null>(null);
+  const [fiscalEmitters, setFiscalEmitters] = useState<FiscalEmitter[]>([]);
+  const [capaForm, setCapaForm] = useState({ fiscalEmitterId: '', plannedDepartureAt: '', plannedArrivalAt: '', notes: '', seloLacre: '', liberacao: '' });
+  const [showFreightAgreement, setShowFreightAgreement] = useState<string | null>(null);
+  const emptyFreightForm = { freteBruto: '', adiantamento: '', pedagio: '', irrf: '', inss: '', issqn: '', sestSenat: '', outrosDescontos: '', outrosDescontosDescricao: '' };
+  const [freightForm, setFreightForm] = useState(emptyFreightForm);
   const [createForm, setCreateForm] = useState({
     vehicleTypeId: '',
     origin: '',
@@ -101,7 +110,7 @@ const ManifestsTab: React.FC = () => {
   };
   const [ciotForm, setCiotForm] = useState(emptyCiotForm);
   const [ciotContratadoDocument, setCiotContratadoDocument] = useState('');
-  const [selectedDemandId, setSelectedDemandId] = useState('');
+  const [selectedOrderId, setSelectedOrderId] = useState('');
   const [gestaoFilterOpen, setGestaoFilterOpen] = useState(false);
   const [filterStatus, setFilterStatus] = useState('');
   const [filterQ, setFilterQ] = useState('');
@@ -111,11 +120,12 @@ const ManifestsTab: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const [manRes, vtRes, linkRes, hubRes] = await Promise.all([
+      const [manRes, vtRes, linkRes, hubRes, feRes] = await Promise.all([
         manifestsApi.list({}),
         vehicleTypesApi.list(),
         linksApi.list(),
         hubsApi.list(),
+        fiscalEmittersApi.list(),
       ]);
       const manData = (manRes as any)?.data ?? manRes?.data ?? [];
       setManifests(Array.isArray(manData) ? manData : []);
@@ -125,6 +135,8 @@ const ManifestsTab: React.FC = () => {
       setLinks(Array.isArray(linkData) ? linkData : []);
       const hubData = (hubRes as any)?.data ?? hubRes?.data ?? [];
       setHubs(Array.isArray(hubData) ? hubData : []);
+      const feData = (feRes as any)?.data ?? feRes?.data ?? [];
+      setFiscalEmitters(Array.isArray(feData) ? feData : []);
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Erro ao carregar viagens');
     } finally {
@@ -132,14 +144,14 @@ const ManifestsTab: React.FC = () => {
     }
   };
 
-  const loadDemandsForAdd = async () => {
+  const loadOrdersForAdd = async (manifestId: string) => {
     try {
-      const res = await demandsApi.list({ limit: 100, status: 'APPROVED' });
+      const manifest = manifests.find((m) => m.id === manifestId);
+      const res = await ordersApi.list({ limit: 100, status: 'AT_HUB', hubId: manifest?.hubId ?? undefined });
       const data = (res as any)?.data ?? res?.data ?? [];
-      const list = Array.isArray(data) ? data : [];
-      setDemandsAvailable(list.filter((d: Demand) => !d.manifestId));
+      setOrdersAvailable(Array.isArray(data) ? data : []);
     } catch (_) {
-      setDemandsAvailable([]);
+      setOrdersAvailable([]);
     }
   };
 
@@ -170,7 +182,6 @@ const ManifestsTab: React.FC = () => {
         tripType: createForm.tripType,
         hubId: createForm.hubId || undefined,
         destHubId: createForm.tripType === 'TRANSFER' ? createForm.destHubId : undefined,
-        demandIds: [],
       });
       setSuccess('Viagem criada.');
       setShowCreate(false);
@@ -191,22 +202,72 @@ const ManifestsTab: React.FC = () => {
 
   const openAddDemand = (manifestId: string) => {
     setShowAddDemand(manifestId);
-    setSelectedDemandId('');
-    loadDemandsForAdd();
+    setSelectedOrderId('');
+    setSelectedStopId('');
+    loadOrdersForAdd(manifestId);
   };
 
   const handleAddDemand = async () => {
-    if (!showAddDemand || !selectedDemandId) return;
+    if (!showAddDemand || !selectedOrderId) return;
     setError(null);
     try {
-      await manifestsApi.addDemand(showAddDemand, selectedDemandId);
-      setSuccess('Demanda adicionada à viagem.');
+      await manifestsApi.addDemand(showAddDemand, { orderId: selectedOrderId, stopId: selectedStopId || undefined });
+      setSuccess('Pedido adicionado à viagem.');
       setShowAddDemand(null);
-      setSelectedDemandId('');
+      setSelectedOrderId('');
+      setSelectedStopId('');
       load();
       setTimeout(() => setSuccess(null), 3000);
     } catch (e: any) {
-      setError(e.response?.data?.error || e.message || 'Erro ao adicionar demanda');
+      setError(e.response?.data?.error || e.message || 'Erro ao adicionar pedido');
+    }
+  };
+
+  const openAddStop = (manifestId: string) => {
+    setShowAddStop(manifestId);
+    setNewStopForm({ destHubId: '', destinationLabel: '', destCity: '', destState: '' });
+  };
+
+  const handleAddStop = async () => {
+    if (!showAddStop) return;
+    const manifest = manifests.find((m) => m.id === showAddStop);
+    const isTransfer = manifest?.tripType === 'TRANSFER';
+    if (isTransfer && !newStopForm.destHubId) {
+      setError('Selecione o hub destino desta parada.');
+      return;
+    }
+    if (!isTransfer && !newStopForm.destinationLabel.trim() && !newStopForm.destCity.trim()) {
+      setError('Informe um rótulo ou cidade destino para esta parada.');
+      return;
+    }
+    setError(null);
+    try {
+      await manifestsApi.createStop(showAddStop, {
+        destHubId: isTransfer ? newStopForm.destHubId : undefined,
+        destinationLabel: !isTransfer && newStopForm.destinationLabel.trim() ? newStopForm.destinationLabel.trim() : undefined,
+        destCity: !isTransfer && newStopForm.destCity.trim() ? newStopForm.destCity.trim() : undefined,
+        destState: !isTransfer && newStopForm.destState.trim() ? newStopForm.destState.trim().toUpperCase() : undefined,
+      });
+      setSuccess('Parada adicionada à viagem.');
+      setShowAddStop(null);
+      load();
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Erro ao adicionar parada');
+    }
+  };
+
+  const handleCompleteStop = async (manifestId: string, stopId: string) => {
+    if (!window.confirm('Concluir esta parada? Os pedidos dela mudarão de status.')) return;
+    setError(null);
+    try {
+      const res = await manifestsApi.completeStop(manifestId, stopId);
+      const allDone = (res as any)?.data?.allStopsCompleted;
+      setSuccess(allDone ? 'Parada concluída — viagem finalizada.' : 'Parada concluída.');
+      load();
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Erro ao concluir parada');
     }
   };
 
@@ -238,15 +299,97 @@ const ManifestsTab: React.FC = () => {
     }
   };
 
-  const handleOffer = async (id: string) => {
+  const openCapa = (m: Manifest) => {
+    setShowCapa(m.id);
+    setCapaForm({
+      fiscalEmitterId: m.fiscalEmitterId ?? '',
+      plannedDepartureAt: m.plannedDepartureAt ? m.plannedDepartureAt.slice(0, 16) : '',
+      plannedArrivalAt: m.plannedArrivalAt ? m.plannedArrivalAt.slice(0, 16) : '',
+      notes: m.notes ?? '',
+      seloLacre: m.seloLacre ?? '',
+      liberacao: m.liberacao ?? '',
+    });
+  };
+
+  const handleSaveCapa = async () => {
+    if (!showCapa) return;
     setError(null);
     try {
-      await manifestsApi.offerToLink(id);
-      setSuccess('Oferta enviada ao motorista.');
+      await manifestsApi.updateCapa(showCapa, {
+        fiscalEmitterId: capaForm.fiscalEmitterId || undefined,
+        plannedDepartureAt: capaForm.plannedDepartureAt ? new Date(capaForm.plannedDepartureAt).toISOString() : undefined,
+        plannedArrivalAt: capaForm.plannedArrivalAt ? new Date(capaForm.plannedArrivalAt).toISOString() : undefined,
+        notes: capaForm.notes || undefined,
+        seloLacre: capaForm.seloLacre || undefined,
+        liberacao: capaForm.liberacao || undefined,
+      });
+      setSuccess('Capa da viagem atualizada.');
+      setShowCapa(null);
       load();
       setTimeout(() => setSuccess(null), 3000);
     } catch (e: any) {
-      setError(e.response?.data?.error || e.message);
+      setError(e.response?.data?.error || e.message || 'Erro ao salvar capa da viagem');
+    }
+  };
+
+  const openFreightAgreement = (m: Manifest) => {
+    setShowFreightAgreement(m.id);
+    const fa = m.freightAgreement;
+    setFreightForm(
+      fa
+        ? {
+            freteBruto: String(fa.freteBruto),
+            adiantamento: String(fa.adiantamento),
+            pedagio: String(fa.pedagio),
+            irrf: String(fa.irrf),
+            inss: String(fa.inss),
+            issqn: String(fa.issqn),
+            sestSenat: String(fa.sestSenat),
+            outrosDescontos: String(fa.outrosDescontos),
+            outrosDescontosDescricao: fa.outrosDescontosDescricao ?? '',
+          }
+        : emptyFreightForm
+    );
+  };
+
+  const freightFormSaldoLiquido = useMemo(() => {
+    const n = (v: string) => Number(v || 0);
+    return (
+      n(freightForm.freteBruto) +
+      n(freightForm.pedagio) -
+      n(freightForm.adiantamento) -
+      n(freightForm.irrf) -
+      n(freightForm.inss) -
+      n(freightForm.issqn) -
+      n(freightForm.sestSenat) -
+      n(freightForm.outrosDescontos)
+    );
+  }, [freightForm]);
+
+  const handleSaveFreightAgreement = async () => {
+    if (!showFreightAgreement || !freightForm.freteBruto) {
+      setError('Informe o frete bruto contratado.');
+      return;
+    }
+    setError(null);
+    try {
+      await manifestsApi.upsertFreightAgreement(showFreightAgreement, {
+        freteBruto: Number(freightForm.freteBruto),
+        adiantamento: Number(freightForm.adiantamento || 0),
+        pedagio: Number(freightForm.pedagio || 0),
+        irrf: Number(freightForm.irrf || 0),
+        inss: Number(freightForm.inss || 0),
+        issqn: Number(freightForm.issqn || 0),
+        sestSenat: Number(freightForm.sestSenat || 0),
+        outrosDescontos: Number(freightForm.outrosDescontos || 0),
+        outrosDescontosDescricao: freightForm.outrosDescontosDescricao || undefined,
+      });
+      setSuccess('Carta Frete salva.');
+      setShowFreightAgreement(null);
+      load();
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Erro ao salvar Carta Frete');
     }
   };
 
@@ -323,7 +466,20 @@ const ManifestsTab: React.FC = () => {
     setShowCiotForm(m.id);
     setCiotOverride(m.ciotTipoViagemOverride ?? '');
     setCiotJobStatus(null);
-    setCiotForm({ ...emptyCiotForm, documentoViagem: `OS-${m.id.slice(0, 8)}`, composicaoVeicular: Boolean(m.link?.trailerPlate) });
+    const fa = m.freightAgreement;
+    setCiotForm({
+      ...emptyCiotForm,
+      documentoViagem: `OS-${m.id.slice(0, 8)}`,
+      composicaoVeicular: Boolean(m.link?.trailerPlate),
+      ...(fa
+        ? {
+            totalOperacao: String(fa.freteBruto),
+            totalViagem: String(fa.freteBruto),
+            totalAdiantamento: String(fa.adiantamento),
+            pedagio: String(fa.pedagio),
+          }
+        : {}),
+    });
     setCiotContratadoDocument(m.link?.document ?? '');
     try {
       const res = await manifestsApi.ciotSuggestion(m.id);
@@ -487,7 +643,7 @@ const ManifestsTab: React.FC = () => {
       onNew: isHub ? undefined : () => setShowCreate(true),
       disabled: { edit: !selectedManifestId, new: isHub } as const,
       labels: {
-        edit: selectedManifestId ? 'Adicionar demanda à viagem selecionada' : 'Selecione uma viagem na lista',
+        edit: selectedManifestId ? 'Adicionar pedido à viagem selecionada' : 'Selecione uma viagem na lista',
         new: isHub ? 'Novas viagens são criadas pela central.' : 'Nova viagem',
       },
     }),
@@ -648,23 +804,76 @@ const ManifestsTab: React.FC = () => {
 
       {showAddDemand && (
         <div className="mb-6 bg-white dark:bg-tower-900 border border-tower-200 dark:border-tower-800 rounded-xl p-6 shadow-sm dark:shadow-none">
-          <h3 className="text-base font-bold text-tower-800 dark:text-tower-100 mb-4">Adicionar demanda à viagem</h3>
-          <div className="flex gap-2 items-end">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Demanda aprovada (sem viagem)</label>
+          <h3 className="text-base font-bold text-tower-800 dark:text-tower-100 mb-4">Adicionar pedido à viagem</h3>
+          <div className="flex gap-2 items-end flex-wrap">
+            <div className="flex-1 min-w-[240px]">
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Pedido no hub (AT_HUB)</label>
               <select
-                value={selectedDemandId}
-                onChange={(e) => setSelectedDemandId(e.target.value)}
+                value={selectedOrderId}
+                onChange={(e) => setSelectedOrderId(e.target.value)}
                 className="w-full px-3 py-2 border border-tower-200 rounded-lg"
               >
                 <option value="">Selecione</option>
-                {demandsAvailable.map((d) => (
-                  <option key={d.id} value={d.id}>{d.origin} → {d.destination} (#{d.id.slice(0, 8)})</option>
+                {ordersAvailable.map((o) => (
+                  <option key={o.id} value={o.id}>{o.demand?.origin} → {o.demand?.destination} · NF {o.nfNumber ?? o.demand?.nfNumber ?? '—'} (#{o.id.slice(0, 8)})</option>
                 ))}
               </select>
             </div>
-            <button type="button" onClick={handleAddDemand} disabled={!selectedDemandId} className="px-4 py-2 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50">Adicionar</button>
-            <button type="button" onClick={() => { setShowAddDemand(null); setSelectedDemandId(''); }} className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg">Fechar</button>
+            {(manifests.find((m) => m.id === showAddDemand)?.tripStops?.length ?? 0) > 0 && (
+              <div className="flex-1 min-w-[200px]">
+                <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Parada (opcional)</label>
+                <select
+                  value={selectedStopId}
+                  onChange={(e) => setSelectedStopId(e.target.value)}
+                  className="w-full px-3 py-2 border border-tower-200 rounded-lg"
+                >
+                  <option value="">Sem parada específica</option>
+                  {manifests.find((m) => m.id === showAddDemand)?.tripStops?.map((s) => (
+                    <option key={s.id} value={s.id}>#{s.sequence} — {s.destHub?.name ?? s.destinationLabel ?? s.destCity ?? 'Parada'}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <button type="button" onClick={handleAddDemand} disabled={!selectedOrderId} className="px-4 py-2 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50">Adicionar</button>
+            <button type="button" onClick={() => { setShowAddDemand(null); setSelectedOrderId(''); setSelectedStopId(''); }} className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg">Fechar</button>
+          </div>
+        </div>
+      )}
+
+      {showAddStop && (
+        <div className="mb-6 bg-white dark:bg-tower-900 border border-tower-200 dark:border-tower-800 rounded-xl p-6 shadow-sm dark:shadow-none">
+          <h3 className="text-base font-bold text-tower-800 dark:text-tower-100 mb-4">Adicionar parada/descarga à viagem</h3>
+          <div className="flex gap-2 items-end flex-wrap">
+            {manifests.find((m) => m.id === showAddStop)?.tripType === 'TRANSFER' ? (
+              <div className="flex-1 min-w-[240px]">
+                <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Hub destino desta parada</label>
+                <select
+                  value={newStopForm.destHubId}
+                  onChange={(e) => setNewStopForm((f) => ({ ...f, destHubId: e.target.value }))}
+                  className="w-full px-3 py-2 border border-tower-200 rounded-lg"
+                >
+                  <option value="">Selecione</option>
+                  {hubs.map((h) => <option key={h.id} value={h.id}>{h.name} ({h.code})</option>)}
+                </select>
+              </div>
+            ) : (
+              <>
+                <div className="flex-1 min-w-[200px]">
+                  <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Rótulo/cliente</label>
+                  <input value={newStopForm.destinationLabel} onChange={(e) => setNewStopForm((f) => ({ ...f, destinationLabel: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" placeholder="Ex: Loja Centro" />
+                </div>
+                <div className="min-w-[160px]">
+                  <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Cidade destino</label>
+                  <input value={newStopForm.destCity} onChange={(e) => setNewStopForm((f) => ({ ...f, destCity: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" placeholder="Ex: São Luís" />
+                </div>
+                <div className="w-24">
+                  <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">UF</label>
+                  <input value={newStopForm.destState} onChange={(e) => setNewStopForm((f) => ({ ...f, destState: e.target.value }))} maxLength={2} className="w-full px-3 py-2 border border-tower-200 rounded-lg" placeholder="MA" />
+                </div>
+              </>
+            )}
+            <button type="button" onClick={handleAddStop} className="px-4 py-2 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700">Adicionar parada</button>
+            <button type="button" onClick={() => setShowAddStop(null)} className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg">Fechar</button>
           </div>
         </div>
       )}
@@ -688,6 +897,99 @@ const ManifestsTab: React.FC = () => {
             </div>
             <button type="button" onClick={handleAssign} disabled={!assignLinkId} className="px-4 py-2 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50">Atribuir</button>
             <button type="button" onClick={() => { setShowAssign(null); setAssignLinkId(''); }} className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg">Fechar</button>
+          </div>
+        </div>
+      )}
+
+      {showCapa && (
+        <div className="mb-6 bg-white dark:bg-tower-900 border border-tower-200 dark:border-tower-800 rounded-xl p-6 shadow-sm dark:shadow-none">
+          <h3 className="text-base font-bold text-tower-800 dark:text-tower-100 mb-4">Capa da viagem</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Empresa emitente</label>
+              <select value={capaForm.fiscalEmitterId} onChange={(e) => setCapaForm((f) => ({ ...f, fiscalEmitterId: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg">
+                <option value="">Sem emitente definido</option>
+                {fiscalEmitters.map((fe) => (
+                  <option key={fe.id} value={fe.id}>{fe.displayName || fe.tradeName || fe.id.slice(0, 8)}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Saída prevista</label>
+              <input type="datetime-local" value={capaForm.plannedDepartureAt} onChange={(e) => setCapaForm((f) => ({ ...f, plannedDepartureAt: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Previsão de chegada</label>
+              <input type="datetime-local" value={capaForm.plannedArrivalAt} onChange={(e) => setCapaForm((f) => ({ ...f, plannedArrivalAt: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Lacre(s)</label>
+              <input value={capaForm.seloLacre} onChange={(e) => setCapaForm((f) => ({ ...f, seloLacre: e.target.value }))} placeholder="Ex: 25897, 25898" className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Liberação</label>
+              <input value={capaForm.liberacao} onChange={(e) => setCapaForm((f) => ({ ...f, liberacao: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Observações</label>
+              <textarea value={capaForm.notes} onChange={(e) => setCapaForm((f) => ({ ...f, notes: e.target.value }))} rows={2} className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+            </div>
+          </div>
+          <div className="mt-4 flex gap-2">
+            <button type="button" onClick={handleSaveCapa} className="px-4 py-2 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700">Salvar</button>
+            <button type="button" onClick={() => setShowCapa(null)} className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg">Fechar</button>
+          </div>
+        </div>
+      )}
+
+      {showFreightAgreement && (
+        <div className="mb-6 bg-white dark:bg-tower-900 border border-tower-200 dark:border-tower-800 rounded-xl p-6 shadow-sm dark:shadow-none">
+          <h3 className="text-base font-bold text-tower-800 dark:text-tower-100 mb-1">Carta Frete</h3>
+          <p className="text-xs text-tower-500 dark:text-tower-400 mb-4">Valor real acordado com o transportador para esta viagem — vira a fonte de custo/margem e pré-preenche o CIOT.</p>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Frete bruto contratado*</label>
+              <input type="number" min={0} value={freightForm.freteBruto} onChange={(e) => setFreightForm((f) => ({ ...f, freteBruto: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Adiantamento</label>
+              <input type="number" min={0} value={freightForm.adiantamento} onChange={(e) => setFreightForm((f) => ({ ...f, adiantamento: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Pedágio</label>
+              <input type="number" min={0} value={freightForm.pedagio} onChange={(e) => setFreightForm((f) => ({ ...f, pedagio: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">IR retido na fonte</label>
+              <input type="number" min={0} value={freightForm.irrf} onChange={(e) => setFreightForm((f) => ({ ...f, irrf: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">INSS</label>
+              <input type="number" min={0} value={freightForm.inss} onChange={(e) => setFreightForm((f) => ({ ...f, inss: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">ISSQN</label>
+              <input type="number" min={0} value={freightForm.issqn} onChange={(e) => setFreightForm((f) => ({ ...f, issqn: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">SestSenat</label>
+              <input type="number" min={0} value={freightForm.sestSenat} onChange={(e) => setFreightForm((f) => ({ ...f, sestSenat: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Outros descontos</label>
+              <input type="number" min={0} value={freightForm.outrosDescontos} onChange={(e) => setFreightForm((f) => ({ ...f, outrosDescontos: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Descrição dos outros descontos</label>
+              <input value={freightForm.outrosDescontosDescricao} onChange={(e) => setFreightForm((f) => ({ ...f, outrosDescontosDescricao: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+            </div>
+          </div>
+          <div className="mt-4 rounded-lg bg-tower-50 dark:bg-tower-800 px-4 py-3 text-sm font-semibold text-tower-800 dark:text-tower-100">
+            Saldo líquido (a pagar ao motorista): R$ {freightFormSaldoLiquido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </div>
+          <div className="mt-4 flex gap-2">
+            <button type="button" onClick={handleSaveFreightAgreement} className="px-4 py-2 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700">Salvar</button>
+            <button type="button" onClick={() => setShowFreightAgreement(null)} className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg">Fechar</button>
           </div>
         </div>
       )}
@@ -926,7 +1228,17 @@ const ManifestsTab: React.FC = () => {
                         }}
                         className="px-3 py-1.5 text-sm bg-tower-100 dark:bg-tower-800 text-tower-700 dark:text-tower-300 rounded-lg hover:bg-tower-200 dark:hover:bg-tower-700"
                       >
-                        + Demanda
+                        + Pedido
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openAddStop(m.id);
+                        }}
+                        className="px-3 py-1.5 text-sm bg-tower-100 dark:bg-tower-800 text-tower-700 dark:text-tower-300 rounded-lg hover:bg-tower-200 dark:hover:bg-tower-700"
+                      >
+                        + Parada
                       </button>
                       <button
                         type="button"
@@ -939,19 +1251,29 @@ const ManifestsTab: React.FC = () => {
                       >
                         Atribuir motorista
                       </button>
-                      {m.demands && m.demands.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOffer(m.id);
-                          }}
-                          className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm text-white hover:bg-brand-700"
-                        >
-                          Enviar oferta
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openCapa(m);
+                        }}
+                        className="px-3 py-1.5 text-sm bg-tower-100 dark:bg-tower-800 text-tower-700 dark:text-tower-300 rounded-lg hover:bg-tower-200 dark:hover:bg-tower-700"
+                      >
+                        Capa
+                      </button>
                     </>
+                  )}
+                  {m.linkId && canShowFiscalActions(m.status) && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openFreightAgreement(m);
+                      }}
+                      className="rounded-lg border border-tower-300 bg-white px-3 py-1.5 text-sm text-tower-800 hover:bg-tower-50 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100 dark:hover:bg-tower-700"
+                    >
+                      {m.freightAgreement ? `Carta Frete: R$ ${m.freightAgreement.saldoLiquido.toLocaleString('pt-BR')}` : 'Carta Frete'}
+                    </button>
                   )}
                   {(m.status === 'PENDING_ACCEPT' || m.status === 'ACCEPTED') && (
                     <button
@@ -960,7 +1282,9 @@ const ManifestsTab: React.FC = () => {
                         e.stopPropagation();
                         setError(null);
                         try {
-                          await manifestsApi.start(m.id);
+                          const kmStr = window.prompt('Km de saída (opcional):');
+                          const kmSaida = kmStr && !Number.isNaN(Number(kmStr)) ? Number(kmStr) : undefined;
+                          await manifestsApi.start(m.id, { kmSaida });
                           setSuccess('Viagem iniciada.');
                           load();
                           setTimeout(() => setSuccess(null), 3000);
@@ -973,14 +1297,16 @@ const ManifestsTab: React.FC = () => {
                       Iniciar viagem
                     </button>
                   )}
-                  {m.status === 'IN_PROGRESS' && (
+                  {m.status === 'IN_PROGRESS' && (m.tripStops?.length ?? 0) === 0 && (
                     <button
                       type="button"
                       onClick={async (e) => {
                         e.stopPropagation();
                         setError(null);
                         try {
-                          await manifestsApi.complete(m.id);
+                          const kmStr = window.prompt('Km de chegada (opcional):');
+                          const kmChegada = kmStr && !Number.isNaN(Number(kmStr)) ? Number(kmStr) : undefined;
+                          await manifestsApi.complete(m.id, { kmChegada });
                           setSuccess('Viagem concluída.');
                           load();
                           setTimeout(() => setSuccess(null), 3000);
@@ -1075,6 +1401,34 @@ const ManifestsTab: React.FC = () => {
                             className="text-red-600 hover:underline"
                           >
                             Remover
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {m.tripStops && m.tripStops.length > 0 && (
+                <div className="border-t border-tower-100 pt-3 mt-3">
+                  <span className="text-xs font-semibold text-tower-500 uppercase">Paradas da viagem</span>
+                  <ul className="mt-1 space-y-1">
+                    {m.tripStops.map((s) => (
+                      <li key={s.id} className="flex items-center justify-between text-sm">
+                        <span>
+                          #{s.sequence} — {s.destHub ? `${s.destHub.name} (${s.destHub.code})` : (s.destinationLabel ?? s.destCity ?? 'Parada')}
+                          {' · '}
+                          <StatusBadge label={s.completedAt ? 'Concluída' : 'Pendente'} tone={s.completedAt ? 'success' : 'warning'} />
+                        </span>
+                        {m.status === 'IN_PROGRESS' && !s.completedAt && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCompleteStop(m.id, s.id);
+                            }}
+                            className="rounded-lg bg-brand-600 px-3 py-1 text-xs text-white hover:bg-brand-700"
+                          >
+                            Concluir parada
                           </button>
                         )}
                       </li>

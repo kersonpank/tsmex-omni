@@ -11,6 +11,7 @@ import {
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { getManifestMargin, allocateLegCosts } from './pricingService.js';
+import { closeFiscalDocumentsForCompletedManifest } from './manifestFiscalClosureService.js';
 
 export const ACTIVE_MANIFEST_STATUSES: ManifestStatus[] = [
     'DRAFT',
@@ -106,7 +107,8 @@ function allocationOrderHistoryDescription(
 export async function addOrderToManifest(
     manifestId: string,
     orderId: string,
-    actor: { userId: string; role: UserRole; adminId?: string }
+    actor: { userId: string; role: UserRole; adminId?: string },
+    stopId?: string
 ) {
     const manifest = await prisma.manifest.findUnique({
         where: { id: manifestId },
@@ -118,6 +120,13 @@ export async function addOrderToManifest(
     }
     if (manifest.status !== 'DRAFT') {
         throw new AppError('Cannot modify manifest in current status', 400);
+    }
+
+    if (stopId) {
+        const stop = await prisma.manifestStop.findUnique({ where: { id: stopId } });
+        if (!stop || stop.manifestId !== manifestId) {
+            throw new AppError('Parada não encontrada para este manifesto', 404);
+        }
     }
 
     const tripType = assertOperationalTripType(manifest.tripType);
@@ -197,6 +206,7 @@ export async function addOrderToManifest(
                 executedBy: manifest.linkId ? 'LINK' : 'HUB',
                 originHubId: manifest.hubId,
                 destHubId: manifest.destHubId,
+                stopId: stopId ?? null,
             }
         });
 
@@ -437,7 +447,7 @@ function startStatuses(tripType: OperationalTripType): {
     };
 }
 
-export async function startManifest(manifestId: string) {
+export async function startManifest(manifestId: string, options?: { kmSaida?: number }) {
     const manifest = await loadManifestForLifecycle(manifestId);
 
     if (manifest.status !== 'ACCEPTED') {
@@ -467,10 +477,19 @@ export async function startManifest(manifestId: string) {
     await prisma.$transaction(async (tx) => {
         await tx.manifest.update({
             where: { id: manifestId },
-            data: { status: 'IN_PROGRESS', startedAt: new Date() },
+            data: {
+                status: 'IN_PROGRESS',
+                startedAt: new Date(),
+                ...(options?.kmSaida != null ? { kmSaida: options.kmSaida } : {}),
+            },
         });
 
         await tx.orderLeg.updateMany({
+            where: { manifestId },
+            data: { startedAt: new Date() }
+        });
+
+        await tx.manifestStop.updateMany({
             where: { manifestId },
             data: { startedAt: new Date() }
         });
@@ -494,8 +513,23 @@ export async function startManifest(manifestId: string) {
 
 export async function completeManifest(
     manifestId: string,
-    actor?: { userId: string; role: UserRole; adminId?: string }
+    actor?: { userId: string; role: UserRole; adminId?: string },
+    options?: { kmChegada?: number }
 ) {
+    // Manifestos com paradas cadastradas (Fatia B) concluem parada a parada — nunca em bloco.
+    const stops = await prisma.manifestStop.findMany({ where: { manifestId }, select: { id: true } });
+    if (stops.length === 1) {
+        await completeManifestStop(manifestId, stops[0].id, actor, options);
+        return;
+    }
+    if (stops.length > 1) {
+        throw new AppError(
+            'Esta viagem tem múltiplas paradas — conclua cada parada individualmente (PATCH /manifests/:id/stops/:stopId/complete).',
+            400
+        );
+    }
+
+    // stops.length === 0: manifesto sem paradas cadastradas — comportamento legado, sem mudança.
     const manifest = await loadManifestForLifecycle(manifestId);
 
     if (manifest.status !== 'IN_PROGRESS') {
@@ -515,7 +549,11 @@ export async function completeManifest(
         await prisma.$transaction(async (tx) => {
             await tx.manifest.update({
                 where: { id: manifestId },
-                data: { status: 'COMPLETED', completedAt: now },
+                data: {
+                    status: 'COMPLETED',
+                    completedAt: now,
+                    ...(options?.kmChegada != null ? { kmChegada: options.kmChegada } : {}),
+                },
             });
 
             await tx.orderLeg.updateMany({
@@ -546,6 +584,7 @@ export async function completeManifest(
             await allocateLegCosts(manifestId, tx);
         });
 
+        scheduleFiscalClosure(manifestId);
         return;
     }
 
@@ -553,7 +592,11 @@ export async function completeManifest(
     await prisma.$transaction(async (tx) => {
         await tx.manifest.update({
             where: { id: manifestId },
-            data: { status: 'COMPLETED', completedAt: now },
+            data: {
+                status: 'COMPLETED',
+                completedAt: now,
+                ...(options?.kmChegada != null ? { kmChegada: options.kmChegada } : {}),
+            },
         });
 
         await tx.orderLeg.updateMany({
@@ -589,4 +632,150 @@ export async function completeManifest(
             data: { deliveryCount: { increment: manifest.legs.length } },
         });
     }
+
+    scheduleFiscalClosure(manifestId);
+}
+
+/**
+ * Finaliza o manifesto (status COMPLETED) depois que todas as suas ManifestStop foram
+ * concluídas. Separado de completeManifestStop para não acoplar o fechamento da viagem ao
+ * fechamento de uma parada específica (Fatia E vai plugar o encerramento fiscal aqui).
+ */
+// Encerramento fiscal (CIOT/MDF-e) roda depois da viagem virar COMPLETED, sem travar quem
+// chamou completeManifest/completeManifestStop esperando 2 chamadas de API externa
+// (eFrete/ACBr). closeFiscalDocumentsForCompletedManifest nunca lança — falha vira
+// SystemAlert, nunca reverte a conclusão da viagem. Se isso precisar sobreviver a um restart
+// do processo no meio da chamada, mover para fila BullMQ como CT-e/CIOT emission já fazem.
+function scheduleFiscalClosure(manifestId: string) {
+    void closeFiscalDocumentsForCompletedManifest(manifestId).catch((e) => {
+        console.error(JSON.stringify({
+            level: 'error',
+            source: 'manifestLifecycle',
+            message: 'closeFiscalDocumentsForCompletedManifest lançou inesperadamente (não deveria)',
+            manifestId,
+            error: e instanceof Error ? e.message : String(e),
+        }));
+    });
+}
+
+async function finalizeManifestCompletion(manifestId: string, kmChegada?: number) {
+    await prisma.$transaction(async (tx) => {
+        await tx.manifest.update({
+            where: { id: manifestId },
+            data: {
+                status: 'COMPLETED',
+                completedAt: new Date(),
+                ...(kmChegada != null ? { kmChegada } : {}),
+            },
+        });
+        await allocateLegCosts(manifestId, tx);
+    });
+
+    scheduleFiscalClosure(manifestId);
+}
+
+/**
+ * Conclui uma parada/descarga específica da viagem (Fatia B). Só os pedidos daquela parada
+ * mudam de estado — as demais paradas continuam pendentes. Quando a última parada pendente é
+ * concluída, o manifesto inteiro vira COMPLETED (via finalizeManifestCompletion).
+ */
+export async function completeManifestStop(
+    manifestId: string,
+    stopId: string,
+    actor?: { userId: string; role: UserRole; adminId?: string },
+    options?: { kmChegada?: number }
+): Promise<{ allStopsCompleted: boolean }> {
+    const manifest = await prisma.manifest.findUnique({ where: { id: manifestId } });
+    if (!manifest) {
+        throw new AppError('Manifest not found', 404);
+    }
+    if (manifest.status !== 'IN_PROGRESS') {
+        throw new AppError('Manifest not found or not in progress', 400);
+    }
+
+    const stop = await prisma.manifestStop.findUnique({
+        where: { id: stopId },
+        include: {
+            destHub: { select: { id: true, code: true } },
+            legs: { include: { order: true } },
+        },
+    });
+    if (!stop || stop.manifestId !== manifestId) {
+        throw new AppError('Parada não encontrada para este manifesto', 404);
+    }
+    if (stop.completedAt) {
+        throw new AppError('Esta parada já foi concluída', 400);
+    }
+
+    const tripType = assertOperationalTripType(manifest.tripType);
+    const now = new Date();
+
+    if (tripType === 'TRANSFER' && !stop.destHubId) {
+        throw new AppError('Parada de transferência sem hub de destino definido.', 400);
+    }
+
+    await prisma.$transaction(async (tx) => {
+        await tx.manifestStop.update({
+            where: { id: stopId },
+            data: { completedAt: now },
+        });
+
+        await tx.orderLeg.updateMany({
+            where: { stopId },
+            data: { completedAt: now },
+        });
+
+        for (const leg of stop.legs) {
+            if (tripType === 'TRANSFER') {
+                await tx.order.update({
+                    where: { id: leg.orderId },
+                    data: {
+                        status: 'AT_HUB',
+                        currentHubId: stop.destHubId,
+                        enteredAtHubAt: leg.order.enteredAtHubAt ?? now,
+                    },
+                });
+                await tx.orderHistory.create({
+                    data: {
+                        orderId: leg.orderId,
+                        eventType: 'AT_HUB',
+                        description: `Recebido no hub destino (${stop.destHub?.code ?? stop.destHubId})`,
+                        location: stop.destinationLabel ?? manifest.destination,
+                    },
+                });
+            } else {
+                await tx.order.update({
+                    where: { id: leg.orderId },
+                    data: { status: 'DELIVERED', currentHubId: null },
+                });
+                await tx.orderHistory.create({
+                    data: {
+                        orderId: leg.orderId,
+                        eventType: 'DELIVERED',
+                        description: `Carga entregue ao destinatário${stop.destinationLabel ? ` (${stop.destinationLabel})` : ''}.`,
+                        location: stop.destinationLabel ?? manifest.destination,
+                    },
+                });
+            }
+        }
+
+        await allocateLegCosts(manifestId, tx);
+    });
+
+    if (tripType === 'DELIVERY' && manifest.linkId && stop.legs.length > 0) {
+        await prisma.link.update({
+            where: { id: manifest.linkId },
+            data: { deliveryCount: { increment: stop.legs.length } },
+        });
+    }
+
+    const pendingStops = await prisma.manifestStop.count({
+        where: { manifestId, completedAt: null },
+    });
+
+    if (pendingStops === 0) {
+        await finalizeManifestCompletion(manifestId, options?.kmChegada);
+    }
+
+    return { allStopsCompleted: pendingStops === 0 };
 }

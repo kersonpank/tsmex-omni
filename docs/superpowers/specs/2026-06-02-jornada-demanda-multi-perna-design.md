@@ -154,10 +154,12 @@ Isso preserva "corpo não em dois lugares" e libera multi-perna + pré-encaixe.
 
 ## 10. Critérios de aceite
 
-- [ ] Um pedido percorre ≥2 pernas (coleta→transferência→entrega) preservando todas as `OrderLeg`.
-- [ ] Custódia sempre resolvível: em qual hub OU em qual perna/Link, nunca ambíguo.
-- [ ] `demand.status` não muda mais após `CONVERTED`.
-- [ ] Cada add/remove de perna grava `ConsolidationFeedback`.
-- [ ] Invariante "uma perna IN_PROGRESS por pedido" garantida (teste).
-- [ ] Migração backfill idempotente, testada em cópia da base real.
-- [ ] Testes de lifecycle existentes ([manifests.lifecycle.test.ts](../../../server/src/routes/manifests.lifecycle.test.ts)) adaptados e verdes.
+- [x] Um pedido percorre ≥2 pernas (coleta→transferência→entrega) preservando todas as `OrderLeg`.
+- [x] Custódia sempre resolvível: em qual hub OU em qual perna/Link, nunca ambíguo.
+- [x] `demand.status` não muda mais após `CONVERTED`.
+- [x] Cada add/remove de perna grava `ConsolidationFeedback`.
+- [x] Invariante "uma perna IN_PROGRESS por pedido" garantida (teste).
+- [x] Testes de lifecycle existentes ([manifests.lifecycle.test.ts](../../../server/src/routes/manifests.lifecycle.test.ts)) adaptados e verdes.
+- [ ] Migração backfill idempotente de dados legados: não foi necessária nesta rodada (nenhum manifesto em produção real dependia da mudança); `Order.manifestId` seguiu mantido como coluna de compat, sem uso na lógica nova.
+
+> **2026-07-25 — Fatia 1.5** (fora do escopo original deste spec, registrada aqui por continuidade): o fluxo de consolidação pela UI (Hub e Admin) estava quebrado apesar do backend acima estar correto — corrigido. Além disso, o modelo evoluiu para suportar **múltiplas paradas/descargas por viagem** (`ManifestStop`), **capa da viagem + Carta Frete estruturada** (`ManifestFreightAgreement`, fonte real de custo do Link), correção de um bug fiscal no MDF-e (município de descarga errado, sem suporte a múltiplas descargas) e **encerramento automático best-effort de CIOT/MDF-e** ao concluir a viagem. Detalhes em `TSM_NORTE.md` §6 "Fatia 1.5". Endpoint de encerramento do MDF-e via ACBr (`/mdfe/{id}/encerrar`) ainda não foi validado contra a API real — pendência registrada.

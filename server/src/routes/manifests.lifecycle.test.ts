@@ -85,6 +85,7 @@ describe('manifests lifecycle TRANSFER E2E (mocked)', () => {
         orderFindMany: prisma.order.findMany.bind(prisma.order),
         orderLegFindUnique: (prisma as any).orderLeg?.findUnique?.bind((prisma as any).orderLeg),
         orderLegFindFirst: (prisma as any).orderLeg?.findFirst?.bind((prisma as any).orderLeg),
+        manifestStopFindMany: prisma.manifestStop.findMany.bind(prisma.manifestStop),
         transaction: prisma.$transaction.bind(prisma),
         linkUpdate: prisma.link.update.bind(prisma.link),
     };
@@ -159,6 +160,9 @@ describe('manifests lifecycle TRANSFER E2E (mocked)', () => {
                     return { id: args.where.orderId_manifestId.orderId, ...args.data };
                 }
             },
+            manifestStop: {
+                updateMany: async () => ({ count: 0 }),
+            },
             orderFreightCalculation: {
                 findFirst: async () => null,
             },
@@ -217,6 +221,10 @@ describe('manifests lifecycle TRANSFER E2E (mocked)', () => {
             findFirst: async () => null,
         };
 
+        // Manifesto deste teste não usa ManifestStop (Fatia B) — mantém completeManifest no
+        // caminho legado (0 paradas), preservando o comportamento original do teste.
+        prisma.manifestStop.findMany = (async () => []) as unknown as typeof prisma.manifestStop.findMany;
+
         prisma.order.findMany = (async (args: { where?: { manifestId?: string } }) => {
             if (!args.where?.manifestId) return [];
             return [...store.orders.values()].filter((o) => o.manifestId === args.where!.manifestId);
@@ -250,6 +258,7 @@ describe('manifests lifecycle TRANSFER E2E (mocked)', () => {
         if (original.orderLegFindFirst) {
             (prisma as any).orderLeg.findFirst = original.orderLegFindFirst;
         }
+        prisma.manifestStop.findMany = original.manifestStopFindMany;
     }
 
     beforeEach(() => installPrismaMocks());

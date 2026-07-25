@@ -44,17 +44,30 @@ function cleanCity(cityStr: string): string {
 /**
  * Calcula o custo do Link (motorista) contratado para o manifesto.
  * Retorna null se houver linkId mas nenhum acordo correspondente for encontrado.
+ *
+ * Fonte de custo (nesta ordem):
+ * 1. ManifestFreightAgreement (Carta Frete real da viagem) — freteBruto + pedagio é o
+ *    desembolso total real da TSM nesta viagem (deduções como IR/INSS/ISSQN são retidas do
+ *    motorista mas continuam sendo custo da TSM, só mudam de destinatário — não abatem o
+ *    custo). saldoLiquido (quanto falta pagar ao motorista) é outra métrica, usada no acerto
+ *    financeiro (Fatia 3), não na margem.
+ * 2. LinkPricingAgreement (estimativa pré-negociada por rota/veículo) — fallback quando a
+ *    viagem ainda não tem Carta Frete preenchida.
  */
 export async function calculateLinkCost(manifestId: string, tx: Prisma.TransactionClient = prisma): Promise<number | null> {
     const manifest = await tx.manifest.findUnique({
         where: { id: manifestId },
-        include: { vehicleType: true },
+        include: { vehicleType: true, freightAgreement: true },
     });
     if (!manifest) {
         return 0;
     }
     if (!manifest.linkId) {
         return 0; // Custo 0 legítimo (sem linkId, ex. entrega hub próprio)
+    }
+
+    if (manifest.freightAgreement) {
+        return manifest.freightAgreement.freteBruto + manifest.freightAgreement.pedagio;
     }
 
     const origin = cleanCity(manifest.origin);

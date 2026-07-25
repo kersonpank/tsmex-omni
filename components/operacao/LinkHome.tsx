@@ -58,6 +58,7 @@ interface ManifestCardProps {
   onAccept: (id: string) => void;
   onReject: (id: string) => void;
   onUpdateStatus: (id: string, status: 'IN_PROGRESS' | 'COMPLETED') => void;
+  onCompleteStop: (manifestId: string, stopId: string) => void;
 }
 
 const ManifestCard: React.FC<ManifestCardProps> = ({
@@ -67,6 +68,7 @@ const ManifestCard: React.FC<ManifestCardProps> = ({
   onAccept,
   onReject,
   onUpdateStatus,
+  onCompleteStop,
 }) => {
   const busy = actionLoading === m.id;
   const orderCount = m.demands?.length ?? 0;
@@ -157,7 +159,7 @@ const ManifestCard: React.FC<ManifestCardProps> = ({
         </button>
       )}
 
-      {tab === 'viagens' && m.status === 'IN_PROGRESS' && (
+      {tab === 'viagens' && m.status === 'IN_PROGRESS' && (m.tripStops?.length ?? 0) === 0 && (
         <button
           type="button"
           disabled={busy}
@@ -166,6 +168,30 @@ const ManifestCard: React.FC<ManifestCardProps> = ({
         >
           {busy ? '...' : 'Concluir Entrega'}
         </button>
+      )}
+
+      {tab === 'viagens' && m.status === 'IN_PROGRESS' && (m.tripStops?.length ?? 0) > 0 && (
+        <div className="space-y-2">
+          <span className="text-xs font-semibold text-tower-500 uppercase">Paradas da viagem</span>
+          {m.tripStops!.map((s) => (
+            <div key={s.id} className="flex items-center justify-between gap-2 rounded-xl bg-tower-50 dark:bg-tower-900/40 px-3 py-2">
+              <span className="text-sm text-tower-700 dark:text-tower-200">
+                #{s.sequence} — {s.destHub ? `${s.destHub.name} (${s.destHub.code})` : (s.destinationLabel ?? s.destCity ?? 'Parada')}
+                {s.completedAt ? ' · Concluída' : ''}
+              </span>
+              {!s.completedAt && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onCompleteStop(m.id, s.id)}
+                  className="shrink-0 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50 active:scale-95 transition-transform"
+                >
+                  {busy ? '...' : 'Concluir'}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -248,10 +274,28 @@ const LinkHome: React.FC = () => {
     setActionLoading(id);
     try {
       if (newStatus === 'IN_PROGRESS') {
-        await manifestsApi.start(id);
+        const kmStr = window.prompt('Km de saída (opcional):');
+        const kmSaida = kmStr && !Number.isNaN(Number(kmStr)) ? Number(kmStr) : undefined;
+        await manifestsApi.start(id, { kmSaida });
       } else {
-        await manifestsApi.complete(id);
+        const kmStr = window.prompt('Km de chegada (opcional):');
+        const kmChegada = kmStr && !Number.isNaN(Number(kmStr)) ? Number(kmStr) : undefined;
+        await manifestsApi.complete(id, { kmChegada });
       }
+      await load();
+    } catch (e: any) {
+      alert(e.response?.data?.error || e.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleCompleteStop = async (manifestId: string, stopId: string) => {
+    const confirmed = window.confirm('Confirmar conclusão desta parada?');
+    if (!confirmed) return;
+    setActionLoading(manifestId);
+    try {
+      await manifestsApi.completeStop(manifestId, stopId);
       await load();
     } catch (e: any) {
       alert(e.response?.data?.error || e.message);
@@ -346,6 +390,7 @@ const LinkHome: React.FC = () => {
                   onAccept={handleAccept}
                   onReject={handleReject}
                   onUpdateStatus={handleUpdateStatus}
+                  onCompleteStop={handleCompleteStop}
                 />
               ))
             )}

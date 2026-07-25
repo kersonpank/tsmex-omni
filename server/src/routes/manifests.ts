@@ -7,6 +7,7 @@ import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { isAcbrCredentialsConfigured } from '../services/acbr/acbrConfig.js';
 import { emitMdfeViaAcbr } from '../services/acbr/acbrMdfeEmit.js';
 import { getManifestMargin } from '../services/pricingService.js';
+import { upsertFreightAgreement } from '../services/manifestFreightAgreementService.js';
 import { isEfreteCredentialsConfigured } from '../services/efrete/efreteConfig.js';
 import { suggestCiotTipoViagem } from '../services/efrete/ciotTipoViagemRule.js';
 import { cancelarCiot } from '../services/efrete/efreteCiotEmit.js';
@@ -15,6 +16,7 @@ import type { StoredCiotRequestData } from '../services/queues/ciotEmissionJobIn
 import {
     addOrderToManifest,
     completeManifest,
+    completeManifestStop,
     OPERATIONAL_TRIP_TYPES,
     removeOrderFromManifest,
     startManifest,
@@ -172,9 +174,15 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
             andConditions.push({ linkId: linkId as string });
         }
 
-        // HUB sees manifests where it is origin OR destination
+        // HUB sees manifests where it é origem, destino singular (legado) ou destino de alguma parada
         if (req.user!.roles.includes('HUB') && req.user!.hubId) {
-            andConditions.push({ OR: [{ hubId: req.user!.hubId }, { destHubId: req.user!.hubId }] });
+            andConditions.push({
+                OR: [
+                    { hubId: req.user!.hubId },
+                    { destHubId: req.user!.hubId },
+                    { tripStops: { some: { destHubId: req.user!.hubId } } },
+                ],
+            });
         } else if (hubId) {
             andConditions.push({ hubId: hubId as string });
         }
@@ -199,6 +207,11 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
                     select: { name: true, code: true }
                 },
                 fiscalDocuments: { orderBy: { createdAt: 'desc' } },
+                freightAgreement: true,
+                tripStops: {
+                    orderBy: { sequence: 'asc' },
+                    include: { destHub: { select: { id: true, name: true, code: true } } },
+                },
                 legs: {
                     include: {
                         order: {
@@ -251,6 +264,11 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
                 hub: true,
                 destHub: true,
                 fiscalDocuments: { orderBy: { createdAt: 'desc' } },
+                freightAgreement: true,
+                tripStops: {
+                    orderBy: { sequence: 'asc' },
+                    include: { destHub: { select: { id: true, name: true, code: true } } },
+                },
                 legs: {
                     include: {
                         order: {
@@ -358,7 +376,7 @@ router.post('/:id/demands', authenticate, async (req: AuthRequest, res: Response
     }
     try {
         const id = req.params.id as string;
-        const { demandId, orderId } = req.body;
+        const { demandId, orderId, stopId } = req.body;
 
         const targetOrderId = orderId ?? (demandId ? (await prisma.order.findUnique({ where: { demandId } }))?.id : null);
         if (!targetOrderId) {
@@ -382,7 +400,7 @@ router.post('/:id/demands', authenticate, async (req: AuthRequest, res: Response
             role: req.user!.roles[0],
             adminId: admin?.id,
         };
-        const { manifest, utilization } = await addOrderToManifest(id, targetOrderId, actor);
+        const { manifest, utilization } = await addOrderToManifest(id, targetOrderId, actor, stopId);
 
         res.json({
             success: true,
@@ -395,7 +413,10 @@ router.post('/:id/demands', authenticate, async (req: AuthRequest, res: Response
 });
 
 // DELETE /api/manifests/:id/demands/:demandId - Remove order from manifest
-router.delete('/:id/demands/:demandId', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.delete('/:id/demands/:demandId', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('HUB')) {
+        return next(new AppError('Not authorized', 403));
+    }
     try {
         const id = req.params.id as string;
         const demandId = req.params.demandId as string;
@@ -411,6 +432,9 @@ router.delete('/:id/demands/:demandId', authenticate, authorize('ADMIN'), async 
         });
         if (!manifestCheck) {
             throw new AppError('Manifest not found', 404);
+        }
+        if (req.user!.roles.includes('HUB') && manifestCheck.hubId !== req.user!.hubId) {
+            throw new AppError('Not authorized to modify this manifest', 403);
         }
 
         const admin = await prisma.admin.findUnique({ where: { userId: req.user!.id } });
@@ -430,14 +454,237 @@ router.delete('/:id/demands/:demandId', authenticate, authorize('ADMIN'), async 
     }
 });
 
+const manifestStopSchema = z
+    .object({
+        destHubId: z.string().uuid().optional(),
+        destinationLabel: z.string().min(1).optional(),
+        destCity: z.string().min(1).optional(),
+        destState: z.string().length(2).optional(),
+        plannedArrivalAt: z.string().datetime().optional(),
+    })
+    .superRefine((data, ctx) => {
+        if (!data.destHubId && !data.destinationLabel && !data.destCity) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'Informe destHubId (parada de transferência) ou destinationLabel/destCity (parada de entrega)',
+                path: ['destHubId'],
+            });
+        }
+    });
+
+// POST /api/manifests/:id/stops — cria uma parada/descarga da viagem (Admin/Hub, manifesto DRAFT)
+router.post('/:id/stops', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('HUB')) {
+        return next(new AppError('Not authorized', 403));
+    }
+    try {
+        const id = req.params.id as string;
+        const data = manifestStopSchema.parse(req.body);
+
+        const manifest = await prisma.manifest.findUnique({
+            where: { id },
+            select: { hubId: true, status: true, tripType: true },
+        });
+        if (!manifest) throw new AppError('Manifest not found', 404);
+        if (req.user!.roles.includes('HUB') && manifest.hubId !== req.user!.hubId) {
+            throw new AppError('Not authorized to modify this manifest', 403);
+        }
+        if (manifest.status !== 'DRAFT') {
+            throw new AppError('Só é possível adicionar paradas a um manifesto em rascunho', 400);
+        }
+        if (manifest.tripType === 'TRANSFER' && !data.destHubId) {
+            throw new AppError('destHubId é obrigatório para parada de viagem TRANSFER', 400);
+        }
+        if (data.destHubId) {
+            const destHub = await prisma.hub.findUnique({ where: { id: data.destHubId } });
+            if (!destHub || !destHub.active) throw new AppError('Hub destino não encontrado ou inativo', 400);
+        }
+
+        const lastStop = await prisma.manifestStop.findFirst({
+            where: { manifestId: id },
+            orderBy: { sequence: 'desc' },
+        });
+        const sequence = lastStop ? lastStop.sequence + 1 : 1;
+
+        const stop = await prisma.manifestStop.create({
+            data: {
+                manifestId: id,
+                sequence,
+                destHubId: data.destHubId,
+                destinationLabel: data.destinationLabel,
+                destCity: data.destCity,
+                destState: data.destState,
+                plannedArrivalAt: data.plannedArrivalAt ? new Date(data.plannedArrivalAt) : undefined,
+            },
+        });
+
+        res.status(201).json({ success: true, data: stop });
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return next(new AppError(error.errors[0].message, 400));
+        }
+        next(error);
+    }
+});
+
+// PATCH /api/manifests/:id/stops/:stopId/complete — conclui só os pedidos daquela parada
+// HUB pode concluir a parada em que é o destino (confirma recebimento da carga que chegou);
+// LINK/ADMIN mantêm acesso total (motorista confirmando entrega, ou operação central).
+router.patch('/:id/stops/:stopId/complete', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('LINK') && !req.user!.roles.includes('HUB')) {
+        return next(new AppError('Not authorized', 403));
+    }
+    try {
+        const id = req.params.id as string;
+        const stopId = req.params.stopId as string;
+        const kmChegada = typeof req.body?.kmChegada === 'number' ? req.body.kmChegada : undefined;
+
+        if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('LINK')) {
+            const stop = await prisma.manifestStop.findUnique({ where: { id: stopId }, select: { manifestId: true, destHubId: true } });
+            if (!stop || stop.manifestId !== id) {
+                throw new AppError('Parada não encontrada para este manifesto', 404);
+            }
+            if (!req.user!.hubId || stop.destHubId !== req.user!.hubId) {
+                throw new AppError('Not authorized — esta parada não é destino do seu hub.', 403);
+            }
+        }
+
+        const admin = await prisma.admin.findUnique({ where: { userId: req.user!.id } });
+        const actor = {
+            userId: req.user!.id,
+            role: req.user!.roles[0],
+            adminId: admin?.id,
+        };
+        const result = await completeManifestStop(id, stopId, actor, { kmChegada });
+        res.json({
+            success: true,
+            data: result,
+            message: result.allStopsCompleted ? 'Parada concluída — viagem finalizada.' : 'Parada concluída.',
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+const manifestCapaSchema = z.object({
+    fiscalEmitterId: z.string().uuid().optional(),
+    plannedDepartureAt: z.string().datetime().optional(),
+    plannedArrivalAt: z.string().datetime().optional(),
+    notes: z.string().optional(),
+    seloLacre: z.string().optional(),
+    liberacao: z.string().optional(),
+});
+
+// PATCH /api/manifests/:id/capa — dados de capa da viagem (emitente, datas previstas, lacre etc.)
+router.patch('/:id/capa', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('HUB')) {
+        return next(new AppError('Not authorized', 403));
+    }
+    try {
+        const id = req.params.id as string;
+        const data = manifestCapaSchema.parse(req.body);
+
+        const manifest = await prisma.manifest.findUnique({ where: { id }, select: { hubId: true, status: true } });
+        if (!manifest) throw new AppError('Manifest not found', 404);
+        if (req.user!.roles.includes('HUB') && manifest.hubId !== req.user!.hubId) {
+            throw new AppError('Not authorized to modify this manifest', 403);
+        }
+        if (manifest.status === 'COMPLETED' || manifest.status === 'CANCELLED') {
+            throw new AppError('Não é possível editar a capa de uma viagem concluída/cancelada', 400);
+        }
+
+        const updated = await prisma.manifest.update({
+            where: { id },
+            data: {
+                fiscalEmitterId: data.fiscalEmitterId,
+                plannedDepartureAt: data.plannedDepartureAt ? new Date(data.plannedDepartureAt) : undefined,
+                plannedArrivalAt: data.plannedArrivalAt ? new Date(data.plannedArrivalAt) : undefined,
+                notes: data.notes,
+                seloLacre: data.seloLacre,
+                liberacao: data.liberacao,
+            },
+        });
+
+        res.json({ success: true, data: updated });
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return next(new AppError(error.errors[0].message, 400));
+        }
+        next(error);
+    }
+});
+
+const freightAgreementSchema = z.object({
+    freteBruto: z.number().nonnegative(),
+    adiantamento: z.number().nonnegative().optional(),
+    pedagio: z.number().nonnegative().optional(),
+    irrf: z.number().nonnegative().optional(),
+    inss: z.number().nonnegative().optional(),
+    issqn: z.number().nonnegative().optional(),
+    sestSenat: z.number().nonnegative().optional(),
+    outrosDescontos: z.number().nonnegative().optional(),
+    outrosDescontosDescricao: z.string().optional(),
+});
+
+// GET /api/manifests/:id/freight-agreement — Carta Frete estruturada da viagem
+router.get('/:id/freight-agreement', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const id = req.params.id as string;
+        const agreement = await prisma.manifestFreightAgreement.findUnique({ where: { manifestId: id } });
+        res.json({ success: true, data: agreement });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// PUT /api/manifests/:id/freight-agreement — cria/atualiza a Carta Frete estruturada da viagem
+router.put('/:id/freight-agreement', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('HUB')) {
+        return next(new AppError('Not authorized', 403));
+    }
+    try {
+        const id = req.params.id as string;
+        const data = freightAgreementSchema.parse(req.body);
+
+        const manifest = await prisma.manifest.findUnique({ where: { id }, select: { hubId: true, status: true } });
+        if (!manifest) throw new AppError('Manifest not found', 404);
+        if (req.user!.roles.includes('HUB') && manifest.hubId !== req.user!.hubId) {
+            throw new AppError('Not authorized to modify this manifest', 403);
+        }
+        if (manifest.status === 'COMPLETED' || manifest.status === 'CANCELLED') {
+            throw new AppError('Não é possível editar a Carta Frete de uma viagem concluída/cancelada', 400);
+        }
+
+        const agreement = await upsertFreightAgreement(id, data);
+
+        res.json({ success: true, data: agreement });
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return next(new AppError(error.errors[0].message, 400));
+        }
+        next(error);
+    }
+});
+
 // PATCH /api/manifests/:id/assign - Assign manifest to link
-router.patch('/:id/assign', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.patch('/:id/assign', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('HUB')) {
+        return next(new AppError('Not authorized', 403));
+    }
     try {
         const id = req.params.id as string;
         const { linkId } = req.body;
 
         if (!linkId) {
             throw new AppError('Link ID is required', 400);
+        }
+
+        if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN')) {
+            const manifestCheck = await prisma.manifest.findUnique({ where: { id }, select: { hubId: true } });
+            if (!manifestCheck) throw new AppError('Manifest not found', 404);
+            if (manifestCheck.hubId !== req.user!.hubId) {
+                throw new AppError('Not authorized to modify this manifest', 403);
+            }
         }
 
         const link = await prisma.link.findUnique({
@@ -572,8 +819,9 @@ router.patch('/:id/reject', authenticate, authorize('LINK'), async (req: AuthReq
 router.patch('/:id/start', authenticate, authorize('LINK'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const id = req.params.id as string;
+        const kmSaida = typeof req.body?.kmSaida === 'number' ? req.body.kmSaida : undefined;
 
-        await startManifest(id);
+        await startManifest(id, { kmSaida });
 
         res.json({
             success: true,
@@ -584,10 +832,24 @@ router.patch('/:id/start', authenticate, authorize('LINK'), async (req: AuthRequ
     }
 });
 
-// PATCH /api/manifests/:id/complete - Complete manifest
-router.patch('/:id/complete', authenticate, authorize('LINK', 'ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+// PATCH /api/manifests/:id/complete - Complete manifest. HUB pode concluir uma viagem TRANSFER
+// da qual é o destino (confirma recebimento); DELIVERY continua exclusivo de LINK/ADMIN
+// (confirmação de entrega ao cliente final não é ato do hub).
+router.patch('/:id/complete', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('LINK') && !req.user!.roles.includes('HUB')) {
+        return next(new AppError('Not authorized', 403));
+    }
     try {
         const id = req.params.id as string;
+        const kmChegada = typeof req.body?.kmChegada === 'number' ? req.body.kmChegada : undefined;
+
+        if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('LINK')) {
+            const manifest = await prisma.manifest.findUnique({ where: { id }, select: { tripType: true, destHubId: true } });
+            if (!manifest) throw new AppError('Manifest not found', 404);
+            if (manifest.tripType !== 'TRANSFER' || !req.user!.hubId || manifest.destHubId !== req.user!.hubId) {
+                throw new AppError('Not authorized — esta viagem não é uma transferência com destino ao seu hub.', 403);
+            }
+        }
 
         const admin = await prisma.admin.findUnique({ where: { userId: req.user!.id } });
         const actor = {
@@ -595,7 +857,7 @@ router.patch('/:id/complete', authenticate, authorize('LINK', 'ADMIN'), async (r
             role: req.user!.roles[0],
             adminId: admin?.id,
         };
-        await completeManifest(id, actor);
+        await completeManifest(id, actor, { kmChegada });
 
         res.json({
             success: true,

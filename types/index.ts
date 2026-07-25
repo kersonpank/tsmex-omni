@@ -478,6 +478,39 @@ export interface Demand {
     updatedAt: string;
 }
 
+export interface ManifestStop {
+    id: string;
+    manifestId: string;
+    sequence: number;
+    destHubId?: string | null;
+    destHub?: { id: string; name: string; code: string } | null;
+    destinationLabel?: string | null;
+    destCity?: string | null;
+    destState?: string | null;
+    plannedArrivalAt?: string | null;
+    startedAt?: string | null;
+    completedAt?: string | null;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface ManifestFreightAgreement {
+    id: string;
+    manifestId: string;
+    freteBruto: number;
+    adiantamento: number;
+    pedagio: number;
+    irrf: number;
+    inss: number;
+    issqn: number;
+    sestSenat: number;
+    outrosDescontos: number;
+    outrosDescontosDescricao?: string | null;
+    saldoLiquido: number;
+    createdAt: string;
+    updatedAt: string;
+}
+
 export interface Manifest {
     id: string;
     tripType?: ManifestTripType;
@@ -497,6 +530,17 @@ export interface Manifest {
     origin: string;
     destination: string;
     stops?: any;
+    tripStops?: ManifestStop[];
+    fiscalEmitterId?: string | null;
+    fiscalEmitter?: FiscalEmitter | null;
+    plannedDepartureAt?: string | null;
+    plannedArrivalAt?: string | null;
+    notes?: string | null;
+    seloLacre?: string | null;
+    liberacao?: string | null;
+    kmSaida?: number | null;
+    kmChegada?: number | null;
+    freightAgreement?: ManifestFreightAgreement | null;
     totalWeight: number;
     totalVolume: number;
     totalValue: number;
@@ -836,10 +880,9 @@ export interface CreateManifestRequest {
     origin: string;
     destination: string;
     tripType?: 'TRANSFER' | 'DELIVERY';
-    demandIds: string[];
-    linkId?: string;
     hubId?: string;
     destHubId?: string;
+    stops?: { city: string; order: number }[];
 }
 
 export interface PricingCalculateRequest {

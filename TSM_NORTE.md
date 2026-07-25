@@ -50,6 +50,9 @@
 | 15 | Segurança = **gate de pré-produção** | Sistema novo ainda sem usuários reais; corrigir antes do go-live |
 | 16 | Frontend refatorar **depois**; **/hub é a superfície principal** | UIs soltas; foco experiência + automação operacional; não parar pra refatorar o que funciona |
 | 17 | Acerto Hub = **por manifesto/viagem**; Link = ao concluir serviço | Hub: máquina Em aberto→Solicitado→Conferido→Aceito→Pago (rastreável/auditável) |
+| 18 | Viagem pode ter **N paradas/descargas** (`ManifestStop`) | TRANSFER visitando vários hubs ou DELIVERY com vários clientes; conclusão é por parada, não em bloco |
+| 19 | **Carta Frete real** (`ManifestFreightAgreement`) é a fonte oficial de custo do Link quando existir | `freteBruto + pedágio` = custo real da viagem p/ margem; `LinkPricingAgreement` vira só estimativa/fallback pré-Carta-Frete |
+| 20 | Encerramento fiscal (CIOT/MDF-e) é **automático e best-effort ao concluir a viagem**, nunca um gate | Fiscal continua encanamento (decisão #6): falha no encerramento gera `SystemAlert`, nunca bloqueia nem reverte a conclusão |
 
 ---
 
@@ -88,6 +91,7 @@
 - **Custo/margem (Fatia 2):** `LinkPricingAgreement`, `HubCommissionAgreement`, rollup no manifesto, `ManifestSettlement` (contas a pagar).
 - **Fiscal:** `OrderFreightCalculation` (CT-e/minuta por pedido), `ManifestFiscalDocument` (MDF-e/CIOT por viagem). Partes: remetente/destinatário/consignatário/expedidor/redespachante.
 - **IA:** `ConsolidationFeedback` (gravado em toda consolidação; +margem na Fatia 2).
+- **Multi-parada e capa (pós-Fatia 1):** `ManifestStop` (parada/descarga real da viagem — `destHubId` ou `destCity/destState`, `OrderLeg.stopId` aponta pra ela); `Manifest.fiscalEmitterId/plannedDepartureAt/plannedArrivalAt/notes/seloLacre/liberacao/kmSaida/kmChegada` (capa da viagem); `ManifestFreightAgreement` (Carta Frete estruturada 1:1 por manifesto — fonte de custo real do Link).
 
 > Detalhe completo da Fatia 1: [docs/superpowers/specs/2026-06-02-jornada-demanda-multi-perna-design.md](docs/superpowers/specs/2026-06-02-jornada-demanda-multi-perna-design.md).
 
@@ -125,16 +129,32 @@
 
 ## 6. Roadmap por fases
 
-### Fatia 1 — Jornada da Demanda (multi-perna) + fonte única + captura IA
-- [ ] Migração schema: `OrderLeg`, enums `LegType`/`ExecutedBy`/`HubRole`
-- [ ] Fronteira de posse: `DemandStatus` restrito ao pré-posse; `Demand.manifestId` removido
-- [ ] `Pedido` = fonte única; lifecycle para de escrever `demand.status`
-- [ ] Invariante "uma perna `IN_PROGRESS` por pedido"
-- [ ] Refactor `manifestLifecycle` para operar sobre `OrderLeg`
-- [ ] Gravar `ConsolidationFeedback` em toda consolidação
-- [ ] Backfill idempotente, testado em cópia da base real
-- [ ] Testes de lifecycle adaptados e verdes
-- [ ] Toques no /hub (receber, custódia, consolidar)
+### Fatia 1 — Jornada da Demanda (multi-perna) + fonte única + captura IA ✅ concluída
+
+- [x] Migração schema: `OrderLeg`, enums `LegType`/`ExecutedBy`/`HubRole`
+- [x] Fronteira de posse: `DemandStatus` restrito ao pré-posse; `Demand.manifestId` removido
+- [x] `Pedido` = fonte única; lifecycle para de escrever `demand.status`
+- [x] Invariante "uma perna `IN_PROGRESS` por pedido"
+- [x] Refactor `manifestLifecycle` para operar sobre `OrderLeg`
+- [x] Gravar `ConsolidationFeedback` em toda consolidação
+- [x] Testes de lifecycle adaptados e verdes (`manifestLifecycle.test.ts`, `manifests.lifecycle.test.ts`)
+- [x] Toques no /hub (receber, custódia, consolidar) — fluxo de criação/consolidação corrigido em 2026-07-25 (ver Fatia 1.5)
+
+> Backfill de dados de manifestos pré-existentes não foi necessário nesta rodada — `Order.manifestId` seguiu mantido como coluna de compat, sem uso na lógica nova.
+
+### Fatia 1.5 — Viagem multi-parada + Capa + Carta Frete + Encerramento fiscal (2026-07-25) ✅ concluída
+
+- [x] Corrigido fluxo de consolidação quebrado: Hub (`HubHome.tsx`) não anexava pedidos/Link ao criar manifesto (zod descartava campos), Admin usava `Demand.manifestId` inexistente, botão "Enviar oferta" chamava rota 404 — todos corrigidos
+- [x] `ManifestStop` (parada/descarga real da viagem): schema + `completeManifestStop`/`completeManifest` (conclusão por parada, não em bloco) + endpoints (`POST /:id/stops`, `PATCH /:id/stops/:stopId/complete`) + UI (Admin e Link)
+- [x] Capa da viagem: `fiscalEmitterId`, datas previstas, observações, lacre, liberação, km saída/chegada (capturados em `startManifest`/conclusão)
+- [x] Carta Frete estruturada (`ManifestFreightAgreement`): vira fonte real de custo do Link em `calculateLinkCost` (freteBruto + pedágio) quando preenchida; pré-preenche o formulário de emissão de CIOT
+- [x] **Bug fiscal corrigido**: `emitMdfeViaAcbr` montava `infMunDescarga` com o município de **origem** (nunca lia o destino) e só suportava 1 descarga — agora agrupa por `ManifestStop`, resolve o município real de cada parada, suporta N descargas
+- [x] Reboque 2 (`Link.trailer2Plate`) + `veicReboque[]` no XML do MDF-e (nenhum reboque era emitido antes, nem o já cadastrado)
+- [x] Encerramento automático (best-effort, pós-conclusão, nunca gate) de CIOT (`encerrarCiot`, já existia sem consumidor) e MDF-e (`encerrarMdfeViaAcbr`, novo) ao concluir a viagem; falha gera `SystemAlert` categoria `FISCAL_ENCERRAMENTO_PENDENTE`
+- [x] **Endpoint de encerramento do MDF-e corrigido**: era `/mdfe/{id}/encerrar` (chute), path real confirmado em `doc-llm-acbrapi` (raiz do repo) é `POST /mdfe/{id}/encerramento` (operationId `EncerrarMdfe`) — corrigido, campos do body (`cUF`/`cMun`/`dtEnc`/`nProt`) seguem o evento oficial MDF-e 110112; doc local não detalha o schema campo a campo, então **ainda testar em homologação** antes de confiar em produção
+- [x] **3 bugs de autorização corrigidos via smoke test real** (`GET /hubs`, `DELETE /:id/demands/:demandId`, `PATCH /:id/assign`): Hub não conseguia ver outros hubs (só o próprio — quebrava escolher hub destino), não conseguia remover pedido do próprio manifesto, e não conseguia atribuir Link — todos ADMIN/LINK-only sem necessidade. Agora Hub opera o ciclo completo da própria viagem: cria manifesto TRANSFER pra outro hub, anexa pedidos, cria parada, atribui Link; Hub destino conclui a parada (`PATCH /:id/stops/:stopId/complete` e `/complete` agora aceitam HUB com checagem de ownership: só o hub que é destino daquela parada/viagem)
+- [x] Smoke test ponta a ponta rodado no dev DB local (fixtures criados e removidos): Hub cria viagem → anexa pedido AT_HUB → cria parada → atribui Link → Link aceita/inicia (com kmSaída) → Hub destino conclui a parada (com kmChegada) → manifesto `COMPLETED`, pedido `AT_HUB` no hub certo. Zero erros no log do servidor.
+- [ ] Migração de backfill de `Manifest.stops` (JSON legado nunca consumido) para `ManifestStop` não foi feita — campo continua morto, sem uso
 
 ### Fatia 2 — Margem & Faturamento
 - [ ] `LinkPricingAgreement` + `HubCommissionAgreement`
@@ -194,6 +214,8 @@
 | **Demanda** | Oportunidade pré-posse (cotação, NF, solicitado coleta). Vira pedido ao entrar em posse. |
 | **Pedido** (Order) | Carga física em nossa posse. Fonte única do estado físico. |
 | **Perna** (`OrderLeg`) | Um trecho da jornada = pedido viajando num manifesto. Unidade de custo. |
+| **Parada** (`ManifestStop`) | Uma descarga real dentro de uma viagem — TRANSFER pode visitar N hubs, DELIVERY pode ter N clientes. Concluída individualmente; a viagem só fecha quando todas as paradas fecham. |
+| **Carta Frete** (`ManifestFreightAgreement`) | Valor real acordado com o Link para aquela viagem (frete bruto, adiantamento, pedágio, deduções). Fonte oficial de custo na margem quando preenchida. |
 | **Custódia** | Onde a carga está agora (em trânsito numa perna OU parada num hub). Derivada, nunca solta. |
 | **Complemento** | Pagar por m³ ocupado (espaço ocioso). |
 | **Lotação** | Carga fechada — pagar o frete cheio do veículo. |
