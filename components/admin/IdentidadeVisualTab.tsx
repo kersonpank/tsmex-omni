@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { fiscalEmittersApi, hubsApi, personsApi, uploadApi } from '../../lib/api';
+import { fiscalDistribuicaoApi, fiscalEmittersApi, hubsApi, personsApi, uploadApi } from '../../lib/api';
 import { useAuthStore } from '../../store/authStore';
 import type { FiscalAcbrDiagnostics, FiscalEmitter, FiscalProvider, FiscalTaxRegime, Hub, Person } from '../../types/index';
 import { CTE_CFOP_SELECT_OPTIONS, CTE_CST_SELECT_OPTIONS, cfopOptionSelectText } from '../../lib/cteTaxCatalog';
@@ -157,6 +157,8 @@ const IdentidadeVisualTab: React.FC = () => {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [selectedEmitterId, setSelectedEmitterId] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [syncingDistribuicao, setSyncingDistribuicao] = useState(false);
+  const [syncDistribuicaoMessage, setSyncDistribuicaoMessage] = useState<string | null>(null);
   const [certificatePassword, setCertificatePassword] = useState('');
   const [certificateExpiresAt, setCertificateExpiresAt] = useState('');
   const [showCertificatePassword, setShowCertificatePassword] = useState(false);
@@ -310,6 +312,20 @@ const IdentidadeVisualTab: React.FC = () => {
     }
 
     setCertificateExpiresAt(formatted);
+  };
+
+  const handleSyncDistribuicaoNow = async () => {
+    if (!selectedEmitterId) return;
+    setSyncingDistribuicao(true);
+    setSyncDistribuicaoMessage(null);
+    try {
+      await fiscalDistribuicaoApi.syncNow(selectedEmitterId);
+      setSyncDistribuicaoMessage('Varredura solicitada — os documentos descobertos aparecem na fila de triagem do Hub em alguns segundos.');
+    } catch (e: any) {
+      setSyncDistribuicaoMessage(e.response?.data?.error ?? e.message ?? 'Erro ao solicitar varredura.');
+    } finally {
+      setSyncingDistribuicao(false);
+    }
   };
 
   const handleCertificateDownloadLink = async (emitterId: string) => {
@@ -751,6 +767,21 @@ const IdentidadeVisualTab: React.FC = () => {
                 sistema recusa a primeira varredura automática — buscar a partir do NSU 0 traria o histórico retroativo
                 de ~90 dias da SEFAZ, consumindo 1 crédito ACBr por documento retornado.
               </p>
+            )}
+            {isAdmin && selectedEmitterId && form.distribuicaoNfeEnabled && (
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => void handleSyncDistribuicaoNow()}
+                  disabled={syncingDistribuicao}
+                  className="admin-focus rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+                >
+                  {syncingDistribuicao ? 'Solicitando…' : 'Buscar agora'}
+                </button>
+                {syncDistribuicaoMessage && (
+                  <p className="mt-2 text-xs text-tower-600 dark:text-tower-300">{syncDistribuicaoMessage}</p>
+                )}
+              </div>
             )}
           </EmitterAccordion>
 

@@ -102,17 +102,15 @@ router.post('/distribuicao-nfe/emitters/:fiscalEmitterId/bootstrap-nsu', authori
  * coordenador dispararia. Não chama a ACBr diretamente aqui — o processor da fila decide
  * (inclusive a guarda de NSU=0), então isto é seguro mesmo se `distribuicaoNfeEnabled` for
  * desligado ou o NSU não estiver semeado (o job apenas será pulado com alerta).
+ *
+ * ADMIN-only por decisão de negócio: cada chamada pode consumir crédito ACBr real — deixar
+ * qualquer colaborador de Hub disparar à vontade é risco de custo desnecessário. Sincronização
+ * sob demanda é decisão administrativa, não operacional.
  */
-router.post('/distribuicao-nfe/emitters/:fiscalEmitterId/sync-now', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/distribuicao-nfe/emitters/:fiscalEmitterId/sync-now', authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const emitter = await prisma.fiscalEmitter.findUnique({ where: { id: req.params.fiscalEmitterId as string } });
         if (!emitter) throw new AppError('Emitente credenciado não encontrado', 404);
-        // HUB só pode forçar sync do próprio emitente — sem isso, qualquer HUB autenticado
-        // conseguiria disparar consumo de crédito ACBr de outro Hub só sabendo o id.
-        const isAdmin = req.user!.roles.includes('ADMIN');
-        if (!isAdmin && emitter.hubId !== req.user!.hubId) {
-            throw new AppError('Você só pode forçar a sincronização do emitente do seu próprio Hub.', 403);
-        }
         if (!emitter.distribuicaoNfeEnabled) {
             throw new AppError('Este emitente não tem a varredura de Distribuição NF-e habilitada.', 400);
         }

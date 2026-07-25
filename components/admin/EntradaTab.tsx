@@ -831,6 +831,16 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
                             CNPJ {nfPrescan.cnpjEmitente} não encontrado — selecione o Remetente abaixo.
                           </p>
                         )}
+                        {peopleForm.destinatario ? (
+                          <p className="text-xs text-brand-600 dark:text-brand-400">
+                            ✓ Destinatário identificado: {peopleForm.destinatario.legalName ?? peopleForm.destinatario.tradeName}
+                          </p>
+                        ) : (
+                          <p className="text-xs text-amber-600 dark:text-amber-400">
+                            Esta NF-e não está declarada com seu CNPJ na SEFAZ (nem como destinatário, nem como
+                            transportador) — selecione o Destinatário manualmente abaixo.
+                          </p>
+                        )}
                       </div>
                       <button
                         type="button"
