@@ -113,7 +113,7 @@ const ManifestModal: React.FC<{
   links: Link[];
   vehicleTypes: VehicleType[];
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: (manifestId: string) => void;
 }> = ({ selectedOrders, links, vehicleTypes, onClose, onCreated }) => {
   const [tripType, setTripType] = useState<'TRANSFER' | 'DELIVERY'>('TRANSFER');
   const [destHubId, setDestHubId] = useState('');
@@ -132,8 +132,8 @@ const ManifestModal: React.FC<{
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!linkId || !vehicleTypeId) {
-      setError('Selecione motorista e tipo de veículo.');
+    if (!vehicleTypeId) {
+      setError('Selecione o tipo de veículo.');
       return;
     }
     if (tripType === 'TRANSFER' && !destHubId) {
@@ -162,12 +162,31 @@ const ManifestModal: React.FC<{
         }
       }
 
-      await manifestsApi.assignLink(manifestId, linkId);
+      // Só atribui o Link se um foi escolhido E todos os pedidos entraram — senão o
+      // manifesto fica em DRAFT de propósito, pra dar tempo do operador bipar o
+      // pedido que faltou na tela de detalhe (a seção Pedidos só é editável em DRAFT).
+      let assignError: string | null = null;
+      if (linkId && failedOrders.length === 0) {
+        try {
+          await manifestsApi.assignLink(manifestId, linkId);
+        } catch (e: any) {
+          assignError = e.response?.data?.error || e.message || 'Erro desconhecido';
+        }
+      }
 
       if (failedOrders.length > 0) {
-        window.alert(`Manifesto criado, mas ${failedOrders.length} pedido(s) não entraram: ${failedOrders.join(', ')}. Adicione-os manualmente na tela de Admin.`);
+        const linkSuffix = linkId
+          ? ' O motorista não foi atribuído ainda — resolva os pedidos pendentes e atribua o Link na tela do manifesto (seção "Motorista").'
+          : '';
+        window.alert(
+          `Manifesto criado (rascunho), mas ${failedOrders.length} pedido(s) não entraram: ${failedOrders.join(', ')}. Abra o manifesto e use a bipagem para adicioná-los.${linkSuffix}`
+        );
+      } else if (assignError) {
+        window.alert(
+          `Manifesto e pedidos criados, mas houve um erro ao atribuir o motorista: ${assignError}. Tente novamente na tela do manifesto, seção "Motorista".`
+        );
       }
-      onCreated();
+      onCreated(manifestId);
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Erro ao criar manifesto');
     } finally {
@@ -219,9 +238,9 @@ const ManifestModal: React.FC<{
             </label>
           )}
           <label className="block text-xs text-tower-600 dark:text-tower-300">
-            Transportador (Link)
-            <select value={linkId} onChange={(e) => setLinkId(e.target.value)} className="mt-1 w-full rounded-lg border border-tower-300 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800" required>
-              <option value="">Selecione</option>
+            Transportador (Link) — opcional, pode atribuir depois
+            <select value={linkId} onChange={(e) => setLinkId(e.target.value)} className="mt-1 w-full rounded-lg border border-tower-300 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800">
+              <option value="">Selecione (ou deixe em branco)</option>
               {links.map((l) => <option key={l.id} value={l.id}>{l.name} - {l.vehiclePlate}</option>)}
             </select>
           </label>
@@ -380,6 +399,10 @@ const HubHome: React.FC = () => {
   const manifestosAtivos = useMemo(() => manifestos.filter((m) => ACTIVE_MANIFEST_STATUSES.includes(m.status)), [manifestos]);
   const myHubId = user?.hubId;
   const manifestosSaindo = useMemo(() => manifestosAtivos.filter((m) => m.hubId === myHubId), [manifestosAtivos, myHubId]);
+  const manifestosRascunho = useMemo(
+    () => manifestos.filter((m) => m.status === 'DRAFT' && m.hubId === myHubId),
+    [manifestos, myHubId]
+  );
   const manifestosChegando = useMemo(
     () =>
       manifestosAtivos.filter(
@@ -699,6 +722,18 @@ const HubHome: React.FC = () => {
         {!loading && tab === 'manifestos' && (
           <section className="space-y-6">
             <div className="space-y-3">
+              <h3 className="font-display text-sm font-semibold text-tower-800 dark:text-tower-100">Rascunhos (aguardando motorista)</h3>
+              {manifestosRascunho.length === 0 && (
+                <div className="rounded-xl border border-dashed border-tower-300 p-6 text-center text-sm text-tower-600 dark:border-tower-600 dark:text-tower-300">
+                  Nenhum manifesto em rascunho.
+                </div>
+              )}
+              {manifestosRascunho.map((m: any) => (
+                <ManifestCard key={m.id} m={m} />
+              ))}
+            </div>
+
+            <div className="space-y-3">
               <h3 className="font-display text-sm font-semibold text-tower-800 dark:text-tower-100">Saindo do seu hub</h3>
               {manifestosSaindo.length === 0 && <div className="rounded-xl border border-dashed border-tower-300 p-6 text-center text-sm text-tower-600 dark:border-tower-600 dark:text-tower-300">Nenhuma viagem saindo.</div>}
               {manifestosSaindo.map((m: any) => (
@@ -746,10 +781,10 @@ const HubHome: React.FC = () => {
           links={links}
           vehicleTypes={vehicleTypes}
           onClose={() => setShowModal(false)}
-          onCreated={async () => {
+          onCreated={(manifestId) => {
             setShowModal(false);
             setSelectedOrderIds(new Set());
-            await load();
+            window.location.hash = `#/manifests/${manifestId}`;
           }}
         />
       )}
