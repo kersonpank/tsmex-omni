@@ -40,6 +40,7 @@ import type {
     VisualBranding,
     BrandingForDocuments,
     OrderListItem,
+    OrderResolveResponse,
 } from '../types/index';
 
 // URL relativa: em dev o Vite faz proxy de `/api` → backend (vite.config); em produção o nginx repassa `/api`.
@@ -1250,6 +1251,11 @@ export const ordersApi = {
 
     getById: async (id: string) => {
         const response = await api.get<ApiResponse<any>>(`/orders/${id}`);
+        return response.data;
+    },
+
+    resolve: async (code: string, manifestId?: string) => {
+        const response = await api.get<OrderResolveResponse>('/orders/resolve', { params: { code, manifestId } });
         return response.data;
     },
 

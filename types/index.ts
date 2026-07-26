@@ -607,6 +607,20 @@ export interface OrderListItem {
     }>;
 }
 
+export interface ResolvedOrderSummary {
+    id: string;
+    nfNumber: string | null;
+    status: string;
+    currentHubId: string | null;
+    origin: string | null;
+    destination: string | null;
+}
+
+export type OrderResolveResponse =
+    | { success: true; match: 'single'; order: ResolvedOrderSummary }
+    | { success: true; match: 'multiple'; candidates: ResolvedOrderSummary[] }
+    | { success: true; match: 'none' };
+
 export interface ManifestFiscalDocument {
     id: string;
     manifestId: string;
