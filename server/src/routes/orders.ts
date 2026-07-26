@@ -6,6 +6,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { resolveIbgeCode, parseCityState } from '../services/acbr/acbrIbge.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { freightCalculationsRouter } from './freightCalculations.js';
+import { resolveOrderByCode } from '../services/orderResolve.js';
 import {
     suggestFiscalDocType,
     collectionDataHasDeclaracao,
@@ -31,6 +32,31 @@ import { parseOrderStatusWhereInput } from '../lib/orderStatusFilter.js';
 const router = Router();
 
 router.use('/:orderId/freight-calculations', freightCalculationsRouter);
+
+router.get('/resolve', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const code = String(req.query.code ?? '').trim();
+        if (!code) throw new AppError('Informe o código escaneado ou digitado', 400);
+
+        const manifestId = req.query.manifestId ? String(req.query.manifestId) : undefined;
+        let hubId: string | undefined;
+        if (manifestId) {
+            const manifest = await prisma.manifest.findUnique({ where: { id: manifestId }, select: { hubId: true } });
+            if (!manifest) throw new AppError('Manifesto não encontrado', 404);
+            if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && manifest.hubId !== req.user!.hubId) {
+                throw new AppError('Not authorized', 403);
+            }
+            hubId = manifest.hubId ?? undefined;
+        } else if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN')) {
+            hubId = req.user!.hubId ?? undefined;
+        }
+
+        const result = await resolveOrderByCode(code, hubId);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        next(error);
+    }
+});
 
 router.get('/:orderId/fiscal-doc-suggestion', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
