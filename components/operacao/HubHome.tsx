@@ -199,18 +199,24 @@ const ManifestModal: React.FC<{
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div className="mobile-enter relative max-h-[90vh] overflow-y-auto rounded-t-2xl border border-tower-200 bg-[var(--app-surface)] dark:border-tower-700 dark:bg-tower-900">
         <div className="flex items-center justify-between border-b border-tower-200 px-4 py-3 dark:border-tower-700">
-          <h2 className="font-display text-base font-semibold text-tower-900 dark:text-white">Criar manifesto ({selectedOrders.length})</h2>
+          <h2 className="font-display text-base font-semibold text-tower-900 dark:text-white">
+            {selectedOrders.length > 0 ? `Criar manifesto (${selectedOrders.length})` : 'Criar manifesto'}
+          </h2>
           <button type="button" onClick={onClose} className="rounded-lg p-2 text-tower-500 hover:bg-tower-100 dark:hover:bg-tower-800" aria-label="Fechar modal">
             ✕
           </button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4 p-4">
           {error && <div className="mobile-enter rounded-lg border border-brand-red-500/30 bg-brand-red-500/10 p-3 text-sm text-brand-red-600 dark:text-brand-red-400">{error}</div>}
-          <div className="rounded-xl border border-tower-200 bg-tower-50 p-3 text-xs dark:border-tower-700 dark:bg-tower-800">
-            {selectedOrders.map((o) => (
-              <div key={o.id} className="text-tower-700 dark:text-tower-300">NF {o.nfNumber ?? o.demand?.nfNumber ?? '—'} para {o.demand?.destination ?? 'Sem destino'}</div>
-            ))}
-          </div>
+          {selectedOrders.length > 0 ? (
+            <div className="rounded-xl border border-tower-200 bg-tower-50 p-3 text-xs dark:border-tower-700 dark:bg-tower-800">
+              {selectedOrders.map((o) => (
+                <div key={o.id} className="text-tower-700 dark:text-tower-300">NF {o.nfNumber ?? o.demand?.nfNumber ?? '—'} para {o.demand?.destination ?? 'Sem destino'}</div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-tower-500 dark:text-tower-400">Nenhum pedido selecionado ainda — bipe depois de criar.</p>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <label className="text-xs text-tower-600 dark:text-tower-300">
               Origem
@@ -517,10 +523,10 @@ const HubHome: React.FC = () => {
         </div>
       </header>
 
-      {selectedOrderIds.size > 0 && (
+      {(tab === 'manifestos' || selectedOrderIds.size > 0) && (
         <div className="fab-up fixed bottom-[74px] left-0 right-0 z-30 px-4 pb-2">
           <button type="button" onClick={() => setShowModal(true)} className="min-h-[48px] w-full rounded-xl bg-brand-600 py-3 text-sm font-semibold text-white shadow-lg hover:bg-brand-700">
-            Manifesto ({selectedOrderIds.size})
+            {selectedOrderIds.size > 0 ? `Manifesto (${selectedOrderIds.size})` : '+ Nova viagem'}
           </button>
         </div>
       )}
