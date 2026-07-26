@@ -1,9 +1,9 @@
 // components/manifest/ManifestDetailPage.tsx
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link as RouterLink, useParams } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import { manifestsApi, hubsApi, linksApi, fiscalEmittersApi } from '../../lib/api';
-import type { Manifest, ResolvedOrderSummary, Hub, Link, FiscalEmitter, Driver } from '../../types/index';
+import type { Manifest, ResolvedOrderSummary, Hub, Link, FiscalEmitter, Driver, CiotTipoViagemSuggestion, CiotEmissionJob } from '../../types/index';
 import EmptyState from '../ui/EmptyState';
 import ErrorPanel from '../ui/ErrorPanel';
 import LoadingPanel from '../ui/LoadingPanel';
@@ -62,8 +62,23 @@ const ManifestDetailPage: React.FC = () => {
   const emptyFreightForm = { freteBruto: '', adiantamento: '', pedagio: '', irrf: '', inss: '', issqn: '', sestSenat: '', outrosDescontos: '', outrosDescontosDescricao: '' };
   const [showFreightForm, setShowFreightForm] = useState(false);
   const [freightForm, setFreightForm] = useState(emptyFreightForm);
+  const freightFormSaldoLiquido = useMemo(() => {
+    const n = (v: string) => Number(v || 0);
+    return (
+      n(freightForm.freteBruto) +
+      n(freightForm.pedagio) -
+      n(freightForm.adiantamento) -
+      n(freightForm.irrf) -
+      n(freightForm.inss) -
+      n(freightForm.issqn) -
+      n(freightForm.sestSenat) -
+      n(freightForm.outrosDescontos)
+    );
+  }, [freightForm]);
   const [fiscalBusy, setFiscalBusy] = useState(false);
   const [showCiotForm, setShowCiotForm] = useState(false);
+  const [ciotSuggestion, setCiotSuggestion] = useState<CiotTipoViagemSuggestion | null>(null);
+  const [ciotJobStatus, setCiotJobStatus] = useState<CiotEmissionJob | null>(null);
   const emptyCiotForm = {
     documentoViagem: '', distanciaPercorrida: '', dataInicioViagem: '', dataFimViagem: '',
     codigoNcmNaturezaCarga: '', pesoCarga: '', codigoTipoCarga: '2', altoDesempenho: false,
@@ -296,10 +311,33 @@ const ManifestDetailPage: React.FC = () => {
       ...(fa ? { totalOperacao: String(fa.freteBruto), totalViagem: String(fa.freteBruto), totalAdiantamento: String(fa.adiantamento), pedagio: String(fa.pedagio) } : {}),
     });
     try {
-      await manifestsApi.ciotSuggestion(id);
+      const res = await manifestsApi.ciotSuggestion(id);
+      setCiotSuggestion((res as any)?.data ?? null);
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Erro ao calcular sugestão de CIOT');
+      setCiotSuggestion(null);
     }
+  };
+
+  const pollCiotStatus = (manifestId: string, attemptsLeft = 20) => {
+    const tick = async () => {
+      try {
+        const res = await manifestsApi.ciotStatus(manifestId);
+        const job = (res as any)?.data as CiotEmissionJob | null;
+        setCiotJobStatus(job);
+        if (job && ['DONE', 'FAILED', 'PENDING_RECONCILIATION'].includes(job.phase)) {
+          await load();
+          if (job.phase === 'DONE') {
+            flashSuccess(`CIOT autorizado: ${job.codigoIdentificacaoOperacao}`);
+          }
+          return;
+        }
+      } catch {
+        /* silencioso — próxima tentativa tenta de novo */
+      }
+      if (attemptsLeft > 1) setTimeout(() => pollCiotStatus(manifestId, attemptsLeft - 1), 3000);
+    };
+    void tick();
   };
 
   const handleEmitCiot = async () => {
@@ -313,6 +351,7 @@ const ManifestDetailPage: React.FC = () => {
     setFiscalBusy(true);
     try {
       const isTac = ciotOverride === 'TAC_AGREGADO';
+      const linkDocument = manifest?.link?.document ?? '';
       await manifestsApi.emitCiot(id, {
         tipoViagemOverride: (ciotOverride || undefined) as any,
         requestData: {
@@ -328,13 +367,13 @@ const ManifestDetailPage: React.FC = () => {
           entregaDocumentacao: f.entregaDocumentacao,
           valores: { totalOperacao: Number(f.totalOperacao || 0), totalViagem: Number(f.totalViagem || 0), totalAdiantamento: Number(f.totalAdiantamento || 0), totalQuitacao: Number(f.totalQuitacao || 0), pedagio: Number(f.pedagio || 0), combustivel: Number(f.combustivel || 0) },
           impostos: {},
-          pagamentos: [{ idPagamentoCliente: `PAG-${id.slice(0, 8)}-1`, dataLiberacao: f.dataFimViagem, valor: Number(f.totalViagem || 0), tipoPagamento: f.tipoPagamento, categoria: 'SemCategoria', cpfCnpjCreditado: manifest?.link?.document ?? '', indicadorPagamento: 'Avista', pix: { tipoChave: 'CpfOuCnpj', valorChave: manifest?.link?.document ?? '' } }],
+          pagamentos: [{ idPagamentoCliente: `PAG-${id.slice(0, 8)}-1`, dataLiberacao: f.dataFimViagem, valor: Number(f.totalViagem || 0), tipoPagamento: f.tipoPagamento, categoria: 'SemCategoria', cpfCnpjCreditado: linkDocument, indicadorPagamento: 'Avista', pix: { tipoChave: 'CpfOuCnpj', valorChave: linkDocument } }],
           destinatario: { nomeOuRazaoSocial: f.destNome, cpfOuCnpj: f.destCpfCnpj, endereco: { bairro: f.destBairro, cep: f.destCep, codigoMunicipio: Number(f.destCodigoMunicipio), rua: f.destRua, numero: f.destNumero } },
         },
       });
       flashSuccess('Emissão de CIOT enfileirada — acompanhando status…');
       setShowCiotForm(false);
-      await load();
+      pollCiotStatus(id);
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Erro ao emitir CIOT');
     } finally {
@@ -585,7 +624,15 @@ const ManifestDetailPage: React.FC = () => {
                 <div><label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Frete bruto contratado*</label><input type="number" min={0} value={freightForm.freteBruto} onChange={(e) => setFreightForm((f) => ({ ...f, freteBruto: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" /></div>
                 <div><label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Adiantamento</label><input type="number" min={0} value={freightForm.adiantamento} onChange={(e) => setFreightForm((f) => ({ ...f, adiantamento: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" /></div>
                 <div><label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Pedágio</label><input type="number" min={0} value={freightForm.pedagio} onChange={(e) => setFreightForm((f) => ({ ...f, pedagio: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" /></div>
+                <div><label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">IR retido na fonte</label><input type="number" min={0} value={freightForm.irrf} onChange={(e) => setFreightForm((f) => ({ ...f, irrf: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" /></div>
+                <div><label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">INSS</label><input type="number" min={0} value={freightForm.inss} onChange={(e) => setFreightForm((f) => ({ ...f, inss: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" /></div>
+                <div><label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">ISSQN</label><input type="number" min={0} value={freightForm.issqn} onChange={(e) => setFreightForm((f) => ({ ...f, issqn: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" /></div>
+                <div><label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">SestSenat</label><input type="number" min={0} value={freightForm.sestSenat} onChange={(e) => setFreightForm((f) => ({ ...f, sestSenat: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" /></div>
                 <div><label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Outros descontos</label><input type="number" min={0} value={freightForm.outrosDescontos} onChange={(e) => setFreightForm((f) => ({ ...f, outrosDescontos: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" /></div>
+                <div className="md:col-span-2"><label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Descrição dos outros descontos</label><input value={freightForm.outrosDescontosDescricao} onChange={(e) => setFreightForm((f) => ({ ...f, outrosDescontosDescricao: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" /></div>
+              </div>
+              <div className="mt-4 rounded-lg bg-tower-50 dark:bg-tower-800 px-4 py-3 text-sm font-semibold text-tower-800 dark:text-tower-100">
+                Saldo líquido (a pagar ao motorista): R$ {freightFormSaldoLiquido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
               </div>
               <div className="mt-4 flex gap-2">
                 <button type="button" onClick={handleSaveFreightAgreement} className="px-4 py-2 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700">Salvar</button>
@@ -623,13 +670,31 @@ const ManifestDetailPage: React.FC = () => {
               </button>
             </div>
 
+            {ciotSuggestion && showCiotForm && (
+              <p className="text-sm text-tower-600 dark:text-tower-400 mb-3">
+                Sugestão: <strong>{ciotSuggestion.tipoViagem === 'FRACIONADO' ? 'Fracionado' : 'Lotação (Padrão)'}</strong>
+                {ciotSuggestion.clientDocuments.length >= 2 ? ` — ${ciotSuggestion.clientDocuments.length} clientes distintos na composição.` : ''}
+                {' · '}
+                <a href="https://transparencia.antt.gov.br/w/piso-minimo" target="_blank" rel="noreferrer" className="underline">Calculadora ANTT (piso mínimo)</a>
+              </p>
+            )}
+
+            {ciotJobStatus && (
+              <div className="mb-3">
+                <InlineNotice
+                  variant={ciotJobStatus.phase === 'FAILED' || ciotJobStatus.phase === 'PENDING_RECONCILIATION' ? 'error' : ciotJobStatus.phase === 'DONE' ? 'success' : 'info'}
+                  message={`Status: ${ciotJobStatus.phase}${ciotJobStatus.lastError ? ' — ' + ciotJobStatus.lastError : ''}`}
+                />
+              </div>
+            )}
+
             {showCiotForm && (
               <div className="border-t border-tower-100 dark:border-tower-800 pt-3">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Tipo de viagem</label>
                     <select value={ciotOverride} onChange={(e) => setCiotOverride(e.target.value)} className="w-full px-3 py-2 border border-tower-200 rounded-lg">
-                      <option value="">Automático</option>
+                      <option value="">Automático ({ciotSuggestion?.tipoViagem === 'FRACIONADO' ? 'Fracionado' : 'Lotação'})</option>
                       <option value="PADRAO">Lotação (Padrão)</option>
                       <option value="FRACIONADO">Fracionado</option>
                       <option value="TAC_AGREGADO">TAC Agregado</option>
