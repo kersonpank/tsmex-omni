@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { linksApi, manifestsApi, ordersApi, intakeDemandsApi, vehicleTypesApi, hubsApi } from '../../lib/api';
 import { demandStatusLabels, demandStatusTones, orderStatusLabels, orderStatusTones, type StatusTone } from '../../lib/demandStatusUi';
 import { useAuthStore } from '../../store/authStore';
 import type { Link, Manifest, OrderStatus, ResolvedOrderSummary, VehicleType } from '../../types/index';
 import EntradaTab from '../admin/EntradaTab';
+import InlineNotice from '../ui/InlineNotice';
 import OrderScanInput from '../ui/OrderScanInput';
 import ThemeToggle from '../ui/ThemeToggle';
 import BottomNav, { type BottomNavItem } from './BottomNav';
@@ -308,6 +309,8 @@ const HubHome: React.FC = () => {
   const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
@@ -430,6 +433,12 @@ const HubHome: React.FC = () => {
     });
   }, [debouncedQuery, orders]);
 
+  const flashSuccess = (msg: string) => {
+    if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+    setSuccess(msg);
+    successTimeoutRef.current = setTimeout(() => setSuccess(null), 3000);
+  };
+
   const toggleOrder = (orderId: string) => {
     setSelectedOrderIds((prev) => {
       const next = new Set(prev);
@@ -515,6 +524,11 @@ const HubHome: React.FC = () => {
           <div className="mobile-enter mb-4 flex items-center justify-between gap-3 rounded-xl border border-brand-red-500/30 bg-brand-red-500/10 p-3 text-sm text-brand-red-600 dark:text-brand-red-400">
             <span>{error}</span>
             <button type="button" onClick={() => void load()} className="rounded-lg px-2 py-1 text-xs font-semibold underline">Tentar novamente</button>
+          </div>
+        )}
+        {success && (
+          <div className="mobile-enter mb-4">
+            <InlineNotice variant="success" message={success} onDismiss={() => setSuccess(null)} />
           </div>
         )}
         {loading && <div className="py-16 text-center text-sm text-tower-600 dark:text-tower-300">Carregando...</div>}
@@ -622,12 +636,15 @@ const HubHome: React.FC = () => {
               <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Pesquisar pedidos..." className="h-11 w-full rounded-xl border border-tower-300 bg-white px-3 text-sm text-tower-900 placeholder:text-tower-500 ring-brand-500/30 focus:border-brand-500 focus:outline-none focus:ring-2 dark:border-tower-600 dark:bg-tower-900 dark:text-tower-100 dark:placeholder:text-tower-400" />
               <button type="button" onClick={() => setTab('entrada')} className="h-11 min-w-11 rounded-xl bg-brand-600 px-3 text-sm font-semibold text-white">+ Nova entrada</button>
             </div>
-            <OrderScanInput
-              onResolved={(resolved: ResolvedOrderSummary) => {
-                setSelectedOrderIds((prev) => new Set(prev).add(resolved.id));
-                setTab('pedidos');
-              }}
-            />
+            <div className="rounded-xl border border-tower-200 bg-tower-50 p-3 dark:border-tower-700 dark:bg-tower-800">
+              <p className="mb-2 text-xs font-semibold text-tower-600 dark:text-tower-300">Ou bipe/digite pra selecionar direto:</p>
+              <OrderScanInput
+                onResolved={(resolved: ResolvedOrderSummary) => {
+                  setSelectedOrderIds((prev) => new Set(prev).add(resolved.id));
+                  flashSuccess(`Pedido adicionado à seleção (${resolved.id.slice(0, 8)}).`);
+                }}
+              />
+            </div>
             {filteredOrders.length === 0 && <div className="rounded-xl border border-dashed border-tower-300 p-6 text-center text-sm text-tower-600 dark:border-tower-600 dark:text-tower-300">Nenhum pedido encontrado.</div>}
             {filteredOrders.map((order) => (
               <button key={order.id} type="button" onClick={() => (window.location.hash = `#/orders/${order.id}`)} className="card-surface w-full cursor-pointer p-4 text-left transition-colors duration-200 hover:bg-[var(--app-surface-muted)] dark:hover:bg-tower-800">
