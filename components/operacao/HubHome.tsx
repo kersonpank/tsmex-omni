@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { linksApi, manifestsApi, ordersApi, intakeDemandsApi, vehicleTypesApi, hubsApi } from '../../lib/api';
 import { demandStatusLabels, demandStatusTones, orderStatusLabels, orderStatusTones, type StatusTone } from '../../lib/demandStatusUi';
+import { manifestStatusLabels as MANIFEST_STATUS_LABEL, manifestStatusTone as MANIFEST_STATUS_TONE } from '../../lib/manifestStatusUi';
 import { useAuthStore } from '../../store/authStore';
 import type { Link, Manifest, OrderStatus, ResolvedOrderSummary, VehicleType } from '../../types/index';
 import EntradaTab from '../admin/EntradaTab';
@@ -33,24 +34,6 @@ interface Order {
 }
 
 const ACTIVE_MANIFEST_STATUSES = ['PENDING_ACCEPT', 'ACCEPTED', 'IN_PROGRESS'];
-
-const MANIFEST_STATUS_LABEL: Record<string, string> = {
-  DRAFT: 'Rascunho',
-  PENDING_ACCEPT: 'Aguardando aceite',
-  ACCEPTED: 'Aceito',
-  IN_PROGRESS: 'Em andamento',
-  COMPLETED: 'Concluído',
-  CANCELLED: 'Cancelado',
-};
-
-const MANIFEST_STATUS_TONE: Record<string, StatusTone> = {
-  DRAFT: 'neutral',
-  PENDING_ACCEPT: 'warning',
-  ACCEPTED: 'info',
-  IN_PROGRESS: 'info',
-  COMPLETED: 'success',
-  CANCELLED: 'danger',
-};
 
 const toneClassMap: Record<StatusTone, string> = {
   neutral: 'tone-neutral',

@@ -43,7 +43,7 @@ router.get('/resolve', authenticate, authorize('ADMIN', 'HUB'), async (req: Auth
         if (manifestId) {
             const manifest = await prisma.manifest.findUnique({ where: { id: manifestId }, select: { hubId: true } });
             if (!manifest) throw new AppError('Manifesto não encontrado', 404);
-            if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && manifest.hubId !== req.user!.hubId) {
+            if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && (!req.user!.hubId || manifest.hubId !== req.user!.hubId)) {
                 throw new AppError('Not authorized', 403);
             }
             hubId = manifest.hubId ?? undefined;

@@ -91,6 +91,7 @@ describe('GET /orders/resolve — auth/hub scoping do handler', () => {
         prisma.manifest.findUnique = ((async (args: any) => {
             if (args.where.id === 'manifest-hub-1') return { hubId: 'hub-1' };
             if (args.where.id === 'manifest-hub-2') return { hubId: 'hub-2' };
+            if (args.where.id === 'manifest-no-hub') return { hubId: null };
             return null;
         }) as unknown) as typeof prisma.manifest.findUnique;
 
@@ -168,6 +169,19 @@ describe('GET /orders/resolve — auth/hub scoping do handler', () => {
         const res = await httpJson<{ success: boolean }>(
             baseUrl,
             '/api/orders/resolve?code=12345678',
+            hubNoHubToken,
+        );
+
+        assert.equal(res.status, 403);
+        assert.equal(res.body.success, false);
+    });
+
+    it('retorna 403 quando usuário HUB sem hubId referencia manifesto sem hub de origem (ambos sem hub — fail closed)', async () => {
+        resetMocksToDefault();
+
+        const res = await httpJson<{ success: boolean }>(
+            baseUrl,
+            '/api/orders/resolve?code=12345678&manifestId=manifest-no-hub',
             hubNoHubToken,
         );
 

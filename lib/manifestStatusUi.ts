@@ -6,6 +6,7 @@ export const manifestStatusLabels: Record<string, string> = {
   ACCEPTED: 'Aceito',
   IN_PROGRESS: 'Em andamento',
   COMPLETED: 'Concluído',
+  CANCELLED: 'Cancelado',
   REJECTED: 'Recusado',
 };
 
