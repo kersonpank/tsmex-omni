@@ -3,37 +3,18 @@ import { Link as RouterLink } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import { manifestsApi, vehicleTypesApi, hubsApi } from '../../lib/api';
 import type { Manifest, ManifestTripType, VehicleType, Hub } from '../../types/index';
-import type { StatusTone } from '../../lib/demandStatusUi';
 import EmptyState from '../ui/EmptyState';
 import InlineNotice from '../ui/InlineNotice';
 import LoadingPanel from '../ui/LoadingPanel';
 import StatusBadge from '../ui/StatusBadge';
 import { CityAutocomplete } from '../ui/CityAutocomplete';
 import { useRegisterGestaoModuleActions } from './layout/GestaoModuleActionsContext';
-
-const statusLabels: Record<string, string> = {
-  DRAFT: 'Rascunho',
-  PENDING_ACCEPT: 'Aguardando aceite',
-  ACCEPTED: 'Aceito',
-  IN_PROGRESS: 'Em andamento',
-  COMPLETED: 'Concluído',
-  REJECTED: 'Recusado',
-};
+import { manifestStatusLabels as statusLabels, manifestStatusTone as manifestTone } from '../../lib/manifestStatusUi';
 
 const tripTypeLabels: Record<ManifestTripType, string> = {
   TRANSFER: 'Transferência hub',
   DELIVERY: 'Entrega final',
   REGIONAL_DISTRIBUTION: 'Distribuição regional',
-};
-
-const manifestTone: Record<string, StatusTone> = {
-  DRAFT: 'neutral',
-  PENDING_ACCEPT: 'warning',
-  ACCEPTED: 'info',
-  IN_PROGRESS: 'info',
-  COMPLETED: 'success',
-  CANCELLED: 'danger',
-  REJECTED: 'danger',
 };
 
 const ManifestsTab: React.FC = () => {

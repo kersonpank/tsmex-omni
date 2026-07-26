@@ -11,15 +11,7 @@ import InlineNotice from '../ui/InlineNotice';
 import StatusBadge from '../ui/StatusBadge';
 import { CollapsibleSection } from '../ui/CollapsibleSection';
 import OrderScanInput from '../ui/OrderScanInput';
-
-const statusLabels: Record<string, string> = {
-  DRAFT: 'Rascunho',
-  PENDING_ACCEPT: 'Aguardando aceite',
-  ACCEPTED: 'Aceito',
-  IN_PROGRESS: 'Em andamento',
-  COMPLETED: 'Concluído',
-  REJECTED: 'Recusado',
-};
+import { manifestStatusLabels as statusLabels, manifestStatusTone } from '../../lib/manifestStatusUi';
 
 type SectionKey = 'pedidos' | 'paradas' | 'capa' | 'motorista' | 'cartaFrete' | 'fiscal';
 
@@ -430,7 +422,7 @@ const ManifestDetailPage: React.FC = () => {
         >
           Voltar para viagens
         </RouterLink>
-        <StatusBadge label={statusLabels[manifest.status] ?? manifest.status} tone={manifest.status === 'COMPLETED' ? 'success' : 'info'} />
+        <StatusBadge label={statusLabels[manifest.status] ?? manifest.status} tone={manifestStatusTone[manifest.status] ?? 'neutral'} />
         <span className="font-bold text-tower-900 dark:text-tower-50">{manifest.origin} → {manifest.destination}</span>
       </div>
 
