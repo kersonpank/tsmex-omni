@@ -18,6 +18,7 @@ import OperacaoOnboarding from './components/operacao/OperacaoOnboarding';
 import HubCadastro from './components/HubCadastro';
 import ThemeToggle from './components/ui/ThemeToggle';
 import OrderDetailPage from './components/admin/OrderDetailPage';
+import ManifestDetailPage from './components/manifest/ManifestDetailPage';
 import { useLayoutStore } from './store/layoutStore';
 import { getDefaultHomePath, syncRoleForPath } from './lib/postLoginDefaultPath';
 
@@ -305,6 +306,11 @@ const AppMain: React.FC = () => {
             <Route path="/orders/:id" element={
               <ProtectedRoute allowedRoles={['ADMIN', 'HUB', 'LINK', 'CLIENT']}>
                 <OrderDetailPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/manifests/:id" element={
+              <ProtectedRoute allowedRoles={['ADMIN', 'HUB']}>
+                <ManifestDetailPage />
               </ProtectedRoute>
             } />
             <Route path="/link/cadastro" element={<OperacaoOnboarding />} />
