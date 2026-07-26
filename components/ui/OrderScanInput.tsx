@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ordersApi } from '../../lib/api';
 import type { ResolvedOrderSummary } from '../../types/index';
 import QRCodeScanner from './QRCodeScanner';
@@ -14,14 +14,22 @@ const OrderScanInput: React.FC<OrderScanInputProps> = ({ manifestId, onResolved,
   const [showCamera, setShowCamera] = useState(false);
   const [candidates, setCandidates] = useState<ResolvedOrderSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const busyRef = useRef(false);
+
+  useEffect(() => {
+    if (!busy) inputRef.current?.focus();
+  }, [busy]);
 
   const resolve = async (rawCode: string) => {
     const trimmed = rawCode.trim();
-    if (!trimmed || busy) return;
+    if (!trimmed || busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     setError(null);
+    setNotFound(false);
     setCandidates(null);
     try {
       const res = await ordersApi.resolve(trimmed, manifestId);
@@ -31,13 +39,13 @@ const OrderScanInput: React.FC<OrderScanInputProps> = ({ manifestId, onResolved,
       } else if (res.match === 'multiple') {
         setCandidates(res.candidates);
       } else {
-        setError('Nenhum pedido encontrado com esse código neste hub.');
+        setNotFound(true);
       }
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Erro ao buscar pedido');
     } finally {
+      busyRef.current = false;
       setBusy(false);
-      inputRef.current?.focus();
     }
   };
 
@@ -56,6 +64,7 @@ const OrderScanInput: React.FC<OrderScanInputProps> = ({ manifestId, onResolved,
     setCandidates(null);
     setCode('');
     onResolved(order);
+    inputRef.current?.focus();
   };
 
   return (
@@ -89,10 +98,26 @@ const OrderScanInput: React.FC<OrderScanInputProps> = ({ manifestId, onResolved,
         </button>
       </form>
 
-      {error && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {error && (
+        <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-400">
+          {error}
+        </p>
+      )}
+
+      {notFound && (
+        <p
+          role="alert"
+          className="mt-2 text-sm rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/40 text-amber-900 dark:text-amber-100 px-3 py-2"
+        >
+          Nenhum pedido encontrado com esse código neste hub. Verifique o código ou tente outro hub.
+        </p>
+      )}
 
       {candidates && candidates.length > 0 && (
-        <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/40 p-3">
+        <div
+          aria-live="polite"
+          className="mt-3 rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/40 p-3"
+        >
           <p className="text-xs font-semibold text-amber-900 dark:text-amber-100 mb-2">
             Mais de um pedido encontrado com esse código — escolha o correto:
           </p>
