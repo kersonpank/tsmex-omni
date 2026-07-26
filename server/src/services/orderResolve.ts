@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import prisma from '../lib/prisma.js';
 
 export interface ResolvedOrderSummary {
@@ -14,7 +15,16 @@ export type OrderResolveResult =
     | { match: 'multiple'; candidates: ResolvedOrderSummary[] }
     | { match: 'none' };
 
-const toSummary = (order: any): ResolvedOrderSummary => ({
+const orderInclude = {
+    demand: { select: { origin: true, destination: true } },
+} satisfies Prisma.OrderInclude;
+
+// Shape shared by every cascade step once its `order` relation is loaded — a schema
+// rename on `Order`/`Demand` (e.g. `demand.origin` → `demand.originCity`) becomes a
+// compile error here instead of a silent `undefined` at runtime.
+type ResolvedOrder = Prisma.OrderGetPayload<{ include: typeof orderInclude }>;
+
+const toSummary = (order: ResolvedOrder): ResolvedOrderSummary => ({
     id: order.id,
     nfNumber: order.nfNumber ?? null,
     status: order.status,
@@ -23,15 +33,13 @@ const toSummary = (order: any): ResolvedOrderSummary => ({
     destination: order.demand?.destination ?? null,
 });
 
-const orderInclude = { demand: { select: { origin: true, destination: true } } };
-
-const dedupeById = (orders: any[]): any[] => {
-    const seen = new Map<string, any>();
+const dedupeById = (orders: ResolvedOrder[]): ResolvedOrder[] => {
+    const seen = new Map<string, ResolvedOrder>();
     for (const o of orders) seen.set(o.id, o);
     return [...seen.values()];
 };
 
-const finish = (orders: any[]): OrderResolveResult => {
+const finish = (orders: ResolvedOrder[]): OrderResolveResult => {
     const unique = dedupeById(orders);
     if (unique.length === 0) return { match: 'none' };
     if (unique.length === 1) return { match: 'single', order: toSummary(unique[0]) };

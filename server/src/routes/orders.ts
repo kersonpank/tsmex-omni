@@ -48,7 +48,8 @@ router.get('/resolve', authenticate, authorize('ADMIN', 'HUB'), async (req: Auth
             }
             hubId = manifest.hubId ?? undefined;
         } else if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN')) {
-            hubId = req.user!.hubId ?? undefined;
+            if (!req.user!.hubId) throw new AppError('Hub user has no hub assigned', 403);
+            hubId = req.user!.hubId;
         }
 
         const result = await resolveOrderByCode(code, hubId);
