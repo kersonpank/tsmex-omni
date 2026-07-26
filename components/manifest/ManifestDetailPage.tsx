@@ -1,10 +1,9 @@
 // components/manifest/ManifestDetailPage.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link as RouterLink, useParams } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import { manifestsApi } from '../../lib/api';
-import type { Manifest } from '../../types/index';
-import type { ResolvedOrderSummary } from '../../types/index';
+import type { Manifest, ResolvedOrderSummary } from '../../types/index';
 import EmptyState from '../ui/EmptyState';
 import ErrorPanel from '../ui/ErrorPanel';
 import LoadingPanel from '../ui/LoadingPanel';
@@ -29,6 +28,7 @@ const ManifestDetailPage: React.FC = () => {
   const { user } = useAuthStore();
   const isHub = user?.roles?.includes('HUB') ?? false;
   const isAdmin = user?.roles?.includes('ADMIN') ?? false;
+  const isHubOnly = isHub && !isAdmin;
   const backPath = isHub && !isAdmin ? '/hub' : '/gestao?cat=transport&sub=viagens';
 
   const [manifest, setManifest] = useState<Manifest | null>(null);
@@ -44,14 +44,16 @@ const ManifestDetailPage: React.FC = () => {
     fiscal: false,
   });
   const [addingOrderId, setAddingOrderId] = useState<string | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = async () => {
     if (!id) return;
-    setLoading(true);
+    if (!manifest) setLoading(true);
     setError(null);
     try {
       const res = await manifestsApi.getById(id);
-      setManifest((res as any)?.data ?? null);
+      setManifest(res.data ?? null);
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Erro ao carregar viagem');
     } finally {
@@ -64,8 +66,9 @@ const ManifestDetailPage: React.FC = () => {
   const toggle = (section: SectionKey) => setExpanded((prev) => ({ ...prev, [section]: !prev[section] }));
 
   const flashSuccess = (msg: string) => {
+    if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
     setSuccess(msg);
-    setTimeout(() => setSuccess(null), 3000);
+    successTimeoutRef.current = setTimeout(() => setSuccess(null), 3000);
   };
 
   const handleOrderResolved = async (order: ResolvedOrderSummary) => {
@@ -73,9 +76,9 @@ const ManifestDetailPage: React.FC = () => {
     setAddingOrderId(order.id);
     setError(null);
     try {
-      await manifestsApi.addDemand(id, { orderId: order.id });
+      const res = await manifestsApi.addDemand(id, { orderId: order.id });
+      setManifest(res.data ?? null);
       flashSuccess(`Pedido #${order.id.slice(0, 8)} adicionado à viagem.`);
-      await load();
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Erro ao adicionar pedido');
     } finally {
@@ -86,16 +89,19 @@ const ManifestDetailPage: React.FC = () => {
   const handleRemoveDemand = async (demandId: string) => {
     if (!id || !window.confirm('Remover este pedido da viagem?')) return;
     setError(null);
+    setRemovingId(demandId);
     try {
       await manifestsApi.removeDemand(id, demandId);
       flashSuccess('Pedido removido.');
       await load();
     } catch (e: any) {
       setError(e.response?.data?.error || e.message);
+    } finally {
+      setRemovingId(null);
     }
   };
 
-  const canEditOrders = manifest?.status === 'DRAFT';
+  const canEditOrders = manifest?.status === 'DRAFT' && (!isHubOnly || manifest?.hubId === user?.hubId);
 
   if (loading) return <LoadingPanel label="Carregando viagem…" />;
   if (error && !manifest) return <ErrorPanel message={error} onRetry={load} />;
@@ -117,7 +123,7 @@ const ManifestDetailPage: React.FC = () => {
       {error && <InlineNotice variant="error" message={error} onDismiss={() => setError(null)} />}
       {success && <InlineNotice variant="success" message={success} onDismiss={() => setSuccess(null)} />}
 
-      <CollapsibleSection title="Pedidos" sectionKey="pedidos" expanded={expanded.pedidos} onToggle={() => toggle('pedidos')}>
+      <CollapsibleSection title="Pedidos" sectionKey="pedidos" expanded={expanded.pedidos} onToggle={toggle}>
         {canEditOrders && (
           <div className="mb-4">
             <OrderScanInput manifestId={id} onResolved={handleOrderResolved} disabled={addingOrderId !== null} />
@@ -129,7 +135,14 @@ const ManifestDetailPage: React.FC = () => {
               <li key={d.id} className="flex items-center justify-between text-sm border-b border-tower-100 dark:border-tower-800 py-2 last:border-0">
                 <span>{d.origin} → {d.destination} · {d.commodity} · {d.weight}kg</span>
                 {canEditOrders && (
-                  <button type="button" onClick={() => handleRemoveDemand(d.id)} className="text-red-600 hover:underline">Remover</button>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveDemand(d.id)}
+                    disabled={removingId === d.id}
+                    className="text-red-600 hover:underline disabled:opacity-50"
+                  >
+                    {removingId === d.id ? 'Removendo…' : 'Remover'}
+                  </button>
                 )}
               </li>
             ))}
