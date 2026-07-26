@@ -2,8 +2,9 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { linksApi, manifestsApi, ordersApi, intakeDemandsApi, vehicleTypesApi, hubsApi } from '../../lib/api';
 import { demandStatusLabels, demandStatusTones, orderStatusLabels, orderStatusTones, type StatusTone } from '../../lib/demandStatusUi';
 import { useAuthStore } from '../../store/authStore';
-import type { Link, Manifest, OrderStatus, VehicleType } from '../../types/index';
+import type { Link, Manifest, OrderStatus, ResolvedOrderSummary, VehicleType } from '../../types/index';
 import EntradaTab from '../admin/EntradaTab';
+import OrderScanInput from '../ui/OrderScanInput';
 import ThemeToggle from '../ui/ThemeToggle';
 import BottomNav, { type BottomNavItem } from './BottomNav';
 import HubAwaitingArrivalTab from './HubAwaitingArrivalTab';
@@ -287,6 +288,13 @@ const ManifestCard: React.FC<{ m: any; children?: React.ReactNode }> = ({ m, chi
         </span>
       )}
     </div>
+    <button
+      type="button"
+      onClick={() => { window.location.hash = `#/manifests/${m.id}`; }}
+      className="mt-3 w-full rounded-lg border border-tower-300 py-2 text-sm font-semibold text-tower-700 hover:bg-tower-50 dark:border-tower-600 dark:text-tower-200 dark:hover:bg-tower-800"
+    >
+      Ver detalhes →
+    </button>
     {children}
   </div>
 );
@@ -614,6 +622,12 @@ const HubHome: React.FC = () => {
               <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Pesquisar pedidos..." className="h-11 w-full rounded-xl border border-tower-300 bg-white px-3 text-sm text-tower-900 placeholder:text-tower-500 ring-brand-500/30 focus:border-brand-500 focus:outline-none focus:ring-2 dark:border-tower-600 dark:bg-tower-900 dark:text-tower-100 dark:placeholder:text-tower-400" />
               <button type="button" onClick={() => setTab('entrada')} className="h-11 min-w-11 rounded-xl bg-brand-600 px-3 text-sm font-semibold text-white">+ Nova entrada</button>
             </div>
+            <OrderScanInput
+              onResolved={(resolved: ResolvedOrderSummary) => {
+                setSelectedOrderIds((prev) => new Set(prev).add(resolved.id));
+                setTab('pedidos');
+              }}
+            />
             {filteredOrders.length === 0 && <div className="rounded-xl border border-dashed border-tower-300 p-6 text-center text-sm text-tower-600 dark:border-tower-600 dark:text-tower-300">Nenhum pedido encontrado.</div>}
             {filteredOrders.map((order) => (
               <button key={order.id} type="button" onClick={() => (window.location.hash = `#/orders/${order.id}`)} className="card-surface w-full cursor-pointer p-4 text-left transition-colors duration-200 hover:bg-[var(--app-surface-muted)] dark:hover:bg-tower-800">
