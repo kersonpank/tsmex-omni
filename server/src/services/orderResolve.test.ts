@@ -104,4 +104,75 @@ describe('resolveOrderByCode', () => {
 
         assert.equal(result.match, 'none');
     });
+
+    it('cai pra dceAccessKey quando não acha por nfKey nem cteAccessKey', async () => {
+        const key = '3'.repeat(44);
+        let calledWith: any = null;
+        prisma.orderInvoice.findMany = (async () => []) as any;
+        prisma.orderFreightCalculation.findMany = (async (args: any) => {
+            if ('cteAccessKey' in args.where) return [];
+            calledWith = args;
+            return [{ order: baseOrder }];
+        }) as any;
+
+        const result = await resolveOrderByCode(key, 'hub-1');
+
+        assert.equal(result.match, 'single');
+        assert.deepEqual(calledWith.where, { dceAccessKey: key });
+    });
+
+    it('cai pra cteNumber quando não acha por nfNumber', async () => {
+        let calledWith: any = null;
+        prisma.orderInvoice.findMany = (async () => []) as any;
+        prisma.orderFreightCalculation.findMany = (async (args: any) => {
+            calledWith = args;
+            return [{ order: baseOrder }];
+        }) as any;
+
+        const result = await resolveOrderByCode('123', 'hub-1');
+
+        assert.equal(result.match, 'single');
+        assert.deepEqual(calledWith.where, { cteNumber: '123', order: { status: 'AT_HUB', currentHubId: 'hub-1' } });
+    });
+
+    it('cai pra minutaNumber quando não acha por nfNumber nem cteNumber', async () => {
+        let calledWith: any = null;
+        prisma.orderInvoice.findMany = (async () => []) as any;
+        prisma.orderFreightCalculation.findMany = (async (args: any) => {
+            if ('cteNumber' in args.where) return [];
+            calledWith = args;
+            return [{ order: baseOrder }];
+        }) as any;
+
+        const result = await resolveOrderByCode('123', 'hub-1');
+
+        assert.equal(result.match, 'single');
+        assert.deepEqual(calledWith.where, { minutaNumber: '123', order: { status: 'AT_HUB', currentHubId: 'hub-1' } });
+    });
+
+    it('cai pra dceNumber quando não acha por nfNumber, cteNumber nem minutaNumber', async () => {
+        let calledWith: any = null;
+        prisma.orderInvoice.findMany = (async () => []) as any;
+        prisma.orderFreightCalculation.findMany = (async (args: any) => {
+            if ('cteNumber' in args.where || 'minutaNumber' in args.where) return [];
+            calledWith = args;
+            return [{ order: baseOrder }];
+        }) as any;
+
+        const result = await resolveOrderByCode('123', 'hub-1');
+
+        assert.equal(result.match, 'single');
+        assert.deepEqual(calledWith.where, { dceNumber: '123', order: { status: 'AT_HUB', currentHubId: 'hub-1' } });
+    });
+
+    it('retorna match "multiple" quando a chave de 44 dígitos resolve mais de um pedido (não é ambíguo silencioso)', async () => {
+        const key = '4'.repeat(44);
+        const other = { ...baseOrder, id: 'order-def67890' };
+        prisma.orderInvoice.findMany = (async () => [{ order: baseOrder }, { order: other }]) as any;
+
+        const result = await resolveOrderByCode(key, 'hub-1');
+
+        assert.equal(result.match, 'multiple');
+        assert.equal(result.match === 'multiple' && result.candidates.length, 2);
+    });
 });
