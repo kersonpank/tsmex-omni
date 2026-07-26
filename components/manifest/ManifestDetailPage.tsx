@@ -233,6 +233,7 @@ const ManifestDetailPage: React.FC = () => {
   };
 
   const canEditOrders = manifest?.status === 'DRAFT' && (!isHubOnly || manifest?.hubId === user?.hubId);
+  const canShowFiscalActions = (status: string) => ['PENDING_ACCEPT', 'ACCEPTED', 'IN_PROGRESS'].includes(status);
 
   if (loading) return <LoadingPanel label="Carregando viagem…" />;
   if (error && !manifest) return <ErrorPanel message={error} onRetry={load} />;
@@ -395,7 +396,7 @@ const ManifestDetailPage: React.FC = () => {
               {manifest.linkId ? 'Trocar Link' : 'Atribuir Link'}
             </button>
           )}
-          {manifest.linkId && ['PENDING_ACCEPT', 'ACCEPTED', 'IN_PROGRESS'].includes(manifest.status) && !showDriverForm && (
+          {manifest.linkId && canShowFiscalActions(manifest.status) && !showDriverForm && (
             <button type="button" onClick={openDriverForm} className="px-3 py-1.5 text-sm bg-tower-100 dark:bg-tower-800 text-tower-700 dark:text-tower-300 rounded-lg hover:bg-tower-200 dark:hover:bg-tower-700">
               {manifest.driver ? 'Trocar motorista' : 'Definir motorista'}
             </button>
