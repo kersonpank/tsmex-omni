@@ -200,7 +200,7 @@ const ManifestModal: React.FC<{
       <div className="mobile-enter relative max-h-[90vh] overflow-y-auto rounded-t-2xl border border-tower-200 bg-[var(--app-surface)] dark:border-tower-700 dark:bg-tower-900">
         <div className="flex items-center justify-between border-b border-tower-200 px-4 py-3 dark:border-tower-700">
           <h2 className="font-display text-base font-semibold text-tower-900 dark:text-white">
-            {selectedOrders.length > 0 ? `Criar manifesto (${selectedOrders.length})` : 'Criar manifesto'}
+            {selectedOrders.length > 0 ? `Criar manifesto (${selectedOrders.length})` : 'Nova viagem'}
           </h2>
           <button type="button" onClick={onClose} className="rounded-lg p-2 text-tower-500 hover:bg-tower-100 dark:hover:bg-tower-800" aria-label="Fechar modal">
             ✕
