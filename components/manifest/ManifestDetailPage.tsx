@@ -340,11 +340,12 @@ const ManifestDetailPage: React.FC = () => {
       </CollapsibleSection>
 
       <CollapsibleSection title="Capa da viagem" sectionKey="capa" expanded={expanded.capa} onToggle={toggle}>
-        {!showCapaForm ? (
+        {canEditOrders && !showCapaForm && (
           <button type="button" onClick={openCapaForm} className="px-3 py-1.5 text-sm bg-tower-100 dark:bg-tower-800 text-tower-700 dark:text-tower-300 rounded-lg hover:bg-tower-200 dark:hover:bg-tower-700">
             Editar capa
           </button>
-        ) : (
+        )}
+        {showCapaForm && (
           <div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -389,12 +390,12 @@ const ManifestDetailPage: React.FC = () => {
           {manifest.driver && ` · Motorista: ${manifest.driver.name}`}
         </p>
         <div className="flex gap-2 flex-wrap">
-          {!showAssignForm && (
+          {canEditOrders && !showAssignForm && (
             <button type="button" onClick={() => { setShowAssignForm(true); setAssignLinkId(manifest.linkId || ''); }} className="px-3 py-1.5 text-sm bg-tower-100 dark:bg-tower-800 text-tower-700 dark:text-tower-300 rounded-lg hover:bg-tower-200 dark:hover:bg-tower-700">
               {manifest.linkId ? 'Trocar Link' : 'Atribuir Link'}
             </button>
           )}
-          {manifest.linkId && !showDriverForm && (
+          {manifest.linkId && ['PENDING_ACCEPT', 'ACCEPTED', 'IN_PROGRESS'].includes(manifest.status) && !showDriverForm && (
             <button type="button" onClick={openDriverForm} className="px-3 py-1.5 text-sm bg-tower-100 dark:bg-tower-800 text-tower-700 dark:text-tower-300 rounded-lg hover:bg-tower-200 dark:hover:bg-tower-700">
               {manifest.driver ? 'Trocar motorista' : 'Definir motorista'}
             </button>
