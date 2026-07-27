@@ -142,4 +142,43 @@ router.get('/distribuicao-nfe/monitor', authorize('ADMIN'), async (req: AuthRequ
     }
 });
 
+/**
+ * Lista as OrderInvoice (NFs/Declarações adicionadas manualmente a um pedido) com
+ * contexto do pedido — usado pela tela de menu "NF-e" pra unificar com as
+ * NfeDistribuicaoDocumento (varredura automática) numa visão única "todas as NFs",
+ * sem juntar os dois modelos no banco (não têm FK entre si — são estágios
+ * diferentes de um mesmo funil, não a mesma informação).
+ */
+router.get('/distribuicao-nfe/manual-invoices', authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const q = typeof req.query.q === 'string' ? req.query.q.trim() : undefined;
+        const invoices = await prisma.orderInvoice.findMany({
+            where: q
+                ? {
+                      OR: [
+                          { nfNumber: { contains: q, mode: 'insensitive' } },
+                          { nfKey: { contains: q, mode: 'insensitive' } },
+                          { order: { demand: { client: { companyName: { contains: q, mode: 'insensitive' } } } } },
+                      ],
+                  }
+                : undefined,
+            include: {
+                order: {
+                    select: {
+                        id: true,
+                        status: true,
+                        currentHub: { select: { id: true, name: true, code: true } },
+                        demand: { select: { client: { select: { companyName: true } } } },
+                    },
+                },
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 200,
+        });
+        res.json({ success: true, data: { invoices } });
+    } catch (e) {
+        next(e);
+    }
+});
+
 export { router as fiscalDistribuicaoRouter };

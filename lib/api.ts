@@ -404,6 +404,41 @@ export const nfeDistribuicaoMonitorApi = {
     },
 };
 
+/**
+ * NFs/Declarações adicionadas manualmente a um pedido (OrderInvoice) — estágio diferente do
+ * NfeDistribuicaoMonitorDocumento acima (não tem FK entre os dois modelos): aqui a carga já é
+ * um Pedido confirmado, não um radar aguardando triagem. Usado só pra unificar a visão na tela
+ * de menu "NF-e" (coluna Origem), sem misturar as ações de cada um.
+ */
+export interface OrderInvoiceWithOrder {
+    id: string;
+    type: 'NFE' | 'OUTRAS';
+    nfNumber: string;
+    nfKey: string | null;
+    emissionDate: string | null;
+    weight: number;
+    volumes: number;
+    cubedVolume: number | null;
+    value: number;
+    createdAt: string;
+    order: {
+        id: string;
+        status: string;
+        currentHub: { id: string; name: string; code: string } | null;
+        demand: { client: { companyName: string } };
+    };
+}
+
+export const nfeManualInvoicesApi = {
+    list: async (params?: { q?: string }) => {
+        const response = await api.get<ApiResponse<{ invoices: OrderInvoiceWithOrder[] }>>(
+            '/fiscal/distribuicao-nfe/manual-invoices',
+            { params },
+        );
+        return response.data;
+    },
+};
+
 // ========== MANIFESTS API ==========
 
 export const manifestsApi = {
