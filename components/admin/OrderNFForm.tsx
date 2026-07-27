@@ -645,8 +645,8 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
       {invoices.length > 0 && (
         <div className="mt-6">
           <h4 className="text-sm font-semibold text-tower-700 dark:text-tower-200 mb-2">{invoices.length} Nota(s)</h4>
-          <div className="border border-tower-200 dark:border-tower-700 rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
+          <div className="border border-tower-200 dark:border-tower-700 rounded-lg overflow-x-auto">
+            <table className="w-full min-w-[720px] text-sm">
               <thead className="bg-tower-50 dark:bg-tower-700">
                 <tr>
                   <th className="text-left py-2 px-3 font-medium text-tower-700 dark:text-tower-200">Número</th>
