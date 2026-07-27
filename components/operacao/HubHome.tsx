@@ -3,7 +3,7 @@ import { linksApi, manifestsApi, ordersApi, intakeDemandsApi, vehicleTypesApi, h
 import { demandStatusLabels, demandStatusTones, orderStatusLabels, orderStatusTones, type StatusTone } from '../../lib/demandStatusUi';
 import { manifestStatusLabels as MANIFEST_STATUS_LABEL, manifestStatusTone as MANIFEST_STATUS_TONE } from '../../lib/manifestStatusUi';
 import { useAuthStore } from '../../store/authStore';
-import type { Link, Manifest, OrderStatus, ResolvedOrderSummary, VehicleType } from '../../types/index';
+import type { Link, Manifest, OrderAggregateSummary, OrderStatus, ResolvedOrderSummary, VehicleType } from '../../types/index';
 import EntradaTab from '../admin/EntradaTab';
 import InlineNotice from '../ui/InlineNotice';
 import OrderScanInput from '../ui/OrderScanInput';
@@ -28,6 +28,9 @@ interface Order {
     commodity?: string;
     weight?: number;
     volume?: number;
+    units?: number;
+    cubedWeight?: number;
+    nfValue?: number;
   };
   attachments?: unknown[];
   [key: string]: any;
@@ -98,6 +101,16 @@ const getOrderCustody = (order: any): string => {
     return 'Cancelado';
   }
   return '—';
+};
+
+const orderCargoLine = (order: Order): React.ReactNode => {
+  const parts: string[] = [];
+  if (typeof order.demand?.units === 'number') parts.push(`${order.demand.units} vol`);
+  if (typeof order.demand?.weight === 'number') parts.push(`${order.demand.weight} kg`);
+  if (typeof order.demand?.cubedWeight === 'number') parts.push(`cubado ${order.demand.cubedWeight} kg`);
+  if (typeof order.demand?.nfValue === 'number') parts.push(`R$ ${order.demand.nfValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+  if (parts.length === 0) return null;
+  return <div className="mt-1 text-xs text-tower-600 dark:text-tower-400">{parts.join(' · ')}</div>;
 };
 
 function extractArray(res: any): any[] {
@@ -326,6 +339,7 @@ const HubHome: React.FC = () => {
   const [showProfileSheet, setShowProfileSheet] = useState(false);
   const [attachmentUploadingOrderId, setAttachmentUploadingOrderId] = useState<string | null>(null);
   const [awaitingRecebimentoCount, setAwaitingRecebimentoCount] = useState(0);
+  const [orderSummary, setOrderSummary] = useState<OrderAggregateSummary | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query.trim().toLowerCase()), 200);
@@ -401,6 +415,18 @@ const HubHome: React.FC = () => {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    ordersApi.aggregate({ statuses: 'AT_HUB,IN_TRANSIT,PENDING,OUT_FOR_DELIVERY' })
+      .then((res) => {
+        if (!cancelled) setOrderSummary((res as any)?.data ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setOrderSummary(null);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   const manifestosAtivos = useMemo(() => manifestos.filter((m) => ACTIVE_MANIFEST_STATUSES.includes(m.status)), [manifestos]);
   const myHubId = user?.hubId;
@@ -644,6 +670,11 @@ const HubHome: React.FC = () => {
 
         {!loading && tab === 'pedidos' && (
           <section className="space-y-3">
+            {orderSummary && (
+              <p className="text-xs text-tower-600 dark:text-tower-400">
+                {orderSummary.totalOrders} pedido(s) · {orderSummary.totalWeightKg.toLocaleString('pt-BR')} kg · {orderSummary.totalVolumeM3.toLocaleString('pt-BR')} m³ · R$ {orderSummary.totalValueBRL.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+              </p>
+            )}
             <div className="flex items-center gap-2">
               <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Pesquisar pedidos..." className="h-11 w-full rounded-xl border border-tower-300 bg-white px-3 text-sm text-tower-900 placeholder:text-tower-500 ring-brand-500/30 focus:border-brand-500 focus:outline-none focus:ring-2 dark:border-tower-600 dark:bg-tower-900 dark:text-tower-100 dark:placeholder:text-tower-400" />
               <button type="button" onClick={() => setTab('entrada')} className="h-11 min-w-11 rounded-xl bg-brand-600 px-3 text-sm font-semibold text-white">+ Nova entrada</button>
@@ -672,6 +703,8 @@ const HubHome: React.FC = () => {
                 <div className="mt-2 text-xs text-tower-600 dark:text-tower-400">
                   <span className="font-semibold text-brand-600 dark:text-brand-400">Custódia:</span> {getOrderCustody(order)}
                 </div>
+
+                {orderCargoLine(order)}
 
                 {order.legs && order.legs.length > 0 && (
                   <div className="mt-3 space-y-1 border-t border-tower-100 pt-2.5 dark:border-tower-800">
