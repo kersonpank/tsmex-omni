@@ -9,6 +9,7 @@ export interface ColumnDef<T> {
   defaultVisible: boolean;
   align?: 'left' | 'right' | 'center';
   group?: string;
+  sortKey?: string;
 }
 
 interface ConfigurableDataTableProps<T> {
@@ -20,6 +21,9 @@ interface ConfigurableDataTableProps<T> {
   selectedRowId?: string | null;
   renderActions?: (row: T) => React.ReactNode;
   emptyMessage?: string;
+  sortBy?: string;
+  sortDir?: 'asc' | 'desc';
+  onSortChange?: (sortKey: string) => void;
 }
 
 // Referência estável pro fallback "sem colunas ocultas ainda" — evita criar um
@@ -36,6 +40,9 @@ function ConfigurableDataTable<T>({
   selectedRowId,
   renderActions,
   emptyMessage = 'Nenhum registro encontrado.',
+  sortBy,
+  sortDir,
+  onSortChange,
 }: ConfigurableDataTableProps<T>): React.ReactElement {
   const [showColumnPicker, setShowColumnPicker] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -145,7 +152,17 @@ function ConfigurableDataTable<T>({
                   col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'
                 }`}
               >
-                {col.label}
+                {col.sortKey && onSortChange ? (
+                  <button
+                    type="button"
+                    onClick={() => onSortChange(col.sortKey!)}
+                    className="admin-focus inline-flex items-center gap-1"
+                  >
+                    {col.label} <span>{sortBy === col.sortKey ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
+                  </button>
+                ) : (
+                  col.label
+                )}
               </th>
             ))}
             {renderActions && (

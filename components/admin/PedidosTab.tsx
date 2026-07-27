@@ -3,9 +3,9 @@ import { useRegisterGestaoModuleActions } from './layout/GestaoModuleActionsCont
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { ordersApi, hubsApi } from '../../lib/api';
 import type { StatusTone } from '../../lib/demandStatusUi';
-import type { OrderListItem, OrderStatus, PaginatedResponse } from '../../types/index';
+import type { OrderAggregateSummary, OrderListItem, OrderStatus, PaginatedResponse } from '../../types/index';
 import { useAuthStore } from '../../store/authStore';
-import DataTable from '../ui/DataTable';
+import ConfigurableDataTable, { type ColumnDef } from '../ui/ConfigurableDataTable';
 import EmptyState from '../ui/EmptyState';
 import ErrorPanel from '../ui/ErrorPanel';
 import LoadingPanel from '../ui/LoadingPanel';
@@ -292,11 +292,6 @@ const PedidosTab: React.FC = () => {
     setSortDir('asc');
   };
 
-  const sortIndicator = (key: SortKey) => {
-    if (sortBy !== key) return '↕';
-    return sortDir === 'asc' ? '↑' : '↓';
-  };
-
   const pedidosGestao = useMemo(
     () => ({
       listActive: !showAdvancedFilters,
@@ -334,6 +329,193 @@ const PedidosTab: React.FC = () => {
   );
 
   useRegisterGestaoModuleActions(() => pedidosGestao, [pedidosGestao]);
+
+  const [orderSummary, setOrderSummary] = useState<OrderAggregateSummary | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    ordersApi.aggregate({
+      ...(filters.status ? { status: filters.status } : {}),
+      ...(filters.hubId ? { hubId: filters.hubId } : {}),
+      ...(filters.collectionStatus ? { collectionStatus: filters.collectionStatus } : {}),
+      ...(filters.q.trim() ? { q: filters.q.trim() } : {}),
+      ...(filters.originState ? { originState: filters.originState } : {}),
+      ...(filters.originCity.trim() ? { originCity: filters.originCity.trim() } : {}),
+      ...(filters.destinationState ? { destinationState: filters.destinationState } : {}),
+      ...(filters.destinationCity.trim() ? { destinationCity: filters.destinationCity.trim() } : {}),
+      ...(filters.senderState ? { senderState: filters.senderState } : {}),
+      ...(filters.senderCity.trim() ? { senderCity: filters.senderCity.trim() } : {}),
+      ...(filters.recipientState ? { recipientState: filters.recipientState } : {}),
+      ...(filters.recipientCity.trim() ? { recipientCity: filters.recipientCity.trim() } : {}),
+    })
+      .then((res) => {
+        if (!cancelled) setOrderSummary((res as any)?.data ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setOrderSummary(null);
+      });
+    return () => { cancelled = true; };
+  }, [filters]);
+
+  // Colunas da tabela: declaradas como const simples (não useMemo) de propósito —
+  // vários `render`/`renderActions` fecham sobre estado do componente
+  // (handleStatusUpdate, handleAttachmentUpload, chegouHubId, actionLoading,
+  // attachmentLoading, isHub, hubId, hubs) que muda com frequência; montar um
+  // array de dependências correto pra um useMemo aqui seria arriscado e o
+  // ganho de performance de memoizar é irrelevante pro tamanho desta tabela.
+  const pedidosColumns: ColumnDef<OrderListItem>[] = [
+    {
+      id: 'nfNumber',
+      label: 'Pedido/NF',
+      defaultVisible: true,
+      sortKey: 'nfNumber',
+      render: (o) => (
+        <div className="flex flex-col">
+          <span className="font-mono-ids text-sm font-medium text-tower-900 dark:text-tower-100">
+            {o.nfNumber || o.demand?.nfNumber || o.id.slice(0, 8)}
+          </span>
+          <span className="font-sans text-xs text-tower-500 dark:text-tower-400">
+            {o.demand?.client?.companyName ?? 'Sem cliente'}
+          </span>
+        </div>
+      ),
+    },
+    {
+      id: 'status',
+      label: 'Status',
+      defaultVisible: true,
+      sortKey: 'status',
+      render: (o) => <StatusBadge label={statusLabels[o.status] ?? o.status} tone={orderStatusTones[o.status] ?? 'neutral'} />,
+    },
+    {
+      id: 'coleta',
+      label: 'Coleta',
+      defaultVisible: true,
+      sortKey: 'coleta',
+      render: (o) => {
+        const collection = getCollectionLabel(o);
+        return <StatusBadge label={collection.label} tone={collection.tone} />;
+      },
+    },
+    {
+      id: 'currentHubName',
+      label: 'HUB atual',
+      defaultVisible: true,
+      sortKey: 'currentHubName',
+      render: (o) => o.currentHub?.name ?? o.currentHub?.code ?? '-',
+    },
+    {
+      id: 'origin',
+      label: 'Origem (rota)',
+      defaultVisible: true,
+      sortKey: 'origin',
+      render: (o) => {
+        const origin = parseRouteCityState(o.demand?.origin ?? o.origemPrestacao);
+        return <>{origin.city} / {origin.state}</>;
+      },
+    },
+    {
+      id: 'destination',
+      label: 'Destino (rota)',
+      defaultVisible: true,
+      sortKey: 'destination',
+      render: (o) => {
+        const destination = parseRouteCityState(o.demand?.destination ?? o.fimPrestacao);
+        return <>{destination.city} / {destination.state}</>;
+      },
+    },
+    {
+      id: 'senderCity',
+      label: 'Remetente',
+      defaultVisible: true,
+      sortKey: 'senderCity',
+      render: (o) => <>{o.remetentePerson?.city ?? '-'} / {o.remetentePerson?.state ?? '-'}</>,
+    },
+    {
+      id: 'recipientCity',
+      label: 'Destinatário',
+      defaultVisible: true,
+      sortKey: 'recipientCity',
+      render: (o) => <>{o.destinatarioPerson?.city ?? '-'} / {o.destinatarioPerson?.state ?? '-'}</>,
+    },
+    {
+      id: 'anexos',
+      label: 'Anexos',
+      defaultVisible: true,
+      sortKey: 'anexos',
+      render: (o) => (
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-tower-500 dark:text-tower-400">
+            {(o.attachments?.length ?? 0)} arquivo(s)
+          </span>
+          {o.attachments?.[0]?.attachment?.downloadUrl ? (
+            <a
+              href={o.attachments[0].attachment.downloadUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-brand-600 dark:text-brand-300 hover:underline"
+            >
+              Ver último
+            </a>
+          ) : null}
+        </div>
+      ),
+    },
+    {
+      id: 'remetenteDoc',
+      label: 'CNPJ/CPF remetente',
+      defaultVisible: false,
+      group: 'Pessoas',
+      render: (o) => o.remetentePerson?.document ?? '-',
+    },
+    {
+      id: 'destinatarioDoc',
+      label: 'CNPJ/CPF destinatário',
+      defaultVisible: false,
+      group: 'Pessoas',
+      render: (o) => o.destinatarioPerson?.document ?? '-',
+    },
+    {
+      id: 'volumes',
+      label: 'Volumes',
+      defaultVisible: false,
+      group: 'Carga',
+      align: 'right',
+      render: (o) => o.demand?.units ?? '-',
+    },
+    {
+      id: 'cubagem',
+      label: 'Cubagem (m³)',
+      defaultVisible: false,
+      group: 'Carga',
+      align: 'right',
+      render: (o) => (typeof o.demand?.volume === 'number' ? o.demand.volume.toLocaleString('pt-BR') : '-'),
+    },
+    {
+      id: 'peso',
+      label: 'Peso (kg)',
+      defaultVisible: false,
+      group: 'Carga',
+      align: 'right',
+      render: (o) => (typeof o.demand?.weight === 'number' ? o.demand.weight.toLocaleString('pt-BR') : '-'),
+    },
+    {
+      id: 'pesoCubado',
+      label: 'Peso cubado (kg)',
+      defaultVisible: false,
+      group: 'Carga',
+      align: 'right',
+      render: (o) => (typeof o.demand?.cubedWeight === 'number' ? o.demand.cubedWeight.toLocaleString('pt-BR') : '-'),
+    },
+    {
+      id: 'valor',
+      label: 'Valor mercadoria',
+      defaultVisible: false,
+      group: 'Carga',
+      align: 'right',
+      render: (o) => (typeof o.demand?.nfValue === 'number' ? `R$ ${o.demand.nfValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '-'),
+    },
+  ];
 
   return (
     <div>
@@ -406,6 +588,9 @@ const PedidosTab: React.FC = () => {
           </button>
           <p className="ml-auto text-xs text-tower-500 dark:text-tower-400">
             {total} pedido(s) encontrado(s)
+            {orderSummary && (
+              <> · {orderSummary.totalWeightKg.toLocaleString('pt-BR')} kg · {orderSummary.totalVolumeM3.toLocaleString('pt-BR')} m³ · R$ {orderSummary.totalValueBRL.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</>
+            )}
           </p>
         </div>
 
@@ -447,161 +632,104 @@ const PedidosTab: React.FC = () => {
       ) : orders.length === 0 ? (
         <EmptyState title="Nenhum pedido" description="Não há pedidos com os filtros atuais." />
       ) : (
-        <DataTable id="pedidos-tabela-topo">
-          <thead className="border-b border-tower-200 bg-tower-50/90 dark:border-tower-700 dark:bg-tower-800/80">
-            <tr>
-              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300"><button type="button" onClick={() => handleSortClick('nfNumber')} className="admin-focus inline-flex items-center gap-1">Pedido/NF <span>{sortIndicator('nfNumber')}</span></button></th>
-              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300"><button type="button" onClick={() => handleSortClick('status')} className="admin-focus inline-flex items-center gap-1">Status <span>{sortIndicator('status')}</span></button></th>
-              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300"><button type="button" onClick={() => handleSortClick('coleta')} className="admin-focus inline-flex items-center gap-1">Coleta <span>{sortIndicator('coleta')}</span></button></th>
-              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300"><button type="button" onClick={() => handleSortClick('currentHubName')} className="admin-focus inline-flex items-center gap-1">HUB atual <span>{sortIndicator('currentHubName')}</span></button></th>
-              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300"><button type="button" onClick={() => handleSortClick('origin')} className="admin-focus inline-flex items-center gap-1">Origem (rota) <span>{sortIndicator('origin')}</span></button></th>
-              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300"><button type="button" onClick={() => handleSortClick('destination')} className="admin-focus inline-flex items-center gap-1">Destino (rota) <span>{sortIndicator('destination')}</span></button></th>
-              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300"><button type="button" onClick={() => handleSortClick('senderCity')} className="admin-focus inline-flex items-center gap-1">Remetente <span>{sortIndicator('senderCity')}</span></button></th>
-              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300"><button type="button" onClick={() => handleSortClick('recipientCity')} className="admin-focus inline-flex items-center gap-1">Destinatário <span>{sortIndicator('recipientCity')}</span></button></th>
-              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300"><button type="button" onClick={() => handleSortClick('anexos')} className="admin-focus inline-flex items-center gap-1">Anexos <span>{sortIndicator('anexos')}</span></button></th>
-              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300">Ações</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-tower-100 dark:divide-tower-800">
-            {sortedOrders.map((o) => {
+        <div id="pedidos-tabela-topo">
+          <ConfigurableDataTable
+            tableId="pedidos-tab"
+            columns={pedidosColumns}
+            rows={sortedOrders}
+            rowKey={(o) => o.id}
+            selectedRowId={toolbarSelOrderId}
+            onRowClick={(o) => {
+              setToolbarSelOrderId(o.id);
+              navigate(`/orders/${o.id}`, { state: { fromPedidos: true, backSearch: window.location.hash } });
+            }}
+            sortBy={sortBy}
+            sortDir={sortDir}
+            onSortChange={(key) => handleSortClick(key as SortKey)}
+            emptyMessage="Nenhum pedido com os filtros atuais."
+            renderActions={(o) => {
               const trackingId = o.demand?.id ?? o.demandId ?? o.id;
-              const origin = parseRouteCityState(o.demand?.origin ?? o.origemPrestacao);
-              const destination = parseRouteCityState(o.demand?.destination ?? o.fimPrestacao);
-              const senderCity = o.remetentePerson?.city ?? '-';
-              const senderState = o.remetentePerson?.state ?? '-';
-              const recipientCity = o.destinatarioPerson?.city ?? '-';
-              const recipientState = o.destinatarioPerson?.state ?? '-';
-              const collection = getCollectionLabel(o);
               return (
-                <tr
-                  key={o.id}
-                  className={`cursor-pointer hover:bg-tower-50/80 dark:hover:bg-tower-800/40 ${
-                    toolbarSelOrderId === o.id ? 'bg-brand-50/80 dark:bg-brand-950/25' : ''
-                  }`}
-                  onClick={() => {
-                    setToolbarSelOrderId(o.id);
-                    navigate(`/orders/${o.id}`, { state: { fromPedidos: true, backSearch: window.location.hash } });
-                  }}
-                >
-                  <td className="px-4 py-3 font-mono-ids text-sm font-medium text-tower-900 dark:text-tower-100">
-                    <div className="flex flex-col">
-                      <span>{o.nfNumber || o.demand?.nfNumber || o.id.slice(0, 8)}</span>
-                      <span className="font-sans text-xs text-tower-500 dark:text-tower-400">
-                        {o.demand?.client?.companyName ?? 'Sem cliente'}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <StatusBadge label={statusLabels[o.status] ?? o.status} tone={orderStatusTones[o.status] ?? 'neutral'} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <StatusBadge label={collection.label} tone={collection.tone} />
-                  </td>
-                  <td className="px-4 py-3 text-sm text-tower-600 dark:text-tower-300">{o.currentHub?.name ?? o.currentHub?.code ?? '-'}</td>
-                  <td className="px-4 py-3 text-sm text-tower-700 dark:text-tower-200">{origin.city} / {origin.state}</td>
-                  <td className="px-4 py-3 text-sm text-tower-700 dark:text-tower-200">{destination.city} / {destination.state}</td>
-                  <td className="px-4 py-3 text-sm text-tower-700 dark:text-tower-200">{senderCity} / {senderState}</td>
-                  <td className="px-4 py-3 text-sm text-tower-700 dark:text-tower-200">{recipientCity} / {recipientState}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-col gap-1">
-                      <span className="text-xs text-tower-500 dark:text-tower-400">
-                        {(o.attachments?.length ?? 0)} arquivo(s)
-                      </span>
-                      {o.attachments?.[0]?.attachment?.downloadUrl ? (
-                        <a
-                          href={o.attachments[0].attachment.downloadUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-xs text-brand-600 dark:text-brand-300 hover:underline"
+                <div className="flex flex-wrap items-center gap-1">
+                  {o.status === 'IN_TRANSIT' &&
+                    (isHub && hubId ? (
+                      <button
+                        type="button"
+                        disabled={!!actionLoading}
+                        onClick={() => handleStatusUpdate(o.id, 'AT_HUB', hubId)}
+                        className="admin-focus rounded-lg bg-sky-600 px-2 py-1 text-xs text-white hover:bg-sky-700 disabled:opacity-50"
+                      >
+                        Chegou no hub
+                      </button>
+                    ) : !isHub && hubs.length > 0 ? (
+                      <div className="flex items-center gap-1">
+                        <select
+                          value={chegouHubId[o.id] ?? ''}
+                          onChange={(e) => setChegouHubId((prev) => ({ ...prev, [o.id]: e.target.value }))}
+                          className="admin-focus min-w-[120px] rounded border border-tower-200 bg-white px-1 py-0.5 text-xs dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100"
                         >
-                          Ver último
-                        </a>
-                      ) : null}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap items-center gap-1" onClick={(event) => event.stopPropagation()}>
-                      {o.status === 'IN_TRANSIT' &&
-                        (isHub && hubId ? (
-                          <button
-                            type="button"
-                            disabled={!!actionLoading}
-                            onClick={() => handleStatusUpdate(o.id, 'AT_HUB', hubId)}
-                            className="admin-focus rounded-lg bg-sky-600 px-2 py-1 text-xs text-white hover:bg-sky-700 disabled:opacity-50"
-                          >
-                            Chegou no hub
-                          </button>
-                        ) : !isHub && hubs.length > 0 ? (
-                          <div className="flex items-center gap-1">
-                            <select
-                              value={chegouHubId[o.id] ?? ''}
-                              onChange={(e) => setChegouHubId((prev) => ({ ...prev, [o.id]: e.target.value }))}
-                              className="admin-focus min-w-[120px] rounded border border-tower-200 bg-white px-1 py-0.5 text-xs dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100"
-                            >
-                              <option value="">Selecione hub</option>
-                              {hubs.filter((h: { active?: boolean }) => h.active !== false).map((h: { id: string; name: string }) => (
-                                <option key={h.id} value={h.id}>
-                                  {h.name}
-                                </option>
-                              ))}
-                            </select>
-                            <button
-                              type="button"
-                              disabled={!!actionLoading || !chegouHubId[o.id]}
-                              onClick={() => handleStatusUpdate(o.id, 'AT_HUB', chegouHubId[o.id])}
-                              className="admin-focus rounded-lg bg-sky-600 px-2 py-1 text-xs text-white hover:bg-sky-700 disabled:opacity-50"
-                            >
-                              Chegou
-                            </button>
-                          </div>
-                        ) : null)}
-                      {o.status === 'AT_HUB' && (
+                          <option value="">Selecione hub</option>
+                          {hubs.filter((h: { active?: boolean }) => h.active !== false).map((h: { id: string; name: string }) => (
+                            <option key={h.id} value={h.id}>
+                              {h.name}
+                            </option>
+                          ))}
+                        </select>
                         <button
                           type="button"
-                          disabled={!!actionLoading}
-                          onClick={() => handleStatusUpdate(o.id, 'OUT_FOR_DELIVERY')}
-                          className="admin-focus rounded-lg bg-teal-600 px-2 py-1 text-xs text-white hover:bg-teal-700 disabled:opacity-50"
+                          disabled={!!actionLoading || !chegouHubId[o.id]}
+                          onClick={() => handleStatusUpdate(o.id, 'AT_HUB', chegouHubId[o.id])}
+                          className="admin-focus rounded-lg bg-sky-600 px-2 py-1 text-xs text-white hover:bg-sky-700 disabled:opacity-50"
                         >
-                          Saiu para entrega
+                          Chegou
                         </button>
-                      )}
-                      {o.status === 'OUT_FOR_DELIVERY' && (
-                        <button
-                          type="button"
-                          disabled={!!actionLoading}
-                          onClick={() => handleStatusUpdate(o.id, 'DELIVERED')}
-                          className="admin-focus rounded-lg bg-brand-600 px-2 py-1 text-xs text-white hover:bg-brand-700 disabled:opacity-50"
-                        >
-                          Entregue
-                        </button>
-                      )}
-                      <RouterLink to={`/orders/${o.id}`} state={{ fromPedidos: true, backSearch: window.location.hash }} className="admin-focus px-2 py-1 text-xs font-semibold text-brand-700 hover:text-brand-500 dark:text-brand-300">
-                        Abrir pedido
-                      </RouterLink>
-                      <RouterLink to={`/tracking/${trackingId}`} className="admin-focus px-2 py-1 text-xs text-brand-600 hover:text-brand-500 dark:text-brand-300">
-                        Tracking
-                      </RouterLink>
-                      <label className="admin-focus rounded-lg border border-tower-300 dark:border-tower-600 px-2 py-1 text-xs text-tower-700 dark:text-tower-200 cursor-pointer hover:bg-tower-100 dark:hover:bg-tower-800">
-                        {attachmentLoading === o.id ? 'Enviando...' : 'Anexar'}
-                        <input
-                          type="file"
-                          className="hidden"
-                          accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) void handleAttachmentUpload(o.id, file);
-                            e.currentTarget.value = '';
-                          }}
-                          disabled={attachmentLoading === o.id}
-                        />
-                      </label>
-                    </div>
-                  </td>
-                </tr>
+                      </div>
+                    ) : null)}
+                  {o.status === 'AT_HUB' && (
+                    <button
+                      type="button"
+                      disabled={!!actionLoading}
+                      onClick={() => handleStatusUpdate(o.id, 'OUT_FOR_DELIVERY')}
+                      className="admin-focus rounded-lg bg-teal-600 px-2 py-1 text-xs text-white hover:bg-teal-700 disabled:opacity-50"
+                    >
+                      Saiu para entrega
+                    </button>
+                  )}
+                  {o.status === 'OUT_FOR_DELIVERY' && (
+                    <button
+                      type="button"
+                      disabled={!!actionLoading}
+                      onClick={() => handleStatusUpdate(o.id, 'DELIVERED')}
+                      className="admin-focus rounded-lg bg-brand-600 px-2 py-1 text-xs text-white hover:bg-brand-700 disabled:opacity-50"
+                    >
+                      Entregue
+                    </button>
+                  )}
+                  <RouterLink to={`/orders/${o.id}`} state={{ fromPedidos: true, backSearch: window.location.hash }} className="admin-focus px-2 py-1 text-xs font-semibold text-brand-700 hover:text-brand-500 dark:text-brand-300">
+                    Abrir pedido
+                  </RouterLink>
+                  <RouterLink to={`/tracking/${trackingId}`} className="admin-focus px-2 py-1 text-xs text-brand-600 hover:text-brand-500 dark:text-brand-300">
+                    Tracking
+                  </RouterLink>
+                  <label className="admin-focus rounded-lg border border-tower-300 dark:border-tower-600 px-2 py-1 text-xs text-tower-700 dark:text-tower-200 cursor-pointer hover:bg-tower-100 dark:hover:bg-tower-800">
+                    {attachmentLoading === o.id ? 'Enviando...' : 'Anexar'}
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) void handleAttachmentUpload(o.id, file);
+                        e.currentTarget.value = '';
+                      }}
+                      disabled={attachmentLoading === o.id}
+                    />
+                  </label>
+                </div>
               );
-            })}
-          </tbody>
-        </DataTable>
+            }}
+          />
+        </div>
       )}
 
       {!loading ? (
