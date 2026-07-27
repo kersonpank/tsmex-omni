@@ -804,6 +804,46 @@ async function syncOrderToOpportunity(orderId: string): Promise<void> {
     });
 }
 
+/**
+ * Sincroniza Demand.weight/units/volume/cubedWeight/nfValue a partir da soma das
+ * OrderInvoice (NFs/Declarações) do pedido — fonte única de dados de carga para
+ * dimensionamento de manifesto (orderEffectiveWeight lê Demand, não OrderInvoice).
+ *
+ * Regra: só sobrescreve um campo quando o total somado das invoices for > 0,
+ * para nunca zerar um valor bom já existente (ex.: vindo da intake por chave NF-e)
+ * quando uma invoice recém-adicionada tem campos zerados/incompletos.
+ */
+export async function syncDemandFromInvoices(orderId: string): Promise<void> {
+    const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        include: { demand: true, invoicesRel: true },
+    });
+    if (!order) return;
+    if (!order.demand) return;
+
+    const totalWeight = order.invoicesRel.reduce((s, i) => s + (i.weight || 0), 0);
+    const totalUnits = order.invoicesRel.reduce((s, i) => s + (i.volumes || 0), 0);
+    const totalCubage = order.invoicesRel.reduce((s, i) => s + (i.cubedVolume || 0), 0);
+    const totalValue = order.invoicesRel.reduce((s, i) => s + (i.value || 0), 0);
+
+    const CUBE_FACTOR = 300; // mesmo fator usado em createIntakeDemand.ts (cubedWeight = volume(m³) * 300)
+    const updateData: Record<string, unknown> = {};
+    if (totalWeight > 0) updateData.weight = totalWeight;
+    if (totalUnits > 0) updateData.units = Math.round(totalUnits);
+    if (totalCubage > 0) {
+        updateData.volume = totalCubage;
+        updateData.cubedWeight = totalCubage * CUBE_FACTOR;
+    }
+    if (totalValue > 0) updateData.nfValue = totalValue;
+
+    if (Object.keys(updateData).length === 0) return;
+
+    await prisma.demand.update({
+        where: { id: order.demand.id },
+        data: updateData,
+    });
+}
+
 /** Sanitiza body do PATCH people: remove "" de UUIDs opcionais */
 function sanitizePeopleBody(body: Record<string, unknown>): Record<string, unknown> {
     const opt = ['routeId', 'consignatarioPersonId', 'expedidorPersonId', 'redespachantePersonId'];
@@ -1271,6 +1311,7 @@ router.post('/:id/invoices', authenticate, authorize('ADMIN', 'HUB'), async (req
         });
 
         await syncOrderToOpportunity(id).catch(() => {});
+        await syncDemandFromInvoices(id).catch(() => {});
 
         res.status(201).json({ success: true, data: inv });
     } catch (error) {
@@ -1322,6 +1363,7 @@ router.patch('/:id/invoices/:invoiceId', authenticate, authorize('ADMIN', 'HUB')
         });
 
         await syncOrderToOpportunity(orderId).catch(() => {});
+        await syncDemandFromInvoices(orderId).catch(() => {});
 
         res.json({ success: true, data: inv });
     } catch (error) {
