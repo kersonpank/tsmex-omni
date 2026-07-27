@@ -812,6 +812,10 @@ async function syncOrderToOpportunity(orderId: string): Promise<void> {
  * Regra: só sobrescreve um campo quando o total somado das invoices for > 0,
  * para nunca zerar um valor bom já existente (ex.: vindo da intake por chave NF-e)
  * quando uma invoice recém-adicionada tem campos zerados/incompletos.
+ *
+ * NOTE: hoje não existe DELETE de invoice — se um dia for criado, ele também
+ * precisa chamar esta função, senão excluir a última invoice que contribuía
+ * pra um total deixa o Demand com valor "preso" (nunca reverte pra zero).
  */
 export async function syncDemandFromInvoices(orderId: string): Promise<void> {
     const order = await prisma.order.findUnique({
@@ -819,6 +823,8 @@ export async function syncDemandFromInvoices(orderId: string): Promise<void> {
         include: { demand: true, invoicesRel: true },
     });
     if (!order) return;
+    // defensivo: Order.demandId é FK obrigatória/única no schema, então
+    // order.demand nunca deveria vir nulo — guarda por segurança mesmo assim.
     if (!order.demand) return;
 
     const totalWeight = order.invoicesRel.reduce((s, i) => s + (i.weight || 0), 0);
@@ -829,6 +835,8 @@ export async function syncDemandFromInvoices(orderId: string): Promise<void> {
     const CUBE_FACTOR = 300; // mesmo fator usado em createIntakeDemand.ts (cubedWeight = volume(m³) * 300)
     const updateData: Record<string, unknown> = {};
     if (totalWeight > 0) updateData.weight = totalWeight;
+    // Demand.units é Int mas OrderInvoice.volumes é Float — arredonda a soma
+    // uma única vez (não por invoice) pra não acumular erro de arredondamento.
     if (totalUnits > 0) updateData.units = Math.round(totalUnits);
     if (totalCubage > 0) {
         updateData.volume = totalCubage;
@@ -1311,7 +1319,9 @@ router.post('/:id/invoices', authenticate, authorize('ADMIN', 'HUB'), async (req
         });
 
         await syncOrderToOpportunity(id).catch(() => {});
-        await syncDemandFromInvoices(id).catch(() => {});
+        await syncDemandFromInvoices(id).catch((e) => {
+            console.error(JSON.stringify({ level: 'error', source: 'orders.invoices', message: 'Falha ao sincronizar Demand a partir das invoices — capacidade de manifesto pode ficar desatualizada.', orderId: id, error: e instanceof Error ? e.message : String(e) }));
+        });
 
         res.status(201).json({ success: true, data: inv });
     } catch (error) {
@@ -1363,7 +1373,9 @@ router.patch('/:id/invoices/:invoiceId', authenticate, authorize('ADMIN', 'HUB')
         });
 
         await syncOrderToOpportunity(orderId).catch(() => {});
-        await syncDemandFromInvoices(orderId).catch(() => {});
+        await syncDemandFromInvoices(orderId).catch((e) => {
+            console.error(JSON.stringify({ level: 'error', source: 'orders.invoices', message: 'Falha ao sincronizar Demand a partir das invoices — capacidade de manifesto pode ficar desatualizada.', orderId, error: e instanceof Error ? e.message : String(e) }));
+        });
 
         res.json({ success: true, data: inv });
     } catch (error) {
