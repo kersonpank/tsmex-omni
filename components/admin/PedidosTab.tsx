@@ -349,7 +349,7 @@ const PedidosTab: React.FC = () => {
       ...(filters.recipientCity.trim() ? { recipientCity: filters.recipientCity.trim() } : {}),
     })
       .then((res) => {
-        if (!cancelled) setOrderSummary((res as any)?.data ?? null);
+        if (!cancelled) setOrderSummary(res?.data ?? null);
       })
       .catch(() => {
         if (!cancelled) setOrderSummary(null);
