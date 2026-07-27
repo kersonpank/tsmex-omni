@@ -401,7 +401,7 @@ const NfeDistribuicaoMonitorTab: React.FC = () => {
                         </div>
                       )}
                       {row.doc.status === 'CONVERTED' && row.doc.convertedDemand && (
-                        <span className="text-xs text-tower-500 dark:text-tower-400">→ Demanda #{row.doc.convertedDemand.id.slice(0, 8)}</span>
+                        <span className="text-xs text-tower-500 dark:text-tower-400">→ Pedido #{row.doc.convertedDemand.orderNumber ?? row.doc.convertedDemand.id.slice(0, 8)}</span>
                       )}
                       {row.doc.status === 'DISCARDED' && row.doc.discardedAt && (
                         <span className="text-xs text-tower-500 dark:text-tower-400">Descartada em {formatDateTime(row.doc.discardedAt)}</span>

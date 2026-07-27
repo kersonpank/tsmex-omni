@@ -273,9 +273,9 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
   const entradaColumns: ColumnDef<any>[] = useMemo(() => [
     {
       id: 'id',
-      label: 'ID',
+      label: 'Pedido',
       defaultVisible: true,
-      render: (o) => <span className="font-mono text-sm">{o.id.slice(0, 8)}</span>,
+      render: (o) => <span className="font-mono text-sm">{o.demand?.orderNumber ? `#${o.demand.orderNumber}` : o.id.slice(0, 8)}</span>,
     },
     {
       id: 'route',

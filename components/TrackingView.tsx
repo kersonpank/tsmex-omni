@@ -120,7 +120,7 @@ const TrackingView: React.FC = () => {
             {demand.origin} → {demand.destination}
           </h1>
           <p className="text-tower-600 dark:text-white/60 text-sm">
-            ID: {demand.id.slice(0, 8)} | {demand.commodity}
+            Pedido #{demand.orderNumber ?? demand.id.slice(0, 8)} | {demand.commodity}
           </p>
         </div>
 

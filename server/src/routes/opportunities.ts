@@ -56,7 +56,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
                     }
                 },
                 orders: {
-                    select: { id: true, status: true, createdAt: true },
+                    select: { id: true, status: true, createdAt: true, demand: { select: { orderNumber: true } } },
                     orderBy: { createdAt: 'desc' },
                     take: 5,
                 },

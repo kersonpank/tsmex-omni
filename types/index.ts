@@ -578,6 +578,7 @@ export interface OrderListItem {
     updatedAt: string;
     demand?: {
         id: string;
+        orderNumber?: number;
         nfNumber?: string | null;
         origin?: string | null;
         destination?: string | null;
@@ -632,6 +633,7 @@ export interface OrderAggregateSummary {
 
 export interface ResolvedOrderSummary {
     id: string;
+    orderNumber: number | null;
     nfNumber: string | null;
     status: string;
     currentHubId: string | null;

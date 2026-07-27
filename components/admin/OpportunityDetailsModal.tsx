@@ -138,9 +138,9 @@ const OpportunityDetailsModal: React.FC<OpportunityDetailsModalProps> = ({
                                 <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4">
                                     <h3 className="text-sm font-bold text-amber-800 dark:text-amber-200 mb-2">Pedido(s) vinculado(s)</h3>
                                     <div className="space-y-2">
-                                        {((opportunity as any).orders as { id: string; status: string }[]).map((ord: { id: string; status: string }) => (
+                                        {((opportunity as any).orders as { id: string; status: string; demand?: { orderNumber?: number } }[]).map((ord) => (
                                             <div key={ord.id} className="text-sm text-amber-700 dark:text-amber-300">
-                                                Pedido <span className="font-mono font-medium">#{ord.id.slice(0, 8)}</span> — Status: {ord.status}
+                                                Pedido <span className="font-mono font-medium">#{ord.demand?.orderNumber ?? ord.id.slice(0, 8)}</span> — Status: {ord.status}
                                             </div>
                                         ))}
                                     </div>

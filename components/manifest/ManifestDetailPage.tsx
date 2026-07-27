@@ -121,7 +121,7 @@ const ManifestDetailPage: React.FC = () => {
     try {
       const res = await manifestsApi.addDemand(id, { orderId: order.id });
       setManifest((prev) => (prev && res.data ? { ...prev, ...res.data } : res.data ?? prev ?? null));
-      flashSuccess(`Pedido #${order.id.slice(0, 8)} adicionado à viagem.`);
+      flashSuccess(`Pedido #${order.orderNumber ?? order.id.slice(0, 8)} adicionado à viagem.`);
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Erro ao adicionar pedido');
     } finally {

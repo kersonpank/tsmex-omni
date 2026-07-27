@@ -402,7 +402,7 @@ export interface NfeDistribuicaoMonitorDocumento {
     tipo: string;
     status: string;
     lastError?: string | null;
-    convertedDemand?: { id: string; status: string } | null;
+    convertedDemand?: { id: string; status: string; orderNumber?: number } | null;
     discardedAt?: string | null;
     fiscalEmitter: { displayName: string | null; hub: { code: string; name: string } | null };
     createdAt: string;

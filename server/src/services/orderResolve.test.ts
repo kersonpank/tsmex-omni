@@ -7,12 +7,15 @@ const prismaSnapshot = {
     orderInvoiceFindMany: prisma.orderInvoice.findMany.bind(prisma.orderInvoice),
     orderFreightCalculationFindMany: prisma.orderFreightCalculation.findMany.bind(prisma.orderFreightCalculation),
     orderFindMany: prisma.order.findMany.bind(prisma.order),
+    demandFindMany: prisma.demand.findMany.bind(prisma.demand),
 };
 
 function restorePrismaMocks() {
     prisma.orderInvoice.findMany = prismaSnapshot.orderInvoiceFindMany;
     prisma.orderFreightCalculation.findMany = prismaSnapshot.orderFreightCalculationFindMany;
     prisma.order.findMany = prismaSnapshot.orderFindMany;
+    // Default: nenhuma Demand por orderNumber, pra nao afetar os testes que nao sao sobre esse passo novo.
+    prisma.demand.findMany = (async () => []) as any;
 }
 
 const baseOrder = {
@@ -174,5 +177,62 @@ describe('resolveOrderByCode', () => {
 
         assert.equal(result.match, 'multiple');
         assert.equal(result.match === 'multiple' && result.candidates.length, 2);
+    });
+
+    it('resolve por Demand.orderNumber (número de pedido sequencial, busca global sem escopo de hub)', async () => {
+        let calledWith: any = null;
+        prisma.demand.findMany = (async (args: any) => {
+            calledWith = args;
+            return [{ order: baseOrder }];
+        }) as any;
+        // Se cair pro passo de nfNumber/cteNumber, o teste falha (não deveria nem chamar).
+        prisma.orderInvoice.findMany = (async () => {
+            throw new Error('não deveria buscar por nfNumber quando orderNumber já resolveu');
+        }) as any;
+
+        const result = await resolveOrderByCode('15234', 'hub-1');
+
+        assert.equal(result.match, 'single');
+        assert.equal(result.match === 'single' && result.order.id, 'order-abc12345');
+        assert.deepEqual(calledWith.where, { orderNumber: 15234 });
+    });
+
+    it('ignora Demand.orderNumber cuja Demand ainda não virou Order (order null) e cai pro próximo passo', async () => {
+        prisma.demand.findMany = (async () => [{ order: null }]) as any;
+        let calledWith: any = null;
+        prisma.orderInvoice.findMany = (async (args: any) => {
+            calledWith = args;
+            return [{ order: baseOrder }];
+        }) as any;
+
+        const result = await resolveOrderByCode('15234', 'hub-1');
+
+        assert.equal(result.match, 'single');
+        assert.deepEqual(calledWith.where, { nfNumber: '15234', order: { status: 'AT_HUB', currentHubId: 'hub-1' } });
+    });
+
+    it('retorna match "multiple" quando o orderNumber resolve mais de um pedido (não deveria acontecer na prática, mas nunca decide sozinho)', async () => {
+        const other = { ...baseOrder, id: 'order-def67890' };
+        prisma.demand.findMany = (async () => [{ order: baseOrder }, { order: other }]) as any;
+
+        const result = await resolveOrderByCode('15234', 'hub-1');
+
+        assert.equal(result.match, 'multiple');
+        assert.equal(result.match === 'multiple' && result.candidates.length, 2);
+    });
+
+    it('não trata código de 44 dígitos como orderNumber (chave fiscal tem prioridade e é exclusiva)', async () => {
+        const key = '5'.repeat(44);
+        let demandCalled = false;
+        prisma.demand.findMany = (async () => {
+            demandCalled = true;
+            return [];
+        }) as any;
+        prisma.orderInvoice.findMany = (async () => [{ order: baseOrder }]) as any;
+
+        const result = await resolveOrderByCode(key, 'hub-1');
+
+        assert.equal(result.match, 'single');
+        assert.equal(demandCalled, false, 'chave de 44 dígitos não deveria acionar a busca por orderNumber');
     });
 });

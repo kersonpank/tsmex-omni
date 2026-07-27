@@ -244,6 +244,7 @@ const ClientDashboard: React.FC = () => {
             unified.push({
                 id: demand.id,
                 type: 'DEMAND',
+                orderNumber: demand.orderNumber,
                 origin: demand.origin,
                 destination: demand.destination,
                 status: demand.status,
@@ -262,6 +263,7 @@ const ClientDashboard: React.FC = () => {
             unified.push({
                 id: order.id,
                 type: 'ORDER',
+                orderNumber: order.demand?.orderNumber,
                 origin: order.demand?.origin || 'N/A',
                 destination: order.demand?.destination || 'N/A',
                 status: order.status,
@@ -524,7 +526,7 @@ const ClientDashboard: React.FC = () => {
                                     <div key={item.id} className="flex justify-between items-center p-3 bg-tower-50 dark:bg-tower-700/50 rounded-xl">
                                         <div className="flex-grow">
                                             <div className="flex items-center gap-2 mb-1 flex-wrap">
-                                                <span className="text-xs font-bold text-tower-400 dark:text-tower-500">#{item.id.slice(0, 8)}</span>
+                                                <span className="text-xs font-bold text-tower-400 dark:text-tower-500">#{item.orderNumber ?? item.id.slice(0, 8)}</span>
                                                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
                                                     item.type === 'OPPORTUNITY' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200' :
                                                     item.type === 'ORDER' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-200' :
@@ -643,7 +645,7 @@ const ClientDashboard: React.FC = () => {
                                     <div className="flex flex-col md:flex-row justify-between gap-4">
                                         <div className="flex-grow">
                                             <div className="flex items-center gap-2 mb-2 flex-wrap">
-                                                <span className="text-[10px] font-bold text-tower-400 dark:text-tower-500">#{item.id.slice(0, 8)}</span>
+                                                <span className="text-[10px] font-bold text-tower-400 dark:text-tower-500">#{item.orderNumber ?? item.id.slice(0, 8)}</span>
                                                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
                                                     item.type === 'OPPORTUNITY' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200' :
                                                     item.type === 'ORDER' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-200' :

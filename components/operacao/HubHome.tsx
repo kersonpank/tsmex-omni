@@ -171,7 +171,7 @@ const ManifestModal: React.FC<{
         try {
           await manifestsApi.addDemand(manifestId, { orderId: order.id });
         } catch {
-          failedOrders.push(order.nfNumber ?? order.demand?.nfNumber ?? order.id.slice(0, 8));
+          failedOrders.push(order.demand?.orderNumber ? `#${order.demand.orderNumber}` : order.nfNumber ?? order.demand?.nfNumber ?? order.id.slice(0, 8));
         }
       }
 
@@ -684,7 +684,7 @@ const HubHome: React.FC = () => {
               <OrderScanInput
                 onResolved={(resolved: ResolvedOrderSummary) => {
                   setSelectedOrderIds((prev) => new Set(prev).add(resolved.id));
-                  flashSuccess(`Pedido adicionado à seleção (${resolved.id.slice(0, 8)}).`);
+                  flashSuccess(`Pedido #${resolved.orderNumber ?? resolved.id.slice(0, 8)} adicionado à seleção.`);
                 }}
               />
             </div>

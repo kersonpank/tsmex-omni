@@ -178,7 +178,7 @@ export async function listAllDocuments(
         take: filter.limit ?? 200,
         include: {
             fiscalEmitter: { select: { displayName: true, hub: { select: { code: true, name: true } } } },
-            convertedDemand: { select: { id: true, status: true } },
+            convertedDemand: { select: { id: true, status: true, orderNumber: true } },
         },
     });
 }

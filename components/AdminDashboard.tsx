@@ -535,7 +535,7 @@ const AdminDashboard: React.FC = () => {
                         <div className="flex flex-col justify-between gap-4 md:flex-row">
                           <div className="min-w-0 flex-grow">
                             <div className="mb-2 flex flex-wrap items-center gap-2">
-                              <span className="font-mono-ids text-[10px] font-semibold text-tower-600 dark:text-tower-400">#{demand.id.slice(0, 8)}</span>
+                              <span className="font-mono-ids text-[10px] font-semibold text-tower-600 dark:text-tower-400">#{demand.orderNumber ?? demand.id.slice(0, 8)}</span>
                               <StatusBadge label={demandStatusLabels[demand.status]} tone={demandStatusTones[demand.status]} />
                               {demand.quotedPrice != null && (
                                 <span className="rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-bold text-brand-800 dark:bg-brand-900/60 dark:text-brand-100">

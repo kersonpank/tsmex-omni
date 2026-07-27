@@ -365,19 +365,29 @@ const PedidosTab: React.FC = () => {
   // ganho de performance de memoizar é irrelevante pro tamanho desta tabela.
   const pedidosColumns: ColumnDef<OrderListItem>[] = [
     {
-      id: 'nfNumber',
-      label: 'Pedido/NF',
+      id: 'orderNumber',
+      label: 'Pedido',
       defaultVisible: true,
-      sortKey: 'nfNumber',
       render: (o) => (
         <div className="flex flex-col">
           <span className="font-mono-ids text-sm font-medium text-tower-900 dark:text-tower-100">
-            {o.nfNumber || o.demand?.nfNumber || o.id.slice(0, 8)}
+            {o.demand?.orderNumber ? `#${o.demand.orderNumber}` : o.id.slice(0, 8)}
           </span>
           <span className="font-sans text-xs text-tower-500 dark:text-tower-400">
             {o.demand?.client?.companyName ?? 'Sem cliente'}
           </span>
         </div>
+      ),
+    },
+    {
+      id: 'nfNumber',
+      label: 'NF',
+      defaultVisible: true,
+      sortKey: 'nfNumber',
+      render: (o) => (
+        <span className="font-mono-ids text-sm text-tower-700 dark:text-tower-300">
+          {o.nfNumber || o.demand?.nfNumber || '—'}
+        </span>
       ),
     },
     {

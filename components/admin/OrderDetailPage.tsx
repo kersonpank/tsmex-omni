@@ -262,9 +262,10 @@ const OrderDetailPage: React.FC = () => {
       <div className="rounded-2xl border border-tower-200 bg-white p-5 dark:border-tower-700 dark:bg-tower-900/50">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl font-bold text-tower-900 dark:text-tower-100">Pedido {order.nfNumber ?? order.demand?.nfNumber ?? order.id.slice(0, 8)}</h1>
+            <h1 className="text-xl font-bold text-tower-900 dark:text-tower-100">Pedido {order.demand?.orderNumber ? `#${order.demand.orderNumber}` : order.id.slice(0, 8)}</h1>
             <p className="text-sm text-tower-600 dark:text-tower-300">
               Cliente: {order.demand?.client?.companyName ?? 'Não informado'}
+              {(order.nfNumber ?? order.demand?.nfNumber) ? ` · NF ${order.nfNumber ?? order.demand?.nfNumber}` : ''}
             </p>
           </div>
           <StatusBadge label={statusLabels[order.status] ?? order.status} tone={orderStatusTones[order.status] ?? 'neutral'} />

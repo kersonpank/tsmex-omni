@@ -129,7 +129,7 @@ const OrderScanInput: React.FC<OrderScanInputProps> = ({ manifestId, onResolved,
                   onClick={() => chooseCandidate(c)}
                   className="w-full text-left px-3 py-2 bg-white dark:bg-tower-800 rounded-lg border border-tower-200 dark:border-tower-600 hover:bg-tower-50 dark:hover:bg-tower-700 text-sm"
                 >
-                  {c.origin} → {c.destination} · NF {c.nfNumber ?? '—'} (#{c.id.slice(0, 8)})
+                  Pedido #{c.orderNumber ?? c.id.slice(0, 8)} · {c.origin} → {c.destination} · NF {c.nfNumber ?? '—'}
                 </button>
               </li>
             ))}

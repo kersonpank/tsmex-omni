@@ -3,6 +3,7 @@ import prisma from '../lib/prisma.js';
 
 export interface ResolvedOrderSummary {
     id: string;
+    orderNumber: number | null;
     nfNumber: string | null;
     status: string;
     currentHubId: string | null;
@@ -16,7 +17,7 @@ export type OrderResolveResult =
     | { match: 'none' };
 
 const orderInclude = {
-    demand: { select: { origin: true, destination: true } },
+    demand: { select: { origin: true, destination: true, orderNumber: true } },
 } satisfies Prisma.OrderInclude;
 
 // Shape shared by every cascade step once its `order` relation is loaded — a schema
@@ -26,6 +27,7 @@ type ResolvedOrder = Prisma.OrderGetPayload<{ include: typeof orderInclude }>;
 
 const toSummary = (order: ResolvedOrder): ResolvedOrderSummary => ({
     id: order.id,
+    orderNumber: order.demand?.orderNumber ?? null,
     nfNumber: order.nfNumber ?? null,
     status: order.status,
     currentHubId: order.currentHubId ?? null,
@@ -47,12 +49,19 @@ const finish = (orders: ResolvedOrder[]): OrderResolveResult => {
 };
 
 const isAccessKey44 = (code: string) => /^\d{44}$/.test(code);
+const isPlainInteger = (code: string) => /^\d+$/.test(code) && !isAccessKey44(code);
+
+const demandOrderInclude = {
+    order: { include: orderInclude },
+} satisfies Prisma.DemandInclude;
 
 /**
  * Cascata de resolução (nunca escolhe silenciosamente em caso de ambiguidade):
  * 1. Chave de 44 dígitos (NF-e > CT-e > DC-e) — únicas globalmente, sem escopo de hub.
- * 2. Número (NF/CT-e/Minuta/DC-e) — restrito a AT_HUB no hub do manifesto (não é único globalmente).
- * 3. Sufixo do Order.id — único (é PK), mesmo escopo de hub pra manter a lista relevante.
+ * 2. Demand.orderNumber — número de pedido sequencial, único globalmente (sem escopo de hub).
+ *    Só considera Demands que já viraram Order (`order` não nulo) — bipagem resolve Order, não Demand.
+ * 3. Número (NF/CT-e/Minuta/DC-e) — restrito a AT_HUB no hub do manifesto (não é único globalmente).
+ * 4. Sufixo do Order.id — único (é PK), mesmo escopo de hub pra manter a lista relevante.
  */
 export async function resolveOrderByCode(rawCode: string, hubId: string | undefined): Promise<OrderResolveResult> {
     const code = rawCode.trim();
@@ -78,6 +87,15 @@ export async function resolveOrderByCode(rawCode: string, hubId: string | undefi
         if (byDce.length > 0) return finish(byDce.map((r) => r.order));
 
         return { match: 'none' };
+    }
+
+    if (isPlainInteger(code)) {
+        const byOrderNumber = await prisma.demand.findMany({
+            where: { orderNumber: Number(code) },
+            include: demandOrderInclude,
+        });
+        const withOrder = byOrderNumber.filter((d) => d.order !== null).map((d) => d.order!);
+        if (withOrder.length > 0) return finish(withOrder);
     }
 
     const hubScope = hubId ? { status: 'AT_HUB' as const, currentHubId: hubId } : { status: 'AT_HUB' as const };
