@@ -106,8 +106,8 @@ const getOrderCustody = (order: any): string => {
 const orderCargoLine = (order: Order): React.ReactNode => {
   const parts: string[] = [];
   if (typeof order.demand?.units === 'number') parts.push(`${order.demand.units} vol`);
-  if (typeof order.demand?.weight === 'number') parts.push(`${order.demand.weight} kg`);
-  if (typeof order.demand?.cubedWeight === 'number') parts.push(`cubado ${order.demand.cubedWeight} kg`);
+  if (typeof order.demand?.weight === 'number') parts.push(`${order.demand.weight.toLocaleString('pt-BR')} kg`);
+  if (typeof order.demand?.cubedWeight === 'number') parts.push(`cubado ${order.demand.cubedWeight.toLocaleString('pt-BR')} kg`);
   if (typeof order.demand?.nfValue === 'number') parts.push(`R$ ${order.demand.nfValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
   if (parts.length === 0) return null;
   return <div className="mt-1 text-xs text-tower-600 dark:text-tower-400">{parts.join(' · ')}</div>;
@@ -420,7 +420,7 @@ const HubHome: React.FC = () => {
     let cancelled = false;
     ordersApi.aggregate({ statuses: 'AT_HUB,IN_TRANSIT,PENDING,OUT_FOR_DELIVERY' })
       .then((res) => {
-        if (!cancelled) setOrderSummary((res as any)?.data ?? null);
+        if (!cancelled) setOrderSummary(res?.data ?? null);
       })
       .catch(() => {
         if (!cancelled) setOrderSummary(null);
