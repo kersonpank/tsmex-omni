@@ -183,6 +183,10 @@ describe('manifestLifecycle', () => {
         );
     });
 
+    it('assertOperationalTripType accepts transfer followed by delivery', () => {
+        assert.equal(assertOperationalTripType('TRANSFER_DELIVERY'), 'TRANSFER_DELIVERY');
+    });
+
     it('completeManifest TRANSFER sets AT_HUB on orders', async () => {
         txLog.length = 0;
         let linkUpdateCalls = 0;

@@ -13,8 +13,10 @@ import { suggestCiotTipoViagem } from '../services/efrete/ciotTipoViagemRule.js'
 import { cancelarCiot } from '../services/efrete/efreteCiotEmit.js';
 import { enqueueCiotEmissionJob } from '../services/queues/ciotEmissionQueue.js';
 import type { StoredCiotRequestData } from '../services/queues/ciotEmissionJobInput.js';
+import { getManifestReadiness } from '../services/manifestReadinessService.js';
 import {
     addOrderToManifest,
+    assertOperationalTripType,
     completeManifest,
     completeManifestStop,
     OPERATIONAL_TRIP_TYPES,
@@ -55,7 +57,14 @@ const manifestSchema = z
     .object({
         vehicleTypeId: z.string().uuid('Invalid vehicle type ID'),
         origin: z.string().min(1, 'Origin is required'),
+        originCity: z.string().min(1).optional(),
+        originState: z.string().length(2).optional(),
+        originCityIbgeCode: z.string().min(1).optional(),
         destination: z.string().min(1, 'Destination is required'),
+        destinationCity: z.string().min(1).optional(),
+        destinationState: z.string().length(2).optional(),
+        destinationCityIbgeCode: z.string().min(1).optional(),
+        startsWithCollection: z.boolean().default(false),
         tripType: operationalTripTypeSchema.default('TRANSFER'),
         hubId: z.string().uuid().optional(),
         destHubId: z.string().uuid().optional(),
@@ -69,10 +78,10 @@ const manifestSchema = z
             .optional(),
     })
     .superRefine((data, ctx) => {
-        if (data.tripType === 'TRANSFER' && !data.destHubId) {
+        if ((data.tripType === 'TRANSFER' || data.tripType === 'TRANSFER_DELIVERY') && !data.destHubId) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
-                message: 'destHubId é obrigatório para viagens do tipo TRANSFER',
+                message: 'Selecione o Hub ou filial da transferência',
                 path: ['destHubId'],
             });
         }
@@ -175,7 +184,7 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
         }
 
         // HUB sees manifests where it é origem, destino singular (legado) ou destino de alguma parada
-        if (req.user!.roles.includes('HUB') && req.user!.hubId) {
+        if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && req.user!.hubId) {
             andConditions.push({
                 OR: [
                     { hubId: req.user!.hubId },
@@ -291,8 +300,8 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
             throw new AppError('Manifest not found', 404);
         }
 
-        // Check access for links
-        if (req.user!.roles.includes('LINK')) {
+        // Check access for links when the active account is not also an operational manager.
+        if (req.user!.roles.includes('LINK') && !req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('HUB')) {
             const link = await prisma.link.findFirst({
                 where: { userId: req.user!.id }
             });
@@ -324,10 +333,11 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response, next: Nex
         const data = manifestSchema.parse(req.body);
 
         // HUB can only create manifests for their own hub
-        const effectiveHubId = req.user!.roles.includes('HUB')
+        const isHubOnly = req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN');
+        const effectiveHubId = isHubOnly
             ? req.user!.hubId
             : data.hubId;
-        if (req.user!.roles.includes('HUB') && (!effectiveHubId || effectiveHubId !== req.user!.hubId)) {
+        if (isHubOnly && (!effectiveHubId || effectiveHubId !== req.user!.hubId)) {
             throw new AppError('Hub user can only create manifests for their own hub', 403);
         }
 
@@ -345,10 +355,17 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response, next: Nex
             data: {
                 vehicleTypeId: data.vehicleTypeId,
                 origin: data.origin,
+                originCity: data.originCity,
+                originState: data.originState,
+                originCityIbgeCode: data.originCityIbgeCode,
                 destination: data.destination,
+                destinationCity: data.destinationCity,
+                destinationState: data.destinationState,
+                destinationCityIbgeCode: data.destinationCityIbgeCode,
+                startsWithCollection: data.startsWithCollection,
                 tripType: data.tripType,
                 hubId: effectiveHubId ?? undefined,
-                destHubId: data.tripType === 'TRANSFER' ? data.destHubId : undefined,
+                destHubId: data.tripType === 'TRANSFER' || data.tripType === 'TRANSFER_DELIVERY' ? data.destHubId : undefined,
                 stops: data.stops ? data.stops : undefined,
             },
             include: {
@@ -361,6 +378,89 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response, next: Nex
             success: true,
             data: manifest,
         });
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return next(new AppError(error.errors[0].message, 400));
+        }
+        next(error);
+    }
+});
+
+const manifestSetupSchema = z.object({
+    vehicleTypeId: z.string().uuid().optional(),
+    origin: z.string().min(1).optional(),
+    originCity: z.string().min(1).nullable().optional(),
+    originState: z.string().length(2).nullable().optional(),
+    originCityIbgeCode: z.string().min(1).nullable().optional(),
+    destination: z.string().min(1).optional(),
+    destinationCity: z.string().min(1).nullable().optional(),
+    destinationState: z.string().length(2).nullable().optional(),
+    destinationCityIbgeCode: z.string().min(1).nullable().optional(),
+    startsWithCollection: z.boolean().optional(),
+    tripType: operationalTripTypeSchema.optional(),
+    hubId: z.string().uuid().nullable().optional(),
+    destHubId: z.string().uuid().nullable().optional(),
+});
+
+// PATCH /api/manifests/:id/setup — edita a rota principal sem recriar o rascunho.
+router.patch('/:id/setup', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('HUB')) {
+        return next(new AppError('Not authorized', 403));
+    }
+    try {
+        const id = req.params.id as string;
+        const data = manifestSetupSchema.parse(req.body);
+        const current = await prisma.manifest.findUnique({ where: { id } });
+        if (!current) throw new AppError('Manifest not found', 404);
+        if (current.status !== 'DRAFT') {
+            throw new AppError('Retire a oferta antes de editar a rota da viagem.', 409);
+        }
+
+        const isHubOnly = req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN');
+        if (isHubOnly && current.hubId !== req.user!.hubId) {
+            throw new AppError('Not authorized to modify this manifest', 403);
+        }
+
+        const tripType = data.tripType ?? assertOperationalTripType(current.tripType);
+        const hubId = isHubOnly ? req.user!.hubId : (data.hubId !== undefined ? data.hubId : current.hubId);
+        const destHubId = tripType === 'TRANSFER' || tripType === 'TRANSFER_DELIVERY'
+            ? (data.destHubId !== undefined ? data.destHubId : current.destHubId)
+            : null;
+
+        await validateCreateManifestInput({
+            vehicleTypeId: data.vehicleTypeId ?? current.vehicleTypeId,
+            origin: data.origin ?? current.origin,
+            destination: data.destination ?? current.destination,
+            tripType,
+            hubId: hubId ?? undefined,
+            destHubId: destHubId ?? undefined,
+        });
+
+        const updated = await prisma.manifest.update({
+            where: { id },
+            data: {
+                vehicleTypeId: data.vehicleTypeId,
+                origin: data.origin,
+                originCity: data.originCity,
+                originState: data.originState,
+                originCityIbgeCode: data.originCityIbgeCode,
+                destination: data.destination,
+                destinationCity: data.destinationCity,
+                destinationState: data.destinationState,
+                destinationCityIbgeCode: data.destinationCityIbgeCode,
+                startsWithCollection: data.startsWithCollection,
+                tripType: data.tripType,
+                hubId,
+                destHubId,
+            },
+            include: {
+                vehicleType: true,
+                hub: true,
+                destHub: true,
+            },
+        });
+
+        res.json({ success: true, data: updated, message: 'Rota da viagem atualizada.' });
     } catch (error) {
         if (error instanceof z.ZodError) {
             return next(new AppError(error.errors[0].message, 400));
@@ -460,13 +560,15 @@ const manifestStopSchema = z
         destinationLabel: z.string().min(1).optional(),
         destCity: z.string().min(1).optional(),
         destState: z.string().length(2).optional(),
+        destCityIbgeCode: z.string().min(1).optional(),
+        purpose: z.enum(['PASSAGE', 'OPERATIONAL', 'TRANSFER', 'COLLECTION', 'DELIVERY']).default('PASSAGE'),
         plannedArrivalAt: z.string().datetime().optional(),
     })
     .superRefine((data, ctx) => {
         if (!data.destHubId && !data.destinationLabel && !data.destCity) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
-                message: 'Informe destHubId (parada de transferência) ou destinationLabel/destCity (parada de entrega)',
+                message: 'Informe um Hub/filial ou a cidade do ponto de percurso',
                 path: ['destHubId'],
             });
         }
@@ -492,9 +594,6 @@ router.post('/:id/stops', authenticate, async (req: AuthRequest, res: Response, 
         if (manifest.status !== 'DRAFT') {
             throw new AppError('Só é possível adicionar paradas a um manifesto em rascunho', 400);
         }
-        if (manifest.tripType === 'TRANSFER' && !data.destHubId) {
-            throw new AppError('destHubId é obrigatório para parada de viagem TRANSFER', 400);
-        }
         if (data.destHubId) {
             const destHub = await prisma.hub.findUnique({ where: { id: data.destHubId } });
             if (!destHub || !destHub.active) throw new AppError('Hub destino não encontrado ou inativo', 400);
@@ -514,6 +613,8 @@ router.post('/:id/stops', authenticate, async (req: AuthRequest, res: Response, 
                 destinationLabel: data.destinationLabel,
                 destCity: data.destCity,
                 destState: data.destState,
+                destCityIbgeCode: data.destCityIbgeCode,
+                purpose: data.purpose,
                 plannedArrivalAt: data.plannedArrivalAt ? new Date(data.plannedArrivalAt) : undefined,
             },
         });
@@ -523,6 +624,138 @@ router.post('/:id/stops', authenticate, async (req: AuthRequest, res: Response, 
         if (error instanceof z.ZodError) {
             return next(new AppError(error.errors[0].message, 400));
         }
+        next(error);
+    }
+});
+
+const manifestStopUpdateSchema = z.object({
+    destHubId: z.string().uuid().nullable().optional(),
+    destinationLabel: z.string().min(1).nullable().optional(),
+    destCity: z.string().min(1).nullable().optional(),
+    destState: z.string().length(2).nullable().optional(),
+    destCityIbgeCode: z.string().min(1).nullable().optional(),
+    purpose: z.enum(['PASSAGE', 'OPERATIONAL', 'TRANSFER', 'COLLECTION', 'DELIVERY']).optional(),
+    plannedArrivalAt: z.string().datetime().nullable().optional(),
+});
+
+// PATCH /api/manifests/:id/stops/:stopId — edita ponto manual em rascunho.
+router.patch('/:id/stops/:stopId', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('HUB')) {
+        return next(new AppError('Not authorized', 403));
+    }
+    try {
+        const id = req.params.id as string;
+        const stopId = req.params.stopId as string;
+        const data = manifestStopUpdateSchema.parse(req.body);
+        const manifest = await prisma.manifest.findUnique({ where: { id }, select: { hubId: true, status: true } });
+        if (!manifest) throw new AppError('Manifest not found', 404);
+        if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && manifest.hubId !== req.user!.hubId) {
+            throw new AppError('Not authorized to modify this manifest', 403);
+        }
+        if (manifest.status !== 'DRAFT') throw new AppError('Retire a oferta antes de editar o percurso.', 409);
+
+        const stop = await prisma.manifestStop.findUnique({ where: { id: stopId } });
+        if (!stop || stop.manifestId !== id) throw new AppError('Ponto de percurso não encontrado.', 404);
+
+        const destHubId = data.destHubId !== undefined ? data.destHubId : stop.destHubId;
+        const destCity = data.destCity !== undefined ? data.destCity : stop.destCity;
+        if (!destHubId && !destCity) throw new AppError('Informe um Hub/filial ou a cidade do ponto de percurso.', 400);
+        if (destHubId) {
+            const hub = await prisma.hub.findUnique({ where: { id: destHubId } });
+            if (!hub?.active) throw new AppError('Hub destino não encontrado ou inativo.', 400);
+        }
+
+        const updated = await prisma.manifestStop.update({
+            where: { id: stopId },
+            data: {
+                destHubId: data.destHubId,
+                destinationLabel: data.destinationLabel,
+                destCity: data.destCity,
+                destState: data.destState,
+                destCityIbgeCode: data.destCityIbgeCode,
+                purpose: data.purpose,
+                plannedArrivalAt: data.plannedArrivalAt === null
+                    ? null
+                    : data.plannedArrivalAt
+                        ? new Date(data.plannedArrivalAt)
+                        : undefined,
+            },
+        });
+        res.json({ success: true, data: updated, message: 'Ponto de percurso atualizado.' });
+    } catch (error) {
+        if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
+        next(error);
+    }
+});
+
+// DELETE /api/manifests/:id/stops/:stopId — remove somente ponto sem pedidos vinculados.
+router.delete('/:id/stops/:stopId', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('HUB')) {
+        return next(new AppError('Not authorized', 403));
+    }
+    try {
+        const id = req.params.id as string;
+        const stopId = req.params.stopId as string;
+        const manifest = await prisma.manifest.findUnique({ where: { id }, select: { hubId: true, status: true } });
+        if (!manifest) throw new AppError('Manifest not found', 404);
+        if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && manifest.hubId !== req.user!.hubId) {
+            throw new AppError('Not authorized to modify this manifest', 403);
+        }
+        if (manifest.status !== 'DRAFT') throw new AppError('Retire a oferta antes de editar o percurso.', 409);
+
+        const stop = await prisma.manifestStop.findUnique({ where: { id: stopId }, include: { _count: { select: { legs: true } } } });
+        if (!stop || stop.manifestId !== id) throw new AppError('Ponto de percurso não encontrado.', 404);
+        if (stop._count.legs > 0) throw new AppError('Este ponto possui pedidos vinculados e não pode ser removido.', 409);
+
+        await prisma.$transaction(async (tx) => {
+            await tx.manifestStop.delete({ where: { id: stopId } });
+            const remaining = await tx.manifestStop.findMany({ where: { manifestId: id }, orderBy: { sequence: 'asc' } });
+            for (const [index, item] of remaining.entries()) {
+                if (item.sequence !== index + 1) {
+                    await tx.manifestStop.update({ where: { id: item.id }, data: { sequence: index + 10001 } });
+                }
+            }
+            for (const [index, item] of remaining.entries()) {
+                await tx.manifestStop.update({ where: { id: item.id }, data: { sequence: index + 1 } });
+            }
+        });
+        res.json({ success: true, message: 'Ponto de percurso removido.' });
+    } catch (error) {
+        next(error);
+    }
+});
+
+const reorderStopsSchema = z.object({ stopIds: z.array(z.string().uuid()).min(1) });
+
+router.patch('/:id/stops/reorder/all', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('HUB')) {
+        return next(new AppError('Not authorized', 403));
+    }
+    try {
+        const id = req.params.id as string;
+        const { stopIds } = reorderStopsSchema.parse(req.body);
+        const manifest = await prisma.manifest.findUnique({ where: { id }, select: { hubId: true, status: true } });
+        if (!manifest) throw new AppError('Manifest not found', 404);
+        if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && manifest.hubId !== req.user!.hubId) {
+            throw new AppError('Not authorized to modify this manifest', 403);
+        }
+        if (manifest.status !== 'DRAFT') throw new AppError('Retire a oferta antes de reordenar o percurso.', 409);
+        const existing = await prisma.manifestStop.findMany({ where: { manifestId: id }, select: { id: true } });
+        const existingIds = new Set(existing.map((item) => item.id));
+        if (stopIds.length !== existing.length || stopIds.some((stopId) => !existingIds.has(stopId))) {
+            throw new AppError('A ordem precisa conter todos os pontos desta viagem.', 400);
+        }
+        await prisma.$transaction(async (tx) => {
+            for (const [index, stopId] of stopIds.entries()) {
+                await tx.manifestStop.update({ where: { id: stopId }, data: { sequence: index + 10001 } });
+            }
+            for (const [index, stopId] of stopIds.entries()) {
+                await tx.manifestStop.update({ where: { id: stopId }, data: { sequence: index + 1 } });
+            }
+        });
+        res.json({ success: true, message: 'Percurso reordenado.' });
+    } catch (error) {
+        if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
         next(error);
     }
 });
@@ -662,6 +895,154 @@ router.put('/:id/freight-agreement', authenticate, async (req: AuthRequest, res:
         if (error instanceof z.ZodError) {
             return next(new AppError(error.errors[0].message, 400));
         }
+        next(error);
+    }
+});
+
+const manifestAssignmentSchema = z.object({
+    linkId: z.string().uuid().nullable(),
+    driverId: z.string().uuid().nullable().optional(),
+});
+
+// PATCH /api/manifests/:id/assignment — escolhe o responsável sem enviar a oferta.
+router.patch('/:id/assignment', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('HUB')) {
+        return next(new AppError('Not authorized', 403));
+    }
+    try {
+        const id = req.params.id as string;
+        const data = manifestAssignmentSchema.parse(req.body);
+        const manifest = await prisma.manifest.findUnique({ where: { id } });
+        if (!manifest) throw new AppError('Manifest not found', 404);
+        if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && manifest.hubId !== req.user!.hubId) {
+            throw new AppError('Not authorized to modify this manifest', 403);
+        }
+        if (manifest.status !== 'DRAFT') {
+            throw new AppError('Retire a oferta antes de trocar o responsável.', 409);
+        }
+
+        if (!data.linkId) {
+            const cleared = await prisma.manifest.update({
+                where: { id },
+                data: { linkId: null, driverId: null },
+            });
+            return res.json({ success: true, data: cleared, message: 'Responsável removido.' });
+        }
+
+        const link = await prisma.link.findUnique({
+            where: { id: data.linkId },
+            include: {
+                drivers: {
+                    where: { active: true },
+                    orderBy: { createdAt: 'asc' },
+                },
+            },
+        });
+        if (!link || !link.active || link.approvalStatus !== 'APPROVED') {
+            throw new AppError('Responsável não encontrado, inativo ou ainda não aprovado.', 404);
+        }
+
+        let driverId: string | null = null;
+        if (data.driverId) {
+            const selectedDriver = link.drivers.find((driver) => driver.id === data.driverId);
+            if (!selectedDriver) throw new AppError('Os dados fiscais selecionados não pertencem a este responsável.', 400);
+            driverId = selectedDriver.id;
+        } else if (link.drivers.length === 1) {
+            driverId = link.drivers[0].id;
+        } else if (manifest.driverId && link.drivers.some((driver) => driver.id === manifest.driverId)) {
+            driverId = manifest.driverId;
+        }
+
+        const updated = await prisma.manifest.update({
+            where: { id },
+            data: { linkId: link.id, driverId },
+            include: { link: true, driver: true, vehicleType: true },
+        });
+        res.json({
+            success: true,
+            data: updated,
+            message: driverId
+                ? 'Responsável e dados fiscais vinculados.'
+                : 'Responsável vinculado. Complete os dados fiscais do motorista.',
+        });
+    } catch (error) {
+        if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
+        next(error);
+    }
+});
+
+// GET /api/manifests/:id/readiness — mesma prontidão usada pela UI e pela oferta.
+router.get('/:id/readiness', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const id = req.params.id as string;
+        const manifest = await prisma.manifest.findUnique({ where: { id }, select: { hubId: true, linkId: true } });
+        if (!manifest) throw new AppError('Manifest not found', 404);
+        if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && manifest.hubId !== req.user!.hubId) {
+            throw new AppError('Not authorized', 403);
+        }
+        if (req.user!.roles.includes('LINK') && !req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('HUB')) {
+            const link = await prisma.link.findFirst({ where: { userId: req.user!.id }, select: { id: true } });
+            if (!link || manifest.linkId !== link.id) throw new AppError('Not authorized', 403);
+        }
+        const readiness = await getManifestReadiness(id);
+        res.json({ success: true, data: readiness });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// POST /api/manifests/:id/offer — transição explícita após a revisão.
+router.post('/:id/offer', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('HUB')) {
+        return next(new AppError('Not authorized', 403));
+    }
+    try {
+        const id = req.params.id as string;
+        const manifest = await prisma.manifest.findUnique({ where: { id } });
+        if (!manifest) throw new AppError('Manifest not found', 404);
+        if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && manifest.hubId !== req.user!.hubId) {
+            throw new AppError('Not authorized to modify this manifest', 403);
+        }
+        if (manifest.status !== 'DRAFT') throw new AppError('A viagem não está em rascunho.', 409);
+
+        const readiness = await getManifestReadiness(id);
+        if (!readiness.canOffer) {
+            return res.status(422).json({
+                success: false,
+                error: 'A viagem ainda possui pendências antes da oferta.',
+                data: readiness,
+            });
+        }
+
+        const updated = await prisma.manifest.update({
+            where: { id },
+            data: { status: 'PENDING_ACCEPT', offeredAt: new Date(), rejectedAt: null, rejectionReason: null },
+            include: { link: true, driver: true, vehicleType: true },
+        });
+        res.json({ success: true, data: updated, message: 'Oferta enviada ao responsável.' });
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.post('/:id/withdraw-offer', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('HUB')) {
+        return next(new AppError('Not authorized', 403));
+    }
+    try {
+        const id = req.params.id as string;
+        const manifest = await prisma.manifest.findUnique({ where: { id } });
+        if (!manifest) throw new AppError('Manifest not found', 404);
+        if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && manifest.hubId !== req.user!.hubId) {
+            throw new AppError('Not authorized to modify this manifest', 403);
+        }
+        if (manifest.status !== 'PENDING_ACCEPT') throw new AppError('A viagem não possui uma oferta pendente.', 409);
+        const updated = await prisma.manifest.update({
+            where: { id },
+            data: { status: 'DRAFT', offeredAt: null },
+        });
+        res.json({ success: true, data: updated, message: 'Oferta retirada. O planejamento foi reaberto.' });
+    } catch (error) {
         next(error);
     }
 });

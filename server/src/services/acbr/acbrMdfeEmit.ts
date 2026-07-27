@@ -9,6 +9,14 @@ function digits(s: string): string {
     return s.replace(/\D/g, '');
 }
 
+function cityStateFromLegacyLabel(value: string | null | undefined): { city: string | null; state: string | null } {
+    const match = value?.trim().match(/^(.+?)(?:,\s*|\s+-\s+)([A-Za-z]{2})$/);
+    return {
+        city: match?.[1]?.trim() || null,
+        state: match?.[2]?.trim().toUpperCase() || null,
+    };
+}
+
 export interface MdfeEmitResult {
     ok: boolean;
     apiId?: string;
@@ -25,6 +33,7 @@ export interface MdfeDescargaGroup {
     destHub: { city: string | null; state: string | null; cityIbgeCode: string | null } | null;
     destCity: string | null;
     destState: string | null;
+    destCityIbgeCode: string | null;
     chaves: string[];
 }
 
@@ -63,13 +72,15 @@ export async function collectDescargaGroupsForManifest(manifestId: string): Prom
         },
     });
 
-    if (stops.length > 0) {
-        return stops.map((stop) => ({
+    const dischargeStops = stops.filter((stop) => stop.legs.length > 0);
+    if (dischargeStops.length > 0) {
+        return dischargeStops.map((stop) => ({
             stopId: stop.id,
             destHubId: stop.destHubId,
             destHub: stop.destHub,
             destCity: stop.destCity,
             destState: stop.destState,
+            destCityIbgeCode: stop.destCityIbgeCode,
             chaves: cteKeysFromOrders(stop.legs.map((leg) => leg.order)),
         }));
     }
@@ -87,13 +98,15 @@ export async function collectDescargaGroupsForManifest(manifestId: string): Prom
         }),
     ]);
 
+    const legacyDestination = cityStateFromLegacyLabel(manifest?.destination);
     return [
         {
             stopId: null,
             destHubId: manifest?.destHubId ?? null,
             destHub: manifest?.destHub ?? null,
-            destCity: null,
-            destState: null,
+            destCity: manifest?.destinationCity ?? legacyDestination.city,
+            destState: manifest?.destinationState ?? legacyDestination.state,
+            destCityIbgeCode: manifest?.destinationCityIbgeCode ?? null,
             chaves: cteKeysFromOrders(orders),
         },
     ];
@@ -106,6 +119,10 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
             hub: { include: { person: true } },
             link: true,
             fiscalEmitter: { include: { person: true } },
+            tripStops: {
+                orderBy: { sequence: 'asc' },
+                include: { destHub: { select: { state: true } } },
+            },
         },
     });
     if (!manifest?.hub?.person) {
@@ -134,7 +151,12 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
     // Emitente explícito da viagem (Fatia C) tem prioridade; senão cai no Hub de origem (compat).
     const emit = manifest.fiscalEmitter?.person ?? manifest.hub.person;
     const emitCmun = await resolveIbgeMunicipio(emit.city, emit.state, emit.cityIbgeCode);
-    const ufIni = (emit.state ?? 'SP').slice(0, 2).toUpperCase();
+    const legacyOrigin = cityStateFromLegacyLabel(manifest.origin);
+    const loadingCity = manifest.originCity ?? legacyOrigin.city ?? manifest.hub.city ?? emit.city;
+    const loadingState = manifest.originState ?? legacyOrigin.state ?? manifest.hub.state ?? emit.state;
+    const loadingIbgeCode = manifest.originCityIbgeCode ?? manifest.hub.cityIbgeCode ?? emit.cityIbgeCode;
+    const loadingCmun = await resolveIbgeMunicipio(loadingCity, loadingState, loadingIbgeCode);
+    const ufIni = (loadingState ?? 'SP').slice(0, 2).toUpperCase();
     const cUF = ufToCuf(emit.state);
     let apiEnv: AcbrFiscalEnvironment = manifest.fiscalEmitter?.environment ?? 'HOMOLOGACAO';
     if (!manifest.fiscalEmitter && manifest.hubId) {
@@ -192,7 +214,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
     for (const group of groups) {
         const city = group.destHub?.city ?? group.destCity ?? null;
         const state = group.destHub?.state ?? group.destState ?? null;
-        const ibgeCode = group.destHub?.cityIbgeCode ?? null;
+        const ibgeCode = group.destHub?.cityIbgeCode ?? group.destCityIbgeCode ?? null;
         if (!city || !state) {
             const label = group.stopId ? `parada #${group.stopId.slice(0, 8)}` : 'destino da viagem';
             return { ok: false, error: `Cidade/UF de destino não definida para a ${label} — necessário para emitir o MDF-e.` };
@@ -210,6 +232,12 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
             infCTe: group.chaves.map((chCTe) => ({ chCTe })),
         });
     }
+
+    const percursoUfs = Array.from(new Set(
+        manifest.tripStops
+            .map((stop) => (stop.destHub?.state ?? stop.destState ?? '').slice(0, 2).toUpperCase())
+            .filter((state) => state && state !== ufIni && state !== ufFim),
+    ));
 
     const infMDFe: Record<string, unknown> = {
         versao: '3.00',
@@ -230,8 +258,8 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
             verProc: 'TSM-EX-OMNI',
             UFIni: ufIni,
             UFFim: ufFim,
-            infMunCarrega: [{ cMunCarrega: emitCmun, xMunCarrega: (emit.city ?? 'CARREGA').slice(0, 60) }],
-            infPercurso: [{ UFPer: ufIni }],
+            infMunCarrega: [{ cMunCarrega: loadingCmun, xMunCarrega: (loadingCity ?? 'CARREGA').slice(0, 60) }],
+            ...(percursoUfs.length ? { infPercurso: percursoUfs.map((UFPer) => ({ UFPer })) } : {}),
             dhIniViagem: new Date().toISOString(),
         },
         emit: {

@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { linksApi, manifestsApi, ordersApi, intakeDemandsApi, vehicleTypesApi, hubsApi } from '../../lib/api';
+import { manifestsApi, ordersApi, intakeDemandsApi } from '../../lib/api';
 import { demandStatusLabels, demandStatusTones, orderStatusLabels, orderStatusTones, type StatusTone } from '../../lib/demandStatusUi';
 import { manifestStatusLabels as MANIFEST_STATUS_LABEL, manifestStatusTone as MANIFEST_STATUS_TONE } from '../../lib/manifestStatusUi';
 import { useAuthStore } from '../../store/authStore';
-import type { Link, Manifest, OrderAggregateSummary, OrderStatus, ResolvedOrderSummary, VehicleType } from '../../types/index';
+import type { Manifest, OrderAggregateSummary, OrderStatus, ResolvedOrderSummary } from '../../types/index';
 import EntradaTab from '../admin/EntradaTab';
 import InlineNotice from '../ui/InlineNotice';
 import OrderScanInput from '../ui/OrderScanInput';
@@ -119,171 +119,11 @@ function extractArray(res: any): any[] {
   return [];
 }
 
-interface HubOption { id: string; name: string; code: string; }
-
-const ManifestModal: React.FC<{
-  selectedOrders: Order[];
-  links: Link[];
-  vehicleTypes: VehicleType[];
-  onClose: () => void;
-  onCreated: (manifestId: string) => void;
-}> = ({ selectedOrders, links, vehicleTypes, onClose, onCreated }) => {
-  const [tripType, setTripType] = useState<'TRANSFER' | 'DELIVERY'>('TRANSFER');
-  const [destHubId, setDestHubId] = useState('');
-  const [hubs, setHubs] = useState<HubOption[]>([]);
-  const [linkId, setLinkId] = useState('');
-  const [vehicleTypeId, setVehicleTypeId] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const origin = selectedOrders[0]?.demand?.origin ?? selectedOrders[0]?.origin ?? '';
-  const destination = [...new Set(selectedOrders.map((o) => o.demand?.destination ?? o.destination ?? 'Sem destino'))].join(', ');
-
-  useEffect(() => {
-    hubsApi.list().then((r: any) => setHubs((r?.data ?? r) || [])).catch(() => setHubs([]));
-  }, []);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!vehicleTypeId) {
-      setError('Selecione o tipo de veículo.');
-      return;
-    }
-    if (tripType === 'TRANSFER' && !destHubId) {
-      setError('Selecione o hub destino para transferência.');
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    try {
-      const created = await manifestsApi.create({
-        vehicleTypeId,
-        origin,
-        destination,
-        tripType,
-        ...(tripType === 'TRANSFER' ? { destHubId } : {}),
-      });
-      const manifestId = (created as any)?.data?.id ?? (created as any)?.id;
-      if (!manifestId) throw new Error('Manifesto criado sem id retornado.');
-
-      const failedOrders: string[] = [];
-      for (const order of selectedOrders) {
-        try {
-          await manifestsApi.addDemand(manifestId, { orderId: order.id });
-        } catch {
-          failedOrders.push(order.demand?.orderNumber ? `#${order.demand.orderNumber}` : order.nfNumber ?? order.demand?.nfNumber ?? order.id.slice(0, 8));
-        }
-      }
-
-      // Só atribui o Link se um foi escolhido E todos os pedidos entraram — senão o
-      // manifesto fica em DRAFT de propósito, pra dar tempo do operador bipar o
-      // pedido que faltou na tela de detalhe (a seção Pedidos só é editável em DRAFT).
-      let assignError: string | null = null;
-      if (linkId && failedOrders.length === 0) {
-        try {
-          await manifestsApi.assignLink(manifestId, linkId);
-        } catch (e: any) {
-          assignError = e.response?.data?.error || e.message || 'Erro desconhecido';
-        }
-      }
-
-      if (failedOrders.length > 0) {
-        const linkSuffix = linkId
-          ? ' O motorista não foi atribuído ainda — resolva os pedidos pendentes e atribua o Link na tela do manifesto (seção "Motorista").'
-          : '';
-        window.alert(
-          `Manifesto criado (rascunho), mas ${failedOrders.length} pedido(s) não entraram: ${failedOrders.join(', ')}. Abra o manifesto e use a bipagem para adicioná-los.${linkSuffix}`
-        );
-      } else if (assignError) {
-        window.alert(
-          `Manifesto e pedidos criados, mas houve um erro ao atribuir o motorista: ${assignError}. Tente novamente na tela do manifesto, seção "Motorista".`
-        );
-      }
-      onCreated(manifestId);
-    } catch (e: any) {
-      setError(e.response?.data?.error || e.message || 'Erro ao criar manifesto');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="mobile-enter relative max-h-[90vh] overflow-y-auto rounded-t-2xl border border-tower-200 bg-[var(--app-surface)] dark:border-tower-700 dark:bg-tower-900">
-        <div className="flex items-center justify-between border-b border-tower-200 px-4 py-3 dark:border-tower-700">
-          <h2 className="font-display text-base font-semibold text-tower-900 dark:text-white">
-            {selectedOrders.length > 0 ? `Criar manifesto (${selectedOrders.length})` : 'Nova viagem'}
-          </h2>
-          <button type="button" onClick={onClose} className="rounded-lg p-2 text-tower-500 hover:bg-tower-100 dark:hover:bg-tower-800" aria-label="Fechar modal">
-            ✕
-          </button>
-        </div>
-        <form onSubmit={handleSubmit} className="space-y-4 p-4">
-          {error && <div className="mobile-enter rounded-lg border border-brand-red-500/30 bg-brand-red-500/10 p-3 text-sm text-brand-red-600 dark:text-brand-red-400">{error}</div>}
-          {selectedOrders.length > 0 ? (
-            <div className="rounded-xl border border-tower-200 bg-tower-50 p-3 text-xs dark:border-tower-700 dark:bg-tower-800">
-              {selectedOrders.map((o) => (
-                <div key={o.id} className="text-tower-700 dark:text-tower-300">NF {o.nfNumber ?? o.demand?.nfNumber ?? '—'} para {o.demand?.destination ?? 'Sem destino'}</div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-tower-500 dark:text-tower-400">Nenhum pedido selecionado ainda — bipe depois de criar.</p>
-          )}
-          <div className="grid grid-cols-2 gap-3">
-            <label className="text-xs text-tower-600 dark:text-tower-300">
-              Origem
-              <input value={origin} readOnly className="mt-1 w-full rounded-lg border border-tower-300 bg-tower-50 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800" />
-            </label>
-            <label className="text-xs text-tower-600 dark:text-tower-300">
-              Destino final
-              <input value={destination} readOnly className="mt-1 w-full rounded-lg border border-tower-300 bg-tower-50 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800" />
-            </label>
-          </div>
-          <label className="block text-xs text-tower-600 dark:text-tower-300">
-            Tipo de viagem
-            <select value={tripType} onChange={(e) => { setTripType(e.target.value as 'TRANSFER' | 'DELIVERY'); setDestHubId(''); }} className="mt-1 w-full rounded-lg border border-tower-300 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800">
-              <option value="TRANSFER">Transferência (Hub → Hub)</option>
-              <option value="DELIVERY">Entrega final (Hub → Cliente)</option>
-            </select>
-          </label>
-          {tripType === 'TRANSFER' && (
-            <label className="block text-xs text-tower-600 dark:text-tower-300">
-              Hub destino
-              <select value={destHubId} onChange={(e) => setDestHubId(e.target.value)} className="mt-1 w-full rounded-lg border border-tower-300 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800" required>
-                <option value="">Selecione o hub destino</option>
-                {hubs.map((h) => <option key={h.id} value={h.id}>{h.name} ({h.code})</option>)}
-              </select>
-            </label>
-          )}
-          <label className="block text-xs text-tower-600 dark:text-tower-300">
-            Transportador (Link) — opcional, pode atribuir depois
-            <select value={linkId} onChange={(e) => setLinkId(e.target.value)} className="mt-1 w-full rounded-lg border border-tower-300 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800">
-              <option value="">Selecione (ou deixe em branco)</option>
-              {links.map((l) => <option key={l.id} value={l.id}>{l.name} - {l.vehiclePlate}</option>)}
-            </select>
-          </label>
-          <label className="block text-xs text-tower-600 dark:text-tower-300">
-            Tipo de veículo
-            <select value={vehicleTypeId} onChange={(e) => setVehicleTypeId(e.target.value)} className="mt-1 w-full rounded-lg border border-tower-300 px-3 py-2 text-sm dark:border-tower-600 dark:bg-tower-800" required>
-              <option value="">Selecione</option>
-              {vehicleTypes.map((vt) => <option key={vt.id} value={vt.id}>{vt.name}</option>)}
-            </select>
-          </label>
-          <button type="submit" disabled={saving} className="min-h-[44px] w-full rounded-xl bg-brand-600 py-3 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50">
-            {saving ? 'Criando manifesto...' : 'Criar manifesto'}
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-};
-
 const ManifestCard: React.FC<{ m: any; children?: React.ReactNode }> = ({ m, children }) => (
   <div className="card-surface p-4">
     <div className="flex items-start justify-between gap-2">
       <div>
-        <p className="text-sm font-semibold text-tower-800 dark:text-tower-100">{m.link?.name ?? 'Sem motorista'}</p>
+        <p className="text-sm font-semibold text-tower-800 dark:text-tower-100">{m.link?.name ?? 'Sem responsável'}</p>
         <p className="text-xs text-tower-600 dark:text-tower-400">{m.origin} → {m.destination}</p>
       </div>
       <span className={`rounded-full px-2 py-1 text-[11px] font-medium ${toneClassMap[MANIFEST_STATUS_TONE[m.status] ?? 'neutral']}`}>{MANIFEST_STATUS_LABEL[m.status] ?? m.status}</span>
@@ -326,8 +166,6 @@ const HubHome: React.FC = () => {
   const [tab, setTab] = useState<Tab>('inicio');
   const [orders, setOrders] = useState<Order[]>([]);
   const [manifestos, setManifestos] = useState<Manifest[]>([]);
-  const [links, setLinks] = useState<Link[]>([]);
-  const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -335,7 +173,6 @@ const HubHome: React.FC = () => {
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
-  const [showModal, setShowModal] = useState(false);
   const [showProfileSheet, setShowProfileSheet] = useState(false);
   const [attachmentUploadingOrderId, setAttachmentUploadingOrderId] = useState<string | null>(null);
   const [awaitingRecebimentoCount, setAwaitingRecebimentoCount] = useState(0);
@@ -357,12 +194,10 @@ const HubHome: React.FC = () => {
       return e instanceof Error ? e.message : 'Erro ao carregar dados';
     };
 
-    const [ordersSettled, manifestsSettled, linksSettled, vtSettled, intakeSettled] =
+    const [ordersSettled, manifestsSettled, intakeSettled] =
       await Promise.allSettled([
         ordersApi.list({ limit: 200, statuses: 'AT_HUB,IN_TRANSIT,PENDING,OUT_FOR_DELIVERY' }),
         manifestsApi.list({}),
-        linksApi.list({ approvalStatus: 'APPROVED' }),
-        vehicleTypesApi.list(),
         intakeDemandsApi.list({ status: 'AWAITING_ARRIVAL', limit: 1, offset: 0 }),
       ]);
 
@@ -380,18 +215,6 @@ const HubHome: React.FC = () => {
     } else {
       setManifestos([]);
       criticalErrors.push(apiErr(manifestsSettled.reason));
-    }
-
-    if (linksSettled.status === 'fulfilled') {
-      setLinks(extractArray(linksSettled.value));
-    } else {
-      setLinks([]);
-    }
-
-    if (vtSettled.status === 'fulfilled') {
-      setVehicleTypes(extractArray(vtSettled.value));
-    } else {
-      setVehicleTypes([]);
     }
 
     if (intakeSettled.status === 'fulfilled') {
@@ -444,7 +267,6 @@ const HubHome: React.FC = () => {
   );
   const orderIdsInManifest = useMemo(() => new Set(manifestosAtivos.flatMap((m) => (m.demands ?? []).map((d) => d.id))), [manifestosAtivos]);
   const pedidosSemManifesto = useMemo(() => orders.filter((o) => !orderIdsInManifest.has(o.demand?.id ?? o.id)), [orders, orderIdsInManifest]);
-  const selectedOrders = useMemo(() => orders.filter((o) => selectedOrderIds.has(o.id)), [orders, selectedOrderIds]);
 
   const kpi = useMemo(() => ({
     aConsolidar: pedidosSemManifesto.length,
@@ -551,7 +373,15 @@ const HubHome: React.FC = () => {
 
       {(tab === 'manifestos' || selectedOrderIds.size > 0) && (
         <div className="fab-up fixed bottom-[74px] left-0 right-0 z-30 px-4 pb-2">
-          <button type="button" onClick={() => setShowModal(true)} className="min-h-[48px] w-full rounded-xl bg-brand-600 py-3 text-sm font-semibold text-white shadow-lg hover:bg-brand-700">
+          <button
+            type="button"
+            onClick={() => {
+              const orderIds = Array.from(selectedOrderIds);
+              const query = orderIds.length > 0 ? `?orders=${encodeURIComponent(orderIds.join(','))}` : '';
+              window.location.hash = `#/manifests/new${query}`;
+            }}
+            className="min-h-[48px] w-full rounded-xl bg-brand-600 py-3 text-sm font-semibold text-white shadow-lg hover:bg-brand-700"
+          >
             {selectedOrderIds.size > 0 ? `Manifesto (${selectedOrderIds.size})` : '+ Nova viagem'}
           </button>
         </div>
@@ -814,19 +644,6 @@ const HubHome: React.FC = () => {
         )}
       </main>
 
-      {showModal && (
-        <ManifestModal
-          selectedOrders={selectedOrders}
-          links={links}
-          vehicleTypes={vehicleTypes}
-          onClose={() => setShowModal(false)}
-          onCreated={(manifestId) => {
-            setShowModal(false);
-            setSelectedOrderIds(new Set());
-            window.location.hash = `#/manifests/${manifestId}`;
-          }}
-        />
-      )}
 
       {showProfileSheet && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end">

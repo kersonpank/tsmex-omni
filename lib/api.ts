@@ -13,6 +13,7 @@ import type {
     Manifest,
     ManifestStop,
     ManifestFreightAgreement,
+    ManifestReadiness,
     CreateManifestRequest,
     Hub,
     Link,
@@ -471,6 +472,11 @@ export const manifestsApi = {
         return response.data;
     },
 
+    updateSetup: async (id: string, data: Partial<CreateManifestRequest> & { hubId?: string | null; destHubId?: string | null }) => {
+        const response = await api.patch<ApiResponse<Manifest>>(`/manifests/${id}/setup`, data);
+        return response.data;
+    },
+
     addDemand: async (manifestId: string, target: { orderId?: string; demandId?: string; stopId?: string }) => {
         const response = await api.post<ApiResponse<Manifest>>(`/manifests/${manifestId}/demands`, target);
         return response.data;
@@ -481,8 +487,23 @@ export const manifestsApi = {
         return response.data;
     },
 
-    createStop: async (manifestId: string, data: { destHubId?: string; destinationLabel?: string; destCity?: string; destState?: string; plannedArrivalAt?: string }) => {
+    createStop: async (manifestId: string, data: { destHubId?: string; destinationLabel?: string; destCity?: string; destState?: string; destCityIbgeCode?: string; purpose?: string; plannedArrivalAt?: string }) => {
         const response = await api.post<ApiResponse<ManifestStop>>(`/manifests/${manifestId}/stops`, data);
+        return response.data;
+    },
+
+    updateStop: async (manifestId: string, stopId: string, data: { destHubId?: string | null; destinationLabel?: string | null; destCity?: string | null; destState?: string | null; destCityIbgeCode?: string | null; purpose?: string; plannedArrivalAt?: string | null }) => {
+        const response = await api.patch<ApiResponse<ManifestStop>>(`/manifests/${manifestId}/stops/${stopId}`, data);
+        return response.data;
+    },
+
+    deleteStop: async (manifestId: string, stopId: string) => {
+        const response = await api.delete<ApiResponse<{ message: string }>>(`/manifests/${manifestId}/stops/${stopId}`);
+        return response.data;
+    },
+
+    reorderStops: async (manifestId: string, stopIds: string[]) => {
+        const response = await api.patch<ApiResponse<{ message: string }>>(`/manifests/${manifestId}/stops/reorder/all`, { stopIds });
         return response.data;
     },
 
@@ -493,6 +514,26 @@ export const manifestsApi = {
 
     assignLink: async (id: string, linkId: string) => {
         const response = await api.patch<ApiResponse<Manifest>>(`/manifests/${id}/assign`, { linkId });
+        return response.data;
+    },
+
+    setResponsible: async (id: string, linkId: string | null, driverId?: string | null) => {
+        const response = await api.patch<ApiResponse<Manifest>>(`/manifests/${id}/assignment`, { linkId, driverId });
+        return response.data;
+    },
+
+    readiness: async (id: string) => {
+        const response = await api.get<ApiResponse<ManifestReadiness>>(`/manifests/${id}/readiness`);
+        return response.data;
+    },
+
+    offer: async (id: string) => {
+        const response = await api.post<ApiResponse<Manifest>>(`/manifests/${id}/offer`, {});
+        return response.data;
+    },
+
+    withdrawOffer: async (id: string) => {
+        const response = await api.post<ApiResponse<Manifest>>(`/manifests/${id}/withdraw-offer`, {});
         return response.data;
     },
 

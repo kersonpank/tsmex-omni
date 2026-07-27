@@ -16,6 +16,7 @@ interface CityAutocompleteProps {
   placeholder?: string;
   state?: string;
   required?: boolean;
+  disabled?: boolean;
   className?: string;
   id?: string;
 }
@@ -27,6 +28,7 @@ export const CityAutocomplete: React.FC<CityAutocompleteProps> = ({
   placeholder = 'Ex: São Paulo, SP',
   state,
   required = false,
+  disabled = false,
   className = '',
   id,
 }) => {
@@ -71,6 +73,7 @@ export const CityAutocomplete: React.FC<CityAutocompleteProps> = ({
   };
 
   const handleFocus = () => {
+    if (disabled) return;
     if (value.length >= 2) searchCities(value);
   };
 
@@ -92,6 +95,7 @@ export const CityAutocomplete: React.FC<CityAutocompleteProps> = ({
         onFocus={handleFocus}
         placeholder={placeholder}
         required={required}
+        disabled={disabled}
         className={className || 'w-full p-3 bg-tower-50 dark:bg-tower-700 border border-tower-200 dark:border-tower-600 rounded-xl text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500'}
       />
       {showSuggestions && suggestions.length > 0 && (

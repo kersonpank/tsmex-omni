@@ -716,6 +716,7 @@ model DemandEvent {
 enum ManifestTripType {
   TRANSFER
   DELIVERY
+  TRANSFER_DELIVERY
   REGIONAL_DISTRIBUTION // reservado — sem comportamento operacional no PR001
 }
 
@@ -759,11 +760,19 @@ model Manifest {
   vehicleType   VehicleType @relation(fields: [vehicleTypeId], references: [id])
 
   // Route
-  origin      String
-  destination String
-  stops       Json? // legado — nunca consumido pela lógica de pernas; ver ManifestStop (Fatia B)
+  origin                      String
+  originCity                  String?
+  originState                 String?
+  originCityIbgeCode          String?
+  destination                 String
+  destinationCity             String?
+  destinationState            String?
+  destinationCityIbgeCode     String?
+  startsWithCollection        Boolean @default(false)
+  stops                       Json? // legado — nunca consumido pela lógica de pernas; ver ManifestStop (Fatia B)
 
-  // Paradas/descargas reais da viagem (Fatia B) — 1+ por manifesto, cada OrderLeg pertence a 1
+  // Pontos manuais opcionais de percurso. OrderLeg só se vincula quando a parada
+  // representa uma descarga operacional, nunca por inferência automática.
   tripStops ManifestStop[]
 
   // Occupancy
@@ -1888,6 +1897,8 @@ model ManifestStop {
   destinationLabel String? // DELIVERY: rótulo/endereço livre do cliente desta parada
   destCity         String? // necessário para infMunDescarga do MDF-e quando não há destHubId
   destState        String?
+  destCityIbgeCode String?
+  purpose          ManifestStopPurpose @default(PASSAGE)
   plannedArrivalAt DateTime?
   startedAt        DateTime?
   completedAt      DateTime?
@@ -1898,6 +1909,14 @@ model ManifestStop {
   @@unique([manifestId, sequence])
   @@index([manifestId])
   @@index([destHubId])
+}
+
+enum ManifestStopPurpose {
+  PASSAGE
+  OPERATIONAL
+  TRANSFER
+  COLLECTION
+  DELIVERY
 }
 
 enum LegType {

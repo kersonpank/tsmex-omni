@@ -20,11 +20,11 @@ export const ACTIVE_MANIFEST_STATUSES: ManifestStatus[] = [
     'IN_PROGRESS',
 ];
 
-export const OPERATIONAL_TRIP_TYPES = ['TRANSFER', 'DELIVERY'] as const;
+export const OPERATIONAL_TRIP_TYPES = ['TRANSFER', 'DELIVERY', 'TRANSFER_DELIVERY'] as const;
 export type OperationalTripType = (typeof OPERATIONAL_TRIP_TYPES)[number];
 
 export function assertOperationalTripType(tripType: ManifestTripType): OperationalTripType {
-    if (tripType === 'TRANSFER' || tripType === 'DELIVERY') {
+    if (tripType === 'TRANSFER' || tripType === 'DELIVERY' || tripType === 'TRANSFER_DELIVERY') {
         return tripType;
     }
     throw new AppError('Tipo de viagem não suportado nesta versão', 400);
@@ -60,9 +60,9 @@ export async function validateCreateManifestInput(input: CreateManifestInput) {
     }
 
     let destHub: { id: string; code: string } | null = null;
-    if (input.tripType === 'TRANSFER') {
+    if (input.tripType === 'TRANSFER' || input.tripType === 'TRANSFER_DELIVERY') {
         if (!input.destHubId) {
-            throw new AppError('destHubId é obrigatório para viagens do tipo TRANSFER', 400);
+            throw new AppError('destHubId é obrigatório para transferência entre unidades', 400);
         }
         destHub = await validateDestHubForTransfer(input.destHubId, input.hubId ?? null);
     }
@@ -97,7 +97,7 @@ function allocationOrderHistoryDescription(
     tripType: ManifestTripType,
     destHubCode?: string | null
 ) {
-    if (tripType === 'DELIVERY') {
+    if (tripType === 'DELIVERY' || tripType === 'TRANSFER_DELIVERY') {
         return `Pedido alocado ao manifesto ${manifestId} para entrega final.`;
     }
     const hubLabel = destHubCode ?? 'destino';
@@ -202,7 +202,7 @@ export async function addOrderToManifest(
                 orderId,
                 manifestId,
                 sequence,
-                legType: manifest.tripType === 'DELIVERY' ? 'ENTREGA' : 'TRANSFERENCIA',
+                legType: manifest.tripType === 'DELIVERY' || manifest.tripType === 'TRANSFER_DELIVERY' ? 'ENTREGA' : 'TRANSFERENCIA',
                 executedBy: manifest.linkId ? 'LINK' : 'HUB',
                 originHubId: manifest.hubId,
                 destHubId: manifest.destHubId,
@@ -433,7 +433,7 @@ function startStatuses(tripType: OperationalTripType): {
     demandDescription: string;
     orderEventType: OrderEventType;
 } {
-    if (tripType === 'DELIVERY') {
+    if (tripType === 'DELIVERY' || tripType === 'TRANSFER_DELIVERY') {
         return {
             orderStatus: 'OUT_FOR_DELIVERY',
             demandDescription: 'Carga saiu para entrega final',
@@ -516,8 +516,12 @@ export async function completeManifest(
     actor?: { userId: string; role: UserRole; adminId?: string },
     options?: { kmChegada?: number }
 ) {
-    // Manifestos com paradas cadastradas (Fatia B) concluem parada a parada — nunca em bloco.
-    const stops = await prisma.manifestStop.findMany({ where: { manifestId }, select: { id: true } });
+    // Apenas paradas com pedidos vinculados controlam conclusão por descarga.
+    // Pontos manuais de percurso sem pernas são declarativos e não bloqueiam a viagem.
+    const stops = await prisma.manifestStop.findMany({
+        where: { manifestId, legs: { some: {} } },
+        select: { id: true },
+    });
     if (stops.length === 1) {
         await completeManifestStop(manifestId, stops[0].id, actor, options);
         return;
@@ -529,7 +533,8 @@ export async function completeManifest(
         );
     }
 
-    // stops.length === 0: manifesto sem paradas cadastradas — comportamento legado, sem mudança.
+    // stops.length === 0: manifesto sem descargas vinculadas. Pontos de percurso opcionais
+    // podem existir, mas a conclusão permanece no destino principal.
     const manifest = await loadManifestForLifecycle(manifestId);
 
     if (manifest.status !== 'IN_PROGRESS') {
@@ -588,7 +593,7 @@ export async function completeManifest(
         return;
     }
 
-    // tripType === 'DELIVERY'
+    // tripType === 'DELIVERY' | 'TRANSFER_DELIVERY'
     await prisma.$transaction(async (tx) => {
         await tx.manifest.update({
             where: { id: manifestId },
@@ -769,8 +774,13 @@ export async function completeManifestStop(
         });
     }
 
+    // Um ponto de percurso sem pedidos não é uma descarga e não finaliza o manifesto.
+    if (stop.legs.length === 0) {
+        return { allStopsCompleted: false };
+    }
+
     const pendingStops = await prisma.manifestStop.count({
-        where: { manifestId, completedAt: null },
+        where: { manifestId, completedAt: null, legs: { some: {} } },
     });
 
     if (pendingStops === 0) {

@@ -49,7 +49,10 @@ export type ManifestStatus =
     | 'COMPLETED'
     | 'CANCELLED';
 
-export type ManifestTripType = 'TRANSFER' | 'DELIVERY' | 'REGIONAL_DISTRIBUTION';
+export type ManifestTripType = 'TRANSFER' | 'DELIVERY' | 'TRANSFER_DELIVERY' | 'REGIONAL_DISTRIBUTION';
+export type ManifestStopPurpose = 'PASSAGE' | 'OPERATIONAL' | 'TRANSFER' | 'COLLECTION' | 'DELIVERY';
+export type ManifestJourneyStep = 'route' | 'orders' | 'route_points' | 'cover' | 'responsible' | 'freight' | 'review' | 'fiscal';
+export type ManifestStepState = 'complete' | 'current' | 'attention' | 'locked' | 'read_only';
 
 export type LinkApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
 
@@ -495,6 +498,8 @@ export interface ManifestStop {
     destinationLabel?: string | null;
     destCity?: string | null;
     destState?: string | null;
+    destCityIbgeCode?: string | null;
+    purpose?: ManifestStopPurpose;
     plannedArrivalAt?: string | null;
     startedAt?: string | null;
     completedAt?: string | null;
@@ -536,7 +541,14 @@ export interface Manifest {
     vehicleTypeId: string;
     vehicleType?: VehicleType;
     origin: string;
+    originCity?: string | null;
+    originState?: string | null;
+    originCityIbgeCode?: string | null;
     destination: string;
+    destinationCity?: string | null;
+    destinationState?: string | null;
+    destinationCityIbgeCode?: string | null;
+    startsWithCollection?: boolean;
     stops?: any;
     tripStops?: ManifestStop[];
     fiscalEmitterId?: string | null;
@@ -563,6 +575,21 @@ export interface Manifest {
     completedAt?: string;
     createdAt: string;
     updatedAt: string;
+}
+
+export interface ManifestReadinessIssue {
+    step: ManifestJourneyStep;
+    field?: string;
+    code: string;
+    severity: 'blocking' | 'warning';
+    message: string;
+}
+
+export interface ManifestReadiness {
+    canOffer: boolean;
+    currentStep: ManifestJourneyStep;
+    steps: Record<ManifestJourneyStep, { state: ManifestStepState; issues: ManifestReadinessIssue[] }>;
+    issues: ManifestReadinessIssue[];
 }
 
 export interface OrderListItem {
@@ -917,8 +944,15 @@ export interface UpdateStatusRequest {
 export interface CreateManifestRequest {
     vehicleTypeId: string;
     origin: string;
+    originCity?: string;
+    originState?: string;
+    originCityIbgeCode?: string;
     destination: string;
-    tripType?: 'TRANSFER' | 'DELIVERY';
+    destinationCity?: string;
+    destinationState?: string;
+    destinationCityIbgeCode?: string;
+    startsWithCollection?: boolean;
+    tripType?: 'TRANSFER' | 'DELIVERY' | 'TRANSFER_DELIVERY';
     hubId?: string;
     destHubId?: string;
     stops?: { city: string; order: number }[];
