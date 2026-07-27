@@ -105,7 +105,6 @@ function ConfigurableDataTable<T>({
           type="button"
           onClick={() => setShowColumnPicker((v) => !v)}
           aria-expanded={showColumnPicker}
-          aria-haspopup="menu"
           aria-label="Configurar colunas visíveis"
           className="admin-focus rounded-lg border border-tower-300 px-3 py-1.5 text-xs font-semibold text-tower-700 hover:bg-tower-100 dark:border-tower-600 dark:text-tower-200 dark:hover:bg-tower-800"
         >
