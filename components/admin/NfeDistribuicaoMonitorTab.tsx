@@ -83,6 +83,16 @@ const NfeDistribuicaoMonitorTab: React.FC = () => {
   const [gestaoFilterOpen, setGestaoFilterOpen] = useState(false);
   const [originFilter, setOriginFilter] = useState<OriginFilter>('ALL');
   const [manualSearchQuery, setManualSearchQuery] = useState('');
+  const [debouncedManualSearchQuery, setDebouncedManualSearchQuery] = useState('');
+
+  // Debounce (mesmo padrão de HubAwaitingArrivalTab.tsx, 300ms): sem isso, cada
+  // tecla digitada refaz as DUAS fontes (Promise.allSettled) e passa por
+  // `loading`, apagando a tabela inteira (inclusive as linhas AUTO) a cada
+  // caractere.
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedManualSearchQuery(manualSearchQuery), 300);
+    return () => window.clearTimeout(timer);
+  }, [manualSearchQuery]);
 
   // Busca as duas fontes em paralelo com Promise.allSettled (mesmo padrão de resiliência do
   // load() de HubHome.tsx): uma fonte falhando não deve zerar a outra. As duas são independentes
@@ -99,31 +109,26 @@ const NfeDistribuicaoMonitorTab: React.FC = () => {
         ...(fiscalEmitterIdFilter ? { fiscalEmitterId: fiscalEmitterIdFilter } : {}),
         ...(cnpjFilter ? { cnpjEmitente: cnpjFilter } : {}),
       }),
-      nfeManualInvoicesApi.list({ q: manualSearchQuery || undefined }),
+      nfeManualInvoicesApi.list({ q: debouncedManualSearchQuery || undefined }),
     ]);
 
     if (autoResult.status === 'fulfilled' && autoResult.value.success) {
       setDocs(autoResult.value.data.documentos);
       setCounts(autoResult.value.data.counts);
-    } else {
-      setDocs([]);
-      setCounts({});
-      if (autoResult.status === 'rejected') {
-        setError(apiErrorMessage(autoResult.reason, 'Erro ao carregar NF-e identificadas.'));
-      }
+    } else if (autoResult.status === 'rejected') {
+      // Preserva docs/counts já carregados — uma falha de refetch (ex.: rede
+      // instável ao trocar filtro) não deve apagar dados bons já na tela.
+      setError(apiErrorMessage(autoResult.reason, 'Erro ao carregar NF-e identificadas.'));
     }
 
     if (manualResult.status === 'fulfilled' && manualResult.value.success) {
       setManualInvoices(manualResult.value.data.invoices);
-    } else {
-      setManualInvoices([]);
-      if (manualResult.status === 'rejected') {
-        setManualError(apiErrorMessage(manualResult.reason, 'Erro ao carregar NFs vinculadas a pedidos.'));
-      }
+    } else if (manualResult.status === 'rejected') {
+      setManualError(apiErrorMessage(manualResult.reason, 'Erro ao carregar NFs vinculadas a pedidos.'));
     }
 
     setLoading(false);
-  }, [statusFilter, fiscalEmitterIdFilter, cnpjFilter, manualSearchQuery]);
+  }, [statusFilter, fiscalEmitterIdFilter, cnpjFilter, debouncedManualSearchQuery]);
 
   useEffect(() => {
     void load();
