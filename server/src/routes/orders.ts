@@ -93,215 +93,224 @@ const orderAttachmentCreateSchema = z.object({
     category: z.string().max(80).optional(),
 });
 
+async function buildOrdersWhere(req: AuthRequest): Promise<Prisma.OrderWhereInput> {
+    const {
+        status,
+        statuses,
+        accountId,
+        hubId,
+        originState,
+        originCity,
+        destinationState,
+        destinationCity,
+        senderState,
+        senderCity,
+        recipientState,
+        recipientCity,
+        q,
+        collectionStatus,
+        hasCollectionData,
+        demandStatus,
+    } = req.query;
+
+    const where: Prisma.OrderWhereInput = {};
+    const andFilters: Prisma.OrderWhereInput[] = [];
+
+    const collectionDataPresent: Prisma.OrderWhereInput = { NOT: { collectionData: { equals: Prisma.AnyNull } } };
+    const collectionDataMissing: Prisma.OrderWhereInput = { collectionData: { equals: Prisma.AnyNull } };
+
+    if (status) {
+        where.status = status as any;
+    }
+
+    if (hubId && !req.user!.roles.includes('HUB')) {
+        where.currentHubId = hubId as string;
+    }
+
+    if (originCity) {
+        andFilters.push({
+            OR: [
+                { demand: { origin: { contains: String(originCity), mode: 'insensitive' } } },
+                { origemPrestacao: { contains: String(originCity), mode: 'insensitive' } },
+            ],
+        });
+    }
+
+    if (originState) {
+        andFilters.push({
+            OR: [
+                { demand: { origin: { contains: String(originState), mode: 'insensitive' } } },
+                { origemPrestacao: { contains: String(originState), mode: 'insensitive' } },
+            ],
+        });
+    }
+
+    if (destinationCity) {
+        andFilters.push({
+            OR: [
+                { demand: { destination: { contains: String(destinationCity), mode: 'insensitive' } } },
+                { fimPrestacao: { contains: String(destinationCity), mode: 'insensitive' } },
+            ],
+        });
+    }
+
+    if (destinationState) {
+        andFilters.push({
+            OR: [
+                { demand: { destination: { contains: String(destinationState), mode: 'insensitive' } } },
+                { fimPrestacao: { contains: String(destinationState), mode: 'insensitive' } },
+            ],
+        });
+    }
+
+    if (senderCity) {
+        andFilters.push({
+            remetentePerson: { city: { contains: String(senderCity), mode: 'insensitive' } },
+        });
+    }
+
+    if (senderState) {
+        andFilters.push({
+            remetentePerson: { state: { equals: String(senderState).toUpperCase(), mode: 'insensitive' } },
+        });
+    }
+
+    if (recipientCity) {
+        andFilters.push({
+            destinatarioPerson: { city: { contains: String(recipientCity), mode: 'insensitive' } },
+        });
+    }
+
+    if (recipientState) {
+        andFilters.push({
+            destinatarioPerson: { state: { equals: String(recipientState).toUpperCase(), mode: 'insensitive' } },
+        });
+    }
+
+    if (typeof hasCollectionData === 'string') {
+        const hasData = hasCollectionData === 'true';
+        andFilters.push(hasData ? collectionDataPresent : collectionDataMissing);
+    }
+
+    if (demandStatus) {
+        andFilters.push({ demand: { status: String(demandStatus) as any } });
+    }
+
+    if (collectionStatus) {
+        const cs = String(collectionStatus).toUpperCase();
+        if (cs === 'COLLECTED') {
+            andFilters.push({ status: { in: ['IN_TRANSIT', 'AT_HUB', 'OUT_FOR_DELIVERY', 'DELIVERED'] } });
+        } else if (cs === 'NOT_COLLECTED') {
+            andFilters.push({ status: 'PENDING' });
+        } else if (cs === 'WITH_COLLECTION_DATA') {
+            andFilters.push(collectionDataPresent);
+        } else if (cs === 'WITHOUT_COLLECTION_DATA') {
+            andFilters.push(collectionDataMissing);
+        } else if (cs === 'INCONSISTENT') {
+            andFilters.push({
+                OR: [
+                    { AND: [{ status: { in: ['IN_TRANSIT', 'AT_HUB', 'OUT_FOR_DELIVERY', 'DELIVERED'] } }, collectionDataMissing] },
+                    { AND: [{ status: 'PENDING' }, collectionDataPresent] },
+                ],
+            });
+        }
+    }
+
+    if (q && String(q).trim()) {
+        const term = String(q).trim();
+        andFilters.push({
+            OR: [
+                { id: { contains: term, mode: 'insensitive' } },
+                { nfNumber: { contains: term, mode: 'insensitive' } },
+                { demand: { nfNumber: { contains: term, mode: 'insensitive' } } },
+                { demand: { origin: { contains: term, mode: 'insensitive' } } },
+                { demand: { destination: { contains: term, mode: 'insensitive' } } },
+                { origemPrestacao: { contains: term, mode: 'insensitive' } },
+                { fimPrestacao: { contains: term, mode: 'insensitive' } },
+                { currentHub: { name: { contains: term, mode: 'insensitive' } } },
+                { demand: { client: { companyName: { contains: term, mode: 'insensitive' } } } },
+                { remetentePerson: { legalName: { contains: term, mode: 'insensitive' } } },
+                { destinatarioPerson: { legalName: { contains: term, mode: 'insensitive' } } },
+            ],
+        });
+    }
+
+    // HUB: escopo alinhado à operação do CD (currentHub, expectedHub, manifesto)
+    if (req.user!.roles.includes('HUB')) {
+        if (!req.user!.hubId) {
+            throw new AppError('Hub user has no hub assigned', 403);
+        }
+        andFilters.push(buildHubOrderVisibilityWhere(req.user!.hubId));
+        const statusesParam = typeof statuses === 'string' ? statuses : undefined;
+        const singleStatus = typeof status === 'string' ? status : undefined;
+        where.status = parseOrderStatusWhereInput(statusesParam, singleStatus, 'AT_HUB');
+    }
+    // LINK users see orders from their manifests
+    else if (req.user!.roles.includes('LINK')) {
+        const link = await prisma.link.findFirst({
+            where: { userId: req.user!.id },
+        });
+        if (!link) {
+            throw new AppError('Link profile not found', 404);
+        }
+        where.manifest = { linkId: link.id };
+    }
+    // Clients can only see orders from their account
+    else if (req.user!.roles.includes('CLIENT')) {
+        const user = await prisma.user.findUnique({
+            where: { id: req.user!.id },
+            include: { account: true }
+        });
+
+        if (!user || !user.accountId) {
+            throw new AppError('Account not found', 404);
+        }
+
+        // Get all demands from account clients
+        const accountClients = await prisma.client.findMany({
+            where: { accountId: user.accountId },
+            select: { id: true }
+        });
+        const clientIds = accountClients.map(c => c.id);
+
+        where.demand = {
+            clientId: { in: clientIds }
+        };
+    } else if (accountId) {
+        // Admin filtering by account
+        const accountClients = await prisma.client.findMany({
+            where: { accountId: accountId as string },
+            select: { id: true }
+        });
+        const clientIds = accountClients.map(c => c.id);
+
+        where.demand = {
+            clientId: { in: clientIds }
+        };
+    }
+
+    if (andFilters.length > 0) {
+        where.AND = andFilters;
+    }
+
+    return where;
+}
+
 // ==================== GET ORDERS ====================
 
 // GET /api/orders - List orders
 router.get('/', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const {
-            status,
-            statuses,
-            accountId,
             limit = '50',
             offset = '0',
-            hubId,
-            originState,
-            originCity,
-            destinationState,
-            destinationCity,
-            senderState,
-            senderCity,
-            recipientState,
-            recipientCity,
-            q,
-            collectionStatus,
-            hasCollectionData,
-            demandStatus,
             sortBy = 'updatedAt',
             sortDir = 'desc',
         } = req.query;
 
-        const where: Prisma.OrderWhereInput = {};
-        const andFilters: Prisma.OrderWhereInput[] = [];
+        const where = await buildOrdersWhere(req);
         const parsedLimit = Math.min(Math.max(parseInt(limit as string, 10) || 50, 1), 200);
         const parsedOffset = Math.max(parseInt(offset as string, 10) || 0, 0);
-
-        const collectionDataPresent: Prisma.OrderWhereInput = { NOT: { collectionData: { equals: Prisma.AnyNull } } };
-        const collectionDataMissing: Prisma.OrderWhereInput = { collectionData: { equals: Prisma.AnyNull } };
-
-        if (status) {
-            where.status = status as any;
-        }
-
-        if (hubId && !req.user!.roles.includes('HUB')) {
-            where.currentHubId = hubId as string;
-        }
-
-        if (originCity) {
-            andFilters.push({
-                OR: [
-                    { demand: { origin: { contains: String(originCity), mode: 'insensitive' } } },
-                    { origemPrestacao: { contains: String(originCity), mode: 'insensitive' } },
-                ],
-            });
-        }
-
-        if (originState) {
-            andFilters.push({
-                OR: [
-                    { demand: { origin: { contains: String(originState), mode: 'insensitive' } } },
-                    { origemPrestacao: { contains: String(originState), mode: 'insensitive' } },
-                ],
-            });
-        }
-
-        if (destinationCity) {
-            andFilters.push({
-                OR: [
-                    { demand: { destination: { contains: String(destinationCity), mode: 'insensitive' } } },
-                    { fimPrestacao: { contains: String(destinationCity), mode: 'insensitive' } },
-                ],
-            });
-        }
-
-        if (destinationState) {
-            andFilters.push({
-                OR: [
-                    { demand: { destination: { contains: String(destinationState), mode: 'insensitive' } } },
-                    { fimPrestacao: { contains: String(destinationState), mode: 'insensitive' } },
-                ],
-            });
-        }
-
-        if (senderCity) {
-            andFilters.push({
-                remetentePerson: { city: { contains: String(senderCity), mode: 'insensitive' } },
-            });
-        }
-
-        if (senderState) {
-            andFilters.push({
-                remetentePerson: { state: { equals: String(senderState).toUpperCase(), mode: 'insensitive' } },
-            });
-        }
-
-        if (recipientCity) {
-            andFilters.push({
-                destinatarioPerson: { city: { contains: String(recipientCity), mode: 'insensitive' } },
-            });
-        }
-
-        if (recipientState) {
-            andFilters.push({
-                destinatarioPerson: { state: { equals: String(recipientState).toUpperCase(), mode: 'insensitive' } },
-            });
-        }
-
-        if (typeof hasCollectionData === 'string') {
-            const hasData = hasCollectionData === 'true';
-            andFilters.push(hasData ? collectionDataPresent : collectionDataMissing);
-        }
-
-        if (demandStatus) {
-            andFilters.push({ demand: { status: String(demandStatus) as any } });
-        }
-
-        if (collectionStatus) {
-            const cs = String(collectionStatus).toUpperCase();
-            if (cs === 'COLLECTED') {
-                andFilters.push({ status: { in: ['IN_TRANSIT', 'AT_HUB', 'OUT_FOR_DELIVERY', 'DELIVERED'] } });
-            } else if (cs === 'NOT_COLLECTED') {
-                andFilters.push({ status: 'PENDING' });
-            } else if (cs === 'WITH_COLLECTION_DATA') {
-                andFilters.push(collectionDataPresent);
-            } else if (cs === 'WITHOUT_COLLECTION_DATA') {
-                andFilters.push(collectionDataMissing);
-            } else if (cs === 'INCONSISTENT') {
-                andFilters.push({
-                    OR: [
-                        { AND: [{ status: { in: ['IN_TRANSIT', 'AT_HUB', 'OUT_FOR_DELIVERY', 'DELIVERED'] } }, collectionDataMissing] },
-                        { AND: [{ status: 'PENDING' }, collectionDataPresent] },
-                    ],
-                });
-            }
-        }
-
-        if (q && String(q).trim()) {
-            const term = String(q).trim();
-            andFilters.push({
-                OR: [
-                    { id: { contains: term, mode: 'insensitive' } },
-                    { nfNumber: { contains: term, mode: 'insensitive' } },
-                    { demand: { nfNumber: { contains: term, mode: 'insensitive' } } },
-                    { demand: { origin: { contains: term, mode: 'insensitive' } } },
-                    { demand: { destination: { contains: term, mode: 'insensitive' } } },
-                    { origemPrestacao: { contains: term, mode: 'insensitive' } },
-                    { fimPrestacao: { contains: term, mode: 'insensitive' } },
-                    { currentHub: { name: { contains: term, mode: 'insensitive' } } },
-                    { demand: { client: { companyName: { contains: term, mode: 'insensitive' } } } },
-                    { remetentePerson: { legalName: { contains: term, mode: 'insensitive' } } },
-                    { destinatarioPerson: { legalName: { contains: term, mode: 'insensitive' } } },
-                ],
-            });
-        }
-
-        // HUB: escopo alinhado à operação do CD (currentHub, expectedHub, manifesto)
-        if (req.user!.roles.includes('HUB')) {
-            if (!req.user!.hubId) {
-                throw new AppError('Hub user has no hub assigned', 403);
-            }
-            andFilters.push(buildHubOrderVisibilityWhere(req.user!.hubId));
-            const statusesParam = typeof statuses === 'string' ? statuses : undefined;
-            const singleStatus = typeof status === 'string' ? status : undefined;
-            where.status = parseOrderStatusWhereInput(statusesParam, singleStatus, 'AT_HUB');
-        }
-        // LINK users see orders from their manifests
-        else if (req.user!.roles.includes('LINK')) {
-            const link = await prisma.link.findFirst({
-                where: { userId: req.user!.id },
-            });
-            if (!link) {
-                throw new AppError('Link profile not found', 404);
-            }
-            where.manifest = { linkId: link.id };
-        }
-        // Clients can only see orders from their account
-        else if (req.user!.roles.includes('CLIENT')) {
-            const user = await prisma.user.findUnique({
-                where: { id: req.user!.id },
-                include: { account: true }
-            });
-            
-            if (!user || !user.accountId) {
-                throw new AppError('Account not found', 404);
-            }
-
-            // Get all demands from account clients
-            const accountClients = await prisma.client.findMany({
-                where: { accountId: user.accountId },
-                select: { id: true }
-            });
-            const clientIds = accountClients.map(c => c.id);
-            
-            where.demand = {
-                clientId: { in: clientIds }
-            };
-        } else if (accountId) {
-            // Admin filtering by account
-            const accountClients = await prisma.client.findMany({
-                where: { accountId: accountId as string },
-                select: { id: true }
-            });
-            const clientIds = accountClients.map(c => c.id);
-            
-            where.demand = {
-                clientId: { in: clientIds }
-            };
-        }
-
-        if (andFilters.length > 0) {
-            where.AND = andFilters;
-        }
 
         const parsedSortDir: Prisma.SortOrder = String(sortDir).toLowerCase() === 'asc' ? 'asc' : 'desc';
         const parsedSortBy = String(sortBy);
@@ -355,8 +364,8 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
                         },
                         orderBy: { sequence: 'asc' }
                     },
-                    remetentePerson: { select: { id: true, legalName: true, city: true, state: true } },
-                    destinatarioPerson: { select: { id: true, legalName: true, city: true, state: true } },
+                    remetentePerson: { select: { id: true, legalName: true, city: true, state: true, document: true } },
+                    destinatarioPerson: { select: { id: true, legalName: true, city: true, state: true, document: true } },
                     history: {
                         orderBy: { createdAt: 'desc' },
                         take: 10
@@ -385,6 +394,31 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
                 total,
                 limit: parsedLimit,
                 offset: parsedOffset,
+            },
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// GET /api/orders/aggregate - Somatórias (peso/volume/valor/quantidade) dos pedidos que casam com os mesmos filtros de GET /
+router.get('/aggregate', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const where = await buildOrdersWhere(req);
+        const agg = await prisma.demand.aggregate({
+            where: { order: where },
+            _sum: { weight: true, volume: true, nfValue: true, units: true },
+            _count: { _all: true },
+        });
+
+        res.json({
+            success: true,
+            data: {
+                totalOrders: agg._count._all,
+                totalWeightKg: agg._sum.weight ?? 0,
+                totalVolumeM3: agg._sum.volume ?? 0,
+                totalValueBRL: agg._sum.nfValue ?? 0,
+                totalUnits: agg._sum.units ?? 0,
             },
         });
     } catch (error) {
