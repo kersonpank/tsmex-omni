@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import DataTable from './DataTable';
 import { useColumnPreferencesStore } from '../../store/columnPreferencesStore';
 
@@ -38,6 +38,27 @@ function ConfigurableDataTable<T>({
   emptyMessage = 'Nenhum registro encontrado.',
 }: ConfigurableDataTableProps<T>): React.ReactElement {
   const [showColumnPicker, setShowColumnPicker] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Fecha o seletor de colunas ao clicar fora (ref+mousedown, mesmo idioma
+  // usado em RoleWorkspaceSwitcher/CollapsibleSection/AdminShell) e no Escape.
+  useEffect(() => {
+    if (!showColumnPicker) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+        setShowColumnPicker(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowColumnPicker(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [showColumnPicker]);
 
   // Seed (uma única vez por tableId): se o store persistido nunca viu essa
   // tableId, inicializa o hidden-set com os ids das colunas
@@ -79,39 +100,39 @@ function ConfigurableDataTable<T>({
 
   return (
     <div>
-      <div className="mb-3 flex justify-end relative">
+      <div className="mb-3 flex justify-end relative" ref={rootRef}>
         <button
           type="button"
           onClick={() => setShowColumnPicker((v) => !v)}
+          aria-expanded={showColumnPicker}
+          aria-haspopup="menu"
+          aria-label="Configurar colunas visíveis"
           className="admin-focus rounded-lg border border-tower-300 px-3 py-1.5 text-xs font-semibold text-tower-700 hover:bg-tower-100 dark:border-tower-600 dark:text-tower-200 dark:hover:bg-tower-800"
         >
           Colunas
         </button>
         {showColumnPicker && (
-          <>
-            <div className="fixed inset-0 z-10" onClick={() => setShowColumnPicker(false)} />
-            <div className="absolute right-0 top-full z-20 mt-2 w-64 rounded-xl border border-tower-200 bg-white p-3 shadow-lg dark:border-tower-700 dark:bg-tower-900">
-              {Object.entries(groups).map(([groupName, groupCols]) => (
-                <div key={groupName} className="mb-2 last:mb-0">
-                  <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-tower-400">{groupName}</p>
-                  {groupCols.map((col) => {
-                    const checked = !isHidden(col.id);
-                    return (
-                      <label key={col.id} className="flex items-center gap-2 py-1 text-sm text-tower-700 dark:text-tower-200">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={(e) => setColumnVisible(tableId, col.id, e.target.checked)}
-                          className="h-4 w-4 rounded border-tower-300"
-                        />
-                        {col.label}
-                      </label>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-          </>
+          <div className="absolute right-0 top-full z-20 mt-2 w-64 rounded-xl border border-tower-200 bg-white p-3 shadow-lg dark:border-tower-700 dark:bg-tower-900">
+            {Object.entries(groups).map(([groupName, groupCols]) => (
+              <div key={groupName} className="mb-2 last:mb-0">
+                <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-tower-400">{groupName}</p>
+                {groupCols.map((col) => {
+                  const checked = !isHidden(col.id);
+                  return (
+                    <label key={col.id} className="flex items-center gap-2 py-1 text-sm text-tower-700 dark:text-tower-200">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => setColumnVisible(tableId, col.id, e.target.checked)}
+                        className="h-4 w-4 rounded border-tower-300"
+                      />
+                      {col.label}
+                    </label>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
         )}
       </div>
 
