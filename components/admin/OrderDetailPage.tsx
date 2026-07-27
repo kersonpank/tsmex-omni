@@ -39,7 +39,7 @@ const orderStatusTones: Record<string, StatusTone> = {
   CANCELLED: 'danger',
 };
 
-type SectionKey = 'coleta' | 'notas' | 'frete' | 'anexos';
+type SectionKey = 'coleta' | 'notas' | 'frete' | 'anexos' | 'historico';
 
 const isMeaningfulValue = (value: unknown): boolean => {
   if (value === null || value === undefined) return false;
@@ -90,6 +90,7 @@ const OrderDetailPage: React.FC = () => {
     notas: true,
     frete: true,
     anexos: true,
+    historico: true,
   });
 
   const load = async () => {
@@ -155,6 +156,8 @@ const OrderDetailPage: React.FC = () => {
 
   const hasAttachments = attachments.length > 0;
 
+  const hasHistory = Array.isArray(order?.history) && order.history.length > 0;
+
   useEffect(() => {
     if (!order) return;
     setExpandedSections({
@@ -162,8 +165,9 @@ const OrderDetailPage: React.FC = () => {
       notas: hasFiscalData,
       frete: hasFreightCalcs,
       anexos: hasAttachments,
+      historico: hasHistory,
     });
-  }, [order, hasColetaData, hasFiscalData, hasFreightCalcs, hasAttachments]);
+  }, [order, hasColetaData, hasFiscalData, hasFreightCalcs, hasAttachments, hasHistory]);
 
   useEffect(() => {
     if (canEditInEntrada) return;
@@ -510,6 +514,29 @@ const OrderDetailPage: React.FC = () => {
               </div>
             ))}
           </div>
+        </CollapsibleSection>
+
+        <CollapsibleSection
+          title="Histórico"
+          sectionKey="historico"
+          expanded={expandedSections.historico}
+          onToggle={toggleSection}
+          helper={!hasHistory ? 'Nenhum evento registrado ainda.' : undefined}
+        >
+          {hasHistory ? (
+            <ul className="space-y-2">
+              {order.history.map((h: any) => (
+                <li key={h.id} className="flex items-center gap-2 text-sm">
+                  <span className="w-2 h-2 rounded-full bg-brand-400" />
+                  <span className="font-medium text-tower-900 dark:text-tower-100">{h.eventType}</span>
+                  <span className="text-tower-500 dark:text-tower-400">- {h.description}</span>
+                  <span className="text-tower-400 dark:text-tower-500 text-xs">{new Date(h.createdAt).toLocaleString('pt-BR')}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-tower-500 dark:text-tower-400">Nenhum evento registrado ainda.</p>
+          )}
         </CollapsibleSection>
       </div>
     </div>
