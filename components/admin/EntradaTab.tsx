@@ -356,10 +356,16 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
   ], []);
 
   const [orderSummary, setOrderSummary] = useState<OrderAggregateSummary | null>(null);
+  const [debouncedOrdersFilterQ, setDebouncedOrdersFilterQ] = useState('');
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedOrdersFilterQ(ordersFilterQ.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [ordersFilterQ]);
 
   useEffect(() => {
     let cancelled = false;
-    ordersApi.aggregate({ q: ordersFilterQ.trim() || undefined })
+    ordersApi.aggregate({ q: debouncedOrdersFilterQ || undefined })
       .then((res) => {
         if (!cancelled) setOrderSummary((res as any)?.data ?? null);
       })
@@ -367,7 +373,7 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
         if (!cancelled) setOrderSummary(null);
       });
     return () => { cancelled = true; };
-  }, [ordersFilterQ]);
+  }, [debouncedOrdersFilterQ]);
 
   const entradaGestao = useMemo(
     () => ({
@@ -751,11 +757,16 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
         ) : (
           <>
             {orderSummary && (
-              <div className="mb-3 flex flex-wrap gap-4 rounded-xl border border-tower-200 bg-tower-50/60 px-4 py-2 text-sm text-tower-700 dark:border-tower-700 dark:bg-tower-800/40 dark:text-tower-200">
-                <span><strong>{orderSummary.totalOrders}</strong> pedido(s)</span>
-                <span><strong>{orderSummary.totalWeightKg.toLocaleString('pt-BR')}</strong> kg</span>
-                <span><strong>{orderSummary.totalVolumeM3.toLocaleString('pt-BR')}</strong> m³</span>
-                <span><strong>R$ {orderSummary.totalValueBRL.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong></span>
+              <div className="mb-3 rounded-xl border border-tower-200 bg-tower-50/60 px-4 py-2 text-sm text-tower-700 dark:border-tower-700 dark:bg-tower-800/40 dark:text-tower-200">
+                <div className="flex flex-wrap gap-4">
+                  <span><strong>{orderSummary.totalOrders}</strong> pedido(s)</span>
+                  <span><strong>{orderSummary.totalWeightKg.toLocaleString('pt-BR')}</strong> kg</span>
+                  <span><strong>{orderSummary.totalVolumeM3.toLocaleString('pt-BR')}</strong> m³</span>
+                  <span><strong>R$ {orderSummary.totalValueBRL.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong></span>
+                </div>
+                <p className="mt-1 text-xs text-tower-500 dark:text-tower-400">
+                  Total geral combinando com o filtro — pode incluir pedidos além dos listados abaixo (lista limitada aos 50 mais recentes).
+                </p>
               </div>
             )}
             <div id="entrada-pedidos-lista">
@@ -777,6 +788,8 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
                     Abrir pedido
                   </button>
                 )}
+                // Inatingível neste call site (o ternário acima já cobre filteredOrders.length === 0
+                // com outra mensagem antes de chegar aqui) — mantido pelo contrato geral do componente.
                 emptyMessage="Nenhum pedido encontrado."
               />
             </div>
