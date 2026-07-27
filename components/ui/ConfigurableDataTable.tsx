@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   DndContext,
   KeyboardSensor,
@@ -167,7 +167,7 @@ function ConfigurableDataTable<T>({
   // prop `columns` mas ainda não têm posição salva (ex.: coluna nova
   // adicionada depois que o usuário já customizou a ordem) entram no final,
   // na ordem original de definição.
-  const orderedColumns = React.useMemo(() => {
+  const orderedColumns = useMemo(() => {
     if (columnOrder.length === 0) return columns;
     const byId = new Map(columns.map((c) => [c.id, c]));
     const ordered: ColumnDef<T>[] = [];
@@ -190,6 +190,10 @@ function ConfigurableDataTable<T>({
   const pinnedVisible = visibleColumns.filter((c) => pinnedIds.includes(c.id));
   const unpinnedVisible = visibleColumns.filter((c) => !pinnedIds.includes(c.id));
   const finalColumns = [...pinnedVisible, ...unpinnedVisible];
+  // Lookup precomputado (id -> índice dentro de pinnedVisible) pra não fazer
+  // findIndex a cada célula renderizada (O(linhas × colunas) em vez de
+  // O(linhas × colunas × pinadas)).
+  const pinnedIndexById = new Map<string, number>(pinnedVisible.map((c, i): [string, number] => [c.id, i]));
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -322,12 +326,12 @@ function ConfigurableDataTable<T>({
         <thead className="border-b border-tower-200 bg-tower-50/90 dark:border-tower-700 dark:bg-tower-800/80">
           <tr>
             {finalColumns.map((col) => {
-              const pinnedIndex = pinnedVisible.findIndex((c) => c.id === col.id);
-              const isPinned = pinnedIndex !== -1;
+              const pinnedIndex = pinnedIndexById.get(col.id);
+              const isPinned = pinnedIndex !== undefined;
               return (
                 <th
                   key={col.id}
-                  style={isPinned ? pinnedStyle(pinnedIndex) : undefined}
+                  style={isPinned ? pinnedStyle(pinnedIndex!) : undefined}
                   className={`px-4 py-3 text-xs font-bold uppercase tracking-wide text-tower-600 dark:text-tower-300 ${
                     col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'
                   } ${isPinned ? 'bg-tower-50 dark:bg-tower-800' : ''}`}
@@ -376,8 +380,8 @@ function ConfigurableDataTable<T>({
                 onClick={() => onRowClick?.(row)}
               >
                 {finalColumns.map((col) => {
-                  const pinnedIndex = pinnedVisible.findIndex((c) => c.id === col.id);
-                  const isPinned = pinnedIndex !== -1;
+                  const pinnedIndex = pinnedIndexById.get(col.id);
+                  const isPinned = pinnedIndex !== undefined;
                   // Simplificação deliberada: células fixadas NÃO acompanham o
                   // hover da linha (fundo sólido é necessário pra cobrir o
                   // conteúdo rolado por baixo, o que impede reaproveitar o
@@ -390,12 +394,18 @@ function ConfigurableDataTable<T>({
                   return (
                     <td
                       key={col.id}
-                      style={isPinned ? pinnedStyle(pinnedIndex) : undefined}
+                      style={isPinned ? pinnedStyle(pinnedIndex!) : undefined}
                       className={`px-4 py-3 text-sm text-tower-700 dark:text-tower-200 ${
                         col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : ''
                       } ${pinnedBg}`}
                     >
-                      {isPinned ? <div className="truncate">{col.render(row)}</div> : col.render(row)}
+                      {/* Sem `truncate` (nowrap+ellipsis): colunas reais têm conteúdo
+                          multi-linha (ex.: NF + cliente) e links clicáveis (ex.: "Ver
+                          último" anexo) — forçar uma linha só corta esse conteúdo sem
+                          indicador visual e pode até esconder o link. `break-words`
+                          deixa o conteúdo quebrar linha normalmente dentro da largura
+                          fixa, igual às colunas não fixadas já fazem. */}
+                      {isPinned ? <div className="overflow-hidden break-words">{col.render(row)}</div> : col.render(row)}
                     </td>
                   );
                 })}
