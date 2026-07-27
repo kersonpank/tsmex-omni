@@ -101,4 +101,20 @@ describe('GestaoActionBar', () => {
     await user.click(editBtn);
     expect(onEdit).not.toHaveBeenCalled();
   });
+
+  it('exibe a ação Novo com texto quando ela inicia um fluxo principal', () => {
+    render(
+      <GestaoModuleActionsProvider>
+        <ActionBarHarness
+          config={{
+            onNew: vi.fn(),
+            prominentNew: true,
+            labels: { new: 'Nova viagem' },
+          }}
+        />
+      </GestaoModuleActionsProvider>
+    );
+
+    expect(screen.getByRole('button', { name: 'Nova viagem' })).toHaveTextContent('Nova viagem');
+  });
 });

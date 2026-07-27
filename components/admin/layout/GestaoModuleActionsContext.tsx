@@ -29,6 +29,8 @@ export interface ModuleActionConfig {
   filterOpen?: boolean;
   filterCount?: number;
   pills?: GestaoFilterPill[];
+  /** Exibe a ação Novo como CTA com texto, útil quando ela inicia um fluxo principal. */
+  prominentNew?: boolean;
   hidden?: Partial<Record<GestaoActionKey, boolean>>;
   disabled?: Partial<Record<GestaoActionKey, boolean>>;
   labels?: Partial<Record<GestaoActionKey, string>>;

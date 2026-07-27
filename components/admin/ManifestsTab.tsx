@@ -73,6 +73,7 @@ const ManifestsTab: React.FC = () => {
       },
       onFilterToggle: () => setGestaoFilterOpen((v) => !v),
       onNew: () => navigate('/manifests/new'),
+      prominentNew: true,
       disabled: { new: false } as const,
       labels: { new: 'Nova viagem' },
     }),
@@ -84,7 +85,7 @@ const ManifestsTab: React.FC = () => {
   return (
     <div>
       <div className="mb-6 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-        <p className="text-sm text-tower-600 dark:text-tower-400">Consolide demandas, atribua motorista e acompanhe o ciclo da viagem.</p>
+        <p className="text-sm text-tower-600 dark:text-tower-400">Crie a viagem pelo fluxo guiado, consolide pedidos e acompanhe todo o ciclo operacional.</p>
       </div>
 
       {gestaoFilterOpen && (

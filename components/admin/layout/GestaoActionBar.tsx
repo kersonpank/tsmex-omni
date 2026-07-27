@@ -42,12 +42,14 @@ const GestaoActionBar: React.FC = () => {
   if (!ctx) return null;
   const { config } = ctx;
 
-  const btnClass = (active: boolean, disabled: boolean) =>
+  const btnClass = (active: boolean, disabled: boolean, prominent = false) =>
     clsx(
       'admin-focus relative inline-flex min-h-[44px] min-w-[44px] cursor-pointer items-center justify-center rounded-xl border text-tower-700 transition-[color,background-color,border-color,opacity,transform] duration-200 motion-reduce:transition-none dark:text-tower-200',
-      active
-        ? 'border-brand-400 bg-brand-100 text-brand-900 dark:border-brand-500 dark:bg-brand-900/60 dark:text-tower-50'
-        : 'border-tower-200 bg-white/90 hover:border-brand-300 hover:bg-brand-50/80 dark:border-tower-600 dark:bg-tower-800/90 dark:hover:border-brand-600 dark:hover:bg-brand-950/50',
+      prominent && !disabled
+        ? 'gap-2 border-brand-600 bg-brand-600 px-4 font-bold text-white hover:border-brand-700 hover:bg-brand-700 dark:border-brand-500 dark:bg-brand-600 dark:text-white dark:hover:bg-brand-500'
+        : active
+          ? 'border-brand-400 bg-brand-100 text-brand-900 dark:border-brand-500 dark:bg-brand-900/60 dark:text-tower-50'
+          : 'border-tower-200 bg-white/90 hover:border-brand-300 hover:bg-brand-50/80 dark:border-tower-600 dark:bg-tower-800/90 dark:hover:border-brand-600 dark:hover:bg-brand-950/50',
       disabled && 'cursor-not-allowed opacity-40 hover:border-tower-200 hover:bg-white/90 dark:hover:border-tower-600 dark:hover:bg-tower-800/90'
     );
 
@@ -63,11 +65,12 @@ const GestaoActionBar: React.FC = () => {
           ? Boolean(config?.filterOpen)
           : false;
     const count = key === 'filter' ? config?.filterCount : undefined;
+    const prominent = key === 'new' && Boolean(config?.prominentNew);
 
     return (
       <button
         type="button"
-        className={btnClass(active, disabled)}
+        className={btnClass(active, disabled, prominent)}
         disabled={disabled}
         aria-label={label}
         aria-pressed={key === 'list' || key === 'filter' ? active : undefined}
@@ -77,6 +80,7 @@ const GestaoActionBar: React.FC = () => {
         }}
       >
         <Icon className="h-5 w-5" />
+        {prominent ? <span className="text-sm">{label}</span> : null}
         {typeof count === 'number' && count > 0 ? (
           <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-brand-600 px-1 text-[10px] font-bold text-white">
             {count > 9 ? '9+' : count}
