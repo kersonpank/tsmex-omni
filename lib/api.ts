@@ -40,6 +40,7 @@ import type {
     VisualBranding,
     BrandingForDocuments,
     OrderListItem,
+    OrderAggregateSummary,
     OrderResolveResponse,
 } from '../types/index';
 
@@ -1246,6 +1247,28 @@ export const ordersApi = {
         offset?: number;
     }) => {
         const response = await api.get<PaginatedResponse<OrderListItem>>('/orders', { params });
+        return response.data;
+    },
+
+    aggregate: async (params?: {
+        status?: string;
+        statuses?: string;
+        accountId?: string;
+        hubId?: string;
+        originState?: string;
+        originCity?: string;
+        destinationState?: string;
+        destinationCity?: string;
+        senderState?: string;
+        senderCity?: string;
+        recipientState?: string;
+        recipientCity?: string;
+        collectionStatus?: 'COLLECTED' | 'NOT_COLLECTED' | 'WITH_COLLECTION_DATA' | 'WITHOUT_COLLECTION_DATA' | 'INCONSISTENT';
+        hasCollectionData?: boolean;
+        demandStatus?: string;
+        q?: string;
+    }) => {
+        const response = await api.get<ApiResponse<OrderAggregateSummary>>('/orders/aggregate', { params });
         return response.data;
     },
 

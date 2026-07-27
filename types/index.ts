@@ -574,6 +574,11 @@ export interface OrderListItem {
         origin?: string | null;
         destination?: string | null;
         status?: DemandStatus;
+        weight?: number;
+        volume?: number;
+        cubedWeight?: number | null;
+        nfValue?: number;
+        units?: number;
         client?: {
             id: string;
             companyName: string;
@@ -589,12 +594,14 @@ export interface OrderListItem {
         legalName: string;
         city?: string | null;
         state?: string | null;
+        document?: string | null;
     } | null;
     destinatarioPerson?: {
         id: string;
         legalName: string;
         city?: string | null;
         state?: string | null;
+        document?: string | null;
     } | null;
     attachments?: Array<{
         id: string;
@@ -605,6 +612,14 @@ export interface OrderListItem {
             downloadUrl?: string;
         };
     }>;
+}
+
+export interface OrderAggregateSummary {
+    totalOrders: number;
+    totalWeightKg: number;
+    totalVolumeM3: number;
+    totalValueBRL: number;
+    totalUnits: number;
 }
 
 export interface ResolvedOrderSummary {
