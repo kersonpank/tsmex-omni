@@ -5,6 +5,7 @@ import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { resolveIbgeCode } from '../services/acbr/acbrIbge.js';
+import { getNextOrderNumber } from '../services/orderSequence.js';
 
 const router = Router();
 
@@ -121,9 +122,11 @@ router.post('/entrada', authenticate, authorize('HUB'), async (req: AuthRequest,
         }
 
         const result = await prisma.$transaction(async (tx) => {
+            const orderNumber = await getNextOrderNumber(tx);
             const demand = await tx.demand.create({
                 data: {
                     clientId: data.clientId,
+                    orderNumber,
                     nfNumber: data.nfNumber,
                     nfValue: data.nfValue,
                     origin: data.origin,

@@ -34,6 +34,7 @@ import type {
     FiscalAcbrDiagnostics,
     FiscalEmitter,
     FiscalEmitterReadiness,
+    OrderSequenceConfig,
     ApiResponse,
     PaginatedResponse,
     OperationsSummaryData,
@@ -195,6 +196,19 @@ export const fiscalEmittersApi = {
 
     acbrDiagnostics: async () => {
         const response = await api.get<ApiResponse<FiscalAcbrDiagnostics>>('/fiscal-emitters/acbr-diagnostics');
+        return response.data;
+    },
+};
+
+// ========== NUMERAÇÃO DE PEDIDOS ==========
+
+export const orderSequenceApi = {
+    get: async () => {
+        const response = await api.get<ApiResponse<OrderSequenceConfig>>('/settings/order-sequence');
+        return response.data;
+    },
+    update: async (lastNumber: number) => {
+        const response = await api.patch<ApiResponse<OrderSequenceConfig>>('/settings/order-sequence', { lastNumber });
         return response.data;
     },
 };

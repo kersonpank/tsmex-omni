@@ -588,9 +588,10 @@ model MinFreightRange {
 // ========================================
 
 model Demand {
-  id       String @id @default(uuid())
-  clientId String
-  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  id          String @id @default(uuid())
+  orderNumber Int    @unique // numero sequencial de pedido, continua a numeracao do sistema legado
+  clientId    String
+  client      Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   // NF Info
   nfNumber String
@@ -2089,6 +2090,17 @@ model SystemAlert {
 
   @@index([status])
   @@index([category])
+}
+
+// ========================================
+// NUMERAÇÃO SEQUENCIAL DE PEDIDOS
+// ========================================
+
+model OrderSequenceConfig {
+  id         String   @id @default("global")
+  lastNumber Int      @default(0)
+  updatedAt  DateTime @updatedAt
+  updatedBy  String?
 }
 
 // ========================================

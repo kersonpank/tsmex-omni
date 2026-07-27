@@ -3,6 +3,7 @@ import { z } from 'zod';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
+import { getNextOrderNumber } from '../services/orderSequence.js';
 
 const router = Router();
 
@@ -316,9 +317,11 @@ router.post('/:id/convert-to-demand', authenticate, authorize('ADMIN'), async (r
 
         // Create demand
         const demand = await prisma.$transaction(async (tx) => {
+            const orderNumber = await getNextOrderNumber(tx);
             const newDemand = await tx.demand.create({
                 data: {
                     clientId,
+                    orderNumber,
                     nfNumber: `NF-${Date.now()}`, // Temporary, should be provided
                     nfValue: opportunity.nfValue!,
                     origin: opportunity.origin!,

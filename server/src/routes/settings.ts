@@ -787,4 +787,51 @@ router.patch('/chat-config/rotation-models/:id', authenticate, authorize('ADMIN'
     }
 });
 
+// ==================== NUMERAÇÃO DE PEDIDOS ====================
+
+// GET /api/settings/order-sequence - Consulta contador atual de numeração de pedidos
+router.get('/order-sequence', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const config = await prisma.orderSequenceConfig.upsert({
+            where: { id: 'global' },
+            update: {},
+            create: { id: 'global', lastNumber: 0 },
+        });
+
+        res.json({
+            success: true,
+            data: config,
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// PATCH /api/settings/order-sequence - Ajusta o contador (proximo pedido sai lastNumber + 1)
+router.patch('/order-sequence', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const schema = z.object({
+            lastNumber: z.number().int().min(0),
+        });
+
+        const data = schema.parse(req.body);
+
+        const config = await prisma.orderSequenceConfig.upsert({
+            where: { id: 'global' },
+            update: { lastNumber: data.lastNumber, updatedBy: req.user!.id },
+            create: { id: 'global', lastNumber: data.lastNumber, updatedBy: req.user!.id },
+        });
+
+        res.json({
+            success: true,
+            data: config,
+        });
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return next(new AppError(error.errors[0].message, 400));
+        }
+        next(error);
+    }
+});
+
 export { router as settingsRouter };

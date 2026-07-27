@@ -1,12 +1,12 @@
 export type Category = 'pessoas' | 'transport' | 'commercial' | 'fleet' | 'finance' | 'general';
 export type TransportSubTab = 'demands' | 'viagens' | 'pedidos' | 'motoristas' | 'rotas' | 'hubs' | 'entrada' | 'nfe';
 export type CommercialSubTab = 'cotacoes' | 'clientes' | 'tarifas';
-export type GeneralSubTab = 'settings' | 'especies' | 'identidade';
+export type GeneralSubTab = 'settings' | 'especies' | 'identidade' | 'numeracao';
 
 const CATEGORIES: Category[] = ['pessoas', 'transport', 'commercial', 'fleet', 'finance', 'general'];
 const TRANSPORT_SUBS: TransportSubTab[] = ['entrada', 'demands', 'viagens', 'pedidos', 'motoristas', 'rotas', 'hubs', 'nfe'];
 const COMMERCIAL_SUBS: CommercialSubTab[] = ['cotacoes', 'clientes', 'tarifas'];
-const GENERAL_SUBS: GeneralSubTab[] = ['settings', 'especies', 'identidade'];
+const GENERAL_SUBS: GeneralSubTab[] = ['settings', 'especies', 'identidade', 'numeracao'];
 
 /** Deep link: abrir Entrada já com um pedido (UUID). */
 const ORDER_ID_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -236,6 +236,7 @@ export function getAdminBreadcrumbs(state: AdminNavState, isHub: boolean): { lab
       settings: 'LLM',
       especies: 'Espécies NF',
       identidade: 'Emitentes Fiscais',
+      numeracao: 'Numeração de Pedidos',
     };
     crumbs.push({ label: 'Configurações' }, { label: subLabels[state.generalSubTab] });
   }
@@ -272,6 +273,7 @@ export function getAdminPageTitle(state: AdminNavState, isHub: boolean): { title
       settings: { title: 'LLM', subtitle: 'Provedores, modelos e chaves para agentes.' },
       especies: { title: 'Espécies NF', subtitle: 'Cadastro auxiliar de espécies de nota fiscal.' },
       identidade: { title: 'Emitentes Fiscais', subtitle: 'CNPJs emissores, certificado A1 e dados para DACTE, Minuta e homologação.' },
+      numeracao: { title: 'Numeração de Pedidos', subtitle: 'Contador global do número sequencial atribuído a cada demanda/pedido.' },
     };
     return m[state.generalSubTab];
   }

@@ -7,6 +7,7 @@ import {
     blocksAutoOrderOnStatusPatch,
     INTAKE_AUTO_ORDER_BLOCKED_MESSAGE,
 } from '../services/intake/intakeDemandPolicy.js';
+import { getNextOrderNumber } from '../services/orderSequence.js';
 
 const router = Router();
 
@@ -323,11 +324,14 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response, next: Nex
         const cubeFactor = 300;
         const cubedWeight = data.volume * cubeFactor;
 
+        const orderNumber = await getNextOrderNumber();
+
         const demand = await prisma.demand.create({
             data: {
                 ...data,
                 clientId,
                 cubedWeight,
+                orderNumber,
             },
         });
 
@@ -406,6 +410,7 @@ router.post('/batch', authenticate, async (req: AuthRequest, res: Response, next
 
             for (const data of demandsList) {
                 const cubedWeight = data.volume * cubeFactor;
+                const orderNumber = await getNextOrderNumber(tx);
 
                 const demand = await tx.demand.create({
                     data: {
@@ -413,6 +418,7 @@ router.post('/batch', authenticate, async (req: AuthRequest, res: Response, next
                         clientId,
                         cubedWeight,
                         sourceType: 'BATCH',
+                        orderNumber,
                     },
                 });
 

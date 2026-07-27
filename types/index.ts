@@ -225,6 +225,13 @@ export interface CteTaxOption {
     label: string;
 }
 
+export interface OrderSequenceConfig {
+    id: string;
+    lastNumber: number;
+    updatedAt: string;
+    updatedBy?: string | null;
+}
+
 export interface CteTaxRule extends CteTaxOption {
     group: 'ICMS00' | 'ICMS20' | 'ICMS45' | 'ICMS90';
 }
@@ -444,6 +451,7 @@ export interface DemandEvent {
 
 export interface Demand {
     id: string;
+    orderNumber: number;
     clientId: string;
     client?: Client;
     nfNumber: string;

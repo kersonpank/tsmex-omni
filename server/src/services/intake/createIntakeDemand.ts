@@ -7,6 +7,7 @@ import type {
 import axios from 'axios';
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
+import { getNextOrderNumber } from '../orderSequence.js';
 import { parseChaveNfe, extractChaveFromInput, type NfeChaveParsed } from '../../lib/nfeChaveIntake.js';
 import {
     computeMissingFields,
@@ -190,9 +191,11 @@ export async function createIntakeDemand(input: CreateIntakeDemandInput): Promis
     }
 
     return prisma.$transaction(async (tx) => {
+        const orderNumber = await getNextOrderNumber(tx);
         const demand = await tx.demand.create({
             data: {
                 clientId: input.clientId,
+                orderNumber,
                 nfNumber: snapshot.nfNumber,
                 nfValue: snapshot.nfValue > 0 ? snapshot.nfValue : 0.01,
                 origin: snapshot.origin,

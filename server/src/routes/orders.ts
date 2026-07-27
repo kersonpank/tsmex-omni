@@ -7,6 +7,7 @@ import { resolveIbgeCode, parseCityState } from '../services/acbr/acbrIbge.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { freightCalculationsRouter } from './freightCalculations.js';
 import { resolveOrderByCode } from '../services/orderResolve.js';
+import { getNextOrderNumber } from '../services/orderSequence.js';
 import {
     suggestFiscalDocType,
     collectionDataHasDeclaracao,
@@ -680,9 +681,11 @@ router.post('/entrada', authenticate, authorize('ADMIN', 'HUB'), async (req: Aut
         }
 
         const result = await prisma.$transaction(async (tx) => {
+            const orderNumber = await getNextOrderNumber(tx);
             const demand = await tx.demand.create({
                 data: {
                     clientId: payerClient.id,
+                    orderNumber,
                     nfNumber: 'PENDENTE',
                     nfValue: 0,
                     origin: data.origemPrestacao,

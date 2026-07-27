@@ -5,6 +5,7 @@ const TABS: { id: GeneralSubTab; label: string; aria: string }[] = [
   { id: 'settings', label: 'LLM', aria: 'Configurações de modelos de linguagem' },
   { id: 'especies', label: 'Espécies NF', aria: 'Cadastro de espécies de nota fiscal' },
   { id: 'identidade', label: 'Emitentes Fiscais', aria: 'CNPJs emissores, certificado A1 e impressão fiscal' },
+  { id: 'numeracao', label: 'Numeração de Pedidos', aria: 'Contador global do número sequencial de pedidos' },
 ];
 
 export interface SistemaConfiguracoesLayoutProps {

@@ -45,6 +45,7 @@ import OperationsCockpit from './admin/dashboard/OperationsCockpit';
 import { useOperationsSummary } from './admin/dashboard/useOperationsSummary';
 import SistemaConfiguracoesLayout from './admin/SistemaConfiguracoesLayout';
 import IdentidadeVisualTab from './admin/IdentidadeVisualTab';
+import OrderNumberSettingsTab from './admin/OrderNumberSettingsTab';
 
 const PAGE_SIZE = 15;
 
@@ -387,6 +388,7 @@ const AdminDashboard: React.FC = () => {
           {navState.generalSubTab === 'settings' && <SettingsLLM />}
           {navState.generalSubTab === 'especies' && <EspeciesTab />}
           {navState.generalSubTab === 'identidade' && <IdentidadeVisualTab />}
+          {navState.generalSubTab === 'numeracao' && <OrderNumberSettingsTab />}
         </SistemaConfiguracoesLayout>
       )}
       {navState.category === 'fleet' && <FrotaTab />}
