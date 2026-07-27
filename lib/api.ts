@@ -216,8 +216,16 @@ export const orderSequenceApi = {
 
 /** Distribuição DF-e (ACBr) — uso administrativo / torre. */
 export const fiscalDistribuicaoApi = {
-    solicitar: async (body: { cpfCnpj: string; ambiente?: string; ultimoNsu?: string }) => {
-        const response = await api.post<ApiResponse<unknown>>('/fiscal/distribuicao-nfe/solicitar', body);
+    /** Espelha o schema Zod de `server/src/routes/fiscalDistribuicao.ts` (`solicitarSchema`). */
+    solicitar: async (body: {
+        cpf_cnpj: string;
+        ambiente: 'homologacao' | 'producao';
+        tipo_consulta: 'dist-nsu' | 'cons-nsu' | 'cons-chave';
+        cons_chave?: string;
+        dist_nsu?: number;
+        cons_nsu?: number;
+    }) => {
+        const response = await api.post<ApiResponse<{ ultimo_nsu?: number }>>('/fiscal/distribuicao-nfe/solicitar', body);
         return response.data;
     },
     documentos: async (params?: { cpfCnpj?: string; ambiente?: string; limit?: number }) => {
@@ -228,6 +236,14 @@ export const fiscalDistribuicaoApi = {
     syncNow: async (fiscalEmitterId: string) => {
         const response = await api.post<ApiResponse<{ jobId: string }>>(
             `/fiscal/distribuicao-nfe/emitters/${fiscalEmitterId}/sync-now`,
+        );
+        return response.data;
+    },
+    /** Seed manual do NSU inicial — só usar quando o valor vier de outra fonte confiável (ex.: painel ACBr/SEFAZ). */
+    bootstrapNsu: async (fiscalEmitterId: string, nsu: string) => {
+        const response = await api.post<ApiResponse<{ fiscalEmitterId: string; cpfCnpj: string; ambiente: string; ultimoNsu: string }>>(
+            `/fiscal/distribuicao-nfe/emitters/${fiscalEmitterId}/bootstrap-nsu`,
+            { nsu },
         );
         return response.data;
     },
@@ -725,7 +741,7 @@ export const linksApi = {
         return response.data;
     },
 
-    updateFiscal: async (id: string, data: Partial<Pick<Link, 'rntrc' | 'carrierType' | 'trailerPlate' | 'vehicleAxles' | 'vehicleOwnerDocument' | 'vehicleOwnerName' | 'vehicleChassi' | 'vehicleRenavam' | 'vehicleBodyType' | 'vehicleWheelType'>>) => {
+    updateFiscal: async (id: string, data: Partial<Pick<Link, 'vehicleTypeId' | 'vehiclePlate' | 'vehicleYear' | 'rntrc' | 'carrierType' | 'trailerPlate' | 'trailer2Plate' | 'trailer3Plate' | 'vehicleAxles' | 'vehicleOwnerDocument' | 'vehicleOwnerName' | 'vehicleChassi' | 'vehicleRenavam' | 'vehicleBodyType' | 'vehicleWheelType'>>) => {
         const response = await api.patch<ApiResponse<Link>>(`/links/${id}/fiscal`, data);
         return response.data;
     },

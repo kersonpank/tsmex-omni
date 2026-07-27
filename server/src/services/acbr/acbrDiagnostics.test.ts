@@ -8,6 +8,8 @@ describe('buildAcbrRuntimeDiagnostics', () => {
         const env = {
             ACBR_CLIENT_ID: process.env.ACBR_CLIENT_ID,
             ACBR_CLIENT_SECRET: process.env.ACBR_CLIENT_SECRET,
+            ACBR_CLIENT_ID_PRODUCAO: process.env.ACBR_CLIENT_ID_PRODUCAO,
+            ACBR_CLIENT_SECRET_PRODUCAO: process.env.ACBR_CLIENT_SECRET_PRODUCAO,
             FISCAL_CTE_PROVIDER: process.env.FISCAL_CTE_PROVIDER,
             FISCAL_PROVIDER: process.env.FISCAL_PROVIDER,
             FISCAL_SECRET_KEY: process.env.FISCAL_SECRET_KEY,
@@ -18,6 +20,8 @@ describe('buildAcbrRuntimeDiagnostics', () => {
         };
         process.env.ACBR_CLIENT_ID = 'client-id-secret-value';
         process.env.ACBR_CLIENT_SECRET = 'client-secret-value';
+        delete process.env.ACBR_CLIENT_ID_PRODUCAO;
+        delete process.env.ACBR_CLIENT_SECRET_PRODUCAO;
         process.env.FISCAL_CTE_PROVIDER = 'acbr';
         process.env.FISCAL_PROVIDER = '';
         process.env.FISCAL_SECRET_KEY = 'fiscal-secret-key-value';
@@ -32,6 +36,9 @@ describe('buildAcbrRuntimeDiagnostics', () => {
             assert.equal(result.acbrClientIdConfigured, true);
             assert.equal(result.acbrClientSecretConfigured, true);
             assert.equal(result.acbrCredentialsConfigured, true);
+            assert.equal(result.acbrProdClientIdConfigured, false);
+            assert.equal(result.acbrProdClientSecretConfigured, false);
+            assert.equal(result.acbrProdCredentialsConfigured, false);
             assert.equal(result.fiscalCteProvider, 'acbr');
             assert.equal(result.fiscalProvider, '');
             assert.equal(typeof result.fiscalSecretKeyConfigured, 'boolean');
@@ -49,6 +56,30 @@ describe('buildAcbrRuntimeDiagnostics', () => {
             assert.equal(JSON.stringify(result).includes('client-secret-value'), false);
             assert.equal(JSON.stringify(result).includes('secret-key'), false);
             assert.equal(JSON.stringify(result).includes('fiscal-secret-key-value'), false);
+        } finally {
+            for (const [key, value] of Object.entries(env)) {
+                if (value === undefined) delete process.env[key];
+                else process.env[key] = value;
+            }
+        }
+    });
+
+    it('reporta credenciais de PRODUCAO separadas do par sandbox', () => {
+        const env = {
+            ACBR_CLIENT_ID: process.env.ACBR_CLIENT_ID,
+            ACBR_CLIENT_SECRET: process.env.ACBR_CLIENT_SECRET,
+            ACBR_CLIENT_ID_PRODUCAO: process.env.ACBR_CLIENT_ID_PRODUCAO,
+            ACBR_CLIENT_SECRET_PRODUCAO: process.env.ACBR_CLIENT_SECRET_PRODUCAO,
+        };
+        delete process.env.ACBR_CLIENT_ID;
+        delete process.env.ACBR_CLIENT_SECRET;
+        process.env.ACBR_CLIENT_ID_PRODUCAO = 'prod-id';
+        process.env.ACBR_CLIENT_SECRET_PRODUCAO = 'prod-secret';
+
+        try {
+            const result = buildAcbrRuntimeDiagnostics();
+            assert.equal(result.acbrCredentialsConfigured, false, 'sandbox vazio não deve reportar OK');
+            assert.equal(result.acbrProdCredentialsConfigured, true, 'par _PRODUCAO configurado deve reportar OK');
         } finally {
             for (const [key, value] of Object.entries(env)) {
                 if (value === undefined) delete process.env[key];

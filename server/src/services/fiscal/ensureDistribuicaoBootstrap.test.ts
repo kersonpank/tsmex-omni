@@ -10,8 +10,9 @@ const CHAVE = '35260512345678000190550010000000012345678901';
 function makeDeps(
     isAcbrCredentialsConfigured = mock.fn(() => true),
     solicitarEPersistirNsu = mock.fn(async (_body: DistribuicaoNfeRequestBody) => ({ ultimo_nsu: 100 })),
+    putAcbrEmpresaDistNfeConfig = mock.fn(async () => ({ ok: true })),
 ): EnsureDistribuicaoBootstrapDeps {
-    return { isAcbrCredentialsConfigured, solicitarEPersistirNsu };
+    return { isAcbrCredentialsConfigured, solicitarEPersistirNsu, putAcbrEmpresaDistNfeConfig };
 }
 
 describe('ensureDistribuicaoBootstrap', () => {
@@ -111,6 +112,35 @@ describe('ensureDistribuicaoBootstrap', () => {
         await ensureDistribuicaoBootstrap(HUB_ID, CHAVE, makeDeps(undefined, solicitarEPersistirNsu));
 
         assert.equal(solicitarEPersistirNsu.mock.callCount(), 0);
+    });
+
+    it('checkpoint ausente — garante a config de distnfe antes de semear (Causa 3 generalizada)', async () => {
+        const solicitarEPersistirNsu = mock.fn(async (_body: DistribuicaoNfeRequestBody) => ({ ultimo_nsu: 100 }));
+        const putAcbrEmpresaDistNfeConfig = mock.fn(async () => ({ ok: true }));
+
+        await ensureDistribuicaoBootstrap(HUB_ID, CHAVE, makeDeps(undefined, solicitarEPersistirNsu, putAcbrEmpresaDistNfeConfig));
+
+        assert.equal(putAcbrEmpresaDistNfeConfig.mock.callCount(), 1);
+        assert.deepEqual(putAcbrEmpresaDistNfeConfig.mock.calls[0].arguments, ['12345678000199', 'homologacao']);
+        assert.equal(solicitarEPersistirNsu.mock.callCount(), 1, 'deve seguir pro seed mesmo chamando a config antes');
+    });
+
+    it('checkpoint já existe — não chama a config de distnfe (nada a fazer, sem custo)', async () => {
+        checkpoint = { cpfCnpj: '12345678000199', ambiente: 'homologacao', ultimoNsu: '50' };
+        const putAcbrEmpresaDistNfeConfig = mock.fn(async () => ({ ok: true }));
+
+        await ensureDistribuicaoBootstrap(HUB_ID, CHAVE, makeDeps(undefined, undefined, putAcbrEmpresaDistNfeConfig));
+
+        assert.equal(putAcbrEmpresaDistNfeConfig.mock.callCount(), 0);
+    });
+
+    it('config de distnfe falha — best-effort, ainda tenta semear o NSU', async () => {
+        const solicitarEPersistirNsu = mock.fn(async (_body: DistribuicaoNfeRequestBody) => ({ ultimo_nsu: 100 }));
+        const putAcbrEmpresaDistNfeConfig = mock.fn(async () => ({ ok: false, message: 'ConfigDistNfeNotFound' }));
+
+        await ensureDistribuicaoBootstrap(HUB_ID, CHAVE, makeDeps(undefined, solicitarEPersistirNsu, putAcbrEmpresaDistNfeConfig));
+
+        assert.equal(solicitarEPersistirNsu.mock.callCount(), 1, 'não bloqueia o seed mesmo se o PUT de config falhar');
     });
 
     it('erro na chamada ACBr — best-effort, nunca lança', async () => {

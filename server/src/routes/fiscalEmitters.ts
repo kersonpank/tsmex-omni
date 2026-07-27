@@ -16,6 +16,13 @@ import { isAcbrCredentialsConfigured } from '../services/acbr/acbrConfig.js';
 import { putAcbrEmpresaCertificado, syncFiscalEmitterToAcbr } from '../services/acbr/acbrEmpresa.js';
 import { buildAcbrRuntimeDiagnostics } from '../services/acbr/acbrDiagnostics.js';
 import { getCteCfopOption, getCteCstRule } from '../services/fiscal/cteTaxRules.js';
+import {
+    getDistribuicaoCheckpointStatus,
+    getDistribuicaoCheckpointStatusBatch,
+    distribuicaoCheckpointKey,
+    type DistribuicaoAmbiente,
+    type DistribuicaoCheckpointStatus,
+} from '../services/fiscal/distribuicaoCheckpointStatus.js';
 
 const router = Router();
 
@@ -110,15 +117,36 @@ const certificateSchema = z.object({
     expiresAt: z.string().datetime().nullable().optional(),
 });
 
-async function toPublicEmitter(emitter: any) {
+function distribuicaoAmbienteFromEnvironment(environment: string): DistribuicaoAmbiente {
+    return environment === 'PRODUCAO' ? 'producao' : 'homologacao';
+}
+
+/** `null` quando o documento não é CNPJ — Distribuição DF-e é CNPJ-only (mesma guarda de `ensureDistribuicaoBootstrap.ts`). */
+function distribuicaoCnpjFor(emitter: { person?: { document?: string | null; documentType?: string | null } | null }): string | null {
+    const doc = emitter.person?.document?.replace(/\D/g, '') ?? '';
+    return doc.length === 14 ? doc : null;
+}
+
+async function toPublicEmitter(emitter: any, precomputedCheckpoint?: Map<string, DistribuicaoCheckpointStatus>) {
     const {
         certificatePasswordEncrypted: _secret,
         certificateStorageKey: _storageKey,
         ...safe
     } = emitter;
+
+    const cpfCnpj = distribuicaoCnpjFor(emitter);
+    const ambiente = distribuicaoAmbienteFromEnvironment(safe.environment);
+    let distribuicaoNfeCheckpoint: DistribuicaoCheckpointStatus | null = null;
+    if (cpfCnpj) {
+        distribuicaoNfeCheckpoint = precomputedCheckpoint
+            ? precomputedCheckpoint.get(distribuicaoCheckpointKey(cpfCnpj, ambiente)) ?? null
+            : await getDistribuicaoCheckpointStatus(cpfCnpj, ambiente);
+    }
+
     return {
         ...safe,
         logoUrl: await resolveStoredLogoUrl(safe.logoUrl ?? null, safe.logoStorageKey ?? null),
+        distribuicaoNfeCheckpoint,
         readiness: buildFiscalEmitterReadiness({
             person: safe.person,
             rntrc: safe.rntrc,
@@ -173,7 +201,14 @@ router.get('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest
             include: { person: true, hub: true },
             orderBy: [{ active: 'desc' }, { createdAt: 'desc' }],
         });
-        res.json({ success: true, data: await Promise.all(emitters.map(toPublicEmitter)) });
+        const checkpointPairs = emitters
+            .map((e) => {
+                const cpfCnpj = distribuicaoCnpjFor(e);
+                return cpfCnpj ? { cpfCnpj, ambiente: distribuicaoAmbienteFromEnvironment(e.environment) } : null;
+            })
+            .filter((p): p is { cpfCnpj: string; ambiente: DistribuicaoAmbiente } => p !== null);
+        const checkpointMap = await getDistribuicaoCheckpointStatusBatch(checkpointPairs);
+        res.json({ success: true, data: await Promise.all(emitters.map((e) => toPublicEmitter(e, checkpointMap))) });
     } catch (error) {
         next(error);
     }

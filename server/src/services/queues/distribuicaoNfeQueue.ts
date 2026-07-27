@@ -45,12 +45,29 @@ export async function ensureDistribuicaoNfeSchedule(): Promise<void> {
 /**
  * Enfileira a sincronização de um emitente. `jobId` determinístico evita duas sincronizações
  * concorrentes do mesmo CNPJ pisando no mesmo `FiscalDistribuicaoCheckpoint`.
+ *
+ * BullMQ não reexecuta um job cujo `jobId` já existe em qualquer estado — inclusive
+ * `completed`/`failed`. Sem remover o job anterior nesses dois estados, o botão manual
+ * ("Buscar agora") fica inoperante por `removeOnComplete`/`removeOnFail` (dias) depois da
+ * primeira execução, sem nenhum aviso. Só pulamos a remoção quando o job anterior ainda está
+ * em andamento (`active`/`waiting`/`delayed`), preservando a proteção de concorrência original.
  */
 export async function enqueueSyncEmitterJob(fiscalEmitterId: string): Promise<string> {
-    const job = await getDistribuicaoNfeQueue().add(
+    const queue = getDistribuicaoNfeQueue();
+    const jobId = `sync-emitter-${fiscalEmitterId}`;
+
+    const existing = await queue.getJob(jobId);
+    if (existing) {
+        const state = await existing.getState();
+        if (state === 'completed' || state === 'failed' || state === 'unknown') {
+            await existing.remove();
+        }
+    }
+
+    const job = await queue.add(
         'sync-emitter',
         { kind: 'sync-emitter', fiscalEmitterId },
-        { jobId: `sync-emitter-${fiscalEmitterId}` },
+        { jobId },
     );
     if (!job.id) throw new Error('BullMQ não retornou id para o job enfileirado.');
     return job.id;

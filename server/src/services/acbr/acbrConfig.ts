@@ -23,7 +23,16 @@ export function getAcbrApiBaseUrl(): string {
     return getAcbrApiBaseUrlForEnvironment(null);
 }
 
-export function isAcbrCredentialsConfigured(): boolean {
+/**
+ * Sem `environment` (ou HOMOLOGACAO), checa o par sandbox `ACBR_CLIENT_ID`/`ACBR_CLIENT_SECRET`.
+ * Com `environment='PRODUCAO'`, checa o par `_PRODUCAO` — o único que `acbrAuth.ts` de fato usa
+ * nesse ambiente. Sem isso, um emitente em produção podia passar por "credenciais OK" checando
+ * só a variável errada.
+ */
+export function isAcbrCredentialsConfigured(environment?: AcbrFiscalEnvironment | null): boolean {
+    if (environment === 'PRODUCAO') {
+        return Boolean(process.env.ACBR_CLIENT_ID_PRODUCAO?.trim() && process.env.ACBR_CLIENT_SECRET_PRODUCAO?.trim());
+    }
     return Boolean(process.env.ACBR_CLIENT_ID?.trim() && process.env.ACBR_CLIENT_SECRET?.trim());
 }
 

@@ -37,6 +37,7 @@ function makeDeps(overrides: Partial<SyncProcessorDeps> = {}): {
         markManifested: string[];
         markXmlDownloaded: unknown[];
         setUltimoNsuStored: unknown[];
+        putAcbrEmpresaDistNfeConfig: unknown[];
         createSystemAlert: unknown[];
         queuePause: number;
         sleepCalls: number[];
@@ -51,6 +52,7 @@ function makeDeps(overrides: Partial<SyncProcessorDeps> = {}): {
         markManifested: [] as string[],
         markXmlDownloaded: [] as unknown[],
         setUltimoNsuStored: [] as unknown[],
+        putAcbrEmpresaDistNfeConfig: [] as unknown[],
         createSystemAlert: [] as unknown[],
         queuePause: 0,
         sleepCalls: [] as number[],
@@ -68,6 +70,10 @@ function makeDeps(overrides: Partial<SyncProcessorDeps> = {}): {
         getUltimoNsuStored: (async () => '100') as any,
         setUltimoNsuStored: (async (...args: unknown[]) => {
             calls.setUltimoNsuStored.push(args);
+        }) as any,
+        putAcbrEmpresaDistNfeConfig: (async (...args: unknown[]) => {
+            calls.putAcbrEmpresaDistNfeConfig.push(args);
+            return { ok: true };
         }) as any,
         solicitarDistribuicaoNfe: (async (...args: unknown[]) => {
             calls.solicitarDistribuicaoNfe.push(args);
@@ -137,6 +143,7 @@ describe('processDistribuicaoNfeSyncJob — guarda de emitente e NSU', () => {
         assert.equal(calls.createSystemAlert.length, 1);
         const [alertArgs] = calls.createSystemAlert[0] as [{ category: string }];
         assert.equal(alertArgs.category, 'FISCAL_DISTRIBUICAO_NFE_NOT_SEEDED');
+        assert.equal(calls.putAcbrEmpresaDistNfeConfig.length, 0, 'não gasta chamada de config se nem passou da guarda de NSU');
     });
 });
 
@@ -153,6 +160,26 @@ describe('processDistribuicaoNfeSyncJob — discovery', () => {
         assert.equal(calls.setUltimoNsuStored.length, 1);
         const [, , novoNsu] = calls.setUltimoNsuStored[0] as [string, string, string];
         assert.equal(novoNsu, '105');
+    });
+
+    it('garante a config de distnfe (idempotente) antes de chamar dist-nsu — generaliza a Causa 3 pra qualquer emitente', async () => {
+        const { deps, calls } = makeDeps();
+        const { job } = makeJob('fe-1');
+        await processDistribuicaoNfeSyncJob(job, deps);
+
+        assert.equal(calls.putAcbrEmpresaDistNfeConfig.length, 1);
+        assert.deepEqual(calls.putAcbrEmpresaDistNfeConfig[0], ['12345678000199', 'homologacao']);
+        assert.ok(calls.solicitarDistribuicaoNfe.length === 1, 'segue pra dist-nsu mesmo com a chamada de config no meio');
+    });
+
+    it('config de distnfe falhando não impede a tentativa de dist-nsu (best-effort)', async () => {
+        const { deps, calls } = makeDeps({
+            putAcbrEmpresaDistNfeConfig: (async () => ({ ok: false, message: 'ConfigDistNfeNotFound' })) as any,
+        });
+        const { job } = makeJob('fe-1');
+        await processDistribuicaoNfeSyncJob(job, deps);
+
+        assert.equal(calls.solicitarDistribuicaoNfe.length, 1);
     });
 
     it('GUARDA de schema: se "data" não é array, aborta o job inteiro sem lançar erro e sem chamar manifestação/download', async () => {
@@ -271,5 +298,28 @@ describe('processDistribuicaoNfeSyncJob — 429/402', () => {
         const [alertArgs] = calls.createSystemAlert[0] as [{ category: string; severity: string }];
         assert.equal(alertArgs.category, 'FISCAL_DISTRIBUICAO_NFE_QUOTA');
         assert.equal(alertArgs.severity, 'CRITICAL');
+    });
+
+    it('erro genérico (não-402/429, ex.: falha de auth/config) cria SystemAlert antes de relançar — antes disso falhava em silêncio', async () => {
+        const err = new Error('ACBR_CLIENT_ID_PRODUCAO e ACBR_CLIENT_SECRET_PRODUCAO são obrigatórios para o provedor ACBr (ambiente PRODUCAO).');
+        const { deps, calls } = makeDeps({
+            prisma: {
+                fiscalEmitter: { findUnique: (async () => BASE_EMITTER) as any },
+                nfeDistribuicaoDocumento: { findMany: (async () => []) as any },
+            },
+            solicitarDistribuicaoNfe: (async () => {
+                throw err;
+            }) as any,
+        });
+        const { job } = makeJob('fe-1');
+
+        await assert.rejects(() => processDistribuicaoNfeSyncJob(job, deps), err);
+
+        assert.equal(calls.createSystemAlert.length, 1);
+        const [alertArgs] = calls.createSystemAlert[0] as [{ category: string; severity: string; message: string; context?: { fiscalEmitterId?: string } }];
+        assert.equal(alertArgs.category, 'FISCAL_PROVIDER_ERROR');
+        assert.equal(alertArgs.severity, 'WARNING');
+        assert.match(alertArgs.message, /ACBR_CLIENT_ID_PRODUCAO/);
+        assert.equal(alertArgs.context?.fiscalEmitterId, 'fe-1');
     });
 });

@@ -13,10 +13,21 @@ export default function SystemAlertBanner() {
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [resolving, setResolving] = useState<string | null>(null);
 
+  // Categorias de WARNING que também precisam aparecer aqui, além de todo CRITICAL — hoje só
+  // "não seedado"/erros de provider da Distribuição NF-e, que antes ficavam invisíveis (só
+  // existiam na tabela SystemAlert, sem nenhum lugar na UI que os mostrasse).
+  const WARNING_CATEGORIES_SHOWN = new Set(['FISCAL_DISTRIBUICAO_NFE_NOT_SEEDED', 'FISCAL_PROVIDER_ERROR']);
+
   const load = async () => {
     try {
       const result = await systemAlertsApi.listOpen();
-      if (result.success) setAlerts(result.data.filter((a) => a.severity === 'CRITICAL'));
+      if (result.success) {
+        setAlerts(
+          result.data.filter(
+            (a) => a.severity === 'CRITICAL' || (a.severity === 'WARNING' && WARNING_CATEGORIES_SHOWN.has(a.category))
+          )
+        );
+      }
     } catch {
       /* banner não deve quebrar o resto do painel */
     }
@@ -52,22 +63,32 @@ export default function SystemAlertBanner() {
   if (alerts.length === 0) return null;
 
   return (
-    <div className="bg-red-600 text-white px-4 py-2 text-sm flex flex-col gap-1">
-      {alerts.map((alert) => (
-        <div key={alert.id} className="flex items-center justify-between gap-4">
-          <span><strong>{alert.title}</strong> — {alert.message}</span>
-          {RESUME_ACTION_BY_CATEGORY[alert.category] && (
-            <button
-              type="button"
-              onClick={() => handleResume(alert.id, alert.category)}
-              disabled={resolving === alert.id}
-              className="bg-white text-red-700 px-3 py-1 rounded text-xs font-medium disabled:opacity-50"
-            >
-              {resolving === alert.id ? 'Retomando…' : 'Retomar fila'}
-            </button>
-          )}
-        </div>
-      ))}
+    <div className="flex flex-col gap-1">
+      {alerts.map((alert) => {
+        const isCritical = alert.severity === 'CRITICAL';
+        return (
+          <div
+            key={alert.id}
+            className={`px-4 py-2 text-sm flex items-center justify-between gap-4 ${
+              isCritical ? 'bg-red-600 text-white' : 'bg-amber-500 text-amber-950'
+            }`}
+          >
+            <span><strong>{alert.title}</strong> — {alert.message}</span>
+            {RESUME_ACTION_BY_CATEGORY[alert.category] && (
+              <button
+                type="button"
+                onClick={() => handleResume(alert.id, alert.category)}
+                disabled={resolving === alert.id}
+                className={`px-3 py-1 rounded text-xs font-medium disabled:opacity-50 ${
+                  isCritical ? 'bg-white text-red-700' : 'bg-white text-amber-800'
+                }`}
+              >
+                {resolving === alert.id ? 'Retomando…' : 'Retomar fila'}
+              </button>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

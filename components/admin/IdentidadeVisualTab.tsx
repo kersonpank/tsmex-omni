@@ -159,6 +159,11 @@ const IdentidadeVisualTab: React.FC = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [syncingDistribuicao, setSyncingDistribuicao] = useState(false);
   const [syncDistribuicaoMessage, setSyncDistribuicaoMessage] = useState<string | null>(null);
+  const [seedMode, setSeedMode] = useState<'nsu' | 'chave'>('chave');
+  const [seedNsuValue, setSeedNsuValue] = useState('');
+  const [seedChaveValue, setSeedChaveValue] = useState('');
+  const [seeding, setSeeding] = useState(false);
+  const [seedMessage, setSeedMessage] = useState<string | null>(null);
   const [certificatePassword, setCertificatePassword] = useState('');
   const [certificateExpiresAt, setCertificateExpiresAt] = useState('');
   const [showCertificatePassword, setShowCertificatePassword] = useState(false);
@@ -213,6 +218,12 @@ const IdentidadeVisualTab: React.FC = () => {
     setForm((current) => ({ ...current, [key]: value }));
   };
 
+  const resetSeedState = () => {
+    setSeedNsuValue('');
+    setSeedChaveValue('');
+    setSeedMessage(null);
+  };
+
   const startNewEmitter = () => {
     setSelectedEmitterId(null);
     setForm(emptyForm);
@@ -221,6 +232,7 @@ const IdentidadeVisualTab: React.FC = () => {
     setSelectedCertificateFileName(null);
     setSelectedCertificateFile(null);
     setIsEditing(true);
+    resetSeedState();
   };
 
   const selectEmitter = (emitter: FiscalEmitter) => {
@@ -231,6 +243,7 @@ const IdentidadeVisualTab: React.FC = () => {
     setCertificatePassword('');
     setCertificateExpiresAt(formatIsoToBrDate(emitter.certificateExpiresAt));
     setIsEditing(false);
+    resetSeedState();
   };
 
   const startEditEmitter = (emitter: FiscalEmitter) => {
@@ -241,6 +254,7 @@ const IdentidadeVisualTab: React.FC = () => {
     setCertificatePassword('');
     setCertificateExpiresAt(formatIsoToBrDate(emitter.certificateExpiresAt));
     setIsEditing(true);
+    resetSeedState();
   };
 
   const goToSelectedPerson = () => {
@@ -325,6 +339,43 @@ const IdentidadeVisualTab: React.FC = () => {
       setSyncDistribuicaoMessage(e.response?.data?.error ?? e.message ?? 'Erro ao solicitar varredura.');
     } finally {
       setSyncingDistribuicao(false);
+    }
+  };
+
+  /** Semeia o NSU informando o valor direto (quando já conhecido por outra fonte, ex.: painel ACBr/SEFAZ). */
+  const handleSeedByNsu = async () => {
+    if (!selectedEmitterId || !seedNsuValue.trim()) return;
+    setSeeding(true);
+    setSeedMessage(null);
+    try {
+      await fiscalDistribuicaoApi.bootstrapNsu(selectedEmitterId, seedNsuValue.trim());
+      setSeedMessage('NSU semeado com sucesso — a varredura já pode rodar.');
+      await load();
+    } catch (e: any) {
+      setSeedMessage(e.response?.data?.error ?? e.message ?? 'Erro ao semear NSU.');
+    } finally {
+      setSeeding(false);
+    }
+  };
+
+  /** Semeia usando uma chave de NF-e real de 44 dígitos (mais barato/seguro — testa credencial e config na hora). */
+  const handleSeedByChave = async () => {
+    if (!selectedEmitter || !seedChaveValue.trim()) return;
+    setSeeding(true);
+    setSeedMessage(null);
+    try {
+      await fiscalDistribuicaoApi.solicitar({
+        cpf_cnpj: selectedEmitter.person.document,
+        ambiente: selectedEmitter.environment === 'PRODUCAO' ? 'producao' : 'homologacao',
+        tipo_consulta: 'cons-chave',
+        cons_chave: seedChaveValue.trim(),
+      });
+      setSeedMessage('Chave consultada com sucesso — NSU semeado, a varredura já pode rodar.');
+      await load();
+    } catch (e: any) {
+      setSeedMessage(e.response?.data?.error ?? e.message ?? 'Erro ao consultar a chave (verifique se a NF-e existe e se o CNPJ bate).');
+    } finally {
+      setSeeding(false);
     }
   };
 
@@ -760,21 +811,83 @@ const IdentidadeVisualTab: React.FC = () => {
                 </div>
               </div>
             </label>
-            {form.distribuicaoNfeEnabled && (
-              <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
-                ⚠️ Antes de salvar com isto ligado pela primeira vez, configure o <strong>NSU inicial</strong> deste CNPJ
-                (endpoint <code className="rounded bg-tower-100 px-1 dark:bg-tower-800">bootstrap-nsu</code>). Sem isso, o
-                sistema recusa a primeira varredura automática — buscar a partir do NSU 0 traria o histórico retroativo
-                de ~90 dias da SEFAZ, consumindo 1 crédito ACBr por documento retornado.
-              </p>
+            {form.distribuicaoNfeEnabled && selectedEmitter && selectedEmitter.distribuicaoNfeCheckpoint?.seeded === false && (
+              <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+                <p className="mb-2">
+                  ⚠️ Este CNPJ ainda não tem <strong>NSU inicial</strong> semeado pro ambiente atual (
+                  {selectedEmitter.environment === 'PRODUCAO' ? 'produção' : 'homologação'}). Sem isso, o sistema recusa
+                  toda varredura (manual ou automática) — buscar a partir do NSU 0 traria ~90 dias de histórico
+                  retroativo da SEFAZ, 1 crédito ACBr por documento. Escolha uma opção abaixo pra semear:
+                </p>
+                <div className="mb-2 flex gap-3 text-xs font-medium">
+                  <label className="flex items-center gap-1 cursor-pointer">
+                    <input type="radio" name="seedMode" checked={seedMode === 'chave'} onChange={() => setSeedMode('chave')} />
+                    Tenho uma chave de NF-e conhecida (recomendado)
+                  </label>
+                  <label className="flex items-center gap-1 cursor-pointer">
+                    <input type="radio" name="seedMode" checked={seedMode === 'nsu'} onChange={() => setSeedMode('nsu')} />
+                    Já sei o último NSU
+                  </label>
+                </div>
+                {seedMode === 'chave' ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={44}
+                      placeholder="Chave de NF-e (44 dígitos)"
+                      value={seedChaveValue}
+                      onChange={(e) => setSeedChaveValue(e.target.value.replace(/\D/g, ''))}
+                      className="admin-focus w-64 rounded-md border border-tower-300 px-2 py-1 text-sm dark:border-tower-600 dark:bg-tower-950"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleSeedByChave()}
+                      disabled={seeding || seedChaveValue.trim().length !== 44}
+                      className="admin-focus rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+                    >
+                      {seeding ? 'Consultando…' : 'Semear com esta chave'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="Último NSU"
+                      value={seedNsuValue}
+                      onChange={(e) => setSeedNsuValue(e.target.value.replace(/\D/g, ''))}
+                      className="admin-focus w-32 rounded-md border border-tower-300 px-2 py-1 text-sm dark:border-tower-600 dark:bg-tower-950"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleSeedByNsu()}
+                      disabled={seeding || !seedNsuValue.trim()}
+                      className="admin-focus rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+                    >
+                      {seeding ? 'Semeando…' : 'Confirmar NSU'}
+                    </button>
+                  </div>
+                )}
+                <p className="mt-2 text-[11px] text-amber-800/80 dark:text-amber-200/70">
+                  A SEFAZ só aceita 1 consulta de distribuição por CNPJ a cada 1 hora — se der erro de "menos de 1 hora", aguarde e tente de novo.
+                </p>
+                {seedMessage && <p className="mt-2 text-xs font-medium">{seedMessage}</p>}
+              </div>
             )}
             {isAdmin && selectedEmitterId && (
               <div className="mt-2">
                 <button
                   type="button"
                   onClick={() => void handleSyncDistribuicaoNow()}
-                  disabled={syncingDistribuicao || !form.distribuicaoNfeEnabled}
-                  title={!form.distribuicaoNfeEnabled ? 'Ligue "Varredura automática de Distribuição NF-e" acima antes de buscar manualmente.' : undefined}
+                  disabled={syncingDistribuicao || !form.distribuicaoNfeEnabled || selectedEmitter?.distribuicaoNfeCheckpoint?.seeded === false}
+                  title={
+                    !form.distribuicaoNfeEnabled
+                      ? 'Ligue "Varredura automática de Distribuição NF-e" acima antes de buscar manualmente.'
+                      : selectedEmitter?.distribuicaoNfeCheckpoint?.seeded === false
+                        ? 'Semeie o NSU inicial acima antes de rodar a varredura.'
+                        : undefined
+                  }
                   className="admin-focus rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
                 >
                   {syncingDistribuicao ? 'Solicitando…' : 'Buscar agora'}

@@ -5,6 +5,7 @@ import { AcbrHttpError } from '../acbr/acbrHttp.js';
 import {
     baixarXmlDocumentoDistribuicao,
     getUltimoNsuStored,
+    putAcbrEmpresaDistNfeConfig,
     setUltimoNsuStored,
     solicitarDistribuicaoNfe,
     type DistribuicaoNfeRequestBody,
@@ -46,6 +47,7 @@ export interface SyncProcessorDeps {
     };
     getUltimoNsuStored: typeof getUltimoNsuStored;
     setUltimoNsuStored: typeof setUltimoNsuStored;
+    putAcbrEmpresaDistNfeConfig: typeof putAcbrEmpresaDistNfeConfig;
     solicitarDistribuicaoNfe: typeof solicitarDistribuicaoNfe;
     manifestarCienciaOperacao: typeof manifestarCienciaOperacao;
     baixarXmlDocumentoDistribuicao: typeof baixarXmlDocumentoDistribuicao;
@@ -67,6 +69,7 @@ export const defaultSyncProcessorDeps: SyncProcessorDeps = {
     },
     getUltimoNsuStored,
     setUltimoNsuStored,
+    putAcbrEmpresaDistNfeConfig,
     solicitarDistribuicaoNfe,
     manifestarCienciaOperacao,
     baixarXmlDocumentoDistribuicao,
@@ -170,6 +173,13 @@ async function runDiscoveryPhase(
         });
         return 'nsu-not-seeded';
     }
+
+    // Idempotente/sem custo — garante que a config de Distribuição NF-e existe na ACBr pro
+    // ambiente deste CNPJ antes de qualquer chamada real. Sem isso, qualquer emitente cujo CNPJ
+    // nunca tenha passado por esta config (ex.: nunca bipou uma NF-e antes) quebra em silêncio
+    // com ConfigDistNfeNotFound assim que o NSU for semeado por outro caminho (ex.: bootstrap-nsu
+    // manual). Best-effort: `putAcbrEmpresaDistNfeConfig` nunca lança, só retorna { ok, message }.
+    await deps.putAcbrEmpresaDistNfeConfig(cpfCnpj, ambiente);
 
     const body: DistribuicaoNfeRequestBody = {
         cpf_cnpj: cpfCnpj,
@@ -356,6 +366,21 @@ export async function processDistribuicaoNfeSyncJob(
             }
             return;
         }
+
+        // Qualquer outra falha (auth, ConfigDistNfeNotFound, rate-limit não mapeado como 429,
+        // timeout etc.) até aqui só virava job "failed" no BullMQ — invisível pra quem clicou em
+        // "Buscar agora". Cria o alerta antes de relançar (o retry automático do BullMQ continua
+        // valendo; isso só torna a falha visível na UI).
+        await deps.createSystemAlert({
+            category: 'FISCAL_PROVIDER_ERROR',
+            severity: 'WARNING',
+            title: 'Varredura de Distribuição NF-e falhou',
+            message: err instanceof Error ? err.message : String(err),
+            context: {
+                fiscalEmitterId,
+                ...(err instanceof AcbrHttpError ? { httpStatus: err.httpStatus } : {}),
+            },
+        });
 
         throw err;
     }

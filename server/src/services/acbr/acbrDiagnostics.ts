@@ -4,6 +4,9 @@ export interface AcbrRuntimeDiagnostics {
     acbrClientIdConfigured: boolean;
     acbrClientSecretConfigured: boolean;
     acbrCredentialsConfigured: boolean;
+    acbrProdClientIdConfigured: boolean;
+    acbrProdClientSecretConfigured: boolean;
+    acbrProdCredentialsConfigured: boolean;
     fiscalCteProvider: string;
     fiscalProvider: string;
     fiscalSecretKeyConfigured: boolean;
@@ -32,6 +35,9 @@ export function buildAcbrRuntimeDiagnostics(): AcbrRuntimeDiagnostics {
         acbrClientIdConfigured: present(process.env.ACBR_CLIENT_ID),
         acbrClientSecretConfigured: present(process.env.ACBR_CLIENT_SECRET),
         acbrCredentialsConfigured: isAcbrCredentialsConfigured(),
+        acbrProdClientIdConfigured: present(process.env.ACBR_CLIENT_ID_PRODUCAO),
+        acbrProdClientSecretConfigured: present(process.env.ACBR_CLIENT_SECRET_PRODUCAO),
+        acbrProdCredentialsConfigured: isAcbrCredentialsConfigured('PRODUCAO'),
         fiscalCteProvider: process.env.FISCAL_CTE_PROVIDER?.trim() ?? '',
         fiscalProvider: process.env.FISCAL_PROVIDER?.trim() ?? '',
         fiscalSecretKeyConfigured: Boolean(process.env.FISCAL_SECRET_KEY?.trim()),

@@ -6,6 +6,7 @@ import prisma from '../lib/prisma.js';
 import {
     getUltimoNsuStored,
     listarDocumentosDistribuicao,
+    putAcbrEmpresaDistNfeConfig,
     setUltimoNsuStored,
     solicitarEPersistirNsu,
     type DistribuicaoNfeRequestBody,
@@ -33,15 +34,22 @@ const solicitarSchema = z.object({
 // POST /api/fiscal/distribuicao-nfe/solicitar
 router.post('/distribuicao-nfe/solicitar', async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        if (!isAcbrCredentialsConfigured()) {
-            throw new AppError('ACBr não configurado (ACBR_CLIENT_ID / ACBR_CLIENT_SECRET).', 503);
-        }
         const parsed = solicitarSchema.parse(req.body);
+        const environment = parsed.ambiente === 'producao' ? 'PRODUCAO' : 'HOMOLOGACAO';
+        if (!isAcbrCredentialsConfigured(environment)) {
+            const vars = environment === 'PRODUCAO'
+                ? 'ACBR_CLIENT_ID_PRODUCAO / ACBR_CLIENT_SECRET_PRODUCAO'
+                : 'ACBR_CLIENT_ID / ACBR_CLIENT_SECRET';
+            throw new AppError(`ACBr não configurado para ambiente ${parsed.ambiente} (${vars}).`, 503);
+        }
         const body: DistribuicaoNfeRequestBody = { ...parsed, cpf_cnpj: parsed.cpf_cnpj.replace(/\D/g, '') };
         if (body.tipo_consulta === 'dist-nsu' && body.dist_nsu == null) {
             const last = await getUltimoNsuStored(body.cpf_cnpj, body.ambiente);
             body.dist_nsu = parseInt(last, 10) || 0;
         }
+        // Idempotente/sem custo — garante a config de Distribuição NF-e na ACBr antes da primeira
+        // chamada real deste CNPJ+ambiente (senão qualquer chamada quebra com ConfigDistNfeNotFound).
+        await putAcbrEmpresaDistNfeConfig(body.cpf_cnpj, body.ambiente);
         const data = await solicitarEPersistirNsu(body);
         res.json({ success: true, data });
     } catch (e) {

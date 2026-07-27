@@ -23,8 +23,13 @@ Use esta matriz no Portainer (Stack variables) para evitar drift e falha no star
 
 Estas variáveis habilitam e configuram a comunicação com os endpoints fiscais da ACBr API:
 
-- `ACBR_CLIENT_ID` — Client ID do OAuth gerado no console da ACBr API.
-- `ACBR_CLIENT_SECRET` — Client Secret correspondente obtido no console da ACBr API.
+- `ACBR_CLIENT_ID` — Client ID do OAuth de **HOMOLOGAÇÃO** gerado no console da ACBr API.
+- `ACBR_CLIENT_SECRET` — Client Secret de **HOMOLOGAÇÃO** correspondente.
+- `ACBR_CLIENT_ID_PRODUCAO` — Client ID do OAuth de **PRODUÇÃO**, par **separado** do de homologação.
+  `acbrAuth.ts` usa exclusivamente este par quando o `FiscalEmitter` está com `environment=PRODUCAO`
+  — nunca cai para o par de homologação acima. Sem esta variável (e a próxima), qualquer emitente
+  em produção falha ao autenticar contra `prod.acbr.api.br`.
+- `ACBR_CLIENT_SECRET_PRODUCAO` — Client Secret correspondente de **PRODUÇÃO**.
 - `ACBR_TOKEN_URL` — (Opcional) Endpoint OAuth. Default: `https://auth.acbr.api.br/realms/ACBrAPI/protocol/openid-connect/token`
 - `ACBR_API_BASE_URL` — (Opcional) Host base da API. Default: `https://hom.acbr.api.br`
 - `ACBR_FALLBACK_CMUN` — (Opcional) Código IBGE padrão caso falhe a resolução automática de município.
@@ -32,17 +37,24 @@ Estas variáveis habilitam e configuram a comunicação com os endpoints fiscais
 - `FISCAL_PROVIDER` — Definir como `acbr` para uso fiscal geral.
 - `FISCAL_SECRET_KEY` — Chave simétrica de criptografia usada para proteger a senha do certificado PFX do emitente no banco de dados.
 
-> **`ACBR_CLIENT_ID`/`ACBR_CLIENT_SECRET` em staging**: além de configurados no painel "Environment
-> variables" do Portainer, esses dois **também vivem como GitHub Secret** (`Settings → Secrets and
-> variables → Actions`) e são reaplicados diretamente nos serviços `api`/`worker` via
-> `docker service update --env-add` a cada deploy (`.github/workflows/staging.yml`). Isso existe
-> porque o painel do Portainer não reaplica esses valores de forma confiável quando o stack inteiro
-> é apagado e recriado (o build method usado é "Web editor" — a definição do compose é colada
-> manualmente, e reaplicar as env vars digitadas exige uma ação de deploy específica que nem
-> sempre acontece). Se o serviço `worker`/`api` aparecer com `ACBR_CLIENT_ID`/`SECRET` vazios
-> mesmo com o painel do Portainer preenchido, rode o workflow "Deploy Staging" manualmente
-> (`Actions → Deploy Staging → Run workflow`) — ele corrige sozinho, sem precisar mexer no
-> Portainer. Para trocar o valor, atualize o GitHub Secret, não só o painel do Portainer.
+> **`ACBR_CLIENT_ID`/`ACBR_CLIENT_SECRET` (e os pares `_PRODUCAO`) em staging**: além de
+> configurados no painel "Environment variables" do Portainer, essas variáveis **também vivem
+> como GitHub Secret** (`Settings → Secrets and variables → Actions`) e são reaplicadas
+> diretamente nos serviços `api`/`worker` via `docker service update --env-add` a cada deploy
+> (`.github/workflows/staging.yml`). Isso existe porque o painel do Portainer não reaplica esses
+> valores de forma confiável quando o stack inteiro é apagado e recriado (o build method usado é
+> "Web editor" — a definição do compose é colada manualmente, e reaplicar as env vars digitadas
+> exige uma ação de deploy específica que nem sempre acontece). Se o serviço `worker`/`api`
+> aparecer com `ACBR_CLIENT_ID`/`SECRET` (ou `_PRODUCAO`) vazios mesmo com o painel do Portainer
+> preenchido, rode o workflow "Deploy Staging" manualmente (`Actions → Deploy Staging → Run
+> workflow`) — ele corrige sozinho, sem precisar mexer no Portainer. Para trocar o valor, atualize
+> o GitHub Secret, não só o painel do Portainer.
+>
+> **Atenção — `.github/workflows/production.yml` não tem essa mesma lógica** (confirmado em
+> 2026-07-27: não reaplica nenhuma variável `ACBR_*`). Em produção real, `ACBR_CLIENT_ID_PRODUCAO`/
+> `ACBR_CLIENT_SECRET_PRODUCAO` dependem 100% do painel do Portainer estar preenchido — e o mesmo
+> risco de "stack recriado perde a variável" descrito acima se aplica lá sem nenhuma rede de
+> segurança automática.
 
 ## Variáveis opcionais (somente imagem `tsmex-migrate`)
 

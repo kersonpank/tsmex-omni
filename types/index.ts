@@ -218,6 +218,9 @@ export interface FiscalEmitter {
     defaultCteCst?: string | null;
     /** Opt-in: liga a varredura automática 2x/dia da Distribuição NF-e para este CNPJ como destinatário. */
     distribuicaoNfeEnabled: boolean;
+    /** Status do checkpoint de NSU pro ambiente atual do emitente — `null` se o documento não for CNPJ.
+     * `seeded === false` significa que a varredura (manual ou automática) vai abortar sem chamar a ACBr. */
+    distribuicaoNfeCheckpoint?: { ambiente: 'homologacao' | 'producao'; ultimoNsu: string; seeded: boolean } | null;
     readiness?: FiscalEmitterReadiness;
     createdAt: string;
     updatedAt: string;

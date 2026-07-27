@@ -1,15 +1,17 @@
 import prisma from '../../lib/prisma.js';
-import { solicitarEPersistirNsu } from '../acbr/acbrDistribuicaoNfe.js';
+import { putAcbrEmpresaDistNfeConfig, solicitarEPersistirNsu } from '../acbr/acbrDistribuicaoNfe.js';
 import { isAcbrCredentialsConfigured } from '../acbr/acbrConfig.js';
 
 export interface EnsureDistribuicaoBootstrapDeps {
     isAcbrCredentialsConfigured: typeof isAcbrCredentialsConfigured;
     solicitarEPersistirNsu: typeof solicitarEPersistirNsu;
+    putAcbrEmpresaDistNfeConfig: typeof putAcbrEmpresaDistNfeConfig;
 }
 
 export const defaultEnsureDistribuicaoBootstrapDeps: EnsureDistribuicaoBootstrapDeps = {
     isAcbrCredentialsConfigured,
     solicitarEPersistirNsu,
+    putAcbrEmpresaDistNfeConfig,
 };
 
 function ambienteFromEnvironment(environment: string): 'homologacao' | 'producao' {
@@ -32,7 +34,7 @@ export async function ensureDistribuicaoBootstrap(
     chave: string,
     deps: EnsureDistribuicaoBootstrapDeps = defaultEnsureDistribuicaoBootstrapDeps,
 ): Promise<void> {
-    if (!hubId || !deps.isAcbrCredentialsConfigured()) return;
+    if (!hubId) return;
 
     try {
         const emitter = await prisma.fiscalEmitter.findFirst({
@@ -45,11 +47,20 @@ export async function ensureDistribuicaoBootstrap(
         if (cpfCnpj.length !== 14) return; // Distribuição DFe é só CNPJ
 
         const ambiente = ambienteFromEnvironment(emitter.environment);
+        // Checar credenciais só depois de saber o ambiente do emitente — `isAcbrCredentialsConfigured`
+        // usa pares diferentes por ambiente (sandbox vs `_PRODUCAO`); checar sem ambiente aqui
+        // bloquearia silenciosamente qualquer emitente em PRODUCAO com só as vars de produção setadas.
+        if (!deps.isAcbrCredentialsConfigured(emitter.environment)) return;
 
         const existing = await prisma.fiscalDistribuicaoCheckpoint.findUnique({
             where: { cpfCnpj_ambiente: { cpfCnpj, ambiente } },
         });
         if (existing) return; // já semeado — nada a fazer, sem custo
+
+        // Idempotente/sem custo — garante que a config de Distribuição NF-e existe na ACBr pro
+        // ambiente deste CNPJ antes da primeira chamada real. Sem isso, `cons-chave` abaixo falha
+        // com ConfigDistNfeNotFound pra qualquer CNPJ que nunca tenha passado por isso antes.
+        await deps.putAcbrEmpresaDistNfeConfig(cpfCnpj, ambiente);
 
         await deps.solicitarEPersistirNsu({
             cpf_cnpj: cpfCnpj,
