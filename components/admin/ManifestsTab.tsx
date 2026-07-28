@@ -9,6 +9,8 @@ import StatusBadge from '../ui/StatusBadge';
 import { useRegisterGestaoModuleActions } from './layout/GestaoModuleActionsContext';
 import { manifestStatusLabels as statusLabels, manifestStatusTone as manifestTone } from '../../lib/manifestStatusUi';
 
+const PAGE_SIZE = 50;
+
 const tripTypeLabels: Record<ManifestTripType, string> = {
   TRANSFER: 'Transferência hub',
   DELIVERY: 'Entrega final',
@@ -19,18 +21,25 @@ const tripTypeLabels: Record<ManifestTripType, string> = {
 const ManifestsTab: React.FC = () => {
   const navigate = useNavigate();
   const [manifests, setManifests] = useState<Manifest[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [gestaoFilterOpen, setGestaoFilterOpen] = useState(false);
   const [filterStatus, setFilterStatus] = useState('');
   const [filterQ, setFilterQ] = useState('');
 
-  const load = async () => {
+  const load = async (currentPage = page, currentStatus = filterStatus) => {
     setLoading(true);
     setError(null);
     try {
-      const manRes = await manifestsApi.list({});
+      const manRes = await manifestsApi.list({
+        status: currentStatus || undefined,
+        limit: PAGE_SIZE,
+        offset: currentPage * PAGE_SIZE,
+      });
       setManifests(Array.isArray((manRes as any)?.data) ? (manRes as any).data : []);
+      setTotal((manRes as any)?.pagination?.total ?? 0);
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Erro ao carregar viagens');
     } finally {
@@ -38,20 +47,22 @@ const ManifestsTab: React.FC = () => {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    setPage(0);
+    void load(0, filterStatus);
+  }, [filterStatus]);
 
+  // Client-side text search applied to the current page
   const filteredManifests = useMemo(() => {
-    let list = manifests;
-    if (filterStatus) list = list.filter((m) => m.status === filterStatus);
     const q = filterQ.trim().toLowerCase();
-    if (q) {
-      list = list.filter((m) => {
-        const o = `${m.origin ?? ''} ${m.destination ?? ''} ${m.id}`.toLowerCase();
-        return o.includes(q);
-      });
-    }
-    return list;
-  }, [manifests, filterStatus, filterQ]);
+    if (!q) return manifests;
+    return manifests.filter((m) => {
+      const o = `${m.origin ?? ''} ${m.destination ?? ''} ${m.id}`.toLowerCase();
+      return o.includes(q);
+    });
+  }, [manifests, filterQ]);
+
+  const totalPages = Math.ceil(total / PAGE_SIZE);
 
   const manifestGestao = useMemo(
     () => ({
@@ -68,7 +79,7 @@ const ManifestsTab: React.FC = () => {
       ],
       onList: () => {
         setGestaoFilterOpen(false);
-        void load();
+        void load(0, filterStatus);
         document.getElementById('manifests-lista')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       },
       onFilterToggle: () => setGestaoFilterOpen((v) => !v),
@@ -162,6 +173,30 @@ const ManifestsTab: React.FC = () => {
               </div>
             </RouterLink>
           ))}
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between pt-2">
+              <span className="text-xs text-tower-500 dark:text-tower-400">
+                {total} viagem(ns) · página {page + 1} de {totalPages}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  disabled={page === 0}
+                  onClick={() => { const p = page - 1; setPage(p); void load(p); }}
+                  className="rounded-lg border border-tower-200 px-3 py-1 text-sm disabled:opacity-40 dark:border-tower-600"
+                >
+                  ← Anterior
+                </button>
+                <button
+                  disabled={page + 1 >= totalPages}
+                  onClick={() => { const p = page + 1; setPage(p); void load(p); }}
+                  className="rounded-lg border border-tower-200 px-3 py-1 text-sm disabled:opacity-40 dark:border-tower-600"
+                >
+                  Próxima →
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

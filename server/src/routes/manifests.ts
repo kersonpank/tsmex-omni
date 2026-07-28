@@ -177,7 +177,9 @@ const emitCiotSchema = z.object({
 // GET /api/manifests - List manifests
 router.get('/', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const { status, linkId, hubId } = req.query;
+        const { status, linkId, hubId, limit = '50', offset = '0' } = req.query;
+        const parsedLimit = Math.min(Math.max(parseInt(limit as string, 10) || 50, 1), 100);
+        const parsedOffset = Math.max(parseInt(offset as string, 10) || 0, 0);
 
         const andConditions: Prisma.ManifestWhereInput[] = [];
 
@@ -203,71 +205,80 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
 
         if (status) andConditions.push({ status: status as any });
 
-        const manifests = await prisma.manifest.findMany({
-            where: andConditions.length > 0 ? { AND: andConditions } : {},
-            include: {
-                vehicleType: true,
-                link: {
-                    select: {
-                        id: true, name: true, phone: true, document: true, vehiclePlate: true,
-                        rntrc: true, carrierType: true, vehicleAxles: true, vehicleChassi: true, trailerPlate: true,
-                    },
+        const where: Prisma.ManifestWhereInput = andConditions.length > 0 ? { AND: andConditions } : {};
+        const include = {
+            vehicleType: true,
+            link: {
+                select: {
+                    id: true, name: true, phone: true, document: true, vehiclePlate: true,
+                    rntrc: true, carrierType: true, vehicleAxles: true, vehicleChassi: true, trailerPlate: true,
                 },
-                driver: { select: { id: true, name: true, document: true, cnhNumber: true, birthDate: true } },
-                hub: {
-                    select: { name: true, code: true }
-                },
-                destHub: {
-                    select: { name: true, code: true }
-                },
-                fiscalDocuments: { orderBy: { createdAt: 'desc' } },
-                freightAgreement: true,
-                tripStops: {
-                    orderBy: { sequence: 'asc' },
-                    include: { destHub: { select: { id: true, name: true, code: true } } },
-                },
-                legs: {
-                    include: {
-                        order: {
-                            include: {
-                                remetentePerson: {
-                                    select: { id: true, legalName: true, tradeName: true, document: true, city: true, state: true },
+            },
+            driver: { select: { id: true, name: true, document: true, cnhNumber: true, birthDate: true } },
+            hub: {
+                select: { name: true, code: true }
+            },
+            destHub: {
+                select: { name: true, code: true }
+            },
+            fiscalDocuments: { orderBy: { createdAt: 'desc' as const } },
+            freightAgreement: true,
+            tripStops: {
+                orderBy: { sequence: 'asc' as const },
+                include: { destHub: { select: { id: true, name: true, code: true } } },
+            },
+            legs: {
+                include: {
+                    order: {
+                        include: {
+                            remetentePerson: {
+                                select: { id: true, legalName: true, tradeName: true, document: true, city: true, state: true },
+                            },
+                            destinatarioPerson: {
+                                select: { id: true, legalName: true, tradeName: true, document: true, city: true, state: true },
+                            },
+                            invoicesRel: {
+                                orderBy: { createdAt: 'asc' as const },
+                                select: {
+                                    id: true,
+                                    type: true,
+                                    nfNumber: true,
+                                    nfKey: true,
+                                    volumes: true,
+                                    weight: true,
+                                    cubedVolume: true,
+                                    value: true,
                                 },
-                                destinatarioPerson: {
-                                    select: { id: true, legalName: true, tradeName: true, document: true, city: true, state: true },
-                                },
-                                invoicesRel: {
-                                    orderBy: { createdAt: 'asc' },
-                                    select: {
-                                        id: true,
-                                        type: true,
-                                        nfNumber: true,
-                                        nfKey: true,
-                                        volumes: true,
-                                        weight: true,
-                                        cubedVolume: true,
-                                        value: true,
-                                    },
-                                },
-                                demand: {
-                                    select: { id: true, origin: true, destination: true, commodity: true, weight: true, volume: true, nfValue: true, status: true }
-                                }
+                            },
+                            demand: {
+                                select: { id: true, origin: true, destination: true, commodity: true, weight: true, volume: true, nfValue: true, status: true }
                             }
                         }
                     }
-                },
-                _count: {
-                    select: { legs: true }
                 }
             },
-            orderBy: { createdAt: 'desc' },
-        });
+            _count: {
+                select: { legs: true }
+            }
+        } as const;
+
+        const [manifests, total] = await prisma.$transaction([
+            prisma.manifest.findMany({
+                where,
+                include,
+                orderBy: { createdAt: 'desc' },
+                take: parsedLimit,
+                skip: parsedOffset,
+            }),
+            prisma.manifest.count({ where }),
+        ]);
 
         const mappedManifests = manifests.map(mapManifestLegsToDemands);
 
         res.json({
             success: true,
             data: mappedManifests,
+            pagination: { total, limit: parsedLimit, offset: parsedOffset },
         });
     } catch (error) {
         next(error);

@@ -492,7 +492,7 @@ export const nfeManualInvoicesApi = {
 // ========== MANIFESTS API ==========
 
 export const manifestsApi = {
-    list: async (params?: { status?: string; linkId?: string }) => {
+    list: async (params?: { status?: string; linkId?: string; limit?: number; offset?: number }) => {
         const response = await api.get<PaginatedResponse<Manifest>>('/manifests', { params });
         return response.data;
     },
