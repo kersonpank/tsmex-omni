@@ -44,6 +44,9 @@ model User {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([accountId])
+  @@index([hubId])
 }
 
 enum AttachmentType {
@@ -207,6 +210,8 @@ model Client {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([accountId])
 }
 
 // ========================================
@@ -387,6 +392,9 @@ model Link {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([approvalStatus])
+  @@index([approvalStatus, active])
 }
 
 enum LinkCarrierType {
@@ -548,6 +556,10 @@ model PricingTable {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([clientId])
+  @@index([accountId])
+  @@index([routeId])
 }
 
 enum PricingTableType {
@@ -582,6 +594,8 @@ model MinFreightRange {
   value     Float // Minimum freight value (R$)
 
   createdAt DateTime @default(now())
+
+  @@index([pricingTableId])
 }
 
 // ========================================
@@ -657,6 +671,8 @@ model Demand {
   @@unique([sourceType, externalReference])
   @@index([expectedHubId])
   @@index([status, expectedHubId])
+  @@index([clientId])
+  @@index([status])
 }
 
 enum DemandIntent {
@@ -711,6 +727,8 @@ model DemandEvent {
   photoUrl    String?
 
   createdAt DateTime @default(now())
+
+  @@index([demandId])
 }
 
 // ========================================
@@ -812,6 +830,12 @@ model Manifest {
   // Fiscal travel documents (MDF-e, CIOT and future trip-level docs)
   fiscalDocuments  ManifestFiscalDocument[]
   ciotEmissionJobs CiotEmissionJob[]
+
+  @@index([status])
+  @@index([linkId])
+  @@index([hubId])
+  @@index([destHubId])
+  @@index([createdAt])
 }
 
 enum CiotTipoViagem {
