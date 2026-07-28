@@ -328,50 +328,48 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
         const [orders, total] = await prisma.$transaction([
             prisma.order.findMany({
                 where,
-                include: {
+                select: {
+                    id: true,
+                    demandId: true,
+                    status: true,
+                    nfNumber: true,
+                    origemPrestacao: true,
+                    fimPrestacao: true,
+                    currentHubId: true,
+                    collectionData: true,
+                    createdAt: true,
+                    updatedAt: true,
                     demand: {
-                        include: {
+                        select: {
+                            id: true,
+                            orderNumber: true,
+                            nfNumber: true,
+                            origin: true,
+                            destination: true,
+                            status: true,
+                            weight: true,
+                            volume: true,
+                            cubedWeight: true,
+                            nfValue: true,
+                            units: true,
                             client: {
-                                include: {
-                                    account: true
-                                }
+                                select: { id: true, companyName: true, accountId: true }
                             }
-                        }
-                    },
-                    opportunity: true,
-                    manifest: {
-                        include: {
-                            link: true,
-                            hub: true
                         }
                     },
                     currentHub: { select: { id: true, name: true, code: true } },
-                    legs: {
-                        include: {
-                            manifest: {
-                                include: {
-                                    link: { select: { name: true } },
-                                    hub: { select: { name: true, code: true } },
-                                    destHub: { select: { name: true, code: true } }
-                                }
-                            }
-                        },
-                        orderBy: { sequence: 'asc' }
-                    },
                     remetentePerson: { select: { id: true, legalName: true, city: true, state: true, document: true } },
                     destinatarioPerson: { select: { id: true, legalName: true, city: true, state: true, document: true } },
-                    history: {
+                    attachments: {
+                        select: {
+                            id: true,
+                            createdAt: true,
+                            attachment: { select: { id: true, fileName: true, downloadUrl: true } }
+                        },
                         orderBy: { createdAt: 'desc' },
-                        take: 10
                     },
                     _count: {
                         select: { history: true, invoices: true }
-                    },
-                    attachments: {
-                        include: {
-                            attachment: true,
-                        },
-                        orderBy: { createdAt: 'desc' },
                     },
                 },
                 orderBy,
