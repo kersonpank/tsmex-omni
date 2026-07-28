@@ -33,7 +33,21 @@ const fileToBase64 = (file: File): Promise<string> =>
     reader.readAsDataURL(file);
   });
 
-const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false }) => {
+interface EntradaTabProps {
+  mobileWizard?: boolean;
+  startCreating?: boolean;
+  initialNfeCode?: string;
+  onCreated?: (orderId: string) => void;
+  onCancelContext?: () => void;
+}
+
+const EntradaTab: React.FC<EntradaTabProps> = ({
+  mobileWizard = false,
+  startCreating = false,
+  initialNfeCode,
+  onCreated,
+  onCancelContext,
+}) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuthStore();
@@ -258,6 +272,13 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
     setSectionsExpanded((prev) => ({ ...prev, pessoas: true }));
     setGestaoFilterOpen(false);
   }, [hubId, isHub]);
+
+  useEffect(() => {
+    if (!startCreating) return;
+    handleNovoPedido();
+    const normalized = initialNfeCode?.replace(/\D/g, '').slice(0, 44) ?? '';
+    if (normalized) setPrescanChaveInput(normalized);
+  }, [handleNovoPedido, initialNfeCode, startCreating]);
 
   const filteredOrders = useMemo(() => {
     const q = ordersFilterQ.trim().toLowerCase();
@@ -589,6 +610,7 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
         setSelectedOrderId(o.id);
         setOrder(o);
         setSuccess('Pedido criado.');
+        onCreated?.(o.id);
         loadOrders();
       }
       setTimeout(() => setSuccess(null), 3000);
@@ -686,7 +708,22 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h2 className="text-lg font-bold text-tower-700 dark:text-tower-200">PEDIDOS</h2>
+        <div className="flex items-center gap-2">
+          {onCancelContext && (
+            <button
+              type="button"
+              onClick={onCancelContext}
+              className="admin-focus grid h-11 w-11 place-items-center rounded-xl border border-tower-300 text-lg text-tower-700 dark:border-tower-600 dark:text-tower-200"
+              aria-label="Voltar para Pedidos do Hub"
+            >
+              ←
+            </button>
+          )}
+          <div>
+            <h2 className="text-lg font-bold text-tower-700 dark:text-tower-200">{startCreating ? 'NOVA ENTRADA' : 'PEDIDOS'}</h2>
+            {startCreating && <p className="text-xs text-tower-500">Ao concluir, você volta para o estoque com o pedido disponível.</p>}
+          </div>
+        </div>
         <div className="flex gap-2 items-center">
           <button
             type="button"

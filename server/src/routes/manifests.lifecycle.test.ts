@@ -56,14 +56,15 @@ describe('manifests lifecycle TRANSFER E2E (mocked)', () => {
                     id,
                     demandId: demandIds[i],
                     manifestId: null as string | null,
-                    status: 'PENDING',
-                    currentHubId: null as string | null,
-                    enteredAtHubAt: null as Date | null,
+                    status: 'AT_HUB',
+                    currentHubId: hubSpGru as string | null,
+                    enteredAtHubAt: new Date('2026-07-28T12:00:00.000Z') as Date | null,
                     demand: {
                         weight: 100 + i * 10,
                         volume: 1,
                         nfValue: 500,
                         cubedWeight: null,
+                        expectedHubId: hubSpGru,
                     }
                 },
             ])

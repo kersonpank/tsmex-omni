@@ -29,6 +29,7 @@ import { fiscalEmittersRouter } from './routes/fiscalEmitters.js';
 import { fiscalDistribuicaoRouter } from './routes/fiscalDistribuicao.js';
 import { nfeDistribuicaoTriagemRouter } from './routes/nfeDistribuicaoTriagem.js';
 import { intakeDemandsRouter } from './routes/intakeDemands.js';
+import { hubCargoRouter } from './routes/hubCargo.js';
 import { systemAlertsRouter } from './routes/systemAlerts.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -82,6 +83,7 @@ app.use('/api/fiscal', fiscalDistribuicaoRouter);
 app.use('/api/fiscal/distribuicao-nfe/triagem', nfeDistribuicaoTriagemRouter);
 app.use('/api/system-alerts', systemAlertsRouter);
 app.use('/api/intake', intakeDemandsRouter);
+app.use('/api/hub/cargo', hubCargoRouter);
 app.use('/api/opportunities', opportunitiesRouter);
 app.use('/api/chat', chatRouter);
 app.use('/api/accounts', accountsRouter);

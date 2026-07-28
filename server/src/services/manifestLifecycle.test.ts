@@ -240,6 +240,7 @@ describe('manifestLifecycle', () => {
                 id: draftManifestId,
                 status: 'DRAFT',
                 tripType: 'TRANSFER',
+                hubId: originHubId,
                 totalWeight: 50,
                 totalVolume: 0.5,
                 totalValue: 200,
@@ -252,12 +253,14 @@ describe('manifestLifecycle', () => {
         prisma.order.findUnique = (async () => ({
             id: orderId,
             manifestId: null,
-            status: 'PENDING',
+            status: 'AT_HUB',
+            currentHubId: originHubId,
             demand: {
                 weight: 50,
                 volume: 0.5,
                 nfValue: 200,
                 cubedWeight: null,
+                expectedHubId: originHubId,
             }
         })) as unknown as typeof prisma.order.findUnique;
 
@@ -428,6 +431,7 @@ describe('manifestLifecycle', () => {
             id: draftManifestId,
             status: 'DRAFT',
             tripType: 'TRANSFER',
+            hubId: originHubId,
             totalWeight: 50,
             totalVolume: 0.5,
             totalValue: 200,
@@ -439,8 +443,9 @@ describe('manifestLifecycle', () => {
         prisma.order.findUnique = (async () => ({
             id: orderId,
             manifestId: null,
-            status: 'PENDING',
-            demand: { weight: 50, volume: 0.5, nfValue: 200, cubedWeight: null }
+            status: 'AT_HUB',
+            currentHubId: originHubId,
+            demand: { weight: 50, volume: 0.5, nfValue: 200, cubedWeight: null, expectedHubId: originHubId }
         })) as any;
 
         (prisma as any).orderLeg = {

@@ -1,44 +1,20 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { manifestsApi, ordersApi, intakeDemandsApi } from '../../lib/api';
-import { demandStatusLabels, demandStatusTones, orderStatusLabels, orderStatusTones, type StatusTone } from '../../lib/demandStatusUi';
-import { manifestStatusLabels as MANIFEST_STATUS_LABEL, manifestStatusTone as MANIFEST_STATUS_TONE } from '../../lib/manifestStatusUi';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { hubCargoApi, manifestsApi } from '../../lib/api';
+import { manifestStatusLabels, manifestStatusTone } from '../../lib/manifestStatusUi';
 import { useAuthStore } from '../../store/authStore';
-import type { Manifest, OrderAggregateSummary, OrderStatus, ResolvedOrderSummary } from '../../types/index';
+import { useHubCargoStore } from '../../store/hubCargoStore';
+import type { HubCargoSummary, Manifest } from '../../types/index';
 import EntradaTab from '../admin/EntradaTab';
 import InlineNotice from '../ui/InlineNotice';
-import OrderScanInput from '../ui/OrderScanInput';
-import ThemeToggle from '../ui/ThemeToggle';
 import BottomNav, { type BottomNavItem } from './BottomNav';
-import HubAwaitingArrivalTab from './HubAwaitingArrivalTab';
-import NfeDistribuicaoTriagemTab from './NfeDistribuicaoTriagemTab';
-import { HubNavIconHome, HubNavIconInbox, HubNavIconManifest, HubNavIconOrders, HubNavIconPlus } from './hubNavIcons';
+import HubOrdersWorkspace from './hub/HubOrdersWorkspace';
+import { HubNavIconHome, HubNavIconManifest, HubNavIconOrders } from './hubNavIcons';
 
-type Tab = 'inicio' | 'recebimento' | 'entrada' | 'pedidos' | 'manifestos';
-
-interface Order {
-  id: string;
-  status: OrderStatus;
-  nfNumber?: string;
-  demand?: {
-    id?: string;
-    status?: keyof typeof demandStatusLabels;
-    nfNumber?: string;
-    origin?: string;
-    destination?: string;
-    commodity?: string;
-    weight?: number;
-    volume?: number;
-    units?: number;
-    cubedWeight?: number;
-    nfValue?: number;
-  };
-  attachments?: unknown[];
-  [key: string]: any;
-}
+type Tab = 'inicio' | 'pedidos' | 'viagens';
 
 const ACTIVE_MANIFEST_STATUSES = ['PENDING_ACCEPT', 'ACCEPTED', 'IN_PROGRESS'];
 
-const toneClassMap: Record<StatusTone, string> = {
+const toneClasses: Record<string, string> = {
   neutral: 'tone-neutral',
   info: 'tone-info',
   warning: 'tone-warning',
@@ -46,629 +22,359 @@ const toneClassMap: Record<StatusTone, string> = {
   danger: 'tone-danger',
 };
 
-const fileToBase64 = (file: File): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-
-const shortId = (id?: string): string => (id ? id.slice(0, 8).toUpperCase() : '--------');
-
-const toDateLabel = (order: Order): string => {
-  const createdAt = order.createdAt ? new Date(order.createdAt) : null;
-  if (!createdAt) return 'Sem data';
-  const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
-  const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
-  if (sameDay(createdAt, today)) return 'Hoje';
-  if (sameDay(createdAt, yesterday)) return 'Ontem';
-  return 'Esta semana';
+const EMPTY_SUMMARY: HubCargoSummary = {
+  stock: {
+    orders: 0,
+    invoices: 0,
+    units: 0,
+    realWeightKg: 0,
+    cubedWeightKg: 0,
+    effectiveWeightKg: 0,
+    volumeM3: 0,
+    fiscalValueBRL: 0,
+    withoutActiveTrip: 0,
+  },
+  incoming: { orders: 0, trips: 0 },
+  awaiting: { demands: 0 },
+  triage: { documents: 0 },
 };
 
-const getOrderCustody = (order: any): string => {
-  if (order.status === 'AT_HUB') {
-    return `No HUB ${order.currentHub?.name ?? order.currentHub?.code ?? '—'}`;
-  }
-  if (order.status === 'IN_TRANSIT') {
-    const activeLeg = order.legs?.find((leg: any) => leg.startedAt && !leg.completedAt);
-    if (activeLeg) {
-      const origin = activeLeg.legType === 'COLETA'
-        ? (order.origemPrestacao ?? order.demand?.origin ?? 'Origem')
-        : (activeLeg.manifest?.hub?.name ?? activeLeg.manifest?.hub?.code ?? 'HUB Origem');
-      const dest = activeLeg.legType === 'ENTREGA'
-        ? (order.fimPrestacao ?? order.demand?.destination ?? 'Destino')
-        : (activeLeg.manifest?.destHub?.name ?? activeLeg.manifest?.destHub?.code ?? 'HUB Destino');
-      return `Em trânsito na perna: ${origin} → ${dest}`;
-    }
-    if (order.manifest) {
-      return `Em trânsito (${order.manifest.origin} → ${order.manifest.destination})`;
-    }
-    return 'Em trânsito';
-  }
-  if (order.status === 'PENDING') {
-    return 'Aguardando coleta';
-  }
-  if (order.status === 'OUT_FOR_DELIVERY') {
-    return 'Saiu para entrega final';
-  }
-  if (order.status === 'DELIVERED') {
-    return 'Entregue';
-  }
-  if (order.status === 'CANCELLED') {
-    return 'Cancelado';
-  }
-  return '—';
-};
-
-const orderCargoLine = (order: Order): React.ReactNode => {
-  const parts: string[] = [];
-  if (typeof order.demand?.units === 'number') parts.push(`${order.demand.units} vol`);
-  if (typeof order.demand?.weight === 'number') parts.push(`${order.demand.weight.toLocaleString('pt-BR')} kg`);
-  if (typeof order.demand?.cubedWeight === 'number') parts.push(`cubado ${order.demand.cubedWeight.toLocaleString('pt-BR')} kg`);
-  if (typeof order.demand?.nfValue === 'number') parts.push(`R$ ${order.demand.nfValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
-  if (parts.length === 0) return null;
-  return <div className="mt-1 text-xs text-tower-600 dark:text-tower-400">{parts.join(' · ')}</div>;
-};
-
-function extractArray(res: any): any[] {
-  if (Array.isArray(res)) return res;
-  if (res && Array.isArray(res.data)) return res.data;
+function extractArray(response: any): Manifest[] {
+  if (Array.isArray(response)) return response;
+  if (Array.isArray(response?.data)) return response.data;
   return [];
 }
 
-const ManifestCard: React.FC<{ m: any; children?: React.ReactNode }> = ({ m, children }) => (
-  <div className="card-surface p-4">
-    <div className="flex items-start justify-between gap-2">
-      <div>
-        <p className="text-sm font-semibold text-tower-800 dark:text-tower-100">{m.link?.name ?? 'Sem responsável'}</p>
-        <p className="text-xs text-tower-600 dark:text-tower-400">{m.origin} → {m.destination}</p>
+function manifestRoute(manifest: Manifest): string {
+  return `${manifest.origin || 'Origem'} → ${manifest.destination || 'Destino'}`;
+}
+
+const ManifestCard: React.FC<{
+  manifest: Manifest;
+  onReceiveStop?: (stopId: string) => void;
+  onReceiveTrip?: () => void;
+}> = ({ manifest, onReceiveStop, onReceiveTrip }) => {
+  const tone = manifestStatusTone[manifest.status] ?? 'neutral';
+  const pendingStop = manifest.tripStops?.find((stop) => !stop.completedAt);
+  return (
+    <article className="rounded-2xl border border-tower-200 bg-white p-4 dark:border-tower-700 dark:bg-tower-900">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-tower-950 dark:text-white">
+            {manifest.driver?.name ?? manifest.link?.name ?? 'Responsável ainda não definido'}
+          </p>
+          <p className="mt-1 truncate text-xs text-tower-600 dark:text-tower-300">{manifestRoute(manifest)}</p>
+        </div>
+        <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold ${toneClasses[tone]}`}>
+          {manifestStatusLabels[manifest.status] ?? manifest.status}
+        </span>
       </div>
-      <span className={`rounded-full px-2 py-1 text-[11px] font-medium ${toneClassMap[MANIFEST_STATUS_TONE[m.status] ?? 'neutral']}`}>{MANIFEST_STATUS_LABEL[m.status] ?? m.status}</span>
-    </div>
-    {m.tripStops && m.tripStops.length > 0 && (
-      <ul className="mt-2 space-y-1 text-xs text-tower-600 dark:text-tower-300">
-        {m.tripStops.map((s: any) => (
-          <li key={s.id}>
-            #{s.sequence} — {s.destHub ? `${s.destHub.name} (${s.destHub.code})` : (s.destinationLabel ?? s.destCity ?? 'Parada')}
-            {s.completedAt ? ' · Concluída' : ' · Pendente'}
-          </li>
-        ))}
-      </ul>
-    )}
-    <div className="mt-3 flex items-center justify-between text-xs pt-2 border-t border-tower-100 dark:border-tower-800">
-      <span className="text-tower-500 dark:text-tower-400">Margem:</span>
-      {m.costComplete ? (
-        <span className={`font-semibold ${(m.margin ?? 0) >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(m.margin ?? 0)} ({m.marginPercent?.toFixed(1) ?? '0.0'}%)
-        </span>
-      ) : (
-        <span className="rounded bg-yellow-500/10 px-1.5 py-0.5 text-[10px] font-medium text-yellow-600 dark:text-yellow-400">
-          Custo não definido
-        </span>
+
+      <dl className="mt-3 flex flex-wrap gap-x-5 gap-y-2 border-y border-tower-100 py-3 text-xs dark:border-tower-800">
+        <div>
+          <dt className="text-tower-500">Pedidos</dt>
+          <dd className="font-bold text-tower-800 dark:text-tower-100">{manifest.demands?.length ?? 0}</dd>
+        </div>
+        <div>
+          <dt className="text-tower-500">Paradas declaradas</dt>
+          <dd className="font-bold text-tower-800 dark:text-tower-100">{manifest.tripStops?.length ?? 0}</dd>
+        </div>
+        {manifest.plannedDepartureAt && (
+          <div>
+            <dt className="text-tower-500">Saída programada</dt>
+            <dd className="font-bold text-tower-800 dark:text-tower-100">
+              {new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(manifest.plannedDepartureAt))}
+            </dd>
+          </div>
+        )}
+      </dl>
+
+      {pendingStop && (
+        <p className="mt-3 text-xs text-tower-600 dark:text-tower-300">
+          Próximo ponto: {pendingStop.destHub?.name ?? pendingStop.destinationLabel ?? pendingStop.destCity ?? 'A conferir'}
+        </p>
       )}
-    </div>
-    <button
-      type="button"
-      onClick={() => { window.location.hash = `#/manifests/${m.id}`; }}
-      className="mt-3 w-full rounded-lg border border-tower-300 py-2 text-sm font-semibold text-tower-700 hover:bg-tower-50 dark:border-tower-600 dark:text-tower-200 dark:hover:bg-tower-800"
-    >
-      Ver detalhes →
-    </button>
-    {children}
-  </div>
-);
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => { window.location.hash = `#/manifests/${manifest.id}`; }}
+          className="admin-focus min-h-11 flex-1 rounded-xl border border-tower-300 px-3 text-sm font-semibold text-tower-700 dark:border-tower-600 dark:text-tower-200"
+        >
+          Ver viagem
+        </button>
+        {pendingStop && onReceiveStop && (
+          <button type="button" onClick={() => onReceiveStop(pendingStop.id)} className="admin-focus min-h-11 flex-1 rounded-xl bg-brand-600 px-3 text-sm font-bold text-white">
+            Confirmar recebimento
+          </button>
+        )}
+        {!pendingStop && onReceiveTrip && (
+          <button type="button" onClick={onReceiveTrip} className="admin-focus min-h-11 flex-1 rounded-xl bg-brand-600 px-3 text-sm font-bold text-white">
+            Confirmar recebimento
+          </button>
+        )}
+      </div>
+    </article>
+  );
+};
 
 const HubHome: React.FC = () => {
-  const { user, logout } = useAuthStore();
+  const { user } = useAuthStore();
+  const { setBucket } = useHubCargoStore();
   const [tab, setTab] = useState<Tab>('inicio');
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [manifestos, setManifestos] = useState<Manifest[]>([]);
+  const [manifests, setManifests] = useState<Manifest[]>([]);
+  const [summary, setSummary] = useState<HubCargoSummary>(EMPTY_SUMMARY);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [query, setQuery] = useState('');
-  const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
-  const [showProfileSheet, setShowProfileSheet] = useState(false);
-  const [attachmentUploadingOrderId, setAttachmentUploadingOrderId] = useState<string | null>(null);
-  const [awaitingRecebimentoCount, setAwaitingRecebimentoCount] = useState(0);
-  const [orderSummary, setOrderSummary] = useState<OrderAggregateSummary | null>(null);
+  const [manualEntry, setManualEntry] = useState<{ open: boolean; initialCode?: string }>({ open: false });
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedQuery(query.trim().toLowerCase()), 200);
-    return () => window.clearTimeout(timer);
-  }, [query]);
+  const profileHubId = (user?.profile as { hub?: { hubId?: string } } | undefined)?.hub?.hubId;
+  const hubId = user?.hubId ?? profileHubId ?? null;
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const apiErr = (e: unknown): string => {
-      if (e && typeof e === 'object' && 'response' in e) {
-        const res = (e as { response?: { data?: { error?: string } } }).response;
-        return res?.data?.error || 'Erro ao carregar dados';
-      }
-      return e instanceof Error ? e.message : 'Erro ao carregar dados';
-    };
-
-    const [ordersSettled, manifestsSettled, intakeSettled] =
-      await Promise.allSettled([
-        ordersApi.list({ limit: 200, statuses: 'AT_HUB,IN_TRANSIT,PENDING,OUT_FOR_DELIVERY' }),
-        manifestsApi.list({}),
-        intakeDemandsApi.list({ status: 'AWAITING_ARRIVAL', limit: 1, offset: 0 }),
-      ]);
-
-    const criticalErrors: string[] = [];
-
-    if (ordersSettled.status === 'fulfilled') {
-      setOrders(extractArray(ordersSettled.value));
+    const [manifestResult, summaryResult] = await Promise.allSettled([
+      manifestsApi.list({}),
+      hubCargoApi.summary(hubId ?? undefined),
+    ]);
+    if (manifestResult.status === 'fulfilled') {
+      setManifests(extractArray(manifestResult.value));
     } else {
-      setOrders([]);
-      criticalErrors.push(apiErr(ordersSettled.reason));
+      setManifests([]);
+      setError((manifestResult.reason as any)?.response?.data?.error || 'Não foi possível carregar as viagens.');
     }
-
-    if (manifestsSettled.status === 'fulfilled') {
-      setManifestos(extractArray(manifestsSettled.value));
+    if (summaryResult.status === 'fulfilled') {
+      setSummary(summaryResult.value.data);
     } else {
-      setManifestos([]);
-      criticalErrors.push(apiErr(manifestsSettled.reason));
+      setError((summaryResult.reason as any)?.response?.data?.error || 'Não foi possível carregar a operação do Hub.');
     }
-
-    if (intakeSettled.status === 'fulfilled') {
-      const intakeCountRes = intakeSettled.value;
-      if (intakeCountRes && typeof intakeCountRes === 'object' && 'pagination' in intakeCountRes) {
-        setAwaitingRecebimentoCount(
-          (intakeCountRes as { pagination?: { total?: number } }).pagination?.total ?? 0,
-        );
-      } else {
-        setAwaitingRecebimentoCount(0);
-      }
-    } else {
-      setAwaitingRecebimentoCount(0);
-    }
-
-    if (criticalErrors.length > 0) {
-      setError(criticalErrors[0]);
-    }
-
     setLoading(false);
-  }, []);
-
-  useEffect(() => { void load(); }, [load]);
+  }, [hubId]);
 
   useEffect(() => {
-    let cancelled = false;
-    ordersApi.aggregate({ statuses: 'AT_HUB,IN_TRANSIT,PENDING,OUT_FOR_DELIVERY' })
-      .then((res) => {
-        if (!cancelled) setOrderSummary(res?.data ?? null);
-      })
-      .catch(() => {
-        if (!cancelled) setOrderSummary(null);
-      });
-    return () => { cancelled = true; };
-  }, []);
+    void load();
+  }, [load]);
 
-  const manifestosAtivos = useMemo(() => manifestos.filter((m) => ACTIVE_MANIFEST_STATUSES.includes(m.status)), [manifestos]);
-  const myHubId = user?.hubId;
-  const manifestosSaindo = useMemo(() => manifestosAtivos.filter((m) => m.hubId === myHubId), [manifestosAtivos, myHubId]);
-  const manifestosRascunho = useMemo(
-    () => manifestos.filter((m) => m.status === 'DRAFT' && m.hubId === myHubId),
-    [manifestos, myHubId]
+  const activeManifests = useMemo(
+    () => manifests.filter((manifest) => ACTIVE_MANIFEST_STATUSES.includes(manifest.status)),
+    [manifests],
   );
-  const manifestosChegando = useMemo(
+  const drafts = useMemo(
+    () => manifests.filter((manifest) => manifest.status === 'DRAFT' && manifest.hubId === hubId),
+    [hubId, manifests],
+  );
+  const outbound = useMemo(
+    () => activeManifests.filter((manifest) => manifest.hubId === hubId),
+    [activeManifests, hubId],
+  );
+  const inbound = useMemo(
     () =>
-      manifestosAtivos.filter(
-        (m) => m.hubId !== myHubId && (m.destHubId === myHubId || (m.tripStops ?? []).some((s) => s.destHubId === myHubId))
+      activeManifests.filter(
+        (manifest) =>
+          manifest.hubId !== hubId &&
+          (manifest.destHubId === hubId ||
+            (manifest.tripStops ?? []).some((stop) => stop.destHubId === hubId && !stop.completedAt)),
       ),
-    [manifestosAtivos, myHubId]
+    [activeManifests, hubId],
   );
-  const orderIdsInManifest = useMemo(() => new Set(manifestosAtivos.flatMap((m) => (m.demands ?? []).map((d) => d.id))), [manifestosAtivos]);
-  const pedidosSemManifesto = useMemo(() => orders.filter((o) => !orderIdsInManifest.has(o.demand?.id ?? o.id)), [orders, orderIdsInManifest]);
 
-  const kpi = useMemo(() => ({
-    aConsolidar: pedidosSemManifesto.length,
-    aguardamCotacao: orders.filter((o) => o.status === 'PENDING').length,
-    emTransito: orders.filter((o) => o.status === 'IN_TRANSIT').length,
-    noHub: orders.filter((o) => o.status === 'AT_HUB').length,
-  }), [orders, pedidosSemManifesto.length]);
-
-  const recentDemandsGrouped = useMemo(() => {
-    const sorted = [...orders].sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()).slice(0, 8);
-    return sorted.reduce<Record<string, Order[]>>((acc, order) => {
-      const label = toDateLabel(order);
-      if (!acc[label]) acc[label] = [];
-      acc[label].push(order);
-      return acc;
-    }, {});
-  }, [orders]);
-
-  const filteredOrders = useMemo(() => {
-    if (!debouncedQuery) return orders;
-    return orders.filter((o) => {
-      const haystack = `${o.id} ${o.nfNumber ?? ''} ${o.demand?.nfNumber ?? ''} ${o.demand?.origin ?? ''} ${o.demand?.destination ?? ''}`.toLowerCase();
-      return haystack.includes(debouncedQuery);
-    });
-  }, [debouncedQuery, orders]);
-
-  const flashSuccess = (msg: string) => {
-    if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
-    setSuccess(msg);
-    successTimeoutRef.current = setTimeout(() => setSuccess(null), 3000);
+  const goToCargo = (bucket: 'stock' | 'incoming' | 'awaiting' | 'triage') => {
+    setBucket(bucket);
+    setTab('pedidos');
   };
 
-  const toggleOrder = (orderId: string) => {
-    setSelectedOrderIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(orderId)) next.delete(orderId);
-      else next.add(orderId);
-      return next;
-    });
+  const createTrip = (orderIds: string[] = []) => {
+    const suffix = orderIds.length > 0 ? `?orders=${encodeURIComponent(orderIds.join(','))}` : '';
+    window.location.hash = `#/manifests/new${suffix}`;
   };
 
-  const handleOrderAttachmentUpload = async (orderId: string, file: File) => {
-    setAttachmentUploadingOrderId(orderId);
-    setError(null);
-    try {
-      const base64 = await fileToBase64(file);
-      await ordersApi.addAttachment(orderId, {
-        file: base64,
-        filename: file.name,
-        mimeType: file.type || 'application/octet-stream',
-        category: 'HUB_HOME',
-      });
-      await load();
-    } catch (e: any) {
-      setError(e.response?.data?.error || e.message || 'Erro ao anexar arquivo');
-    } finally {
-      setAttachmentUploadingOrderId(null);
-    }
-  };
-
-  const handleReceiveStop = async (manifestId: string, stopId: string) => {
-    if (!window.confirm('Confirmar recebimento desta carga no seu hub?')) return;
+  const receiveStop = async (manifestId: string, stopId: string) => {
+    if (!window.confirm('Confirmar que esta carga chegou fisicamente ao seu Hub?')) return;
     setError(null);
     try {
       await manifestsApi.completeStop(manifestId, stopId);
+      setSuccess('Recebimento da parada confirmado.');
       await load();
-    } catch (e: any) {
-      setError(e.response?.data?.error || e.message || 'Erro ao confirmar recebimento');
+    } catch (cause: any) {
+      setError(cause.response?.data?.error || cause.message || 'Não foi possível confirmar o recebimento.');
     }
   };
 
-  const handleReceiveManifest = async (manifestId: string) => {
-    if (!window.confirm('Confirmar recebimento desta viagem no seu hub?')) return;
+  const receiveManifest = async (manifestId: string) => {
+    if (!window.confirm('Confirmar que esta viagem chegou fisicamente ao seu Hub?')) return;
     setError(null);
     try {
       await manifestsApi.complete(manifestId);
+      setSuccess('Recebimento da viagem confirmado.');
       await load();
-    } catch (e: any) {
-      setError(e.response?.data?.error || e.message || 'Erro ao confirmar recebimento');
+    } catch (cause: any) {
+      setError(cause.response?.data?.error || cause.message || 'Não foi possível confirmar o recebimento.');
     }
   };
 
   const navItems: BottomNavItem[] = [
-    { key: 'inicio', label: 'Início', icon: <HubNavIconHome />, badge: pedidosSemManifesto.length },
-    { key: 'recebimento', label: 'Receber', icon: <HubNavIconInbox />, badge: awaitingRecebimentoCount > 0 ? awaitingRecebimentoCount : undefined },
-    { key: 'entrada', label: 'Entrada', icon: <HubNavIconPlus /> },
-    { key: 'pedidos', label: 'Pedidos', icon: <HubNavIconOrders /> },
-    { key: 'manifestos', label: 'Manifestos', icon: <HubNavIconManifest />, badge: manifestosAtivos.length },
+    { key: 'inicio', label: 'Início', icon: <HubNavIconHome /> },
+    {
+      key: 'pedidos',
+      label: 'Pedidos',
+      icon: <HubNavIconOrders />,
+      badge: summary.awaiting.demands + summary.triage.documents || undefined,
+    },
+    { key: 'viagens', label: 'Viagens', icon: <HubNavIconManifest />, badge: activeManifests.length || undefined },
   ];
 
   return (
     <div className="min-h-screen bg-[var(--app-page-bg)] pb-24">
-      <header className="sticky top-0 z-30 border-b border-tower-200 bg-[var(--app-nav-bg)] shadow-[0_1px_0_rgb(15_23_42/0.04)] dark:border-tower-700 dark:bg-brand-950 dark:shadow-none">
-        <div className="flex items-center justify-between px-4 py-3 safe-area-top">
-          <div className="flex items-center gap-2">
-            <span className="rounded-full border border-brand-500/30 bg-brand-500/10 px-2 py-1 font-display text-[10px] font-semibold uppercase tracking-[0.14em] text-brand-700 dark:text-brand-300">TSM EX</span>
-            <h1 className="font-display text-lg font-semibold text-tower-900 dark:text-white">Dashboard</h1>
-          </div>
-          <button type="button" className="h-11 min-w-11 rounded-full bg-brand-700 px-3 text-sm font-semibold text-white" onClick={() => setShowProfileSheet(true)} aria-label="Abrir perfil">
-            {(user?.email?.[0] ?? 'U').toUpperCase()}
-          </button>
-        </div>
-      </header>
-
-      {(tab === 'manifestos' || selectedOrderIds.size > 0) && (
-        <div className="fab-up fixed bottom-[74px] left-0 right-0 z-30 px-4 pb-2">
-          <button
-            type="button"
-            onClick={() => {
-              const orderIds = Array.from(selectedOrderIds);
-              const query = orderIds.length > 0 ? `?orders=${encodeURIComponent(orderIds.join(','))}` : '';
-              window.location.hash = `#/manifests/new${query}`;
-            }}
-            className="min-h-[48px] w-full rounded-xl bg-brand-600 py-3 text-sm font-semibold text-white shadow-lg hover:bg-brand-700"
-          >
-            {selectedOrderIds.size > 0 ? `Manifesto (${selectedOrderIds.size})` : '+ Nova viagem'}
-          </button>
-        </div>
-      )}
-
-      <main key={tab} className="mobile-enter p-4">
-        {error && (
-          <div className="mobile-enter mb-4 flex items-center justify-between gap-3 rounded-xl border border-brand-red-500/30 bg-brand-red-500/10 p-3 text-sm text-brand-red-600 dark:text-brand-red-400">
-            <span>{error}</span>
-            <button type="button" onClick={() => void load()} className="rounded-lg px-2 py-1 text-xs font-semibold underline">Tentar novamente</button>
-          </div>
-        )}
-        {success && (
-          <div className="mobile-enter mb-4">
-            <InlineNotice variant="success" message={success} onDismiss={() => setSuccess(null)} />
-          </div>
-        )}
-        {loading && <div className="py-16 text-center text-sm text-tower-600 dark:text-tower-300">Carregando...</div>}
-
-        {!loading && tab === 'recebimento' && (
-          <div className="space-y-6">
-            <HubAwaitingArrivalTab
-              onGoEntrada={() => setTab('entrada')}
-              onConfirmed={() => void load()}
-              onViewOrder={(orderId) => {
-                window.location.hash = `#/orders/${orderId}`;
-              }}
-            />
-            <NfeDistribuicaoTriagemTab onConverted={() => void load()} />
-          </div>
-        )}
+      <main key={`${tab}-${manualEntry.open}`} className="mobile-enter mx-auto max-w-6xl p-4">
+        {error && <div className="mb-4"><InlineNotice variant="error" message={error} onDismiss={() => setError(null)} /></div>}
+        {success && <div className="mb-4"><InlineNotice variant="success" message={success} onDismiss={() => setSuccess(null)} /></div>}
+        {loading && <div className="py-20 text-center text-sm text-tower-500">Carregando operação...</div>}
 
         {!loading && tab === 'inicio' && (
-          <section className="space-y-4">
-            <div className="card-surface border-brand-500/25 p-4 dark:border-brand-500/20 dark:bg-brand-900/40">
-              <p className="font-display text-[10px] uppercase tracking-[0.14em] text-tower-600 dark:text-tower-300">Cenário agora</p>
-              <button type="button" className="mt-2 w-full text-left" onClick={() => { setTab('pedidos'); setQuery(''); }}>
-                <p className="font-display text-sm text-tower-700 dark:text-tower-200">A consolidar (sem manifesto)</p>
-                <p className="font-display text-4xl font-bold tabular-nums text-brand-600 dark:text-brand-300">{kpi.aConsolidar}</p>
+          <section className="space-y-6" aria-labelledby="home-title">
+            <header>
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-brand-600 dark:text-brand-300">Cenário agora</p>
+              <h1 id="home-title" className="mt-1 text-2xl font-bold tracking-tight text-tower-950 dark:text-white">O que precisa da sua atenção</h1>
+            </header>
+
+            <div className="overflow-hidden rounded-2xl border border-tower-200 bg-white dark:border-tower-700 dark:bg-tower-900">
+              <button type="button" onClick={() => goToCargo('stock')} className="admin-focus flex min-h-[76px] w-full items-center justify-between gap-4 border-b border-tower-200 px-4 py-3 text-left hover:bg-tower-50 dark:border-tower-700 dark:hover:bg-tower-800">
+                <span>
+                  <span className="block text-sm font-bold text-tower-900 dark:text-tower-100">Estoque disponível</span>
+                  <span className="mt-0.5 block text-xs text-tower-500">{summary.stock.withoutActiveTrip} sem viagem ativa · {summary.stock.realWeightKg.toLocaleString('pt-BR')} kg</span>
+                </span>
+                <span className="text-2xl font-extrabold tabular-nums text-brand-700 dark:text-brand-300">{summary.stock.orders}</span>
               </button>
-              <div className="mt-3 grid grid-cols-2 gap-2 border-t border-tower-200 pt-3 sm:grid-cols-4 dark:border-tower-700">
-                <KpiInline label="Aguardam cotação" value={kpi.aguardamCotacao} />
-                <KpiInline label="Em trânsito" value={kpi.emTransito} />
-                <KpiInline label="No hub" value={kpi.noHub} />
-                <button type="button" onClick={() => setTab('recebimento')} className="min-h-[64px] rounded-lg border border-brand-500/30 bg-brand-500/5 px-2 py-2 text-center transition-colors hover:bg-brand-500/10 dark:border-brand-400/30 dark:bg-brand-900/40">
-                  <p className="text-[11px] text-tower-600 dark:text-tower-400">Aguardando chegada</p>
-                  <p className="font-display text-xl font-semibold tabular-nums text-brand-600 dark:text-brand-300">{awaitingRecebimentoCount}</p>
-                </button>
+              <button type="button" onClick={() => goToCargo('incoming')} className="admin-focus flex min-h-[76px] w-full items-center justify-between gap-4 border-b border-tower-200 px-4 py-3 text-left hover:bg-tower-50 dark:border-tower-700 dark:hover:bg-tower-800">
+                <span>
+                  <span className="block text-sm font-bold text-tower-900 dark:text-tower-100">Cargas a caminho</span>
+                  <span className="mt-0.5 block text-xs text-tower-500">{summary.incoming.trips} {summary.incoming.trips === 1 ? 'viagem prevista' : 'viagens previstas'}</span>
+                </span>
+                <span className="text-2xl font-extrabold tabular-nums text-blue-700 dark:text-blue-300">{summary.incoming.orders}</span>
+              </button>
+              <button type="button" onClick={() => goToCargo('awaiting')} className="admin-focus flex min-h-[76px] w-full items-center justify-between gap-4 border-b border-tower-200 px-4 py-3 text-left hover:bg-tower-50 dark:border-tower-700 dark:hover:bg-tower-800">
+                <span>
+                  <span className="block text-sm font-bold text-tower-900 dark:text-tower-100">Aguardando entrada física</span>
+                  <span className="mt-0.5 block text-xs text-tower-500">Notas conhecidas que ainda não entraram no estoque</span>
+                </span>
+                <span className="text-2xl font-extrabold tabular-nums text-amber-700 dark:text-amber-300">{summary.awaiting.demands}</span>
+              </button>
+              <button type="button" onClick={() => goToCargo('triage')} className="admin-focus flex min-h-[76px] w-full items-center justify-between gap-4 px-4 py-3 text-left hover:bg-tower-50 dark:hover:bg-tower-800">
+                <span>
+                  <span className="block text-sm font-bold text-tower-900 dark:text-tower-100">Pendências fiscais</span>
+                  <span className="mt-0.5 block text-xs text-tower-500">Documentos que precisam ser preparados para entrada</span>
+                </span>
+                <span className="text-2xl font-extrabold tabular-nums text-rose-700 dark:text-rose-300">{summary.triage.documents}</span>
+              </button>
+            </div>
+
+            <div>
+              <div className="mb-3 flex items-end justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-bold text-tower-900 dark:text-tower-100">Próximas viagens</h2>
+                  <p className="text-xs text-tower-500">Saídas e chegadas que movimentam este Hub.</p>
+                </div>
+                <button type="button" onClick={() => setTab('viagens')} className="admin-focus min-h-11 rounded-xl px-2 text-sm font-semibold text-brand-700 dark:text-brand-300">Ver todas</button>
               </div>
-            </div>
-
-            <div className="space-y-3">
-              <p className="font-display text-[10px] uppercase tracking-[0.14em] text-tower-600 dark:text-tower-300">Demandas recentes</p>
-              {(Object.entries(recentDemandsGrouped) as [string, Order[]][]).map(([label, list]) => (
-                <div key={label} className="space-y-2">
-                  <p className="font-display text-[10px] uppercase tracking-[0.14em] text-tower-600 dark:text-tower-400">{label}</p>
-                  {list.map((order) => (
-                    <button key={order.id} type="button" onClick={() => (window.location.hash = `#/orders/${order.id}`)} className="card-surface w-full cursor-pointer p-3 text-left transition-colors duration-200 hover:bg-[var(--app-surface-muted)] dark:hover:bg-tower-800">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-mono-ids text-xs text-tower-600 dark:text-tower-300">{shortId(order.id)}</span>
-                        <span className={`rounded-full px-2 py-1 text-[11px] font-medium ${toneClassMap[orderStatusTones[order.status] ?? 'neutral']}`}>
-                          {orderStatusLabels[order.status] ?? order.status}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-sm font-medium text-tower-800 dark:text-tower-100">{order.demand?.origin ?? 'Origem'} → {order.demand?.destination ?? 'Destino'}</p>
-                      
-                      <div className="mt-2 text-xs text-tower-600 dark:text-tower-400">
-                        <span className="font-semibold text-brand-600 dark:text-brand-400">Custódia:</span> {getOrderCustody(order)}
-                      </div>
-
-                      {order.legs && order.legs.length > 0 && (
-                        <div className="mt-2 space-y-1 border-t border-tower-100 pt-2 dark:border-tower-800">
-                          <p className="text-[10px] uppercase font-bold tracking-wider text-tower-500">Jornada de Pernas</p>
-                          <div className="space-y-0.5">
-                            {order.legs.map((leg: any, idx: number) => {
-                              const origin = leg.legType === 'COLETA'
-                                ? (order.origemPrestacao ?? order.demand?.origin ?? 'Origem')
-                                : (leg.manifest?.hub?.name ?? leg.manifest?.hub?.code ?? 'HUB Origem');
-                              const dest = leg.legType === 'ENTREGA'
-                                ? (order.fimPrestacao ?? order.demand?.destination ?? 'Destino')
-                                : (leg.manifest?.destHub?.name ?? leg.manifest?.destHub?.code ?? 'HUB Destino');
-                              const legStatus = leg.completedAt ? 'Concluído' : leg.startedAt ? 'Em andamento' : 'Pendente';
-                              const legStatusColor = leg.completedAt ? 'text-green-600 dark:text-green-400' : leg.startedAt ? 'text-brand-600 dark:text-brand-400' : 'text-tower-400';
-                              const legTypeName = leg.legType === 'COLETA' ? 'Coleta' : leg.legType === 'TRANSFERENCIA' ? 'Transferência' : 'Entrega';
-                              
-                              return (
-                                <div key={leg.id} className="flex items-center justify-between text-[11px]">
-                                  <span className="text-tower-700 dark:text-tower-300">
-                                    {idx + 1}. {legTypeName}: {origin} → {dest}
-                                  </span>
-                                  <span className={`font-medium ${legStatusColor}`}>{legStatus}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-                    </button>
-                  ))}
+              {activeManifests.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-tower-300 p-6 text-center dark:border-tower-600">
+                  <p className="text-sm font-semibold text-tower-700 dark:text-tower-200">Nenhuma viagem ativa agora.</p>
+                  <button type="button" onClick={() => createTrip()} className="admin-focus mt-3 min-h-11 rounded-xl bg-brand-600 px-4 text-sm font-bold text-white">Criar viagem</button>
                 </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {!loading && tab === 'entrada' && (
-          <>
-            <div className="md:hidden">
-              <EntradaTab mobileWizard />
-            </div>
-            <div className="hidden md:block">
-              <EntradaTab />
-            </div>
-          </>
-        )}
-
-        {!loading && tab === 'pedidos' && (
-          <section className="space-y-3">
-            {orderSummary && (
-              <p className="text-xs text-tower-600 dark:text-tower-400">
-                {orderSummary.totalOrders} pedido(s) · {orderSummary.totalWeightKg.toLocaleString('pt-BR')} kg · {orderSummary.totalVolumeM3.toLocaleString('pt-BR')} m³ · R$ {orderSummary.totalValueBRL.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-              </p>
-            )}
-            <div className="flex items-center gap-2">
-              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Pesquisar pedidos..." className="h-11 w-full rounded-xl border border-tower-300 bg-white px-3 text-sm text-tower-900 placeholder:text-tower-500 ring-brand-500/30 focus:border-brand-500 focus:outline-none focus:ring-2 dark:border-tower-600 dark:bg-tower-900 dark:text-tower-100 dark:placeholder:text-tower-400" />
-              <button type="button" onClick={() => setTab('entrada')} className="h-11 min-w-11 rounded-xl bg-brand-600 px-3 text-sm font-semibold text-white">+ Nova entrada</button>
-            </div>
-            <div className="rounded-xl border border-tower-200 bg-tower-50 p-3 dark:border-tower-700 dark:bg-tower-800">
-              <p className="mb-2 text-xs font-semibold text-tower-600 dark:text-tower-300">Ou bipe/digite pra selecionar direto:</p>
-              <OrderScanInput
-                onResolved={(resolved: ResolvedOrderSummary) => {
-                  setSelectedOrderIds((prev) => new Set(prev).add(resolved.id));
-                  flashSuccess(`Pedido #${resolved.orderNumber ?? resolved.id.slice(0, 8)} adicionado à seleção.`);
-                }}
-              />
-            </div>
-            {filteredOrders.length === 0 && <div className="rounded-xl border border-dashed border-tower-300 p-6 text-center text-sm text-tower-600 dark:border-tower-600 dark:text-tower-300">Nenhum pedido encontrado.</div>}
-            {filteredOrders.map((order) => (
-              <button key={order.id} type="button" onClick={() => (window.location.hash = `#/orders/${order.id}`)} className="card-surface w-full cursor-pointer p-4 text-left transition-colors duration-200 hover:bg-[var(--app-surface-muted)] dark:hover:bg-tower-800">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="font-mono-ids text-xs text-tower-600 dark:text-tower-300">{shortId(order.id)}</p>
-                    <p className="mt-1 text-sm font-semibold text-tower-800 dark:text-tower-100">{order.demand?.origin ?? 'Origem'} → {order.demand?.destination ?? 'Destino'}</p>
-                    <p className="text-xs text-tower-600 dark:text-tower-400">NF {order.nfNumber ?? order.demand?.nfNumber ?? '—'}</p>
-                  </div>
-                  <span className={`rounded-full px-2 py-1 text-[11px] font-medium ${toneClassMap[orderStatusTones[order.status] ?? 'neutral']}`}>{orderStatusLabels[order.status] ?? order.status}</span>
-                </div>
-                
-                <div className="mt-2 text-xs text-tower-600 dark:text-tower-400">
-                  <span className="font-semibold text-brand-600 dark:text-brand-400">Custódia:</span> {getOrderCustody(order)}
-                </div>
-
-                {orderCargoLine(order)}
-
-                {order.legs && order.legs.length > 0 && (
-                  <div className="mt-3 space-y-1 border-t border-tower-100 pt-2.5 dark:border-tower-800">
-                    <p className="text-[10px] uppercase font-bold tracking-wider text-tower-500">Jornada de Pernas</p>
-                    <div className="space-y-1">
-                      {order.legs.map((leg: any, idx: number) => {
-                        const origin = leg.legType === 'COLETA'
-                          ? (order.origemPrestacao ?? order.demand?.origin ?? 'Origem')
-                          : (leg.manifest?.hub?.name ?? leg.manifest?.hub?.code ?? 'HUB Origem');
-                        const dest = leg.legType === 'ENTREGA'
-                          ? (order.fimPrestacao ?? order.demand?.destination ?? 'Destino')
-                          : (leg.manifest?.destHub?.name ?? leg.manifest?.destHub?.code ?? 'HUB Destino');
-                        const legStatus = leg.completedAt ? 'Concluído' : leg.startedAt ? 'Em andamento' : 'Pendente';
-                        const legStatusColor = leg.completedAt ? 'text-green-600 dark:text-green-400' : leg.startedAt ? 'text-brand-600 dark:text-brand-400' : 'text-tower-400';
-                        const legTypeName = leg.legType === 'COLETA' ? 'Coleta' : leg.legType === 'TRANSFERENCIA' ? 'Transferência' : 'Entrega';
-                        
-                        return (
-                          <div key={leg.id} className="flex items-center justify-between text-xs">
-                            <span className="text-tower-700 dark:text-tower-300">
-                              {idx + 1}. {legTypeName}: {origin} → {dest}
-                            </span>
-                            <span className={`font-medium ${legStatusColor}`}>{legStatus}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-                <div className="mt-3 flex items-center justify-between text-xs text-tower-600 dark:text-tower-400">
-                  <label className="cursor-pointer font-medium text-brand-600 hover:underline dark:text-brand-300">
-                    {attachmentUploadingOrderId === order.id ? 'Enviando...' : 'Anexar evidência'}
-                    <input
-                      type="file"
-                      className="hidden"
-                      accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
-                      disabled={attachmentUploadingOrderId === order.id}
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) void handleOrderAttachmentUpload(order.id, file);
-                        e.currentTarget.value = '';
-                      }}
-                    />
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={selectedOrderIds.has(order.id)} onChange={(e) => { e.stopPropagation(); toggleOrder(order.id); }} onClick={(e) => e.stopPropagation()} className="h-4 w-4 rounded border-tower-300 text-brand-600" />
-                    Selecionar
-                  </label>
-                </div>
-              </button>
-            ))}
-          </section>
-        )}
-
-        {!loading && tab === 'manifestos' && (
-          <section className="space-y-6">
-            <div className="space-y-3">
-              <h3 className="font-display text-sm font-semibold text-tower-800 dark:text-tower-100">Rascunhos (aguardando motorista)</h3>
-              {manifestosRascunho.length === 0 && (
-                <div className="rounded-xl border border-dashed border-tower-300 p-6 text-center text-sm text-tower-600 dark:border-tower-600 dark:text-tower-300">
-                  Nenhum manifesto em rascunho.
+              ) : (
+                <div className="space-y-3">
+                  {activeManifests.slice(0, 3).map((manifest) => <ManifestCard key={manifest.id} manifest={manifest} />)}
                 </div>
               )}
-              {manifestosRascunho.map((m: any) => (
-                <ManifestCard key={m.id} m={m} />
-              ))}
             </div>
+          </section>
+        )}
 
-            <div className="space-y-3">
-              <h3 className="font-display text-sm font-semibold text-tower-800 dark:text-tower-100">Saindo do seu hub</h3>
-              {manifestosSaindo.length === 0 && <div className="rounded-xl border border-dashed border-tower-300 p-6 text-center text-sm text-tower-600 dark:border-tower-600 dark:text-tower-300">Nenhuma viagem saindo.</div>}
-              {manifestosSaindo.map((m: any) => (
-                <ManifestCard key={m.id} m={m} />
-              ))}
-            </div>
+        {!loading && tab === 'pedidos' && !manualEntry.open && (
+          <HubOrdersWorkspace
+            hubId={hubId}
+            onOpenOrder={(orderId) => { window.location.hash = `#/orders/${orderId}`; }}
+            onOpenTrip={(manifestId) => { window.location.hash = `#/manifests/${manifestId}`; }}
+            onCreateTrip={createTrip}
+            onOpenManualEntry={(initialCode) => setManualEntry({ open: true, initialCode })}
+            onSummaryChanged={setSummary}
+          />
+        )}
 
-            <div className="space-y-3">
-              <h3 className="font-display text-sm font-semibold text-tower-800 dark:text-tower-100">Chegando ao seu hub</h3>
-              {manifestosChegando.length === 0 && <div className="rounded-xl border border-dashed border-tower-300 p-6 text-center text-sm text-tower-600 dark:border-tower-600 dark:text-tower-300">Nenhuma viagem chegando.</div>}
-              {manifestosChegando.map((m: any) => {
-                const pendingStopHere = (m.tripStops ?? []).find((s: any) => s.destHubId === myHubId && !s.completedAt);
-                const canReceiveLegacy = (!m.tripStops || m.tripStops.length === 0) && m.status === 'IN_PROGRESS';
+        {!loading && tab === 'pedidos' && manualEntry.open && (
+          <EntradaTab
+            mobileWizard
+            startCreating
+            initialNfeCode={manualEntry.initialCode}
+            onCancelContext={() => setManualEntry({ open: false })}
+            onCreated={() => setSuccess('Pedido-base criado. Continue nesta tela para completar os dados da carga.')}
+          />
+        )}
+
+        {!loading && tab === 'viagens' && (
+          <section className="space-y-6 pb-20" aria-labelledby="trips-title">
+            <header className="flex items-end justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-brand-600 dark:text-brand-300">Programação</p>
+                <h1 id="trips-title" className="mt-1 text-2xl font-bold tracking-tight text-tower-950 dark:text-white">Viagens</h1>
+                <p className="mt-1 text-sm text-tower-500">Rascunhos, saídas e cargas chegando ao seu Hub.</p>
+              </div>
+              <button type="button" onClick={() => createTrip()} className="admin-focus hidden min-h-11 rounded-xl bg-brand-600 px-4 text-sm font-bold text-white sm:block">+ Nova viagem</button>
+            </header>
+
+            <TripGroup title="Rascunhos" empty="Nenhuma viagem em preparação." manifests={drafts} />
+            <TripGroup title="Saindo deste Hub" empty="Nenhuma saída ativa." manifests={outbound} />
+            <TripGroup
+              title="Chegando a este Hub"
+              empty="Nenhuma viagem a caminho."
+              manifests={inbound}
+              render={(manifest) => {
+                const pendingStop = manifest.tripStops?.find((stop) => stop.destHubId === hubId && !stop.completedAt);
+                const legacyArrival = (!manifest.tripStops || manifest.tripStops.length === 0) && manifest.status === 'IN_PROGRESS';
                 return (
-                  <ManifestCard key={m.id} m={m}>
-                    {m.status === 'IN_PROGRESS' && pendingStopHere && (
-                      <button
-                        type="button"
-                        onClick={() => handleReceiveStop(m.id, pendingStopHere.id)}
-                        className="mt-3 w-full rounded-lg bg-brand-600 py-2 text-sm font-semibold text-white hover:bg-brand-700"
-                      >
-                        Marcar recebido
-                      </button>
-                    )}
-                    {canReceiveLegacy && (
-                      <button
-                        type="button"
-                        onClick={() => handleReceiveManifest(m.id)}
-                        className="mt-3 w-full rounded-lg bg-brand-600 py-2 text-sm font-semibold text-white hover:bg-brand-700"
-                      >
-                        Marcar recebido
-                      </button>
-                    )}
-                  </ManifestCard>
+                  <ManifestCard
+                    key={manifest.id}
+                    manifest={manifest}
+                    onReceiveStop={pendingStop ? (stopId) => void receiveStop(manifest.id, stopId) : undefined}
+                    onReceiveTrip={legacyArrival ? () => void receiveManifest(manifest.id) : undefined}
+                  />
                 );
-              })}
-            </div>
+              }}
+            />
+
+            <button type="button" onClick={() => createTrip()} className="admin-focus fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] left-4 right-4 z-30 min-h-12 rounded-xl bg-brand-600 text-sm font-bold text-white shadow-xl sm:hidden">
+              + Nova viagem
+            </button>
           </section>
         )}
       </main>
 
-
-      {showProfileSheet && (
-        <div className="fixed inset-0 z-50 flex flex-col justify-end">
-          <button type="button" className="absolute inset-0 bg-black/50" onClick={() => setShowProfileSheet(false)} aria-label="Fechar perfil" />
-          <div className="mobile-enter relative rounded-t-2xl border border-tower-200 bg-[var(--app-surface)] p-4 dark:border-tower-700 dark:bg-tower-900">
-            <p className="font-display text-sm font-semibold text-tower-900 dark:text-white">Perfil</p>
-            <p className="mt-1 text-xs text-tower-600 dark:text-tower-300">{user?.email}</p>
-            <div className="mt-3 flex items-center justify-between rounded-xl border border-tower-200 p-2 dark:border-tower-700">
-              <span className="text-sm text-tower-700 dark:text-tower-200">Tema</span>
-              <ThemeToggle />
-            </div>
-            <button type="button" className="mt-3 min-h-[44px] w-full rounded-xl border border-brand-red-500/30 bg-brand-red-500/10 py-3 text-sm font-semibold text-brand-red-600 dark:text-brand-red-400" onClick={logout}>Sair</button>
-          </div>
-        </div>
-      )}
-
-      <BottomNav items={navItems} active={tab} onChange={(key) => setTab(key as Tab)} />
+      <BottomNav items={navItems} active={tab} onChange={(key) => {
+        setManualEntry({ open: false });
+        setTab(key as Tab);
+      }} />
     </div>
   );
 };
 
-const KpiInline: React.FC<{ label: string; value: number }> = ({ label, value }) => (
-  <div className="min-h-[64px] rounded-lg border border-tower-200 bg-[var(--app-surface-muted)] px-2 py-2 text-center transition-colors duration-200 dark:border-tower-700 dark:bg-tower-800/80">
-    <p className="text-[11px] text-tower-600 dark:text-tower-400">{label}</p>
-    <p className="font-display text-xl font-semibold tabular-nums text-tower-800 dark:text-tower-100">{value}</p>
+const TripGroup: React.FC<{
+  title: string;
+  empty: string;
+  manifests: Manifest[];
+  render?: (manifest: Manifest) => React.ReactNode;
+}> = ({ title, empty, manifests, render }) => (
+  <div>
+    <div className="mb-3 flex items-center justify-between">
+      <h2 className="text-sm font-bold text-tower-900 dark:text-tower-100">{title}</h2>
+      <span className="text-xs tabular-nums text-tower-500">{manifests.length}</span>
+    </div>
+    {manifests.length === 0 ? (
+      <div className="rounded-2xl border border-dashed border-tower-300 p-6 text-center text-sm text-tower-500 dark:border-tower-600">{empty}</div>
+    ) : (
+      <div className="space-y-3">{manifests.map((manifest) => render?.(manifest) ?? <ManifestCard key={manifest.id} manifest={manifest} />)}</div>
+    )}
   </div>
 );
 

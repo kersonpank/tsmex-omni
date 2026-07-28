@@ -716,6 +716,94 @@ export type OrderResolveResponse =
     | { success: true; match: 'multiple'; candidates: ResolvedOrderSummary[] }
     | { success: true; match: 'none' };
 
+export type HubCargoBucket = 'stock' | 'incoming' | 'awaiting' | 'triage' | 'other';
+
+export interface HubCargoCapabilities {
+    canViewOrders: boolean;
+    canReceive: boolean;
+    canCreateTrip: boolean;
+}
+
+export interface HubCargoAllowedActions {
+    view: boolean;
+    confirmArrival: boolean;
+    manualEntry: boolean;
+    selectForTrip: boolean;
+    openTrip: boolean;
+    triage: boolean;
+}
+
+export interface HubCargoItem {
+    id: string;
+    kind: 'order' | 'intake' | 'fiscal_document';
+    bucket: HubCargoBucket;
+    orderId?: string;
+    demandId?: string;
+    fiscalDocumentId?: string;
+    orderNumber?: number | null;
+    status: string;
+    statusLabel: string;
+    nfNumber?: string | null;
+    nfKeySuffix?: string | null;
+    invoiceCount: number;
+    senderName?: string | null;
+    recipientName?: string | null;
+    origin?: string | null;
+    destination?: string | null;
+    currentHubName?: string | null;
+    weightKg: number;
+    cubedWeightKg: number;
+    effectiveWeightKg: number;
+    volumeM3: number;
+    units: number;
+    fiscalValueBRL: number;
+    plannedArrivalAt?: string | null;
+    activeTrip?: {
+        id: string;
+        status: string;
+        origin: string;
+        destination: string;
+    } | null;
+    allowedActions: HubCargoAllowedActions;
+    blockingReasons: string[];
+    updatedAt?: string;
+}
+
+export interface HubCargoSummary {
+    stock: {
+        orders: number;
+        invoices: number;
+        units: number;
+        realWeightKg: number;
+        cubedWeightKg: number;
+        effectiveWeightKg: number;
+        volumeM3: number;
+        fiscalValueBRL: number;
+        withoutActiveTrip: number;
+    };
+    incoming: { orders: number; trips: number };
+    awaiting: { demands: number };
+    triage: { documents: number };
+}
+
+export type HubCargoResolution =
+    | { resolution: 'order_at_hub'; item: HubCargoItem }
+    | { resolution: 'order_incoming'; item: HubCargoItem }
+    | { resolution: 'order_other'; item: HubCargoItem }
+    | { resolution: 'order_elsewhere'; message: string }
+    | { resolution: 'already_in_trip'; item: HubCargoItem }
+    | { resolution: 'awaiting_arrival'; item: HubCargoItem }
+    | { resolution: 'fiscal_document_found'; item: HubCargoItem; accessKey: string }
+    | {
+          resolution: 'valid_nfe_not_registered';
+          accessKey: string;
+          cnpjEmit?: string;
+          message: string;
+      }
+    | { resolution: 'multiple'; candidates: HubCargoItem[] }
+    | { resolution: 'invalid'; message: string; preservedCode: string }
+    | { resolution: 'not_found'; message: string; preservedCode: string };
+
 export interface ManifestFiscalDocument {
     id: string;
     manifestId: string;

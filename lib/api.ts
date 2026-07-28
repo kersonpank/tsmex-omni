@@ -44,6 +44,11 @@ import type {
     OrderListItem,
     OrderAggregateSummary,
     OrderResolveResponse,
+    HubCargoBucket,
+    HubCargoCapabilities,
+    HubCargoItem,
+    HubCargoResolution,
+    HubCargoSummary,
 } from '../types/index';
 
 // URL relativa: em dev o Vite faz proxy de `/api` → backend (vite.config); em produção o nginx repassa `/api`.
@@ -1435,6 +1440,43 @@ export const ordersApi = {
                 hasCollectionDeclaration: boolean;
             }>
         >(`/orders/${orderId}/fiscal-doc-suggestion`);
+        return response.data;
+    },
+};
+
+// ========== HUB CARGO WORKSPACE API ==========
+
+export const hubCargoApi = {
+    summary: async (hubId?: string) => {
+        const response = await api.get<{
+            success: true;
+            data: HubCargoSummary;
+            capabilities: HubCargoCapabilities;
+        }>('/hub/cargo/summary', { params: hubId ? { hubId } : undefined });
+        return response.data;
+    },
+
+    list: async (params: {
+        bucket: HubCargoBucket;
+        q?: string;
+        limit?: number;
+        offset?: number;
+        withoutTrip?: boolean;
+        sort?: 'recent' | 'oldest' | 'destination' | 'weight' | 'arrival';
+        hubId?: string;
+    }) => {
+        const response = await api.get<PaginatedResponse<HubCargoItem>>(
+            '/hub/cargo/items',
+            { params },
+        );
+        return response.data;
+    },
+
+    resolve: async (code: string, hubId?: string) => {
+        const response = await api.post<ApiResponse<HubCargoResolution>>(
+            '/hub/cargo/resolve',
+            { code, ...(hubId ? { hubId } : {}) },
+        );
         return response.data;
     },
 };

@@ -12,6 +12,10 @@ import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { getManifestMargin, allocateLegCosts } from './pricingService.js';
 import { closeFiscalDocumentsForCompletedManifest } from './manifestFiscalClosureService.js';
+import {
+    getManifestOrderEligibility,
+    HUB_CARGO_ACTIVE_MANIFEST_STATUSES,
+} from './hubCargo/hubCargoPolicy.js';
 
 export const ACTIVE_MANIFEST_STATUSES: ManifestStatus[] = [
     'DRAFT',
@@ -83,13 +87,18 @@ export async function assertOrderNotInOtherActiveManifest(
             orderId,
             manifestId: { not: exceptManifestId },
             manifest: {
-                status: 'IN_PROGRESS',
+                status: { in: HUB_CARGO_ACTIVE_MANIFEST_STATUSES },
             },
         },
+        select: { manifestId: true },
     });
     if (activeLeg) {
-        throw new AppError('Pedido já possui uma perna ativa em trânsito (manifesto em andamento)', 400);
+        throw new AppError(
+            `Pedido já está planejado em outra viagem ativa (${activeLeg.manifestId}).`,
+            409,
+        );
     }
+    return activeLeg;
 }
 
 function allocationOrderHistoryDescription(
@@ -150,7 +159,18 @@ export async function addOrderToManifest(
         throw new AppError('Order is already assigned to this manifest', 400);
     }
 
-    await assertOrderNotInOtherActiveManifest(orderId, manifestId);
+    const conflict = await prisma.orderLeg.findFirst({
+        where: {
+            orderId,
+            manifestId: { not: manifestId },
+            manifest: { status: { in: HUB_CARGO_ACTIVE_MANIFEST_STATUSES } },
+        },
+        select: { manifestId: true },
+    });
+    const eligibility = getManifestOrderEligibility(manifest, order, conflict);
+    if (!eligibility.eligible) {
+        throw new AppError(eligibility.message ?? 'Pedido inelegível para esta viagem.', 409);
+    }
 
     const effectiveWeight = orderEffectiveWeight(order);
     const newTotalWeight = manifest.totalWeight + effectiveWeight;
