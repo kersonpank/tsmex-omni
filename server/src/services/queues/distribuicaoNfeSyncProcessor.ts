@@ -20,7 +20,7 @@ import {
     markXmlDownloaded,
     upsertDiscovered,
 } from '../fiscal/nfeDistribuicaoRepo.js';
-import { createSystemAlert } from '../systemAlertService.js';
+import { createOrMergeSystemAlert } from '../systemAlertService.js';
 import { getDistribuicaoNfeQueue, type DistribuicaoNfeJobData } from './distribuicaoNfeQueue.js';
 
 type SyncEmitterJobData = Extract<DistribuicaoNfeJobData, { kind: 'sync-emitter' }>;
@@ -57,7 +57,7 @@ export interface SyncProcessorDeps {
     markXmlDownloaded: typeof markXmlDownloaded;
     markPausedForQuota: typeof markPausedForQuota;
     markFailed: typeof markFailed;
-    createSystemAlert: typeof createSystemAlert;
+    createOrMergeSystemAlert: typeof createOrMergeSystemAlert;
     distribuicaoNfeQueue: Pick<ReturnType<typeof getDistribuicaoNfeQueue>, 'pause'>;
     sleep: (ms: number) => Promise<void>;
 }
@@ -79,7 +79,7 @@ export const defaultSyncProcessorDeps: SyncProcessorDeps = {
     markXmlDownloaded,
     markPausedForQuota,
     markFailed,
-    createSystemAlert,
+    createOrMergeSystemAlert,
     get distribuicaoNfeQueue() {
         return getDistribuicaoNfeQueue();
     },
@@ -100,7 +100,7 @@ async function rescheduleJob(job: Job<SyncEmitterJobData>, delayMs: number): Pro
 async function handlePaymentRequired(deps: SyncProcessorDeps, doc: { id: string }, err: AcbrHttpError): Promise<void> {
     await deps.distribuicaoNfeQueue.pause();
     await deps.markPausedForQuota(doc.id, { lastHttpStatus: 402, lastError: err.message });
-    await deps.createSystemAlert({
+    await deps.createOrMergeSystemAlert({
         category: 'FISCAL_DISTRIBUICAO_NFE_QUOTA',
         severity: 'CRITICAL',
         title: 'Varredura de Distribuição NF-e pausada — créditos ACBr esgotados',
@@ -164,12 +164,13 @@ async function runDiscoveryPhase(
     // coordenador (`distribuicaoNfeCoordinatorProcessor.ts`). Redundante de propósito: este
     // processor não deve confiar apenas no coordenador pra nunca deixar passar ultNSU=0.
     if (!ultimoNsuStr || ultimoNsuStr === '0') {
-        await deps.createSystemAlert({
+        await deps.createOrMergeSystemAlert({
             category: 'FISCAL_DISTRIBUICAO_NFE_NOT_SEEDED',
             severity: 'WARNING',
             title: 'NSU inicial não configurado — sync abortada',
             message: `Guarda de segurança: o emitente ${fiscalEmitterId} (CNPJ ${cpfCnpj}, ${ambiente}) tentou sincronizar sem NSU semeado. Use o endpoint bootstrap-nsu antes de tentar de novo.`,
             context: { fiscalEmitterId, cpfCnpj, ambiente },
+            dedupWindowMs: 12 * 60 * 60 * 1000,
         });
         return 'nsu-not-seeded';
     }
@@ -365,7 +366,7 @@ export async function processDistribuicaoNfeSyncJob(
                 await handlePaymentRequired(deps, { id: currentDocId }, err);
             } else {
                 await deps.distribuicaoNfeQueue.pause();
-                await deps.createSystemAlert({
+                await deps.createOrMergeSystemAlert({
                     category: 'FISCAL_DISTRIBUICAO_NFE_QUOTA',
                     severity: 'CRITICAL',
                     title: 'Varredura de Distribuição NF-e pausada — créditos ACBr esgotados',
@@ -380,7 +381,7 @@ export async function processDistribuicaoNfeSyncJob(
         // timeout etc.) até aqui só virava job "failed" no BullMQ — invisível pra quem clicou em
         // "Buscar agora". Cria o alerta antes de relançar (o retry automático do BullMQ continua
         // valendo; isso só torna a falha visível na UI).
-        await deps.createSystemAlert({
+        await deps.createOrMergeSystemAlert({
             category: 'FISCAL_PROVIDER_ERROR',
             severity: 'WARNING',
             title: 'Varredura de Distribuição NF-e falhou',
