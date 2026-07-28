@@ -43,4 +43,40 @@ describe('computeMissingFields', () => {
         assert.ok(NFE_KEY_ALWAYS_MISSING.includes('weight'));
         assert.ok(NFE_KEY_ALWAYS_MISSING.includes('cubagem'));
     });
+
+    it('clientId ausente entra em missing, mas NUNCA sobe a completude pra MINIMAL sozinho', () => {
+        const missing = computeMissingFields({
+            clientId: null,
+            nfNumber: '123',
+            nfValue: 100,
+            origin: 'Origem real',
+            destination: 'Destino real',
+            commodity: 'Peças',
+            weight: 10,
+            volume: 1,
+            units: 1,
+        });
+        assert.ok(missing.includes('clientId'), 'cliente não resolvido deve aparecer em missing');
+        assert.equal(
+            deriveIntakeCompleteness(missing),
+            'INCOMPLETE',
+            'cliente não é campo crítico — Demand fica INCOMPLETE, não MINIMAL, sem cliente',
+        );
+    });
+
+    it('clientId presente não entra em missing', () => {
+        const missing = computeMissingFields({
+            clientId: 'client-1',
+            nfNumber: '123',
+            nfValue: 100,
+            origin: 'Origem real',
+            destination: 'Destino real',
+            commodity: 'Peças',
+            weight: 10,
+            volume: 1,
+            units: 1,
+        });
+        assert.ok(!missing.includes('clientId'));
+        assert.equal(deriveIntakeCompleteness(missing), 'COMPLETE');
+    });
 });

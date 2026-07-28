@@ -8,6 +8,7 @@ import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { freightCalculationsRouter } from './freightCalculations.js';
 import { resolveOrderByCode } from '../services/orderResolve.js';
 import { getNextOrderNumber } from '../services/orderSequence.js';
+import { resolvePayerClient } from '../services/intake/resolvePayerClient.js';
 import {
     suggestFiscalDocType,
     collectionDataHasDeclaracao,
@@ -502,7 +503,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
                 include: { account: true }
             });
             
-            if (!user || !user.accountId || order.demand.client.accountId !== user.accountId) {
+            if (!user || !user.accountId || order.demand.client?.accountId !== user.accountId) {
                 throw new AppError('Not authorized', 403);
             }
         }
@@ -573,7 +574,7 @@ async function assertOrderAccess(req: AuthRequest, orderId: string) {
             where: { id: req.user!.id },
             select: { accountId: true },
         });
-        if (!user?.accountId || order.demand.client.accountId !== user.accountId) {
+        if (!user?.accountId || order.demand.client?.accountId !== user.accountId) {
             throw new AppError('Not authorized', 403);
         }
     }
@@ -628,11 +629,12 @@ router.post('/entrada', authenticate, authorize('ADMIN', 'HUB'), async (req: Aut
         }
 
         // Determine payer from freight term
-        const payerPersonId = data.freightTerm === 'CIF'
-            ? data.remetentePersonId
-            : data.freightTerm === 'FOB'
-                ? data.destinatarioPersonId
-                : (data.consignatarioPersonId ?? data.destinatarioPersonId);
+        const { payerPersonId, person: payerPerson, client: payerClient } = await resolvePayerClient({
+            freightTerm: data.freightTerm,
+            remetentePersonId: data.remetentePersonId,
+            destinatarioPersonId: data.destinatarioPersonId,
+            consignatarioPersonId: data.consignatarioPersonId,
+        });
 
         if (!payerPersonId) {
             throw new AppError('Pagador não definido. Para REDESPACHO, informe o consignatário.', 400);
@@ -663,16 +665,10 @@ router.post('/entrada', authenticate, authorize('ADMIN', 'HUB'), async (req: Aut
         }
 
         // Payer must have a Client
-        const payerPerson = await prisma.person.findUnique({
-            where: { id: payerPersonId },
-            include: { clients: { take: 1 } }
-        });
-
         if (!payerPerson) {
             throw new AppError('Pessoa pagadora não encontrada', 404);
         }
 
-        const payerClient = payerPerson.clients?.[0];
         if (!payerClient) {
             throw new AppError(
                 `O pagador (${data.freightTerm === 'CIF' ? 'Remetente' : data.freightTerm === 'FOB' ? 'Destinatário' : 'Consignatário'}) deve ser um Cliente. Adicione-o como Cliente em Pessoas primeiro.`,

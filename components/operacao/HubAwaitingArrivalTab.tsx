@@ -11,9 +11,6 @@ import type {
 
 const shortId = (id?: string): string => (id ? id.slice(0, 8).toUpperCase() : '--------');
 
-const CLIENT_NOT_FOUND_MSG =
-  'CNPJ emitente não está cadastrado como cliente. Cadastre/libere o cliente antes de confirmar entrada.';
-
 function digitsOnly(value: string): string {
   return value.replace(/\D/g, '');
 }
@@ -38,7 +35,8 @@ function demandFromSummary(summary: IntakeDemandSummary): Demand {
 
 interface CreatePanelState {
   chave: string;
-  clientId: string;
+  /** Ausente quando o CNPJ emitente ainda não é Client — cliente não é pré-requisito, se resolve depois (CIF/FOB). */
+  clientId?: string;
   companyName: string;
   document: string;
   /** true quando a chave já foi descoberta pelo pipeline de Distribuição NF-e (ACBr) — dados de carga serão preenchidos automaticamente ao criar. */
@@ -200,16 +198,14 @@ const HubAwaitingArrivalTab: React.FC<HubAwaitingArrivalTabProps> = ({
           }
           const clientRes = await intakeDemandsApi.resolveClientByDocument(cnpj);
           const clientData = clientRes.data;
-          if (!clientData || clientData.status === 'not_found' || !clientData.client) {
-            setResolveError(CLIENT_NOT_FOUND_MSG);
-            setCandidates([]);
-            break;
-          }
+          const clientFound = clientData && clientData.status !== 'not_found' && clientData.client;
+          // Cliente não é pré-requisito pra criar a demanda — se não achou, segue mesmo assim
+          // (clientId fica undefined, resolvido depois na confirmação de chegada por CIF/FOB).
           setCreatePanel({
             chave: normalized,
-            clientId: clientData.client.id,
-            companyName: clientData.client.companyName,
-            document: clientData.client.document,
+            clientId: clientFound ? clientData.client!.id : undefined,
+            companyName: clientFound ? clientData.client!.companyName : 'Fornecedor não cadastrado como cliente',
+            document: cnpj,
             distribuicaoMatch: Boolean(data.distribuicaoMatch),
           });
           setCandidates([]);
@@ -232,7 +228,7 @@ const HubAwaitingArrivalTab: React.FC<HubAwaitingArrivalTabProps> = ({
     try {
       const res = await intakeDemandsApi.createFromNfeKey({
         chave: createPanel.chave,
-        clientId: createPanel.clientId,
+        ...(createPanel.clientId ? { clientId: createPanel.clientId } : {}),
       });
       const demand = res.data;
       if (!demand?.id) {
@@ -372,15 +368,6 @@ const HubAwaitingArrivalTab: React.FC<HubAwaitingArrivalTabProps> = ({
         {resolveError && (
           <p className="text-sm text-brand-red-600 dark:text-brand-red-400">{resolveError}</p>
         )}
-        {resolveError === CLIENT_NOT_FOUND_MSG && (
-          <button
-            type="button"
-            onClick={onGoEntrada}
-            className="text-xs font-medium text-tower-600 underline dark:text-tower-300"
-          >
-            Entrada manual (exceção)
-          </button>
-        )}
 
         {createPanel && (
           <div className="mt-2 space-y-3 rounded-lg border border-brand-500/30 bg-[var(--app-surface-muted)] p-4 dark:border-brand-400/25">
@@ -391,6 +378,13 @@ const HubAwaitingArrivalTab: React.FC<HubAwaitingArrivalTabProps> = ({
               <p className="rounded-lg bg-green-500/10 px-3 py-2 text-xs text-green-800 dark:bg-green-900/20 dark:text-green-300">
                 Nota já localizada via Distribuição NF-e (ACBr) — peso, valor e produtos serão
                 preenchidos automaticamente. Confira antes de confirmar.
+              </p>
+            )}
+            {!createPanel.clientId && (
+              <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+                Fornecedor ainda não está cadastrado como cliente — a demanda será criada normalmente.
+                O cliente (conta faturável) se resolve na confirmação de chegada, conforme o frete
+                (CIF/FOB).
               </p>
             )}
             <div className="text-sm text-tower-800 dark:text-tower-100">

@@ -131,6 +131,21 @@ describe('nfeDistribuicaoTriagem routes', () => {
         prisma.nfeDistribuicaoDocumento.findMany = (async () => []) as any;
     });
 
+    it('GET / enriquece cada documento com cargoData: null quando não é NFE_PROC (sem XML baixado)', async () => {
+        prisma.nfeDistribuicaoDocumento.findMany = (async () => [
+            { id: READY_DOC_ID, status: 'READY_FOR_TRIAGE', tipo: 'RESUMO', xmlStorageKey: null, accessKey: CHAVE, cnpjEmitente: '11111111000111' },
+        ]) as any;
+        const res = await httpGet<{ success: boolean; data: Array<{ cargoData: unknown }> }>(
+            baseUrl,
+            '/api/fiscal/distribuicao-nfe/triagem',
+            adminToken,
+        );
+        assert.equal(res.status, 200);
+        assert.equal(res.body.data.length, 1);
+        assert.equal(res.body.data[0].cargoData, null, 'RESUMO sem XML baixado não tem cargoData extraível');
+        prisma.nfeDistribuicaoDocumento.findMany = (async () => []) as any;
+    });
+
     it('POST /:id/converter cria Demand (sourceType DFE_ACBR) e marca CONVERTED', async () => {
         nfeDocStore = {
             id: READY_DOC_ID,
@@ -149,6 +164,31 @@ describe('nfeDistribuicaoTriagem routes', () => {
         assert.equal(res.body.success, true);
         assert.equal(res.body.data.demand.sourceType, 'DFE_ACBR');
         assert.equal(nfeDocStore.status, 'CONVERTED');
+    });
+
+    it('POST /:id/converter cria Demand mesmo sem fornecedor cadastrado como Client (nunca bloqueia)', async () => {
+        nfeDocStore = {
+            id: READY_DOC_ID,
+            status: 'READY_FOR_TRIAGE',
+            accessKey: CHAVE,
+            cnpjEmitente: '22222222000122',
+            fiscalEmitter: { hubId: 'hub-A' },
+        };
+        const originalClientFindFirst = prisma.client.findFirst;
+        prisma.client.findFirst = (async () => null) as any;
+
+        const res = await httpPost<{ success: boolean; data: { demand: { clientId: string | null; sourceType: string } } }>(
+            baseUrl,
+            `/api/fiscal/distribuicao-nfe/triagem/${READY_DOC_ID}/converter`,
+            {},
+            adminToken,
+        );
+        assert.equal(res.status, 200, 'fornecedor não cadastrado como Client não deve bloquear a conversão');
+        assert.equal(res.body.success, true);
+        assert.ok(!res.body.data.demand.clientId, 'Demand deve nascer sem clientId — resolvido depois na confirmação de chegada');
+        assert.equal(nfeDocStore.status, 'CONVERTED');
+
+        prisma.client.findFirst = originalClientFindFirst;
     });
 
     it('POST /:id/converter retorna 409 se o documento não está READY_FOR_TRIAGE', async () => {

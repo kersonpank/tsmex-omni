@@ -990,7 +990,8 @@ export interface CreateIntakeDemandRequest {
 
 export interface CreateIntakeFromNfeKeyRequest {
     chave: string;
-    clientId: string;
+    /** Opcional — cliente (conta faturável) não é pré-requisito, se resolve depois (CIF/FOB). */
+    clientId?: string;
     expectedHubId?: string;
     rawInputData?: Record<string, unknown>;
 }

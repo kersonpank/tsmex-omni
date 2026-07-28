@@ -591,8 +591,11 @@ model MinFreightRange {
 model Demand {
   id          String @id @default(uuid())
   orderNumber Int    @unique // numero sequencial de pedido, continua a numeracao do sistema legado
-  clientId    String
-  client      Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  /// Opcional de propósito: cliente (conta faturável) não é necessariamente o emitente/destinatário
+  /// da NF-e — se resolve depois, quando o frete (CIF/FOB/REDESPACHO) é decidido na confirmação de
+  /// chegada (ver `resolvePayerClient.ts`). Nunca bloquear a criação da Demand por falta de Client.
+  clientId    String?
+  client      Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
 
   // NF Info
   nfNumber String

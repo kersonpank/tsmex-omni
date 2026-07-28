@@ -56,7 +56,11 @@ describe('createIntakeDemand', () => {
         }) => {
             const row = store.demands.get(where.id);
             if (!row) throw new Error('not found');
-            Object.assign(row, data);
+            // Mesma semântica do Prisma real: chave com valor `undefined` em `data` é omitida do
+            // UPDATE (não sobrescreve), diferente de `null` (que limpa o campo de propósito).
+            for (const [key, value] of Object.entries(data)) {
+                if (value !== undefined) row[key] = value;
+            }
             return row;
         }) as unknown as typeof prisma.demand.update;
 
@@ -182,6 +186,59 @@ describe('createIntakeDemand', () => {
         );
     });
 
+    it('cria Demand sem clientId (cliente ainda não resolvido) — não bloqueia, clientId fica null e entra em missingFields', async () => {
+        const demand = await createIntakeDemand({
+            sourceType: 'DFE_ACBR',
+            expectedHubId: HUB_ID,
+            origin: 'São Paulo, SP',
+            destination: 'Rio de Janeiro, RJ',
+            commodity: 'Peças',
+            weight: 12,
+            volume: 0.5,
+            nfNumber: 'NF-101',
+            nfValue: 500,
+        });
+
+        assert.equal(demand.clientId, undefined, 'clientId não informado não deve ser setado (fica null no banco real)');
+        assert.equal(demand.status, 'AWAITING_ARRIVAL', 'não bloqueia a criação da Demand');
+        assert.ok((demand.missingFields as string[]).includes('clientId'));
+    });
+
+    it('reprocessar a mesma chave sem clientId NÃO apaga um clientId já resolvido antes (update preserva)', async () => {
+        const first = await createIntakeDemand({
+            sourceType: 'DFE_ACBR',
+            clientId: CLIENT_ID,
+            expectedHubId: HUB_ID,
+            documentType: 'NFE',
+            documentKey: CHAVE44,
+            nfNumber: '12345',
+            nfValue: 10,
+            origin: 'SP, SP',
+            destination: 'A definir',
+            commodity: 'A definir',
+            weight: 1,
+            volume: 0.001,
+        });
+        assert.equal(first.clientId, CLIENT_ID);
+
+        const second = await createIntakeDemand({
+            sourceType: 'DFE_ACBR',
+            expectedHubId: HUB_ID,
+            documentType: 'NFE',
+            documentKey: CHAVE44,
+            nfNumber: '12345',
+            nfValue: 10,
+            origin: 'SP, SP',
+            destination: 'A definir',
+            commodity: 'A definir',
+            weight: 1,
+            volume: 0.001,
+        });
+
+        assert.equal(second.id, first.id);
+        assert.equal(second.clientId, CLIENT_ID, 'update sem clientId não deve regredir um valor já resolvido');
+    });
+
     it('idempotência DFE_ACBR (triagem da Distribuição NF-e) não cria segunda Demand', async () => {
         const first = await createIntakeDemand({
             sourceType: 'DFE_ACBR',
@@ -286,6 +343,13 @@ describe('createIntakeDemandFromNfeKey — sourceType', () => {
     it('default: sem sourceType explícito, grava NFE_KEY (bipagem manual não regride)', async () => {
         const { demand } = await createIntakeDemandFromNfeKey({ chave: CHAVE44, clientId: CLIENT_ID });
         assert.equal(demand.sourceType, 'NFE_KEY');
+    });
+
+    it('sem clientId (fornecedor não cadastrado como Client) — cria a Demand mesmo assim', async () => {
+        const { demand } = await createIntakeDemandFromNfeKey({ chave: CHAVE44, sourceType: 'DFE_ACBR' });
+        assert.equal(demand.clientId, undefined);
+        assert.equal(demand.status, 'AWAITING_ARRIVAL');
+        assert.ok((demand.missingFields as string[]).includes('clientId'));
     });
 
     it('sourceType DFE_ACBR é aceito e gravado (triagem da Distribuição NF-e)', async () => {

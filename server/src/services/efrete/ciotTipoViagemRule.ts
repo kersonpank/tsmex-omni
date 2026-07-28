@@ -18,7 +18,9 @@ export async function suggestCiotTipoViagem(manifestId: string): Promise<CiotTip
         where: { manifestId },
         select: { demand: { select: { client: { select: { document: true } } } } },
     });
-    const clientDocuments = [...new Set(orders.map((o) => o.demand.client.document).filter(Boolean))];
+    // `client` pode ser null (cliente ainda não resolvido — ver Demand.clientId opcional):
+    // pedido sem cliente resolvido nunca deve, sozinho, forçar Fracionado por ausência de dado.
+    const clientDocuments = [...new Set(orders.map((o) => o.demand.client?.document).filter(Boolean))] as string[];
     return {
         tipoViagem: clientDocuments.length >= 2 ? 'FRACIONADO' : 'PADRAO',
         clientDocuments,

@@ -383,6 +383,18 @@ export const intakeDemandsApi = {
 
 // ========== NF-E DISTRIBUIÇÃO (varredura automática de NSU) — TRIAGEM API ==========
 
+export interface NfeDistribuicaoTriagemCargoData {
+    emitente: { cnpj: string; razaoSocial: string; municipio?: string; uf?: string; ie?: string };
+    destinatario: { cnpj: string; razaoSocial: string; ie?: string };
+    /** Ausente quando o XML não declara transportador (frete próprio/sem transportador formal). */
+    transportador?: { cnpj: string; razaoSocial: string; ie?: string };
+    produtos: Array<{ descricao: string; ncm: string; quantidade: number; valorUnitario: number; valorTotal: number }>;
+    pesoBruto?: number;
+    pesoLiquido?: number;
+    quantidadeVolumes?: number;
+    valorTotalNota: number;
+}
+
 export interface NfeDistribuicaoTriagemDocumento {
     id: string;
     accessKey: string;
@@ -391,6 +403,8 @@ export interface NfeDistribuicaoTriagemDocumento {
     status: string;
     resumoRaw: Record<string, unknown>;
     createdAt: string;
+    /** Só presente quando o XML completo já foi baixado (`tipo: 'NFE_PROC'`) — `null`/ausente cai no placeholder de sempre. */
+    cargoData?: NfeDistribuicaoTriagemCargoData | null;
 }
 
 export const nfeDistribuicaoTriagemApi = {

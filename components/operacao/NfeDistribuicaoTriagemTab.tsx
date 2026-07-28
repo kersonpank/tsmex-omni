@@ -16,6 +16,16 @@ function formatDateTime(iso: string): string {
   }
 }
 
+function formatKg(value?: number): string {
+  return typeof value === 'number' ? `${value.toLocaleString('pt-BR')} kg` : '—';
+}
+
+function formatMoney(value?: number): string {
+  return typeof value === 'number'
+    ? value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+    : '—';
+}
+
 interface NfeDistribuicaoTriagemTabProps {
   /** Chamado após converter com sucesso, pra quem hospeda atualizar contadores/badges. */
   onConverted?: (demandId: string) => void;
@@ -124,11 +134,44 @@ const NfeDistribuicaoTriagemTab: React.FC<NfeDistribuicaoTriagemTabProps> = ({ o
               <div>
                 <p className="font-mono text-xs text-tower-500 dark:text-tower-400">…{doc.accessKey.slice(-12)}</p>
                 <p className="text-sm font-semibold text-tower-800 dark:text-tower-100">
-                  Fornecedor: {formatCnpj(doc.cnpjEmitente)}
+                  Fornecedor: {doc.cargoData?.emitente.razaoSocial ?? formatCnpj(doc.cnpjEmitente)}
                 </p>
                 <p className="text-xs text-tower-500 dark:text-tower-400">Descoberta em {formatDateTime(doc.createdAt)}</p>
               </div>
             </div>
+
+            {doc.cargoData ? (
+              <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-tower-700 dark:text-tower-300 sm:grid-cols-3">
+                <div>
+                  <dt className="text-tower-400 dark:text-tower-500">Destinatário</dt>
+                  <dd>{doc.cargoData.destinatario.razaoSocial || '—'}</dd>
+                </div>
+                <div>
+                  <dt className="text-tower-400 dark:text-tower-500">Transportador</dt>
+                  <dd>{doc.cargoData.transportador?.razaoSocial || '—'}</dd>
+                </div>
+                <div>
+                  <dt className="text-tower-400 dark:text-tower-500">Valor da nota</dt>
+                  <dd>{formatMoney(doc.cargoData.valorTotalNota)}</dd>
+                </div>
+                <div>
+                  <dt className="text-tower-400 dark:text-tower-500">Peso bruto</dt>
+                  <dd>{formatKg(doc.cargoData.pesoBruto)}</dd>
+                </div>
+                <div>
+                  <dt className="text-tower-400 dark:text-tower-500">Peso líquido</dt>
+                  <dd>{formatKg(doc.cargoData.pesoLiquido)}</dd>
+                </div>
+                <div>
+                  <dt className="text-tower-400 dark:text-tower-500">Volumes</dt>
+                  <dd>{doc.cargoData.quantidadeVolumes ?? '—'}</dd>
+                </div>
+              </dl>
+            ) : (
+              <p className="text-xs italic text-tower-400 dark:text-tower-500">
+                Dados de carga ainda não disponíveis (XML não baixado).
+              </p>
+            )}
             <div className="flex flex-col gap-2 sm:flex-row">
               <button
                 type="button"

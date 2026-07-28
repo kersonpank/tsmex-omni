@@ -7,6 +7,7 @@ import { listReadyForTriage, markConverted, markDiscarded } from '../services/fi
 import { resolveIntakeByNfeKey } from '../services/intake/resolveIntakeByNfeKey.js';
 import { resolveIntakeClientByDocument } from '../services/intake/resolveIntakeClientByDocument.js';
 import { createIntakeDemandFromNfeKey } from '../services/intake/createIntakeDemand.js';
+import { getCargoDataFromDistribuicaoDocument } from '../services/fiscal/nfeDistribuicaoCargoData.js';
 
 const router = Router();
 
@@ -28,7 +29,13 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const hubId = resolveHubScope(req);
         const docs = await listReadyForTriage({ hubId });
-        res.json({ success: true, data: docs });
+        const enriched = await Promise.all(
+            docs.map(async (doc) => ({
+                ...doc,
+                cargoData: await getCargoDataFromDistribuicaoDocument(doc).catch(() => null),
+            })),
+        );
+        res.json({ success: true, data: enriched });
     } catch (e) {
         next(e);
     }
@@ -44,7 +51,9 @@ router.post('/:id/converter', async (req: AuthRequest, res: Response, next: Next
         const parsed = converterSchema.parse(req.body);
         const doc = await prisma.nfeDistribuicaoDocumento.findUnique({
             where: { id: req.params.id as string },
-            include: { fiscalEmitter: { select: { hubId: true } } },
+            include: {
+                fiscalEmitter: { select: { hubId: true } },
+            },
         });
         if (!doc) throw new AppError('Documento não encontrado', 404);
         if (doc.status !== 'READY_FOR_TRIAGE') {
@@ -64,23 +73,25 @@ router.post('/:id/converter', async (req: AuthRequest, res: Response, next: Next
             );
         }
 
+        // Cliente (conta faturável) não é pré-requisito pra converter em Demanda — se resolve
+        // depois, na confirmação de chegada, conforme o frete (CIF/FOB/REDESPACHO). Ver
+        // `resolvePayerClient.ts` e `Demand.clientId` (opcional por propósito no schema).
         let clientId = parsed.clientId;
         if (!clientId) {
             const clientLookup = await resolveIntakeClientByDocument(doc.cnpjEmitente);
-            if (clientLookup.status === 'not_found') {
-                throw new AppError(
-                    'Fornecedor (emitente da NF-e) ainda não está cadastrado como cliente. Cadastre-o antes de converter, ou informe clientId.',
-                    422,
-                );
+            if (clientLookup.status !== 'not_found') {
+                clientId = clientLookup.client!.id;
             }
-            clientId = clientLookup.client!.id;
         }
+
+        const cargoData = await getCargoDataFromDistribuicaoDocument(doc).catch(() => null);
 
         const { demand } = await createIntakeDemandFromNfeKey({
             chave: doc.accessKey,
             clientId,
             expectedHubId: doc.fiscalEmitter.hubId,
             sourceType: 'DFE_ACBR',
+            ...(cargoData ? { cargoData } : {}),
         });
 
         const converted = await markConverted(doc.id, demand.id);

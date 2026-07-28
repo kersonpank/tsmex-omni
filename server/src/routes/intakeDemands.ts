@@ -60,7 +60,9 @@ const createIntakeSchema = z.object({
 
 const fromNfeKeySchema = z.object({
     chave: z.string().min(1),
-    clientId: z.string().uuid(),
+    // Opcional por propósito: fornecedor/destinatário da NF-e não são necessariamente o Client
+    // (conta faturável) — ver `Demand.clientId` opcional no schema.
+    clientId: z.string().uuid().optional(),
     expectedHubId: z.string().uuid().optional(),
     rawInputData: z.record(z.unknown()).optional(),
 });

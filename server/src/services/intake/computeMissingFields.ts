@@ -18,6 +18,7 @@ export type IntakeFieldKey =
     | 'declarationDescription';
 
 export interface IntakeCargoSnapshot {
+    clientId?: string | null;
     nfNumber: string;
     nfValue: number;
     origin: string;
@@ -49,6 +50,11 @@ export const NFE_KEY_ALWAYS_MISSING: IntakeFieldKey[] = [
 
 export function computeMissingFields(snapshot: IntakeCargoSnapshot): IntakeFieldKey[] {
     const missing = new Set<IntakeFieldKey>();
+
+    // Cliente (conta faturável) não é pré-requisito operacional — só se resolve quando o frete
+    // (CIF/FOB/REDESPACHO) é decidido na confirmação de chegada (ver `resolvePayerClient.ts`).
+    // Por isso nunca entra em `critical` em `deriveIntakeCompleteness` abaixo.
+    if (!snapshot.clientId) missing.add('clientId');
 
     if (!snapshot.nfNumber || snapshot.nfNumber === PLACEHOLDER_NF) missing.add('nfNumber');
     if (snapshot.nfValue <= 0) missing.add('nfValue');

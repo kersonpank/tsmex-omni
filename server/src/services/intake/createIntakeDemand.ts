@@ -25,7 +25,9 @@ import type { ParsedNfeCargo } from '../acbr/nfeXmlParser.js';
 
 export interface CreateIntakeDemandInput {
     sourceType: Extract<DemandSource, 'MANUAL_HUB' | 'DECLARATION' | 'NFE_KEY' | 'DFE_ACBR'>;
-    clientId: string;
+    /** Opcional de propósito — cliente (conta faturável) não é pré-requisito pra abrir a Demand;
+     * se resolve depois, na confirmação de chegada, conforme o frete (CIF/FOB/REDESPACHO). */
+    clientId?: string | null;
     expectedHubId?: string | null;
     externalReference?: string | null;
     documentType?: DemandDocumentType | null;
@@ -48,7 +50,8 @@ export interface CreateIntakeDemandInput {
 
 export interface CreateIntakeFromNfeKeyInput {
     chave: string;
-    clientId: string;
+    /** Opcional — ver `CreateIntakeDemandInput.clientId`. */
+    clientId?: string | null;
     expectedHubId?: string | null;
     rawInputData?: Prisma.InputJsonValue;
     /** Origem da Demanda: bipagem manual (default) ou triagem da Distribuição NF-e automática. */
@@ -100,6 +103,7 @@ async function findExistingIntakeDemand(
 
 function snapshotFromInput(input: CreateIntakeDemandInput): IntakeCargoSnapshot {
     return {
+        clientId: input.clientId ?? null,
         nfNumber: input.nfNumber ?? 'PENDENTE',
         nfValue: input.nfValue ?? 0,
         origin: input.origin ?? PLACEHOLDER_ORIGIN,
@@ -141,7 +145,9 @@ export async function createIntakeDemand(input: CreateIntakeDemandInput): Promis
     const cubedWeight = volume * cubeFactor;
 
     const upsertScalars = {
-        clientId: input.clientId,
+        // `undefined` (não `null`): no branch de update (reprocessar a mesma chave idempotente),
+        // não informar clientId de novo não deve apagar um valor já resolvido anteriormente.
+        clientId: input.clientId ?? undefined,
         nfNumber: snapshot.nfNumber,
         nfValue: snapshot.nfValue > 0 ? snapshot.nfValue : 0.01,
         origin: snapshot.origin,
@@ -194,7 +200,7 @@ export async function createIntakeDemand(input: CreateIntakeDemandInput): Promis
         const orderNumber = await getNextOrderNumber(tx);
         const demand = await tx.demand.create({
             data: {
-                clientId: input.clientId,
+                clientId: input.clientId ?? undefined,
                 orderNumber,
                 nfNumber: snapshot.nfNumber,
                 nfValue: snapshot.nfValue > 0 ? snapshot.nfValue : 0.01,
@@ -312,6 +318,7 @@ export async function createIntakeDemandFromNfeKey(
 
     const missingFields = mergeMissingFields(
         computeMissingFields({
+            clientId: input.clientId ?? null,
             nfNumber: parsed.nnf,
             nfValue,
             origin,

@@ -252,7 +252,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
                     select: { id: true }
                 });
                 const clientIds = accountClients.map(c => c.id);
-                if (!clientIds.includes(demand.clientId)) {
+                if (!demand.clientId || !clientIds.includes(demand.clientId)) {
                     throw new AppError('Not authorized', 403);
                 }
             }

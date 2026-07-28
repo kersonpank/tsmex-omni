@@ -2,6 +2,7 @@ import type { Demand, DemandSource, Order } from '@prisma/client';
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { isIntakeSource } from './intakeDemandPolicy.js';
+import { resolvePayerClient } from './resolvePayerClient.js';
 
 export interface ConfirmIntakeArrivalInput {
     demandId: string;
@@ -49,7 +50,7 @@ export async function confirmIntakeArrival(input: ConfirmIntakeArrivalInput): Pr
         }
     }
 
-    const remetentePersonId = input.remetentePersonId?.trim() || demand.client.personId;
+    const remetentePersonId = input.remetentePersonId?.trim() || demand.client?.personId;
     if (!remetentePersonId) {
         throw new AppError(
             'Associe uma pessoa ao cliente ou informe remetentePersonId para confirmar a chegada.',
@@ -68,10 +69,25 @@ export async function confirmIntakeArrival(input: ConfirmIntakeArrivalInput): Pr
         where: { matchedDemandId: demand.id },
     });
 
+    // Cliente (conta faturável) só se resolve agora — quando o frete/pagador é decidido — e
+    // nunca bloqueia: se o pagador não estiver cadastrado como Client, a Demand segue sem
+    // clientId (ver `resolvePayerClient.ts`). REDESPACHO usa o destinatário como proxy do
+    // consignatário porque este fluxo não recebe `consignatarioPersonId`.
+    const payerResolution = demand.clientId
+        ? null
+        : await resolvePayerClient({
+              freightTerm,
+              remetentePersonId,
+              destinatarioPersonId: input.destinatarioPersonId,
+          });
+
     return prisma.$transaction(async (tx) => {
         const updatedDemand = await tx.demand.update({
             where: { id: demand.id },
-            data: { status: 'CONVERTED' },
+            data: {
+                status: 'CONVERTED',
+                ...(payerResolution?.client ? { clientId: payerResolution.client.id } : {}),
+            },
         });
 
         await tx.demandEvent.create({

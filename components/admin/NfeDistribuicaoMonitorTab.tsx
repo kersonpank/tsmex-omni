@@ -420,7 +420,7 @@ const NfeDistribuicaoMonitorTab: React.FC = () => {
                       <div className="font-mono">{row.invoice.nfNumber}</div>
                       {row.invoice.nfKey && <div className="font-mono">…{row.invoice.nfKey.slice(-12)}</div>}
                     </td>
-                    <td className="px-4 py-3 text-sm text-tower-700 dark:text-tower-300">{row.invoice.order.demand.client.companyName}</td>
+                    <td className="px-4 py-3 text-sm text-tower-700 dark:text-tower-300">{row.invoice.order.demand.client?.companyName ?? '—'}</td>
                     <td className="px-4 py-3 text-sm text-tower-700 dark:text-tower-300">
                       {row.invoice.order.currentHub ? `${row.invoice.order.currentHub.code} - ${row.invoice.order.currentHub.name}` : '—'}
                     </td>
