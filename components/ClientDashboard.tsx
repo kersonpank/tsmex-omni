@@ -132,35 +132,24 @@ const ClientDashboard: React.FC = () => {
         }
     }, [activeTab, selectedCompany, demandStatusFilter]);
 
-    // Load demands, opportunities and orders on mount if overview tab
-    useEffect(() => {
-        if (activeTab === 'overview') {
-            loadDemands();
-            loadOpportunities();
-            loadOrders();
-        }
-    }, [activeTab, account]);
-
-    useEffect(() => {
-        if (account?.id) {
-            loadDemands();
-            loadOpportunities();
-            loadOrders();
-        }
-    }, [account?.id]);
-
     const loadData = async () => {
         try {
             setLoading(true);
             setError(null);
-            
+
             const [accountRes, statsRes] = await Promise.all([
                 accountsApi.getMe(),
                 accountsApi.getStats(),
             ]);
-            
+
             setAccount(accountRes.data);
             setStats(statsRes.data);
+            // Passa o ID diretamente — o estado `account` ainda não foi aplicado pelo React
+            await Promise.all([
+                loadDemands(),
+                loadOpportunities(accountRes.data.id),
+                loadOrders(accountRes.data.id),
+            ]);
         } catch (err: any) {
             console.error('Erro ao carregar dados:', err);
             setError(err.response?.data?.error || 'Erro ao carregar dados da conta');
@@ -194,10 +183,11 @@ const ClientDashboard: React.FC = () => {
         }
     };
 
-    const loadOpportunities = async () => {
+    const loadOpportunities = async (accountIdOverride?: string) => {
         try {
-            if (!account?.id) return;
-            const response = await opportunitiesApi.list({ accountId: account.id, limit: 50 });
+            const accountId = accountIdOverride ?? account?.id;
+            if (!accountId) return;
+            const response = await opportunitiesApi.list({ accountId, limit: 50 });
             setOpportunities(response.data || []);
             updateUnifiedItems();
         } catch (err: any) {
@@ -205,10 +195,11 @@ const ClientDashboard: React.FC = () => {
         }
     };
 
-    const loadOrders = async () => {
+    const loadOrders = async (accountIdOverride?: string) => {
         try {
-            if (!account?.id) return;
-            const response = await ordersApi.list({ accountId: account.id, limit: 50 });
+            const accountId = accountIdOverride ?? account?.id;
+            if (!accountId) return;
+            const response = await ordersApi.list({ accountId, limit: 50 });
             setOrders(response.data || []);
             updateUnifiedItems();
         } catch (err: any) {
