@@ -249,28 +249,20 @@ async function buildOrdersWhere(req: AuthRequest): Promise<Prisma.OrderWhereInpu
     }
     // LINK users see orders from their manifests
     else if (req.user!.roles.includes('LINK')) {
-        const link = await prisma.link.findFirst({
-            where: { userId: req.user!.id },
-        });
-        if (!link) {
+        if (!req.user!.linkId) {
             throw new AppError('Link profile not found', 404);
         }
-        where.manifest = { linkId: link.id };
+        where.manifest = { linkId: req.user!.linkId };
     }
     // Clients can only see orders from their account
     else if (req.user!.roles.includes('CLIENT')) {
-        const user = await prisma.user.findUnique({
-            where: { id: req.user!.id },
-            include: { account: true }
-        });
-
-        if (!user || !user.accountId) {
+        if (!req.user!.accountId) {
             throw new AppError('Account not found', 404);
         }
 
-        // Get all demands from account clients
+        // Get all clients for this account to scope the filter
         const accountClients = await prisma.client.findMany({
-            where: { accountId: user.accountId },
+            where: { accountId: req.user!.accountId },
             select: { id: true }
         });
         const clientIds = accountClients.map(c => c.id);
@@ -498,12 +490,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
 
         // Check authorization for clients
         if (req.user!.roles.includes('CLIENT')) {
-            const user = await prisma.user.findUnique({
-                where: { id: req.user!.id },
-                include: { account: true }
-            });
-            
-            if (!user || !user.accountId || order.demand.client?.accountId !== user.accountId) {
+            if (!req.user!.accountId || order.demand.client?.accountId !== req.user!.accountId) {
                 throw new AppError('Not authorized', 403);
             }
         }
@@ -513,10 +500,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
         }
 
         if (shouldApplyLinkOrderScope(req.user!.roles)) {
-            const link = await prisma.link.findFirst({
-                where: { userId: req.user!.id },
-            });
-            if (!link || order.manifest?.linkId !== link.id) {
+            if (!req.user!.linkId || order.manifest?.linkId !== req.user!.linkId) {
                 throw new AppError('Not authorized', 403);
             }
         }
@@ -560,21 +544,13 @@ async function assertOrderAccess(req: AuthRequest, orderId: string) {
     }
 
     if (shouldApplyLinkOrderScope(req.user!.roles)) {
-        const link = await prisma.link.findFirst({
-            where: { userId: req.user!.id },
-            select: { id: true },
-        });
-        if (!link || order.manifest?.linkId !== link.id) {
+        if (!req.user!.linkId || order.manifest?.linkId !== req.user!.linkId) {
             throw new AppError('Not authorized', 403);
         }
     }
 
     if (req.user!.roles.includes('CLIENT')) {
-        const user = await prisma.user.findUnique({
-            where: { id: req.user!.id },
-            select: { accountId: true },
-        });
-        if (!user?.accountId || order.demand.client?.accountId !== user.accountId) {
+        if (!req.user!.accountId || order.demand.client?.accountId !== req.user!.accountId) {
             throw new AppError('Not authorized', 403);
         }
     }

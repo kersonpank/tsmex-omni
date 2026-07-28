@@ -182,9 +182,8 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
         const andConditions: Prisma.ManifestWhereInput[] = [];
 
         if (req.user!.roles.includes('LINK')) {
-            const link = await prisma.link.findFirst({ where: { userId: req.user!.id } });
-            if (!link) throw new AppError('Link profile not found', 404);
-            andConditions.push({ linkId: link.id });
+            if (!req.user!.linkId) throw new AppError('Link profile not found', 404);
+            andConditions.push({ linkId: req.user!.linkId });
         } else if (linkId) {
             andConditions.push({ linkId: linkId as string });
         }
@@ -338,10 +337,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
 
         // Check access for links when the active account is not also an operational manager.
         if (req.user!.roles.includes('LINK') && !req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('HUB')) {
-            const link = await prisma.link.findFirst({
-                where: { userId: req.user!.id }
-            });
-            if (!link || link.id !== manifest.linkId) {
+            if (!req.user!.linkId || req.user!.linkId !== manifest.linkId) {
                 throw new AppError('Not authorized', 403);
             }
         }
@@ -1017,8 +1013,7 @@ router.get('/:id/readiness', authenticate, async (req: AuthRequest, res: Respons
             throw new AppError('Not authorized', 403);
         }
         if (req.user!.roles.includes('LINK') && !req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('HUB')) {
-            const link = await prisma.link.findFirst({ where: { userId: req.user!.id }, select: { id: true } });
-            if (!link || manifest.linkId !== link.id) throw new AppError('Not authorized', 403);
+            if (!req.user!.linkId || manifest.linkId !== req.user!.linkId) throw new AppError('Not authorized', 403);
         }
         const readiness = await getManifestReadiness(id);
         res.json({ success: true, data: readiness });
@@ -1151,11 +1146,7 @@ router.patch('/:id/accept', authenticate, authorize('LINK'), async (req: AuthReq
     try {
         const id = req.params.id as string;
 
-        const link = await prisma.link.findFirst({
-            where: { userId: req.user!.id }
-        });
-
-        if (!link) {
+        if (!req.user!.linkId) {
             throw new AppError('Link profile not found', 404);
         }
 
@@ -1163,7 +1154,7 @@ router.patch('/:id/accept', authenticate, authorize('LINK'), async (req: AuthReq
             where: { id: id }
         });
 
-        if (!manifest || manifest.linkId !== link.id) {
+        if (!manifest || manifest.linkId !== req.user!.linkId) {
             throw new AppError('Manifest not found or not assigned to you', 404);
         }
 
@@ -1195,11 +1186,7 @@ router.patch('/:id/reject', authenticate, authorize('LINK'), async (req: AuthReq
         const id = req.params.id as string;
         const { reason } = req.body;
 
-        const link = await prisma.link.findFirst({
-            where: { userId: req.user!.id }
-        });
-
-        if (!link) {
+        if (!req.user!.linkId) {
             throw new AppError('Link profile not found', 404);
         }
 
@@ -1207,7 +1194,7 @@ router.patch('/:id/reject', authenticate, authorize('LINK'), async (req: AuthReq
             where: { id: id }
         });
 
-        if (!manifest || manifest.linkId !== link.id) {
+        if (!manifest || manifest.linkId !== req.user!.linkId) {
             throw new AppError('Manifest not found or not assigned to you', 404);
         }
 

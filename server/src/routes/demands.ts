@@ -60,27 +60,15 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
             };
         }
         if (req.user!.roles.includes('CLIENT')) {
-            const user = await prisma.user.findUnique({
-                where: { id: req.user!.id },
-                include: { account: true }
-            });
-            
-            if (!user || !user.accountId) {
-                // Fallback to old behavior if no account
-                const client = await prisma.client.findFirst({
-                    where: { userId: req.user!.id }
-                });
-                if (!client) throw new AppError('Client profile not found', 404);
-                clientFilter = { clientId: client.id };
-            } else {
-                // Get all clients in this account
-                const accountClients = await prisma.client.findMany({
-                    where: { accountId: user.accountId },
-                    select: { id: true }
-                });
-                const clientIds = accountClients.map(c => c.id);
-                clientFilter = { clientId: { in: clientIds } };
+            if (!req.user!.accountId) {
+                throw new AppError('Account not found', 404);
             }
+            const accountClients = await prisma.client.findMany({
+                where: { accountId: req.user!.accountId },
+                select: { id: true }
+            });
+            const clientIds = accountClients.map(c => c.id);
+            clientFilter = { clientId: { in: clientIds } };
         }
 
         const demands = await prisma.demand.findMany({

@@ -3,14 +3,17 @@ import jwt from 'jsonwebtoken';
 import { AppError } from './errorHandler.js';
 import prisma from '../lib/prisma.js';
 import { UserRole } from '@prisma/client';
+import { getCachedUser, setCachedUser } from '../lib/userCache.js';
 
 export interface AuthRequest extends Request {
     user?: {
         id: string;
         email: string;
-        roles: UserRole[]; // Múltiplos papéis por email
-        hubId?: string | null; // Preenchido quando HUB em roles
-        permissions?: string[]; // Permissões por pessoa (HUB)
+        roles: UserRole[];
+        hubId?: string | null;
+        permissions?: string[];
+        linkId?: string | null;    // populated for LINK users — avoids per-request pre-query in routes
+        accountId?: string | null; // populated for CLIENT users — avoids per-request pre-query in routes
     };
 }
 
@@ -35,6 +38,13 @@ export const authenticate = async (
 
         const decoded = jwt.verify(token, secret) as { userId: string };
 
+        // Redis cache hit: skip DB round-trip for the common case
+        const cached = await getCachedUser(decoded.userId);
+        if (cached) {
+            req.user = cached as AuthRequest['user'];
+            return next();
+        }
+
         const user = await prisma.user.findUnique({
             where: { id: decoded.userId },
             select: {
@@ -45,7 +55,7 @@ export const authenticate = async (
                 hubId: true,
                 permissions: true,
                 admin: { select: { id: true } },
-                client: { select: { id: true } },
+                client: { select: { id: true, accountId: true } },
                 link: { select: { id: true } },
             },
         });
@@ -54,29 +64,27 @@ export const authenticate = async (
             throw new AppError('User not found or inactive', 401);
         }
 
-        let roles = user.roles ?? [];
-        if (!roles || roles.length === 0) {
-            const inferred: UserRole[] = [];
-            if (user.admin) inferred.push('ADMIN');
-            if (user.client) inferred.push('CLIENT');
-            if (user.link) inferred.push('LINK');
-            if (user.hubId) inferred.push('HUB');
-            if (inferred.length > 0) {
-                roles = inferred;
-                await prisma.user.update({
-                    where: { id: user.id },
-                    data: { roles: inferred },
-                });
-            }
+        // Role inference (read-only fallback; DB write removed from hot path)
+        let roles: UserRole[] = user.roles ?? [];
+        if (roles.length === 0) {
+            if (user.admin) roles = [...roles, 'ADMIN'];
+            if (user.client) roles = [...roles, 'CLIENT'];
+            if (user.link) roles = [...roles, 'LINK'];
+            if (user.hubId) roles = [...roles, 'HUB'];
         }
 
-        req.user = {
+        const userPayload: NonNullable<AuthRequest['user']> = {
             id: user.id,
             email: user.email,
             roles,
-            hubId: user.hubId ?? undefined,
+            hubId: user.hubId ?? null,
             permissions: user.permissions ?? [],
+            linkId: user.link?.id ?? null,
+            accountId: user.client?.accountId ?? null,
         };
+
+        await setCachedUser(user.id, userPayload);
+        req.user = userPayload;
 
         next();
     } catch (error) {
