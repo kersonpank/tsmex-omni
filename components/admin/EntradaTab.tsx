@@ -53,7 +53,10 @@ const EntradaTab: React.FC<EntradaTabProps> = ({
   const { user } = useAuthStore();
   const isHub = user?.roles?.includes('HUB') ?? false;
   const hubId = (user?.profile as { hub?: { hubId?: string } })?.hub?.hubId ?? (user as any)?.hubId;
-  const hubPermissions = (user?.profile as { hub?: { permissions?: string[] } })?.hub?.permissions ?? [];
+  const hubPermissions = useMemo(
+    () => (user?.profile as { hub?: { permissions?: string[] } })?.hub?.permissions ?? [],
+    [user]
+  );
   const hubCanEntrada =
     !isHub || hubPermissions.length === 0 || hubPermissions.includes('entrada');
 

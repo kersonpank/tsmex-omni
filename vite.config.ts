@@ -17,6 +17,16 @@ export default defineConfig(({ mode }) => {
           },
         },
       },
+      build: {
+        rollupOptions: {
+          output: {
+            manualChunks: {
+              'vendor-dnd': ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'],
+              'vendor-qr': ['@zxing/browser', '@zxing/library'],
+            },
+          },
+        },
+      },
       plugins: [tailwindcss(), react()],
       define: {
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),

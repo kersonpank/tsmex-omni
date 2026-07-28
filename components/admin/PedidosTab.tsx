@@ -159,9 +159,7 @@ const PedidosTab: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const query = {
-        limit: PAGE_SIZE,
-        offset: page * PAGE_SIZE,
+      const filterParams = {
         ...(filters.status ? { status: filters.status } : {}),
         ...(filters.hubId ? { hubId: filters.hubId } : {}),
         ...(filters.collectionStatus ? { collectionStatus: filters.collectionStatus } : {}),
@@ -174,12 +172,20 @@ const PedidosTab: React.FC = () => {
         ...(filters.senderCity.trim() ? { senderCity: filters.senderCity.trim() } : {}),
         ...(filters.recipientState ? { recipientState: filters.recipientState } : {}),
         ...(filters.recipientCity.trim() ? { recipientCity: filters.recipientCity.trim() } : {}),
-        ...(SERVER_SORT_KEYS.includes(sortBy as any) ? { sortBy, sortDir } : { sortBy: 'updatedAt', sortDir: 'desc' }),
       };
-      const res = (await ordersApi.list(query)) as PaginatedResponse<OrderListItem>;
+      const [res, aggRes] = await Promise.all([
+        ordersApi.list({
+          ...filterParams,
+          limit: PAGE_SIZE,
+          offset: page * PAGE_SIZE,
+          ...(SERVER_SORT_KEYS.includes(sortBy as any) ? { sortBy, sortDir } : { sortBy: 'updatedAt', sortDir: 'desc' }),
+        }) as Promise<PaginatedResponse<OrderListItem>>,
+        ordersApi.aggregate(filterParams).catch(() => null),
+      ]);
       const data = Array.isArray(res?.data) ? res.data : [];
       setOrders(data);
       setTotal(res?.pagination?.total ?? data.length);
+      setOrderSummary(aggRes?.data ?? null);
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Erro ao carregar pedidos');
     } finally {
@@ -331,31 +337,6 @@ const PedidosTab: React.FC = () => {
   useRegisterGestaoModuleActions(() => pedidosGestao, [pedidosGestao]);
 
   const [orderSummary, setOrderSummary] = useState<OrderAggregateSummary | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    ordersApi.aggregate({
-      ...(filters.status ? { status: filters.status } : {}),
-      ...(filters.hubId ? { hubId: filters.hubId } : {}),
-      ...(filters.collectionStatus ? { collectionStatus: filters.collectionStatus } : {}),
-      ...(filters.q.trim() ? { q: filters.q.trim() } : {}),
-      ...(filters.originState ? { originState: filters.originState } : {}),
-      ...(filters.originCity.trim() ? { originCity: filters.originCity.trim() } : {}),
-      ...(filters.destinationState ? { destinationState: filters.destinationState } : {}),
-      ...(filters.destinationCity.trim() ? { destinationCity: filters.destinationCity.trim() } : {}),
-      ...(filters.senderState ? { senderState: filters.senderState } : {}),
-      ...(filters.senderCity.trim() ? { senderCity: filters.senderCity.trim() } : {}),
-      ...(filters.recipientState ? { recipientState: filters.recipientState } : {}),
-      ...(filters.recipientCity.trim() ? { recipientCity: filters.recipientCity.trim() } : {}),
-    })
-      .then((res) => {
-        if (!cancelled) setOrderSummary(res?.data ?? null);
-      })
-      .catch(() => {
-        if (!cancelled) setOrderSummary(null);
-      });
-    return () => { cancelled = true; };
-  }, [filters]);
 
   // Colunas da tabela: declaradas como const simples (não useMemo) de propósito —
   // vários `render`/`renderActions` fecham sobre estado do componente

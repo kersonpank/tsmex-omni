@@ -60,7 +60,10 @@ const AdminDashboard: React.FC = () => {
   const isHub = user?.roles?.includes('HUB') ?? false;
   const isAdmin = user?.roles?.includes('ADMIN') ?? false;
   const canAccessCommercial = isAdmin && !isHub;
-  const hubPermissions = (user?.profile as { hub?: { permissions?: string[] } })?.hub?.permissions ?? (user as { permissions?: string[] })?.permissions ?? [];
+  const hubPermissions = useMemo(
+    () => (user?.profile as { hub?: { permissions?: string[] } })?.hub?.permissions ?? (user as { permissions?: string[] })?.permissions ?? [],
+    [user]
+  );
   const hasPermission = useCallback(
     (p: string) => !isHub || hubPermissions.length === 0 || hubPermissions.includes(p),
     [isHub, hubPermissions]

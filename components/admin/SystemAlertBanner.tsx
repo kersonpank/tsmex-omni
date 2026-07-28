@@ -9,14 +9,17 @@ interface AlertItem {
   message: string;
 }
 
+// Static module-level constants — defined once, never recreated on render
+const WARNING_CATEGORIES_SHOWN = new Set(['FISCAL_DISTRIBUICAO_NFE_NOT_SEEDED', 'FISCAL_PROVIDER_ERROR']);
+
+const RESUME_ACTION_BY_CATEGORY: Record<string, (alertId: string) => Promise<unknown>> = {
+  FISCAL_PROVIDER_QUOTA: systemAlertsApi.resumeCteQueue,
+  FISCAL_DISTRIBUICAO_NFE_QUOTA: systemAlertsApi.resumeDistribuicaoNfeQueue,
+};
+
 export default function SystemAlertBanner() {
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [resolving, setResolving] = useState<string | null>(null);
-
-  // Categorias de WARNING que também precisam aparecer aqui, além de todo CRITICAL — hoje só
-  // "não seedado"/erros de provider da Distribuição NF-e, que antes ficavam invisíveis (só
-  // existiam na tabela SystemAlert, sem nenhum lugar na UI que os mostrasse).
-  const WARNING_CATEGORIES_SHOWN = new Set(['FISCAL_DISTRIBUICAO_NFE_NOT_SEEDED', 'FISCAL_PROVIDER_ERROR']);
 
   const load = async () => {
     try {
@@ -38,13 +41,6 @@ export default function SystemAlertBanner() {
     const interval = setInterval(load, 30_000);
     return () => clearInterval(interval);
   }, []);
-
-  // Categorias que pausam uma fila BullMQ e têm uma rota de "retomar" própria. Cada categoria
-  // nova que pausa fila (ex.: futuras integrações fiscais) só precisa de uma entrada aqui.
-  const RESUME_ACTION_BY_CATEGORY: Record<string, (alertId: string) => Promise<unknown>> = {
-    FISCAL_PROVIDER_QUOTA: systemAlertsApi.resumeCteQueue,
-    FISCAL_DISTRIBUICAO_NFE_QUOTA: systemAlertsApi.resumeDistribuicaoNfeQueue,
-  };
 
   const handleResume = async (alertId: string, category: string) => {
     const resumeAction = RESUME_ACTION_BY_CATEGORY[category];
