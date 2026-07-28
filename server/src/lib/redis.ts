@@ -35,5 +35,5 @@ export function createRedisConnection(customUrl: string = REDIS_URL): IORedis {
 }
 
 export function isRedisConfigured(): boolean {
-    return Boolean(process.env.REDIS_URL?.trim()) || true;
+    return Boolean(process.env.REDIS_URL?.trim());
 }
