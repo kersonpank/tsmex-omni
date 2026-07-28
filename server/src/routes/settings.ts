@@ -3,8 +3,18 @@ import { z } from 'zod';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
+import { createRedisConnection } from '../lib/redis.js';
+
+const redis = createRedisConnection();
 
 const router = Router();
+
+async function invalidateLlmModelCache(): Promise<void> {
+    try {
+        const keys = await redis.keys('llm:active-model:*');
+        if (keys.length > 0) await redis.del(...keys);
+    } catch { /* non-fatal */ }
+}
 
 // ==================== PROVIDERS ====================
 
@@ -99,6 +109,12 @@ router.get('/models', authenticate, authorize('ADMIN'), async (req: AuthRequest,
 router.get('/models/active', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const capability = (req.query.capability as string) || 'chat';
+        const cacheKey = `llm:active-model:${capability}`;
+
+        try {
+            const cached = await redis.get(cacheKey);
+            if (cached) return res.json(JSON.parse(cached));
+        } catch { /* cache miss — fall through to DB */ }
 
         // Try to find default model with that capability
         let model = await prisma.lLMModel.findFirst({
@@ -133,7 +149,7 @@ router.get('/models/active', authenticate, async (req: AuthRequest, res: Respons
             throw new AppError(`No active model found for capability: ${capability}`, 404);
         }
 
-        res.json({
+        const result = {
             success: true,
             data: {
                 modelId: model.modelId,
@@ -141,7 +157,11 @@ router.get('/models/active', authenticate, async (req: AuthRequest, res: Respons
                 apiKey: model.provider.apiKey?.apiKey,
                 baseUrl: model.provider.baseUrl,
             },
-        });
+        };
+
+        try { await redis.set(cacheKey, JSON.stringify(result), 'EX', 60); } catch { /* non-fatal */ }
+
+        res.json(result);
     } catch (error) {
         next(error);
     }
@@ -184,6 +204,7 @@ router.post('/models', authenticate, authorize('ADMIN'), async (req: AuthRequest
             include: { provider: true }
         });
 
+        void invalidateLlmModelCache();
         res.status(201).json({
             success: true,
             data: model,
@@ -220,6 +241,7 @@ router.patch('/models/:id', authenticate, authorize('ADMIN'), async (req: AuthRe
             include: { provider: true }
         });
 
+        void invalidateLlmModelCache();
         res.json({
             success: true,
             data: model,
@@ -241,6 +263,7 @@ router.delete('/models/:id', authenticate, authorize('ADMIN'), async (req: AuthR
             where: { id: id }
         });
 
+        void invalidateLlmModelCache();
         res.json({
             success: true,
             message: 'Model deleted',
@@ -281,6 +304,7 @@ router.post('/models/:id/set-default', authenticate, authorize('ADMIN'), async (
             include: { provider: true }
         });
 
+        void invalidateLlmModelCache();
         res.json({
             success: true,
             data: updated,

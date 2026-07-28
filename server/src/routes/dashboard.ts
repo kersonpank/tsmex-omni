@@ -2,8 +2,10 @@ import { Router, Response, NextFunction } from 'express';
 import { Prisma } from '@prisma/client';
 import prisma from '../lib/prisma.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
+import { createRedisConnection } from '../lib/redis.js';
 
 const router = Router();
+const redis = createRedisConnection();
 
 /** Demandas visíveis para um operador de hub (alinhado a `demands` route). */
 function hubDemandFilter(hubId: string): Prisma.DemandWhereInput {
@@ -27,6 +29,12 @@ router.get(
       if (isHub && !hubId) {
         return res.status(403).json({ success: false, error: 'Hub user has no hub assigned' });
       }
+
+      const cacheKey = `dashboard:ops-summary:${hubId ?? 'admin'}`;
+      try {
+        const cached = await redis.get(cacheKey);
+        if (cached) return res.json(JSON.parse(cached));
+      } catch { /* cache miss — fall through to DB */ }
 
       const d7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       const d30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
@@ -139,7 +147,7 @@ router.get(
         }
       }
 
-      res.json({
+      const result = {
         success: true,
         data: {
           generatedAt,
@@ -171,7 +179,11 @@ router.get(
               : 'Novos = cadastros de clientes (CNPJ) no período.',
           },
         },
-      });
+      };
+
+      try { await redis.set(cacheKey, JSON.stringify(result), 'EX', 30); } catch { /* non-fatal */ }
+
+      res.json(result);
     } catch (error) {
       next(error);
     }
