@@ -1,6 +1,6 @@
 import prisma from '../../lib/prisma.js';
 import { isAcbrCredentialsConfigured } from '../acbr/acbrConfig.js';
-import { solicitarEPersistirNsu, putAcbrEmpresaDistNfeConfig } from '../acbr/acbrDistribuicaoNfe.js';
+import { solicitarEPersistirNsu, putAcbrEmpresaDistNfeConfig, isDistribuicaoRateLimitError } from '../acbr/acbrDistribuicaoNfe.js';
 import { manifestarCienciaOperacao } from '../acbr/acbrManifestacao.js';
 import { baixarXmlDocumentoDistribuicao } from '../acbr/acbrDistribuicaoNfe.js';
 import { parseDistribuicaoDocumento } from '../acbr/distribuicaoNfeDocumentParser.js';
@@ -11,8 +11,22 @@ import {
     getCargoDataFromDistribuicaoDocument,
     type NfeDistribuicaoDocumentoForCargo,
 } from './nfeDistribuicaoCargoData.js';
+import { getDistribuicaoCheckpointStatus } from './distribuicaoCheckpointStatus.js';
 import { findCargoDataForChave as defaultFindCargoDataForChave } from '../../routes/intakeDemands.js';
 import type { ParsedNfeCargo } from '../acbr/nfeXmlParser.js';
+
+/** Motivo pelo qual não foi possível buscar a NF-e completa via Distribuição ACBr agora —
+ * `rate_limit` é acionável na UI (mostra quando tentar de novo); `erro` é só best-effort/log. */
+export interface DistribuicaoIndisponivel {
+    motivo: 'rate_limit' | 'erro';
+    nextAllowedAt?: string;
+    mensagem: string;
+}
+
+export interface FetchNfeCompletaResult {
+    cargo: ParsedNfeCargo | null;
+    distribuicaoIndisponivel?: DistribuicaoIndisponivel;
+}
 
 export interface FetchNfeCompletaDeps {
     findCargoDataForChave: (chave: string) => Promise<ParsedNfeCargo | undefined>;
@@ -33,6 +47,7 @@ export interface FetchNfeCompletaDeps {
     markManifested: typeof markManifested;
     markXmlDownloaded: typeof markXmlDownloaded;
     getCargoDataFromDistribuicaoDocument: (doc: NfeDistribuicaoDocumentoForCargo) => Promise<ParsedNfeCargo | null>;
+    getDistribuicaoCheckpointStatus: typeof getDistribuicaoCheckpointStatus;
 }
 
 export const defaultFetchNfeCompletaDeps: FetchNfeCompletaDeps = {
@@ -55,6 +70,7 @@ export const defaultFetchNfeCompletaDeps: FetchNfeCompletaDeps = {
     markManifested,
     markXmlDownloaded,
     getCargoDataFromDistribuicaoDocument,
+    getDistribuicaoCheckpointStatus,
 };
 
 function ambienteFromEnvironment(environment: string): 'homologacao' | 'producao' {
@@ -86,27 +102,31 @@ function extractDocumentosConsChave(payload: Record<string, unknown>): Record<st
  * efeito colateral — mesma responsabilidade de `ensureDistribuicaoBootstrap.ts`, só que aqui já
  * persistindo o documento também, não só o checkpoint.
  *
- * Nunca lança: qualquer falha na etapa ACBr retorna `null`, e o chamador (`nfe.ts`) cai pro
- * fallback de dados parciais (BrasilAPI).
+ * Nunca lança: qualquer falha na etapa ACBr retorna `{ cargo: null }` (mais `distribuicaoIndisponivel`
+ * quando o motivo é acionável pela UI, ex.: rate-limit), e o chamador (`nfe.ts`) cai pro fallback
+ * de dados parciais (BrasilAPI).
  */
 export async function fetchNfeCompleta(
     hubId: string | null | undefined,
     chave: string,
     deps: FetchNfeCompletaDeps = defaultFetchNfeCompletaDeps,
-): Promise<ParsedNfeCargo | null> {
+): Promise<FetchNfeCompletaResult> {
     const cached = await deps.findCargoDataForChave(chave);
-    if (cached) return cached;
+    if (cached) return { cargo: cached };
 
-    if (!hubId || !deps.isAcbrCredentialsConfigured()) return null;
+    if (!hubId || !deps.isAcbrCredentialsConfigured()) return { cargo: null };
+
+    let cpfCnpj: string | null = null;
+    let ambiente: 'homologacao' | 'producao' | null = null;
 
     try {
         const emitter = await deps.findFiscalEmitterByHub(hubId);
-        if (!emitter) return null;
+        if (!emitter) return { cargo: null };
 
-        const cpfCnpj = emitter.person.document.replace(/\D/g, '');
-        if (cpfCnpj.length !== 14) return null; // Distribuição DFe é só CNPJ
+        cpfCnpj = emitter.person.document.replace(/\D/g, '');
+        if (cpfCnpj.length !== 14) return { cargo: null }; // Distribuição DFe é só CNPJ
 
-        const ambiente = ambienteFromEnvironment(emitter.environment);
+        ambiente = ambienteFromEnvironment(emitter.environment);
 
         // Pré-requisito descoberto na prática (ConfigDistNfeNotFound): a empresa precisa dessa
         // configuração ANTES de qualquer chamada a /distribuicao/nfe/* funcionar — separado do
@@ -130,14 +150,14 @@ export async function fetchNfeCompleta(
             if (motivo) {
                 console.warn(`[fetchNfeCompleta] SEFAZ não retornou documento pra ${chave} (${ambiente}): ${motivo}`);
             }
-            return null;
+            return { cargo: null };
         }
 
         const ultimoNsu = extractUltimoNsu(response);
         const raw = docs[0];
         const nsuDoDocumento = typeof raw.nsu === 'string' || typeof raw.nsu === 'number' ? String(raw.nsu) : String(ultimoNsu ?? '0');
         const parsed = parseDistribuicaoDocumento(raw, nsuDoDocumento);
-        if (!parsed.accessKey || !parsed.cnpjEmitente) return null;
+        if (!parsed.accessKey || !parsed.cnpjEmitente) return { cargo: null };
 
         const doc = await deps.upsertDiscovered({
             nsu: parsed.nsu,
@@ -150,7 +170,8 @@ export async function fetchNfeCompleta(
         });
 
         if (doc.xmlStorageKey) {
-            return await deps.getCargoDataFromDistribuicaoDocument({ tipo: doc.tipo, xmlStorageKey: doc.xmlStorageKey });
+            const cargo = await deps.getCargoDataFromDistribuicaoDocument({ tipo: doc.tipo, xmlStorageKey: doc.xmlStorageKey });
+            return { cargo };
         }
 
         let status = doc.status;
@@ -164,10 +185,10 @@ export async function fetchNfeCompleta(
             await deps.markManifested(doc.id);
             status = 'MANIFESTED';
         }
-        if (status !== 'MANIFESTED') return null;
+        if (status !== 'MANIFESTED') return { cargo: null };
 
         const documentoId = extractDocumentoId(doc.resumoRaw);
-        if (!documentoId) return null;
+        if (!documentoId) return { cargo: null };
 
         const xml = await deps.baixarXmlDocumentoDistribuicao(documentoId, ambiente);
         const uploaded = await deps.uploadBase64Object({
@@ -178,12 +199,36 @@ export async function fetchNfeCompleta(
         });
         await deps.markXmlDownloaded(doc.id, uploaded.storageKey);
 
-        return await deps.getCargoDataFromDistribuicaoDocument({ tipo: parsed.tipo, xmlStorageKey: uploaded.storageKey });
+        const cargo = await deps.getCargoDataFromDistribuicaoDocument({ tipo: parsed.tipo, xmlStorageKey: uploaded.storageKey });
+        return { cargo };
     } catch (err) {
         console.warn(
             `[fetchNfeCompleta] Falha ao buscar NF-e ${chave} via ACBr:`,
             err instanceof Error ? err.message : err,
         );
-        return null;
+        if (isDistribuicaoRateLimitError(err) && cpfCnpj && ambiente) {
+            // O cooldown já foi gravado por `solicitarDistribuicaoNfe` (side-channel) — só
+            // relemos o checkpoint pra saber o `nextAllowedAt` autoritativo, sem recalcular.
+            try {
+                const status = await deps.getDistribuicaoCheckpointStatus(cpfCnpj, ambiente);
+                return {
+                    cargo: null,
+                    distribuicaoIndisponivel: {
+                        motivo: 'rate_limit',
+                        nextAllowedAt: status.nextAllowedAt ?? undefined,
+                        mensagem: 'A SEFAZ permite só 1 consulta de Distribuição por hora para este CNPJ.',
+                    },
+                };
+            } catch {
+                return {
+                    cargo: null,
+                    distribuicaoIndisponivel: {
+                        motivo: 'rate_limit',
+                        mensagem: 'A SEFAZ permite só 1 consulta de Distribuição por hora para este CNPJ.',
+                    },
+                };
+            }
+        }
+        return { cargo: null };
     }
 }

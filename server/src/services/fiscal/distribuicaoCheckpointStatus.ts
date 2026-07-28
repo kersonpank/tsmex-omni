@@ -8,15 +8,27 @@ export interface DistribuicaoCheckpointStatus {
     /** `false` sempre que não há linha ou `ultimoNsu === '0'` — mesmo critério usado pelas
      * guardas de `distribuicaoNfeCoordinatorProcessor.ts`/`distribuicaoNfeSyncProcessor.ts`. */
     seeded: boolean;
+    /** ISO ou `null`. Cooldown de 1 req/hora da SEFAZ (gravado em `solicitarDistribuicaoNfe`,
+     * `acbrDistribuicaoNfe.ts`) — pode estar no passado (cooldown já expirou); quem consome
+     * compara contra `now()` pra decidir se ainda está ativo. */
+    nextAllowedAt: string | null;
 }
 
 function keyFor(cpfCnpj: string, ambiente: DistribuicaoAmbiente): string {
     return `${cpfCnpj}|${ambiente}`;
 }
 
-function toStatus(ambiente: DistribuicaoAmbiente, ultimoNsu: string | undefined): DistribuicaoCheckpointStatus {
-    const value = ultimoNsu ?? '0';
-    return { ambiente, ultimoNsu: value, seeded: value !== '0' };
+function toStatus(
+    ambiente: DistribuicaoAmbiente,
+    row: { ultimoNsu: string; distNfeNextAllowedAt: Date | null } | undefined,
+): DistribuicaoCheckpointStatus {
+    const value = row?.ultimoNsu ?? '0';
+    return {
+        ambiente,
+        ultimoNsu: value,
+        seeded: value !== '0',
+        nextAllowedAt: row?.distNfeNextAllowedAt ? row.distNfeNextAllowedAt.toISOString() : null,
+    };
 }
 
 /** Status do checkpoint pra 1 CNPJ+ambiente — usado pelos endpoints de 1 emitente (`GET /:id`, `POST /`, `PATCH /:id`). */
@@ -27,7 +39,7 @@ export async function getDistribuicaoCheckpointStatus(
     const row = await prisma.fiscalDistribuicaoCheckpoint.findUnique({
         where: { cpfCnpj_ambiente: { cpfCnpj, ambiente } },
     });
-    return toStatus(ambiente, row?.ultimoNsu);
+    return toStatus(ambiente, row ?? undefined);
 }
 
 /**
@@ -50,7 +62,7 @@ export async function getDistribuicaoCheckpointStatusBatch(
 
     for (const [key, p] of unique) {
         const row = rowByKey.get(key);
-        result.set(key, toStatus(p.ambiente, row?.ultimoNsu));
+        result.set(key, toStatus(p.ambiente, row));
     }
     return result;
 }

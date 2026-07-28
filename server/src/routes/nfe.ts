@@ -122,9 +122,12 @@ router.get('/:chave', authenticate, async (req: Request, res: Response, next: Ne
     // FiscalEmitter/CNPJ usar pra falar com a ACBr — sem ele (ex.: ADMIN sem hub selecionado
     // ainda), cai direto pro fallback parcial da BrasilAPI, sem erro.
     const hubId = typeof req.query.hubId === 'string' ? req.query.hubId : undefined;
-    let cargoData: Awaited<ReturnType<typeof fetchNfeCompleta>> = null;
+    let cargoData: Awaited<ReturnType<typeof fetchNfeCompleta>>['cargo'] = null;
+    let distribuicaoIndisponivel: Awaited<ReturnType<typeof fetchNfeCompleta>>['distribuicaoIndisponivel'];
     try {
-      cargoData = await fetchNfeCompleta(hubId, chave);
+      const fetched = await fetchNfeCompleta(hubId, chave);
+      cargoData = fetched.cargo;
+      distribuicaoIndisponivel = fetched.distribuicaoIndisponivel;
     } catch {
       // Busca completa é best-effort — nunca bloqueia o lookup da NF-e.
     }
@@ -179,6 +182,10 @@ router.get('/:chave', authenticate, async (req: Request, res: Response, next: Ne
               ie: cargoData.transportador.ie ?? null,
             }
           : null,
+        // Presente só quando a busca completa falhou por um motivo acionável na UI (hoje: só
+        // rate-limit de 1h/CNPJ da SEFAZ) — permite mostrar o motivo real em vez de um "não
+        // identificado" genérico (ver EntradaTab.tsx).
+        distribuicaoIndisponivel: distribuicaoIndisponivel ?? null,
         modelo: parsed.mod === '55' ? 'NF-e' : parsed.mod === '57' ? 'CT-e' : parsed.mod,
       },
     });

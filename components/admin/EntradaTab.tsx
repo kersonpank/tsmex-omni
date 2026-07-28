@@ -909,6 +909,16 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
                           <p className="text-xs text-brand-600 dark:text-brand-400">
                             ✓ Destinatário identificado: {peopleForm.destinatario.legalName ?? peopleForm.destinatario.tradeName}
                           </p>
+                        ) : nfPrescan?.distribuicaoIndisponivel?.motivo === 'rate_limit' ? (
+                          <p className="text-xs text-amber-600 dark:text-amber-400">
+                            A SEFAZ permite só 1 consulta de Distribuição por hora para este CNPJ
+                            {nfPrescan.distribuicaoIndisponivel.nextAllowedAt && (
+                              <> — próxima tentativa liberada às{' '}
+                                {new Date(nfPrescan.distribuicaoIndisponivel.nextAllowedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                              </>
+                            )}
+                            . Preencha o Destinatário manualmente por enquanto.
+                          </p>
                         ) : nfPrescan?.transportador ? (
                           <p className="text-xs text-amber-600 dark:text-amber-400">
                             Destinatário não identificado automaticamente. Transportador declarado nesta NF-e:{' '}

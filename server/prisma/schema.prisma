@@ -1743,6 +1743,11 @@ model FiscalDistribuicaoCheckpoint {
   ultimoNsu String   @default("0") // NSU como string para suportar inteiros grandes
   updatedAt DateTime @updatedAt
 
+  /// Cooldown de 1 req/hora que a SEFAZ aplica à Distribuição DF-e por CNPJ+ambiente. Gravado em
+  /// `solicitarDistribuicaoNfe` (acbrDistribuicaoNfe.ts) — now()+1h em sucesso, ou now()+N minutos
+  /// quando a própria SEFAZ recusa informando o tempo de espera. Null = nenhuma chamada recente.
+  distNfeNextAllowedAt DateTime?
+
   @@unique([cpfCnpj, ambiente])
   @@index([cpfCnpj])
 }

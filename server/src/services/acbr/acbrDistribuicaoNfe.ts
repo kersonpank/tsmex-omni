@@ -1,7 +1,7 @@
 import prisma from '../../lib/prisma.js';
 import { getAcbrAccessToken } from './acbrAuth.js';
 import { getAcbrApiBaseUrlForEnvironment, type AcbrFiscalEnvironment } from './acbrConfig.js';
-import { acbrFetchJson, classifyAcbrErrorResponse } from './acbrHttp.js';
+import { acbrFetchJson, classifyAcbrErrorResponse, AcbrHttpError } from './acbrHttp.js';
 
 function ambienteDistribToApiEnv(amb: 'homologacao' | 'producao'): AcbrFiscalEnvironment {
     return amb === 'producao' ? 'PRODUCAO' : 'HOMOLOGACAO';
@@ -20,14 +20,79 @@ export interface DistribuicaoNfeRequestBody {
     ignorar_tempo_espera?: boolean;
 }
 
-/** Solicita distribuição DF-e (POST /distribuicao/nfe). */
-export async function solicitarDistribuicaoNfe(body: DistribuicaoNfeRequestBody): Promise<Record<string, unknown>> {
-    return acbrFetchJson<Record<string, unknown>>('/distribuicao/nfe', {
-        method: 'POST',
-        body: JSON.stringify(body),
-        scopes: ['empresa', 'nfe', 'distribuicao-nfe'],
-        apiEnvironment: ambienteDistribToApiEnv(body.ambiente),
-    });
+/** Confirmado ao vivo (2026-07-28, prod.acbr.api.br): rate-limit de 1 req/hora por CNPJ da
+ * Distribuição DF-e vem como HTTP 400 (não 429/402, que já têm tratamento dedicado por outros
+ * motivos) sem código estruturado — só um texto livre tipo "...Tente novamente em 57 minuto(s).". */
+const DIST_RATE_LIMIT_MINUTES_REGEX = /em\s+(\d+)\s+minuto/i;
+
+export function isDistribuicaoRateLimitError(err: unknown): err is AcbrHttpError {
+    return err instanceof AcbrHttpError && err.httpStatus === 400 && DIST_RATE_LIMIT_MINUTES_REGEX.test(err.message);
+}
+
+export function parseRateLimitMinutes(err: AcbrHttpError): number {
+    const match = err.message.match(DIST_RATE_LIMIT_MINUTES_REGEX);
+    const minutes = match ? Number(match[1]) : NaN;
+    return Number.isFinite(minutes) && minutes > 0 ? minutes : 60;
+}
+
+export interface SolicitarDistribuicaoNfeDeps {
+    acbrFetchJson: typeof acbrFetchJson;
+    prisma: { fiscalDistribuicaoCheckpoint: Pick<typeof prisma.fiscalDistribuicaoCheckpoint, 'upsert'> };
+}
+
+const defaultSolicitarDistribuicaoNfeDeps: SolicitarDistribuicaoNfeDeps = {
+    acbrFetchJson,
+    prisma: { fiscalDistribuicaoCheckpoint: prisma.fiscalDistribuicaoCheckpoint },
+};
+
+/** Best-effort: nunca deixa uma falha ao gravar o cooldown mascarar o resultado real da chamada
+ * (sucesso ou erro original) que motivou a gravação. */
+async function recordDistNfeNextAllowedAt(
+    deps: SolicitarDistribuicaoNfeDeps,
+    cpfCnpj: string,
+    ambiente: string,
+    nextAllowedAt: Date,
+): Promise<void> {
+    try {
+        const doc = digitsOnly(cpfCnpj);
+        await deps.prisma.fiscalDistribuicaoCheckpoint.upsert({
+            where: { cpfCnpj_ambiente: { cpfCnpj: doc, ambiente } },
+            create: { cpfCnpj: doc, ambiente, distNfeNextAllowedAt: nextAllowedAt },
+            update: { distNfeNextAllowedAt: nextAllowedAt },
+        });
+    } catch (err) {
+        console.warn('[acbrDistribuicaoNfe] Falha ao gravar distNfeNextAllowedAt:', err instanceof Error ? err.message : err);
+    }
+}
+
+/**
+ * Solicita distribuição DF-e (POST /distribuicao/nfe). Grava `distNfeNextAllowedAt` como
+ * side-channel — não muda o resultado desta chamada, só deixa rastro pra UI/próxima chamada
+ * saberem quando é seguro tentar de novo (ver `distribuicaoCheckpointStatus.ts`):
+ * - sucesso: now()+1h (aproximação nossa do intervalo mínimo da SEFAZ);
+ * - recusa reconhecida como rate-limit: now()+N minutos, usando o valor que a própria SEFAZ
+ *   informou (mais preciso que o nosso cálculo).
+ */
+export async function solicitarDistribuicaoNfe(
+    body: DistribuicaoNfeRequestBody,
+    deps: SolicitarDistribuicaoNfeDeps = defaultSolicitarDistribuicaoNfeDeps,
+): Promise<Record<string, unknown>> {
+    try {
+        const result = await deps.acbrFetchJson<Record<string, unknown>>('/distribuicao/nfe', {
+            method: 'POST',
+            body: JSON.stringify(body),
+            scopes: ['empresa', 'nfe', 'distribuicao-nfe'],
+            apiEnvironment: ambienteDistribToApiEnv(body.ambiente),
+        });
+        await recordDistNfeNextAllowedAt(deps, body.cpf_cnpj, body.ambiente, new Date(Date.now() + 60 * 60 * 1000));
+        return result;
+    } catch (err) {
+        if (isDistribuicaoRateLimitError(err)) {
+            const minutes = parseRateLimitMinutes(err);
+            await recordDistNfeNextAllowedAt(deps, body.cpf_cnpj, body.ambiente, new Date(Date.now() + minutes * 60 * 1000));
+        }
+        throw err;
+    }
 }
 
 /**

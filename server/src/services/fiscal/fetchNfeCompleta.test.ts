@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it, mock } from 'node:test';
 import { fetchNfeCompleta, type FetchNfeCompletaDeps } from './fetchNfeCompleta.js';
+import { AcbrHttpError } from '../acbr/acbrHttp.js';
 import type { ParsedNfeCargo } from '../acbr/nfeXmlParser.js';
 
 const HUB_ID = '550e8400-e29b-41d4-a716-446655440020';
@@ -40,6 +41,12 @@ function makeDeps(overrides: Partial<FetchNfeCompletaDeps> = {}): FetchNfeComple
         markManifested: mock.fn(async () => true),
         markXmlDownloaded: mock.fn(async () => true),
         getCargoDataFromDistribuicaoDocument: mock.fn(async () => FAKE_CARGO),
+        getDistribuicaoCheckpointStatus: mock.fn(async () => ({
+            ambiente: 'homologacao' as const,
+            ultimoNsu: '10',
+            seeded: true,
+            nextAllowedAt: null,
+        })),
         ...overrides,
     };
 }
@@ -54,39 +61,39 @@ describe('fetchNfeCompleta', () => {
 
         const result = await fetchNfeCompleta(HUB_ID, CHAVE, deps);
 
-        assert.deepEqual(result, FAKE_CARGO);
+        assert.deepEqual(result, { cargo: FAKE_CARGO });
         assert.equal(findFiscalEmitterByHub.mock.callCount(), 0);
     });
 
-    it('sem hubId — não chama ACBr, retorna null', async () => {
+    it('sem hubId — não chama ACBr, retorna cargo null', async () => {
         const solicitarEPersistirNsu = mock.fn(async () => ({ data: [], ultimo_nsu: 10 }));
         const deps = makeDeps({ solicitarEPersistirNsu });
 
         const result = await fetchNfeCompleta(null, CHAVE, deps);
 
-        assert.equal(result, null);
+        assert.deepEqual(result, { cargo: null });
         assert.equal(solicitarEPersistirNsu.mock.callCount(), 0);
     });
 
-    it('ACBr não configurado — retorna null', async () => {
+    it('ACBr não configurado — retorna cargo null', async () => {
         const solicitarEPersistirNsu = mock.fn(async () => ({ data: [], ultimo_nsu: 10 }));
         const deps = makeDeps({ isAcbrCredentialsConfigured: mock.fn(() => false), solicitarEPersistirNsu });
 
         const result = await fetchNfeCompleta(HUB_ID, CHAVE, deps);
 
-        assert.equal(result, null);
+        assert.deepEqual(result, { cargo: null });
         assert.equal(solicitarEPersistirNsu.mock.callCount(), 0);
     });
 
-    it('Hub sem FiscalEmitter — retorna null', async () => {
+    it('Hub sem FiscalEmitter — retorna cargo null', async () => {
         const deps = makeDeps({ findFiscalEmitterByHub: mock.fn(async () => null) });
 
         const result = await fetchNfeCompleta(HUB_ID, CHAVE, deps);
 
-        assert.equal(result, null);
+        assert.deepEqual(result, { cargo: null });
     });
 
-    it('emitente com CPF (não CNPJ) — não chama ACBr, retorna null', async () => {
+    it('emitente com CPF (não CNPJ) — não chama ACBr, retorna cargo null', async () => {
         const solicitarEPersistirNsu = mock.fn(async () => ({ data: [], ultimo_nsu: 10 }));
         const deps = makeDeps({
             findFiscalEmitterByHub: mock.fn(async () => ({
@@ -100,16 +107,16 @@ describe('fetchNfeCompleta', () => {
 
         const result = await fetchNfeCompleta(HUB_ID, CHAVE, deps);
 
-        assert.equal(result, null);
+        assert.deepEqual(result, { cargo: null });
         assert.equal(solicitarEPersistirNsu.mock.callCount(), 0);
     });
 
-    it('ACBr não retorna nenhum documento (chave desconhecida da SEFAZ) — retorna null', async () => {
+    it('ACBr não retorna nenhum documento (chave desconhecida da SEFAZ) — retorna cargo null', async () => {
         const deps = makeDeps({ solicitarEPersistirNsu: mock.fn(async () => ({ data: [], ultimo_nsu: 10 })) });
 
         const result = await fetchNfeCompleta(HUB_ID, CHAVE, deps);
 
-        assert.equal(result, null);
+        assert.deepEqual(result, { cargo: null });
     });
 
     it('documento já tinha XML baixado (upsertDiscovered idempotente) — pula manifestar/baixar', async () => {
@@ -133,7 +140,7 @@ describe('fetchNfeCompleta', () => {
 
         const result = await fetchNfeCompleta(HUB_ID, CHAVE, deps);
 
-        assert.deepEqual(result, FAKE_CARGO);
+        assert.deepEqual(result, { cargo: FAKE_CARGO });
         assert.equal(manifestarCienciaOperacao.mock.callCount(), 0);
         assert.equal(baixarXmlDocumentoDistribuicao.mock.callCount(), 0);
     });
@@ -164,7 +171,7 @@ describe('fetchNfeCompleta', () => {
 
         const result = await fetchNfeCompleta(HUB_ID, CHAVE, deps);
 
-        assert.deepEqual(result, FAKE_CARGO);
+        assert.deepEqual(result, { cargo: FAKE_CARGO });
         assert.equal(manifestarCienciaOperacao.mock.callCount(), 1);
         assert.equal(baixarXmlDocumentoDistribuicao.mock.callCount(), 1);
         assert.equal(markManifested.mock.callCount(), 1);
@@ -200,7 +207,7 @@ describe('fetchNfeCompleta', () => {
 
         const result = await fetchNfeCompleta(HUB_ID, CHAVE, deps);
 
-        assert.deepEqual(result, FAKE_CARGO);
+        assert.deepEqual(result, { cargo: FAKE_CARGO });
         assert.equal(manifestarCienciaOperacao.mock.callCount(), 0, 'NFE_PROC não precisa de Ciência da Operação');
         assert.equal(baixarXmlDocumentoDistribuicao.mock.callCount(), 1, 'mesmo pulando manifestação, ainda baixa o XML');
     });
@@ -220,7 +227,7 @@ describe('fetchNfeCompleta', () => {
         assert.equal(setDistribuicaoNfeEnabled.mock.callCount(), 0);
     });
 
-    it('erro em qualquer chamada ACBr — best-effort, retorna null, nunca lança', async () => {
+    it('erro genérico (não rate-limit) em qualquer chamada ACBr — best-effort, retorna cargo null sem distribuicaoIndisponivel, nunca lança', async () => {
         const deps = makeDeps({
             solicitarEPersistirNsu: mock.fn(async () => {
                 throw new Error('ACBr fora do ar');
@@ -229,6 +236,56 @@ describe('fetchNfeCompleta', () => {
 
         const result = await fetchNfeCompleta(HUB_ID, CHAVE, deps);
 
-        assert.equal(result, null);
+        assert.deepEqual(result, { cargo: null });
+    });
+
+    it('rate-limit da SEFAZ (1 consulta/hora) — retorna distribuicaoIndisponivel com nextAllowedAt do checkpoint', async () => {
+        const rateLimitErr = new AcbrHttpError(
+            'ACBr /distribuicao/nfe HTTP 400: {"error":{"code":"ValidationFailed","message":"...Tente novamente em 57 minuto(s)."}}',
+            400,
+        );
+        const getDistribuicaoCheckpointStatus = mock.fn(async (_cpfCnpj: string, _ambiente: 'homologacao' | 'producao') => ({
+            ambiente: 'homologacao' as const,
+            ultimoNsu: '10',
+            seeded: true,
+            nextAllowedAt: '2026-07-28T18:00:00.000Z',
+        }));
+        const deps = makeDeps({
+            solicitarEPersistirNsu: mock.fn(async () => {
+                throw rateLimitErr;
+            }),
+            getDistribuicaoCheckpointStatus,
+        });
+
+        const result = await fetchNfeCompleta(HUB_ID, CHAVE, deps);
+
+        assert.equal(result.cargo, null);
+        assert.equal(result.distribuicaoIndisponivel?.motivo, 'rate_limit');
+        assert.equal(result.distribuicaoIndisponivel?.nextAllowedAt, '2026-07-28T18:00:00.000Z');
+        assert.equal(getDistribuicaoCheckpointStatus.mock.callCount(), 1);
+        const [cpfCnpj, ambiente] = getDistribuicaoCheckpointStatus.mock.calls[0].arguments;
+        assert.equal(cpfCnpj, '11222333000144');
+        assert.equal(ambiente, 'homologacao');
+    });
+
+    it('rate-limit da SEFAZ, mas releitura do checkpoint falha — ainda retorna motivo rate_limit sem nextAllowedAt', async () => {
+        const rateLimitErr = new AcbrHttpError(
+            'ACBr /distribuicao/nfe HTTP 400: {"error":{"message":"...Tente novamente em 10 minuto(s)."}}',
+            400,
+        );
+        const deps = makeDeps({
+            solicitarEPersistirNsu: mock.fn(async () => {
+                throw rateLimitErr;
+            }),
+            getDistribuicaoCheckpointStatus: mock.fn(async () => {
+                throw new Error('Postgres fora do ar');
+            }),
+        });
+
+        const result = await fetchNfeCompleta(HUB_ID, CHAVE, deps);
+
+        assert.equal(result.cargo, null);
+        assert.equal(result.distribuicaoIndisponivel?.motivo, 'rate_limit');
+        assert.equal(result.distribuicaoIndisponivel?.nextAllowedAt, undefined);
     });
 });

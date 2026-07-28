@@ -1593,6 +1593,7 @@ export const nfeApi = {
       emitenteIe: string | null;
       destinatario: { cnpj: string; razaoSocial: string | null; ie: string | null } | null;
       transportador: { cnpj: string; razaoSocial: string | null; ie: string | null } | null;
+      distribuicaoIndisponivel: { motivo: string; nextAllowedAt?: string; mensagem: string } | null;
       modelo: string;
     } }>(`/nfe/${encodeURIComponent(chave)}`, { params: hubId ? { hubId } : undefined }),
 };

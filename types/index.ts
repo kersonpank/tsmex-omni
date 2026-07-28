@@ -220,7 +220,13 @@ export interface FiscalEmitter {
     distribuicaoNfeEnabled: boolean;
     /** Status do checkpoint de NSU pro ambiente atual do emitente — `null` se o documento não for CNPJ.
      * `seeded === false` significa que a varredura (manual ou automática) vai abortar sem chamar a ACBr. */
-    distribuicaoNfeCheckpoint?: { ambiente: 'homologacao' | 'producao'; ultimoNsu: string; seeded: boolean } | null;
+    distribuicaoNfeCheckpoint?: {
+        ambiente: 'homologacao' | 'producao';
+        ultimoNsu: string;
+        seeded: boolean;
+        /** ISO ou `null`. Cooldown de 1 req/hora da SEFAZ — se no futuro, "Buscar agora" deve ficar desabilitado. */
+        nextAllowedAt: string | null;
+    } | null;
     readiness?: FiscalEmitterReadiness;
     createdAt: string;
     updatedAt: string;

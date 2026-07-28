@@ -19,6 +19,8 @@ export interface NfeLookupResult {
   destinatario: { cnpj: string; razaoSocial: string | null; ie: string | null } | null;
   /** Transportador declarado no XML (`<transp><transporta>`) — presente independente de o Hub ser ou não o destinatário da NF-e. */
   transportador: { cnpj: string; razaoSocial: string | null; ie: string | null } | null;
+  /** Preenchido só quando a busca completa (destinatário/transportador) falhou por motivo acionável — hoje, só rate-limit de 1h/CNPJ da SEFAZ. */
+  distribuicaoIndisponivel: { motivo: string; nextAllowedAt?: string; mensagem: string } | null;
   modelo: string;
 }
 

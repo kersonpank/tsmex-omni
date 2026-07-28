@@ -875,33 +875,47 @@ const IdentidadeVisualTab: React.FC = () => {
                 {seedMessage && <p className="mt-2 text-xs font-medium">{seedMessage}</p>}
               </div>
             )}
-            {isAdmin && selectedEmitterId && (
-              <div className="mt-2">
-                <button
-                  type="button"
-                  onClick={() => void handleSyncDistribuicaoNow()}
-                  disabled={syncingDistribuicao || !form.distribuicaoNfeEnabled || selectedEmitter?.distribuicaoNfeCheckpoint?.seeded === false}
-                  title={
-                    !form.distribuicaoNfeEnabled
-                      ? 'Ligue "Varredura automática de Distribuição NF-e" acima antes de buscar manualmente.'
-                      : selectedEmitter?.distribuicaoNfeCheckpoint?.seeded === false
-                        ? 'Semeie o NSU inicial acima antes de rodar a varredura.'
-                        : undefined
-                  }
-                  className="admin-focus rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
-                >
-                  {syncingDistribuicao ? 'Solicitando…' : 'Buscar agora'}
-                </button>
-                {!form.distribuicaoNfeEnabled && (
-                  <p className="mt-1 text-xs text-tower-500 dark:text-tower-400">
-                    Ligue a varredura automática acima pra habilitar a busca manual.
-                  </p>
-                )}
-                {syncDistribuicaoMessage && (
-                  <p className="mt-2 text-xs text-tower-600 dark:text-tower-300">{syncDistribuicaoMessage}</p>
-                )}
-              </div>
-            )}
+            {isAdmin && selectedEmitterId && (() => {
+              const nextAllowedAtIso = selectedEmitter?.distribuicaoNfeCheckpoint?.nextAllowedAt;
+              const nextAllowedAt = nextAllowedAtIso ? new Date(nextAllowedAtIso) : null;
+              const onCooldown = !!nextAllowedAt && nextAllowedAt.getTime() > Date.now();
+              return (
+                <div className="mt-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleSyncDistribuicaoNow()}
+                    disabled={syncingDistribuicao || !form.distribuicaoNfeEnabled || selectedEmitter?.distribuicaoNfeCheckpoint?.seeded === false || onCooldown}
+                    title={
+                      !form.distribuicaoNfeEnabled
+                        ? 'Ligue "Varredura automática de Distribuição NF-e" acima antes de buscar manualmente.'
+                        : selectedEmitter?.distribuicaoNfeCheckpoint?.seeded === false
+                          ? 'Semeie o NSU inicial acima antes de rodar a varredura.'
+                          : onCooldown
+                            ? 'A SEFAZ permite só 1 consulta de Distribuição por hora para este CNPJ.'
+                            : undefined
+                    }
+                    className="admin-focus rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+                  >
+                    {syncingDistribuicao ? 'Solicitando…' : 'Buscar agora'}
+                  </button>
+                  {!form.distribuicaoNfeEnabled && (
+                    <p className="mt-1 text-xs text-tower-500 dark:text-tower-400">
+                      Ligue a varredura automática acima pra habilitar a busca manual.
+                    </p>
+                  )}
+                  {form.distribuicaoNfeEnabled && onCooldown && nextAllowedAt && (
+                    <p className="mt-1 text-xs text-tower-500 dark:text-tower-400">
+                      SEFAZ permite só 1 consulta de Distribuição por hora para este CNPJ. Próxima tentativa manual
+                      liberada às {nextAllowedAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} —
+                      ou aguarde a varredura automática (13h/23h).
+                    </p>
+                  )}
+                  {syncDistribuicaoMessage && (
+                    <p className="mt-2 text-xs text-tower-600 dark:text-tower-300">{syncDistribuicaoMessage}</p>
+                  )}
+                </div>
+              );
+            })()}
           </EmitterAccordion>
 
           <EmitterAccordion title="Numerações" defaultOpen={false}>
