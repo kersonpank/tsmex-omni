@@ -25,11 +25,15 @@ export default function SystemAlertBanner() {
     try {
       const result = await systemAlertsApi.listOpen();
       if (result.success) {
-        setAlerts(
-          result.data.filter(
-            (a) => a.severity === 'CRITICAL' || (a.severity === 'WARNING' && WARNING_CATEGORIES_SHOWN.has(a.category))
-          )
+        const filtered = result.data.filter(
+          (a) => a.severity === 'CRITICAL' || (a.severity === 'WARNING' && WARNING_CATEGORIES_SHOWN.has(a.category))
         );
+        // Dedup defensivo: garante 1 banner por categoria independente do que o backend retornar
+        const seen = new Map<string, AlertItem>();
+        for (const a of filtered) {
+          if (!seen.has(a.category)) seen.set(a.category, a);
+        }
+        setAlerts(Array.from(seen.values()));
       }
     } catch {
       /* banner não deve quebrar o resto do painel */
