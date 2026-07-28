@@ -265,19 +265,10 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
         });
 
         const mappedManifests = manifests.map(mapManifestLegsToDemands);
-        const dataWithMargins = await Promise.all(
-            mappedManifests.map(async (m: any) => {
-                const marginInfo = await getManifestMargin(m.id);
-                return {
-                    ...m,
-                    ...marginInfo,
-                };
-            })
-        );
 
         res.json({
             success: true,
-            data: dataWithMargins,
+            data: mappedManifests,
         });
     } catch (error) {
         next(error);
