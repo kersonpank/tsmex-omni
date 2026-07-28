@@ -170,6 +170,15 @@ router.get('/:chave', authenticate, async (req: Request, res: Response, next: Ne
               ie: destinatarioIe ?? null,
             }
           : null,
+        // Presente independente de o Hub ser ou não o destinatário — a NF-e pode declarar um
+        // transportador diferente de quem está bipando (ex.: Hub é a transportadora contratada).
+        transportador: cargoData?.transportador?.cnpj
+          ? {
+              cnpj: cargoData.transportador.cnpj,
+              razaoSocial: cargoData.transportador.razaoSocial || null,
+              ie: cargoData.transportador.ie ?? null,
+            }
+          : null,
         modelo: parsed.mod === '55' ? 'NF-e' : parsed.mod === '57' ? 'CT-e' : parsed.mod,
       },
     });

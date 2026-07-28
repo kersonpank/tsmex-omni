@@ -1592,6 +1592,7 @@ export const nfeApi = {
       emitenteBairro: string | null;
       emitenteIe: string | null;
       destinatario: { cnpj: string; razaoSocial: string | null; ie: string | null } | null;
+      transportador: { cnpj: string; razaoSocial: string | null; ie: string | null } | null;
       modelo: string;
     } }>(`/nfe/${encodeURIComponent(chave)}`, { params: hubId ? { hubId } : undefined }),
 };

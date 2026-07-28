@@ -17,6 +17,8 @@ export interface NfeLookupResult {
   emitenteBairro: string | null;
   emitenteIe: string | null;
   destinatario: { cnpj: string; razaoSocial: string | null; ie: string | null } | null;
+  /** Transportador declarado no XML (`<transp><transporta>`) — presente independente de o Hub ser ou não o destinatário da NF-e. */
+  transportador: { cnpj: string; razaoSocial: string | null; ie: string | null } | null;
   modelo: string;
 }
 

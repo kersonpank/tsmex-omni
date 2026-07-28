@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { parseNfeProcXml } from './nfeXmlParser.js';
 
-function buildNfeProcXml(opts: { multiplosItens?: boolean; multiplosVolumes?: boolean; comIe?: boolean } = {}): string {
+function buildNfeProcXml(opts: { multiplosItens?: boolean; multiplosVolumes?: boolean; comIe?: boolean; comTransportador?: boolean } = {}): string {
     const det1 = `
       <det nItem="1">
         <prod>
@@ -61,6 +61,10 @@ function buildNfeProcXml(opts: { multiplosItens?: boolean; multiplosVolumes?: bo
         </ICMSTot>
       </total>
       <transp>
+        ${opts.comTransportador ? `<transporta>
+          <CNPJ>26879820000270</CNPJ>
+          <xNome>L.M. DA SILVA TRANSPORTES</xNome>
+        </transporta>` : ''}
         ${vol}
       </transp>
     </infNFe>
@@ -139,6 +143,20 @@ describe('parseNfeProcXml', () => {
         assert.equal(result.pesoBruto, 136.0);
         assert.equal(result.pesoLiquido, 128.5);
         assert.equal(result.quantidadeVolumes, 4);
+    });
+
+    it('transportador fica undefined quando <transp> não tem <transporta> (frete próprio/sem transportador formal)', () => {
+        const result = parseNfeProcXml(buildNfeProcXml());
+        assert.equal(result.transportador, undefined);
+    });
+
+    it('extrai CNPJ/razão social do transportador quando <transp><transporta> está presente', () => {
+        const result = parseNfeProcXml(buildNfeProcXml({ comTransportador: true }));
+        assert.deepEqual(result.transportador, {
+            cnpj: '26879820000270',
+            razaoSocial: 'L.M. DA SILVA TRANSPORTES',
+            ie: undefined,
+        });
     });
 
     it('lança erro claro quando o XML não tem nfeProc/NFe/infNFe', () => {

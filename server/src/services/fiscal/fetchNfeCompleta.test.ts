@@ -172,6 +172,39 @@ describe('fetchNfeCompleta', () => {
         assert.equal(setDistribuicaoNfeEnabled.mock.callCount(), 1);
     });
 
+    it('documento tipo NFE_PROC (formato real da ACBr, resumo:false) — pula manifestação, baixa XML direto', async () => {
+        // Payload real capturado ao vivo (2026-07-28): CNPJ citado só como transportador na NF-e
+        // recebeu resumo:false (acesso total já liberado pela SEFAZ) — não deve tentar manifestar.
+        const manifestarCienciaOperacao = mock.fn(async () => ({}));
+        const baixarXmlDocumentoDistribuicao = mock.fn(async () => '<xml/>');
+        const deps = makeDeps({
+            solicitarEPersistirNsu: mock.fn(async () => ({
+                documentos: [{
+                    id: 'nfe_transportador_1',
+                    tipo_documento: 'nota',
+                    resumo: false,
+                    chave_acesso: CHAVE,
+                    emitente_cpf_cnpj: '12345678000199',
+                }],
+            })),
+            upsertDiscovered: mock.fn(async () => ({
+                id: 'doc-1',
+                status: 'DISCOVERED',
+                tipo: 'NFE_PROC',
+                xmlStorageKey: null,
+                resumoRaw: { id: 'nfe_transportador_1' },
+            }) as any),
+            manifestarCienciaOperacao,
+            baixarXmlDocumentoDistribuicao,
+        });
+
+        const result = await fetchNfeCompleta(HUB_ID, CHAVE, deps);
+
+        assert.deepEqual(result, FAKE_CARGO);
+        assert.equal(manifestarCienciaOperacao.mock.callCount(), 0, 'NFE_PROC não precisa de Ciência da Operação');
+        assert.equal(baixarXmlDocumentoDistribuicao.mock.callCount(), 1, 'mesmo pulando manifestação, ainda baixa o XML');
+    });
+
     it('distribuicaoNfeEnabled já true — não tenta ligar de novo', async () => {
         const setDistribuicaoNfeEnabled = mock.fn(async () => {});
         const deps = makeDeps({

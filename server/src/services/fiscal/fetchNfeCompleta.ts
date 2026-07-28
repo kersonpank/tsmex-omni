@@ -155,7 +155,12 @@ export async function fetchNfeCompleta(
 
         let status = doc.status;
         if (status === 'DISCOVERED') {
-            await deps.manifestarCienciaOperacao({ chaveAcesso: parsed.accessKey, cpfCnpj, ambiente });
+            // tipo NFE_PROC (resumo: false) = SEFAZ já liberou o documento completo pra este
+            // CNPJ — pular Ciência da Operação (ato exclusivo do destinatário legal). Mesma
+            // lógica de `distribuicaoNfeSyncProcessor.ts` (`runManifestacaoEDownloadPhases`).
+            if (parsed.tipo !== 'NFE_PROC') {
+                await deps.manifestarCienciaOperacao({ chaveAcesso: parsed.accessKey, cpfCnpj, ambiente });
+            }
             await deps.markManifested(doc.id);
             status = 'MANIFESTED';
         }

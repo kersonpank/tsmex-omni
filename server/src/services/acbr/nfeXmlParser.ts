@@ -22,10 +22,18 @@ export interface ParsedNfeDestinatario {
     ie?: string;
 }
 
+export interface ParsedNfeTransportador {
+    cnpj: string;
+    razaoSocial: string;
+    ie?: string;
+}
+
 export interface ParsedNfeCargo {
     chave: string;
     emitente: ParsedNfeEmitente;
     destinatario: ParsedNfeDestinatario;
+    /** `undefined` quando o XML não declara transportador (`<transp><transporta>` ausente/CNPJ vazio) — comum em frete próprio/sem transportador formal. */
+    transportador?: ParsedNfeTransportador;
     produtos: ParsedNfeProduto[];
     pesoBruto?: number;
     pesoLiquido?: number;
@@ -88,6 +96,7 @@ export function parseNfeProcXml(xml: string): ParsedNfeCargo {
     const total = asRecord(asRecord(infNFe.total)?.ICMSTot);
     const transp = asRecord(infNFe.transp);
     const vols = toArray(transp?.vol);
+    const transporta = asRecord(transp?.transporta);
 
     const produtos: ParsedNfeProduto[] = det.map((item) => {
         const prod = asRecord(item.prod) ?? {};
@@ -124,6 +133,13 @@ export function parseNfeProcXml(xml: string): ParsedNfeCargo {
             // Ausente quando indIEDest = 2 (isento) ou 9 (não contribuinte) — normal, não é erro de parsing.
             ie: dest?.IE ? toText(dest.IE) : undefined,
         },
+        transportador: transporta?.CNPJ
+            ? {
+                  cnpj: toText(transporta.CNPJ),
+                  razaoSocial: toText(transporta.xNome),
+                  ie: transporta.IE ? toText(transporta.IE) : undefined,
+              }
+            : undefined,
         produtos,
         pesoBruto,
         pesoLiquido,

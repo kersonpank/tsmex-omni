@@ -148,10 +148,10 @@ describe('processDistribuicaoNfeSyncJob — guarda de emitente e NSU', () => {
 });
 
 describe('processDistribuicaoNfeSyncJob — discovery', () => {
-    it('descobre documentos novos (array na propriedade "data"), grava e avança o checkpoint', async () => {
-        const rawDoc = { id: 'nfe_abc123', resNFe: { chNFe: '3'.repeat(44), CNPJ: '11111111000111' }, nsu: '101' };
+    it('descobre documentos novos (formato real da ACBr: array em "documentos"), grava e avança o checkpoint', async () => {
+        const rawDoc = { id: 'nfe_abc123', tipo_documento: 'nota', resumo: true, chave_acesso: '3'.repeat(44), emitente_cpf_cnpj: '11111111000111', nsu: '101' };
         const { deps, calls } = makeDeps({
-            solicitarDistribuicaoNfe: (async () => ({ ultimo_nsu: 105, data: [rawDoc] })) as any,
+            solicitarDistribuicaoNfe: (async () => ({ ultimo_nsu: 105, documentos: [rawDoc] })) as any,
         });
         const { job } = makeJob('fe-1');
         await processDistribuicaoNfeSyncJob(job, deps);
@@ -160,6 +160,17 @@ describe('processDistribuicaoNfeSyncJob — discovery', () => {
         assert.equal(calls.setUltimoNsuStored.length, 1);
         const [, , novoNsu] = calls.setUltimoNsuStored[0] as [string, string, string];
         assert.equal(novoNsu, '105');
+    });
+
+    it('aceita "data" como fallback legado quando "documentos" não vem (compatibilidade, não o formato real)', async () => {
+        const rawDoc = { id: 'nfe_abc123', tipo_documento: 'nota', resumo: true, chave_acesso: '3'.repeat(44), emitente_cpf_cnpj: '11111111000111', nsu: '101' };
+        const { deps, calls } = makeDeps({
+            solicitarDistribuicaoNfe: (async () => ({ ultimo_nsu: 105, data: [rawDoc] })) as any,
+        });
+        const { job } = makeJob('fe-1');
+        await processDistribuicaoNfeSyncJob(job, deps);
+
+        assert.equal(calls.upsertDiscovered.length, 1);
     });
 
     it('garante a config de distnfe (idempotente) antes de chamar dist-nsu — generaliza a Causa 3 pra qualquer emitente', async () => {
@@ -182,10 +193,10 @@ describe('processDistribuicaoNfeSyncJob — discovery', () => {
         assert.equal(calls.solicitarDistribuicaoNfe.length, 1);
     });
 
-    it('GUARDA de schema: se "data" não é array, aborta o job inteiro sem lançar erro e sem chamar manifestação/download', async () => {
+    it('GUARDA de schema: se nem "documentos" nem "data" vierem como array, aborta o job inteiro sem lançar erro e sem chamar manifestação/download', async () => {
         const docs = [{ id: 'doc-1', accessKey: '1'.repeat(44), status: 'DISCOVERED', xmlDownloadedAt: null, resumoRaw: { id: 'nfe_x' } }];
         const { deps, calls } = makeDeps({
-            solicitarDistribuicaoNfe: (async () => ({ ultimo_nsu: 105, documentos: ['formato-antigo-inesperado'] })) as any,
+            solicitarDistribuicaoNfe: (async () => ({ ultimo_nsu: 105, algumCampoQueNaoConhecemos: 'x' })) as any,
             prisma: {
                 fiscalEmitter: { findUnique: (async () => BASE_EMITTER) as any },
                 nfeDistribuicaoDocumento: { findMany: (async () => docs) as any },
@@ -199,6 +210,18 @@ describe('processDistribuicaoNfeSyncJob — discovery', () => {
         assert.equal(calls.setUltimoNsuStored.length, 0, 'não confia em ultimo_nsu de um payload com shape não reconhecido');
         assert.equal(calls.manifestarCienciaOperacao.length, 0, 'fases 2/3 não rodam quando o schema não bate');
         assert.equal(calls.baixarXmlDocumentoDistribuicao.length, 0);
+    });
+
+    it('documento com "documentos" presente mas item de shape desconhecido dentro dele → não upserta esse item, mas não aborta o job (docs=[] não é o mesmo que docs=null)', async () => {
+        const { deps, calls } = makeDeps({
+            solicitarDistribuicaoNfe: (async () => ({ ultimo_nsu: 105, documentos: ['formato-que-nao-reconhecemos'] })) as any,
+        });
+        const { job } = makeJob('fe-1');
+
+        await processDistribuicaoNfeSyncJob(job, deps);
+
+        assert.equal(calls.upsertDiscovered.length, 0, 'item individual não reconhecido (DESCONHECIDO) não é persistido');
+        assert.equal(calls.setUltimoNsuStored.length, 1, 'mas o array "documentos" em si era válido, então o checkpoint avança normalmente');
     });
 });
 
@@ -223,6 +246,40 @@ describe('processDistribuicaoNfeSyncJob — manifestação e download (throttle)
         assert.deepEqual(calls.baixarXmlDocumentoDistribuicao[0], ['nfe_aaa111', 'homologacao'], 'deve usar o id interno da ACBr, nunca a accessKey');
         assert.equal(calls.uploadBase64Object.length, 2);
         assert.ok(calls.sleepCalls.length > 0, 'deve haver throttle (sleep) entre chamadas seriais');
+    });
+
+    it('doc tipo NFE_PROC (resumo:false) pula manifestação — SEFAZ já liberou acesso total (ex.: CNPJ citado como transportador)', async () => {
+        const docs = [
+            { id: 'doc-1', tipo: 'NFE_PROC', accessKey: '1'.repeat(44), status: 'DISCOVERED', xmlDownloadedAt: null, resumoRaw: { id: 'nfe_aaa111' } },
+        ];
+        const { deps, calls } = makeDeps({
+            prisma: {
+                fiscalEmitter: { findUnique: (async () => BASE_EMITTER) as any },
+                nfeDistribuicaoDocumento: { findMany: (async () => docs) as any },
+            },
+        });
+        const { job } = makeJob('fe-1');
+        await processDistribuicaoNfeSyncJob(job, deps);
+
+        assert.equal(calls.manifestarCienciaOperacao.length, 0, 'NFE_PROC não precisa de Ciência da Operação');
+        assert.equal(calls.baixarXmlDocumentoDistribuicao.length, 1, 'mesmo pulando manifestação, ainda baixa o XML normalmente');
+    });
+
+    it('doc tipo RESUMO (ou sem tipo/legado) continua manifestando normalmente antes do download', async () => {
+        const docs = [
+            { id: 'doc-1', tipo: 'RESUMO', accessKey: '1'.repeat(44), status: 'DISCOVERED', xmlDownloadedAt: null, resumoRaw: { id: 'nfe_aaa111' } },
+        ];
+        const { deps, calls } = makeDeps({
+            prisma: {
+                fiscalEmitter: { findUnique: (async () => BASE_EMITTER) as any },
+                nfeDistribuicaoDocumento: { findMany: (async () => docs) as any },
+            },
+        });
+        const { job } = makeJob('fe-1');
+        await processDistribuicaoNfeSyncJob(job, deps);
+
+        assert.equal(calls.manifestarCienciaOperacao.length, 1);
+        assert.equal(calls.baixarXmlDocumentoDistribuicao.length, 1);
     });
 
     it('não rebaixa XML de doc que já tem xmlDownloadedAt (idempotência — sobrevive a crash/restart)', async () => {

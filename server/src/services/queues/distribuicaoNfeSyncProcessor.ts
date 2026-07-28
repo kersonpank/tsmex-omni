@@ -110,24 +110,24 @@ async function handlePaymentRequired(deps: SyncProcessorDeps, doc: { id: string 
 }
 
 /**
- * CONFIRMADO: a ACBr API embrulha respostas de lista na propriedade `data` (schema
- * `DistribuicaoNfe`, cujos elementos são `DistribuicaoNfeDocumento`) especificamente quando
- * `tipo_consulta: 'dist-nsu'` (único usado neste módulo) — `{ data: DistribuicaoNfeDocumento[],
- * ultimo_nsu, ... }`. Retorna `null` (em vez de `[]`) quando `data` não é um array — isso é um
- * shape inesperado (contrato da API mudou ou nossa suposição está errada), diferente de uma
- * página vazia legítima (`[]`, quando já estamos em dia com o NSU). O chamador trata os dois
- * casos de forma diferente: `[]` é normal; `null` aborta a execução sem lançar erro (ver
- * `runDiscoveryPhase`), pra não arriscar processar um payload que não entendemos.
+ * CORRIGIDO (2026-07-28): a nota anterior deste comentário afirmava "CONFIRMADO... a ACBr
+ * embrulha respostas de lista na propriedade `data`" — isso estava ERRADO. O que foi observado
+ * era o envelope da NOSSA própria rota (`res.json({ success: true, data })`, em
+ * `fiscalDistribuicao.ts`), não o campo da ACBr. O payload real da ACBr — confirmado ao vivo
+ * contra `prod.acbr.api.br` tanto pra `dist-nsu` quanto `cons-chave` — usa `documentos` como
+ * chave da lista, nunca `data`. Esse engano fazia `extractDocumentos` retornar `null` (shape
+ * "não reconhecido") pra QUALQUER resposta real da ACBr, abortando a fase de descoberta da
+ * varredura inteira (manual e automática 2x/dia) sem nenhum documento ser persistido — mesmo
+ * quando a ACBr respondia com sucesso e documentos de verdade.
  *
- * NOTA: `tipo_consulta: 'cons-chave'` usa uma chave DIFERENTE (`documentos`, não `data`) —
- * confirmado ao vivo, ver `extractDocumentosConsChave` em `fetchNfeCompleta.ts`. Não unificar
- * essa função com aquela: são contratos de resposta genuinamente diferentes por tipo de
- * consulta, e este módulo só fala `dist-nsu` — aceitar `documentos` aqui enfraqueceria a guarda
- * de "shape não reconhecido" pra esse caminho específico.
+ * Aceita `data` como fallback só por segurança (schema legado hipotético), mas `documentos` é o
+ * formato real confirmado.
  */
 export function extractDocumentos(payload: Record<string, unknown>): Record<string, unknown>[] | null {
-    const candidate = payload.data;
-    return Array.isArray(candidate) ? (candidate as Record<string, unknown>[]) : null;
+    const documentos = payload.documentos;
+    if (Array.isArray(documentos)) return documentos as Record<string, unknown>[];
+    const data = payload.data;
+    return Array.isArray(data) ? (data as Record<string, unknown>[]) : null;
 }
 
 export function extractUltimoNsu(payload: Record<string, unknown>): number | null {
@@ -259,11 +259,20 @@ async function runManifestacaoEDownloadPhases(
 
         let status = doc.status;
         if (status === 'DISCOVERED') {
-            calledAcbrOnce = true;
-            await deps.manifestarCienciaOperacao({ chaveAcesso: doc.accessKey, cpfCnpj, ambiente });
+            // `tipo === 'NFE_PROC'` (resumo: false na resposta da ACBr) significa que a SEFAZ já
+            // liberou o documento completo pra este CNPJ — não faz sentido (e pode ser rejeitado
+            // pela SEFAZ) manifestar Ciência da Operação, ato exclusivo do destinatário legal.
+            // Só manifesta quando `tipo === 'RESUMO'` (resumo leve, precisa de Ciência antes do
+            // XML completo ficar disponível). Confirmado ao vivo: um CNPJ citado só como
+            // transportador (não destinatário) recebeu `resumo: false` — acesso total sem
+            // manifestação — pra uma NF-e real.
+            if (doc.tipo !== 'NFE_PROC') {
+                calledAcbrOnce = true;
+                await deps.manifestarCienciaOperacao({ chaveAcesso: doc.accessKey, cpfCnpj, ambiente });
+                await deps.sleep(THROTTLE_MS);
+            }
             await deps.markManifested(doc.id);
             status = 'MANIFESTED';
-            await deps.sleep(THROTTLE_MS);
         }
 
         // FinOps: `doc` vem fresco do banco (`nfeDistribuicaoDocumento`, identidade única por

@@ -909,10 +909,16 @@ const EntradaTab: React.FC<{ mobileWizard?: boolean }> = ({ mobileWizard = false
                           <p className="text-xs text-brand-600 dark:text-brand-400">
                             ✓ Destinatário identificado: {peopleForm.destinatario.legalName ?? peopleForm.destinatario.tradeName}
                           </p>
+                        ) : nfPrescan?.transportador ? (
+                          <p className="text-xs text-amber-600 dark:text-amber-400">
+                            Destinatário não identificado automaticamente. Transportador declarado nesta NF-e:{' '}
+                            {nfPrescan.transportador.razaoSocial ?? nfPrescan.transportador.cnpj} — selecione o
+                            Destinatário manualmente abaixo.
+                          </p>
                         ) : (
                           <p className="text-xs text-amber-600 dark:text-amber-400">
-                            Esta NF-e não está declarada com seu CNPJ na SEFAZ (nem como destinatário, nem como
-                            transportador) — selecione o Destinatário manualmente abaixo.
+                            Não foi possível obter o destinatário desta NF-e automaticamente — selecione manualmente
+                            abaixo.
                           </p>
                         )}
                       </div>
