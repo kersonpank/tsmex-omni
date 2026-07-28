@@ -17,9 +17,12 @@ async function main() {
         process.exit(1);
     }
 
+    const lastDemand = await prisma.demand.aggregate({ _max: { orderNumber: true } });
+    const firstOrderNumber = (lastDemand._max.orderNumber ?? 0) + 1;
     const demands = await Promise.all([
         prisma.demand.create({
             data: {
+                orderNumber: firstOrderNumber,
                 clientId: client.id,
                 nfNumber: 'E2E-001',
                 nfValue: 1000,
@@ -36,6 +39,7 @@ async function main() {
         }),
         prisma.demand.create({
             data: {
+                orderNumber: firstOrderNumber + 1,
                 clientId: client.id,
                 nfNumber: 'E2E-002',
                 nfValue: 800,

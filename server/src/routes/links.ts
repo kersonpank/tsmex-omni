@@ -29,8 +29,23 @@ router.get('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest
                   select: {
                       id: true,
                       name: true,
+                      document: true,
+                      phone: true,
                       vehiclePlate: true,
+                      vehicleYear: true,
+                      trailerPlate: true,
+                      trailer2Plate: true,
+                      trailer3Plate: true,
+                      vehicleAxles: true,
                       vehicleTypeId: true,
+                      rntrc: true,
+                      carrierType: true,
+                      vehicleOwnerDocument: true,
+                      vehicleOwnerName: true,
+                      vehicleChassi: true,
+                      vehicleRenavam: true,
+                      vehicleBodyType: true,
+                      vehicleWheelType: true,
                       approvalStatus: true,
                       active: true,
                       vehicleType: true,
@@ -79,6 +94,39 @@ router.get('/pending', authenticate, authorize('ADMIN'), async (req: AuthRequest
             success: true,
             data: links,
         });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// GET /api/links/drivers/search?q= - Busca operacional global por nome/CPF.
+// O vínculo com o Link retorna junto para manter motorista, responsável e veículo consistentes.
+router.get('/drivers/search', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const query = String(req.query.q ?? '').trim();
+        const documentQuery = query.replace(/\D/g, '');
+        const drivers = await prisma.driver.findMany({
+            where: {
+                active: true,
+                link: { active: true, approvalStatus: 'APPROVED' },
+                ...(query
+                    ? {
+                          OR: [
+                              { name: { contains: query, mode: 'insensitive' as const } },
+                              ...(documentQuery ? [{ document: { contains: documentQuery } }] : []),
+                          ],
+                      }
+                    : {}),
+            },
+            include: {
+                link: {
+                    include: { vehicleType: true },
+                },
+            },
+            orderBy: { name: 'asc' },
+            take: 50,
+        });
+        res.json({ success: true, data: drivers });
     } catch (error) {
         next(error);
     }
@@ -340,9 +388,14 @@ router.patch('/:id/reject', authenticate, authorize('ADMIN'), async (req: AuthRe
 
 // PATCH /api/links/:id/fiscal - Dados CIOT/ANTT do transportador contratado (Admin ou HUB)
 const patchLinkFiscalSchema = z.object({
+    vehicleTypeId: z.string().uuid().optional(),
+    vehiclePlate: z.string().min(7).max(8).optional(),
+    vehicleYear: z.number().int().min(1950).max(new Date().getFullYear() + 1).nullable().optional(),
     rntrc: z.string().min(8).max(9).optional(),
     carrierType: z.enum(['TAC', 'ETC', 'CTC', 'FROTA']).optional(),
-    trailerPlate: z.string().optional(),
+    trailerPlate: z.string().min(7).max(8).nullable().optional(),
+    trailer2Plate: z.string().min(7).max(8).nullable().optional(),
+    trailer3Plate: z.string().min(7).max(8).nullable().optional(),
     vehicleAxles: z.number().int().positive().optional(),
     vehicleOwnerDocument: z.string().optional(),
     vehicleOwnerName: z.string().optional(),
@@ -355,7 +408,29 @@ router.patch('/:id/fiscal', authenticate, authorize('ADMIN', 'HUB'), async (req:
     try {
         const id = req.params.id as string;
         const body = patchLinkFiscalSchema.parse(req.body);
-        const link = await prisma.link.update({ where: { id }, data: body });
+        if (body.vehicleTypeId) {
+            const vehicleType = await prisma.vehicleType.findFirst({ where: { id: body.vehicleTypeId, active: true }, select: { id: true } });
+            if (!vehicleType) throw new AppError('Tipo de veículo não encontrado ou inativo.', 400);
+        }
+        const normalizePlate = (plate: string | null | undefined) =>
+            typeof plate === 'string' ? plate.replace(/[^A-Za-z0-9]/g, '').toUpperCase() : plate;
+        for (const plate of [body.vehiclePlate, body.trailerPlate, body.trailer2Plate, body.trailer3Plate]) {
+            const normalized = normalizePlate(plate);
+            if (normalized && normalized.length !== 7) {
+                throw new AppError('Cada placa deve ter 7 caracteres alfanuméricos.', 400);
+            }
+        }
+        const link = await prisma.link.update({
+            where: { id },
+            data: {
+                ...body,
+                ...(body.vehiclePlate !== undefined ? { vehiclePlate: normalizePlate(body.vehiclePlate)! } : {}),
+                ...(body.trailerPlate !== undefined ? { trailerPlate: normalizePlate(body.trailerPlate) } : {}),
+                ...(body.trailer2Plate !== undefined ? { trailer2Plate: normalizePlate(body.trailer2Plate) } : {}),
+                ...(body.trailer3Plate !== undefined ? { trailer3Plate: normalizePlate(body.trailer3Plate) } : {}),
+            },
+            include: { vehicleType: true },
+        });
         res.json({ success: true, data: link });
     } catch (error) {
         if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
@@ -363,30 +438,15 @@ router.patch('/:id/fiscal', authenticate, authorize('ADMIN', 'HUB'), async (req:
     }
 });
 
-// GET /api/links/:id/drivers - Motoristas do Link (papel separado, para CIOT/eFrete).
-// TAC autônomo sem nenhum Driver ainda: cria 1 automaticamente espelhando o próprio Link
-// (cnhNumber/birthDate podem ficar vazios — completar depois via PATCH antes de emitir CIOT).
+// GET /api/links/:id/drivers - Consulta somente leitura dos motoristas do Link.
+// O cadastro acontece explicitamente no fluxo do manifesto, sem efeito colateral nesta busca.
 router.get('/:id/drivers', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const id = req.params.id as string;
         const link = await prisma.link.findUnique({ where: { id } });
         if (!link) throw new AppError('Link not found', 404);
 
-        let drivers = await prisma.driver.findMany({ where: { linkId: id }, orderBy: { createdAt: 'asc' } });
-        if (drivers.length === 0) {
-            const created = await prisma.driver.create({
-                data: {
-                    linkId: id,
-                    personId: link.personId,
-                    name: link.name,
-                    document: link.document,
-                    phone: link.phone,
-                    cnhNumber: link.cnhNumber,
-                    cnhExpiry: link.cnhExpiry,
-                },
-            });
-            drivers = [created];
-        }
+        const drivers = await prisma.driver.findMany({ where: { linkId: id, active: true }, orderBy: { createdAt: 'asc' } });
         res.json({ success: true, data: drivers });
     } catch (error) {
         next(error);

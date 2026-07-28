@@ -23,6 +23,85 @@ const JourneySection: React.FC<{ eyebrow: string; title: string; description?: s
   </section>
 );
 
+const tripTypeLabels: Record<string, string> = {
+  TRANSFER: 'Transferência',
+  DELIVERY: 'Entrega direta',
+  TRANSFER_DELIVERY: 'Transferência + entrega',
+  REGIONAL_DISTRIBUTION: 'Distribuição regional',
+};
+
+const numberBR = (value: number, maximumFractionDigits = 2) =>
+  value.toLocaleString('pt-BR', { maximumFractionDigits });
+
+const moneyBR = (value: number) =>
+  value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+const dateTimeBR = (value?: string | null) => {
+  if (!value) return 'Não informado';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Data inválida';
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+};
+
+const dateTimeInputBR = (value?: string | null) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const part = (n: number) => String(n).padStart(2, '0');
+  return `${part(date.getDate())}/${part(date.getMonth() + 1)}/${date.getFullYear()} ${part(date.getHours())}:${part(date.getMinutes())}`;
+};
+
+const maskDateTimeBR = (value: string) => {
+  const digits = value.replace(/\D/g, '').slice(0, 12);
+  return [
+    digits.slice(0, 2),
+    digits.slice(2, 4),
+    digits.slice(4, 8),
+    digits.slice(8, 10),
+    digits.slice(10, 12),
+  ].filter(Boolean).join('').replace(/^(\d{2})(\d)/, '$1/$2').replace(/^(\d{2}\/\d{2})(\d)/, '$1/$2').replace(/^(\d{2}\/\d{2}\/\d{4})(\d)/, '$1 $2').replace(/^(\d{2}\/\d{2}\/\d{4} \d{2})(\d)/, '$1:$2');
+};
+
+const parseDateTimeBR = (value: string) => {
+  const match = value.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2}))?$/);
+  if (!match) return null;
+  const [, day, month, year, hour = '00', minute = '00'] = match;
+  const date = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute));
+  if (
+    date.getFullYear() !== Number(year) ||
+    date.getMonth() !== Number(month) - 1 ||
+    date.getDate() !== Number(day) ||
+    date.getHours() !== Number(hour) ||
+    date.getMinutes() !== Number(minute)
+  ) return null;
+  return date;
+};
+
+const CapacityBar: React.FC<{ label: string; current: number; limit?: number; unit: string }> = ({ label, current, limit, unit }) => {
+  const percentage = limit && limit > 0 ? (current / limit) * 100 : 0;
+  const tone = percentage > 100 ? 'bg-red-500' : percentage >= 85 ? 'bg-amber-500' : 'bg-brand-600';
+  const formattedCurrent = unit === 'R$' ? moneyBR(current) : `${numberBR(current)} ${unit}`;
+  const formattedLimit = limit ? (unit === 'R$' ? moneyBR(limit) : `${numberBR(limit)} ${unit}`) : null;
+  return (
+    <div>
+      <div className="mb-2 flex items-baseline justify-between gap-3 text-sm">
+        <span className="font-bold text-tower-800 dark:text-tower-100">{label}</span>
+        <span className="text-right text-tower-500">{formattedCurrent}{formattedLimit ? ` de ${formattedLimit}` : ''}</span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-tower-200 dark:bg-tower-700">
+        <div className={`h-full rounded-full transition-[width] duration-300 ${tone}`} style={{ width: `${Math.min(Math.max(percentage, 0), 100)}%` }} />
+      </div>
+      {limit ? <p className="mt-1 text-right text-xs font-semibold text-tower-500">{numberBR(percentage, 1)}% utilizado</p> : null}
+    </div>
+  );
+};
+
 const ManifestDetailPage: React.FC = () => {
   const { id } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -69,11 +148,35 @@ const ManifestDetailPage: React.FC = () => {
   const [capaForm, setCapaForm] = useState({ fiscalEmitterId: '', plannedDepartureAt: '', plannedArrivalAt: '', notes: '', seloLacre: '', liberacao: '' });
   const [showAssignForm, setShowAssignForm] = useState(false);
   const [assignLinkId, setAssignLinkId] = useState('');
+  const [responsibleSearch, setResponsibleSearch] = useState('');
+  const [driverSearch, setDriverSearch] = useState('');
+  const [vehicleSearch, setVehicleSearch] = useState('');
   const [showDriverForm, setShowDriverForm] = useState(false);
   const [showDriverFiscalSheet, setShowDriverFiscalSheet] = useState(false);
   const [driversForLink, setDriversForLink] = useState<Driver[]>([]);
-  const [assignDriverId, setAssignDriverId] = useState('');
+  const [driverLinkId, setDriverLinkId] = useState('');
+  const [editingDriverId, setEditingDriverId] = useState<string | null>(null);
   const [driverFiscalForm, setDriverFiscalForm] = useState({ name: '', document: '', phone: '', birthDate: '', cnhNumber: '', cnhExpiry: '' });
+  const [showVehicleSheet, setShowVehicleSheet] = useState(false);
+  const [vehicleLinkId, setVehicleLinkId] = useState('');
+  const [savingVehicle, setSavingVehicle] = useState(false);
+  const [vehicleForm, setVehicleForm] = useState({
+    vehicleTypeId: '',
+    vehiclePlate: '',
+    vehicleYear: '',
+    trailerPlate: '',
+    trailer2Plate: '',
+    trailer3Plate: '',
+    vehicleAxles: '',
+    rntrc: '',
+    carrierType: 'TAC',
+    vehicleOwnerDocument: '',
+    vehicleOwnerName: '',
+    vehicleChassi: '',
+    vehicleRenavam: '',
+    vehicleBodyType: 'NaoAplicavel',
+    vehicleWheelType: 'Cavalo',
+  });
   const emptyFreightForm = { freteBruto: '', adiantamento: '', pedagio: '', irrf: '', inss: '', issqn: '', sestSenat: '', outrosDescontos: '', outrosDescontosDescricao: '' };
   const [showFreightForm, setShowFreightForm] = useState(false);
   const [freightForm, setFreightForm] = useState(emptyFreightForm);
@@ -104,6 +207,71 @@ const ManifestDetailPage: React.FC = () => {
   };
   const [ciotForm, setCiotForm] = useState(emptyCiotForm);
   const [ciotOverride, setCiotOverride] = useState('');
+
+  const cargoSummary = useMemo(() => {
+    const demands = manifest?.demands ?? [];
+    const realWeight = demands.reduce((total, demand) => total + Number(demand.weight || 0), 0);
+    const cubedWeight = demands.reduce((total, demand) => total + Number(demand.cubedWeight || 0), 0);
+    const volume = demands.reduce((total, demand) => total + Number(demand.volume || 0), 0);
+    const value = demands.reduce((total, demand) => total + Number(demand.nfValue || 0), 0);
+    const units = demands.reduce((total, demand) => total + Number(demand.units || 0), 0);
+    const invoiceCount = demands.reduce((total, demand) => {
+      const invoices = demand.order?.invoices?.length ?? 0;
+      return total + (invoices || (demand.order?.nfNumber || demand.nfNumber ? 1 : 0));
+    }, 0);
+    const destinations = new Set(demands.map((demand) => demand.destination).filter(Boolean)).size;
+    const senders = new Set(demands.map((demand) => demand.order?.remetentePerson?.document ?? demand.clientId).filter(Boolean)).size;
+    const missingInvoiceDetails = demands.filter((demand) => !demand.order?.invoices?.length && !(demand.order?.nfNumber || demand.nfNumber)).length;
+    const effectiveWeight = manifest?.totalWeight ?? demands.reduce((total, demand) => total + Math.max(Number(demand.weight || 0), Number(demand.cubedWeight || 0)), 0);
+    const limits = manifest?.vehicleType;
+    const usages = [
+      { label: 'peso', value: limits?.maxWeight ? effectiveWeight / limits.maxWeight : 0 },
+      { label: 'cubagem', value: limits?.maxVolume ? volume / limits.maxVolume : 0 },
+      { label: 'valor segurado', value: limits?.maxValue ? value / limits.maxValue : 0 },
+    ];
+    const limiting = usages.sort((a, b) => b.value - a.value)[0];
+    return { realWeight, cubedWeight, effectiveWeight, volume, value, units, invoiceCount, destinations, senders, missingInvoiceDetails, limiting };
+  }, [manifest]);
+
+  const approvedLinks = useMemo(() => links.filter((link) => link.approvalStatus === 'APPROVED' && link.active !== false), [links]);
+  const filteredResponsibleLinks = useMemo(() => {
+    const query = responsibleSearch.toLocaleLowerCase('pt-BR').replace(/[.\-/\s]/g, '');
+    if (!query) return approvedLinks.slice(0, 8);
+    return approvedLinks.filter((link) => {
+      const searchable = [link.name, link.document, link.vehiclePlate, link.trailerPlate, link.trailer2Plate, link.trailer3Plate]
+        .filter(Boolean)
+        .join(' ')
+        .toLocaleLowerCase('pt-BR')
+        .replace(/[.\-/\s]/g, '');
+      return searchable.includes(query);
+    }).slice(0, 12);
+  }, [approvedLinks, responsibleSearch]);
+  const filteredDrivers = useMemo(() => {
+    const query = driverSearch.toLocaleLowerCase('pt-BR').replace(/[.\-/\s]/g, '');
+    if (!query) return driversForLink;
+    return driversForLink.filter((driver) => `${driver.name} ${driver.document}`.toLocaleLowerCase('pt-BR').replace(/[.\-/\s]/g, '').includes(query));
+  }, [driverSearch, driversForLink]);
+  const vehicleMatches = useMemo(() => {
+    const query = vehicleSearch.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!query) return [];
+    return approvedLinks.filter((link) =>
+      [link.vehiclePlate, link.trailerPlate, link.trailer2Plate, link.trailer3Plate]
+        .filter(Boolean)
+        .some((plate) => plate!.toUpperCase().replace(/[^A-Z0-9]/g, '').includes(query))
+    ).slice(0, 8);
+  }, [approvedLinks, vehicleSearch]);
+
+  useEffect(() => {
+    if (!showDriverForm) return;
+    const timeout = window.setTimeout(() => {
+      void linksApi.searchDrivers(driverSearch).then((response) => {
+        setDriversForLink(((response as any)?.data ?? []) as Driver[]);
+      }).catch((e: any) => {
+        setError(e.response?.data?.error || e.message || 'Erro ao pesquisar motoristas.');
+      });
+    }, 250);
+    return () => window.clearTimeout(timeout);
+  }, [driverSearch, showDriverForm]);
 
   const load = async () => {
     if (!id) return;
@@ -219,9 +387,9 @@ const ManifestDetailPage: React.FC = () => {
     setAddingOrderId(order.id);
     setError(null);
     try {
-      const res = await manifestsApi.addDemand(id, { orderId: order.id });
-      setManifest((prev) => (prev && res.data ? { ...prev, ...res.data } : res.data ?? prev ?? null));
+      await manifestsApi.addDemand(id, { orderId: order.id });
       flashSuccess(`Pedido #${order.orderNumber ?? order.id.slice(0, 8)} adicionado à viagem.`);
+      await load();
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Erro ao adicionar pedido');
     } finally {
@@ -311,12 +479,26 @@ const ManifestDetailPage: React.FC = () => {
 
   const handleSaveCapa = async () => {
     if (!id) return;
+    const plannedDepartureAt = capaForm.plannedDepartureAt ? parseDateTimeBR(capaForm.plannedDepartureAt) : null;
+    const plannedArrivalAt = capaForm.plannedArrivalAt ? parseDateTimeBR(capaForm.plannedArrivalAt) : null;
+    if (capaForm.plannedDepartureAt && !plannedDepartureAt) {
+      setError('Informe a saída prevista no formato DD/MM/AAAA HH:mm.');
+      return;
+    }
+    if (capaForm.plannedArrivalAt && !plannedArrivalAt) {
+      setError('Informe a chegada prevista no formato DD/MM/AAAA HH:mm.');
+      return;
+    }
+    if (plannedDepartureAt && plannedArrivalAt && plannedArrivalAt <= plannedDepartureAt) {
+      setError('A previsão de chegada deve ser posterior à saída.');
+      return;
+    }
     setError(null);
     try {
       await manifestsApi.updateCapa(id, {
         fiscalEmitterId: capaForm.fiscalEmitterId || undefined,
-        plannedDepartureAt: capaForm.plannedDepartureAt ? new Date(capaForm.plannedDepartureAt).toISOString() : undefined,
-        plannedArrivalAt: capaForm.plannedArrivalAt ? new Date(capaForm.plannedArrivalAt).toISOString() : undefined,
+        plannedDepartureAt: plannedDepartureAt?.toISOString(),
+        plannedArrivalAt: plannedArrivalAt?.toISOString(),
         notes: capaForm.notes || undefined,
         seloLacre: capaForm.seloLacre || undefined,
         liberacao: capaForm.liberacao || undefined,
@@ -333,8 +515,8 @@ const ManifestDetailPage: React.FC = () => {
     if (!manifest) return;
     setCapaForm({
       fiscalEmitterId: manifest.fiscalEmitterId ?? '',
-      plannedDepartureAt: manifest.plannedDepartureAt ? manifest.plannedDepartureAt.slice(0, 16) : '',
-      plannedArrivalAt: manifest.plannedArrivalAt ? manifest.plannedArrivalAt.slice(0, 16) : '',
+      plannedDepartureAt: dateTimeInputBR(manifest.plannedDepartureAt),
+      plannedArrivalAt: dateTimeInputBR(manifest.plannedArrivalAt),
       notes: manifest.notes ?? '',
       seloLacre: manifest.seloLacre ?? '',
       liberacao: manifest.liberacao ?? '',
@@ -342,42 +524,30 @@ const ManifestDetailPage: React.FC = () => {
     setShowCapaForm(true);
   };
 
-  const handleAssignLink = async () => {
-    if (!id || !assignLinkId) return;
+  const handleAssignLink = async (selectedLinkId = assignLinkId) => {
+    if (!id || !selectedLinkId) return;
     setError(null);
     try {
-      await manifestsApi.setResponsible(id, assignLinkId);
+      await manifestsApi.setResponsible(id, selectedLinkId);
       flashSuccess('Responsável pela viagem selecionado.');
       setShowAssignForm(false);
+      setResponsibleSearch('');
       await load();
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Erro ao selecionar o responsável');
     }
   };
 
-  const openDriverForm = async () => {
-    if (!manifest?.linkId) return;
+  const openDriverForm = async (linkId = manifest?.linkId) => {
+    if (!linkId) return;
     setShowDriverForm(true);
-    setAssignDriverId('');
+    setDriverSearch('');
     try {
-      const res = await linksApi.getDrivers(manifest.linkId);
+      const res = await linksApi.searchDrivers('');
       setDriversForLink(((res as any)?.data ?? []) as Driver[]);
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Erro ao carregar os dados fiscais do motorista');
       setDriversForLink([]);
-    }
-  };
-
-  const handleAssignDriver = async () => {
-    if (!id || !assignDriverId) return;
-    setError(null);
-    try {
-      await manifestsApi.setDriver(id, assignDriverId);
-      flashSuccess('Dados fiscais do motorista vinculados.');
-      setShowDriverForm(false);
-      await load();
-    } catch (e: any) {
-      setError(e.response?.data?.error || e.message || 'Erro ao vincular os dados fiscais do motorista');
     }
   };
 
@@ -534,30 +704,33 @@ const ManifestDetailPage: React.FC = () => {
     }
   };
 
-  const openDriverFiscalSheet = () => {
+  const openDriverFiscalSheet = (driver?: Driver | null) => {
     if (!manifest?.link) return;
+    const currentDriver = driver ?? manifest.driver ?? null;
+    setDriverLinkId(currentDriver?.linkId ?? manifest.link.id);
+    setEditingDriverId(currentDriver?.id ?? null);
     setDriverFiscalForm({
-      name: manifest.driver?.name ?? manifest.link.name ?? '',
-      document: manifest.driver?.document ?? manifest.link.document ?? '',
-      phone: manifest.driver?.phone ?? manifest.link.phone ?? '',
-      birthDate: manifest.driver?.birthDate?.slice(0, 10) ?? '',
-      cnhNumber: manifest.driver?.cnhNumber ?? '',
-      cnhExpiry: manifest.driver?.cnhExpiry?.slice(0, 10) ?? '',
+      name: currentDriver?.name ?? '',
+      document: currentDriver?.document ?? '',
+      phone: currentDriver?.phone ?? currentDriver?.link?.phone ?? manifest.link.phone ?? '',
+      birthDate: currentDriver?.birthDate?.slice(0, 10) ?? '',
+      cnhNumber: currentDriver?.cnhNumber ?? '',
+      cnhExpiry: currentDriver?.cnhExpiry?.slice(0, 10) ?? '',
     });
     setShowDriverFiscalSheet(true);
   };
 
   const handleSaveDriverFiscal = async () => {
-    if (!id || !manifest?.linkId) return;
+    if (!id || !driverLinkId) return;
     if (!driverFiscalForm.name.trim() || !driverFiscalForm.document.trim() || !driverFiscalForm.phone.trim()) {
       setError('Informe nome, CPF e telefone do motorista.');
       return;
     }
     setError(null);
     try {
-      let driverId = manifest.driverId ?? null;
+      let driverId = editingDriverId;
       if (driverId) {
-        await linksApi.updateDriver(manifest.linkId, driverId, {
+        await linksApi.updateDriver(driverLinkId, driverId, {
           name: driverFiscalForm.name.trim(),
           document: driverFiscalForm.document.replace(/\D/g, ''),
           phone: driverFiscalForm.phone.trim(),
@@ -566,7 +739,7 @@ const ManifestDetailPage: React.FC = () => {
           cnhExpiry: driverFiscalForm.cnhExpiry || undefined,
         });
       } else {
-        const created = await linksApi.createDriver(manifest.linkId, {
+        const created = await linksApi.createDriver(driverLinkId, {
           name: driverFiscalForm.name.trim(),
           document: driverFiscalForm.document.replace(/\D/g, ''),
           phone: driverFiscalForm.phone.trim(),
@@ -577,12 +750,95 @@ const ManifestDetailPage: React.FC = () => {
         driverId = (created as any)?.data?.id ?? (created as any)?.id;
       }
       if (!driverId) throw new Error('Os dados foram salvos, mas não foi possível vinculá-los à viagem.');
-      await manifestsApi.setDriver(id, driverId);
+      await manifestsApi.setResponsible(id, driverLinkId, driverId);
       setShowDriverFiscalSheet(false);
+      setShowDriverForm(false);
       flashSuccess('Dados fiscais do motorista atualizados.');
       await load();
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Não foi possível salvar os dados fiscais do motorista.');
+    }
+  };
+
+  const openVehicleSheet = (link = manifest?.link) => {
+    if (!link) return;
+    setVehicleLinkId(link.id);
+    setVehicleForm({
+      vehicleTypeId: link.vehicleTypeId ?? manifest?.vehicleTypeId ?? '',
+      vehiclePlate: link.vehiclePlate ?? '',
+      vehicleYear: link.vehicleYear ? String(link.vehicleYear) : '',
+      trailerPlate: link.trailerPlate ?? '',
+      trailer2Plate: link.trailer2Plate ?? '',
+      trailer3Plate: link.trailer3Plate ?? '',
+      vehicleAxles: link.vehicleAxles ? String(link.vehicleAxles) : '',
+      rntrc: link.rntrc ?? '',
+      carrierType: link.carrierType ?? 'TAC',
+      vehicleOwnerDocument: link.vehicleOwnerDocument ?? '',
+      vehicleOwnerName: link.vehicleOwnerName ?? '',
+      vehicleChassi: link.vehicleChassi ?? '',
+      vehicleRenavam: link.vehicleRenavam ?? '',
+      vehicleBodyType: link.vehicleBodyType ?? 'NaoAplicavel',
+      vehicleWheelType: link.vehicleWheelType ?? 'Cavalo',
+    });
+    setShowVehicleSheet(true);
+  };
+
+  const handleSaveVehicle = async () => {
+    if (!id || !manifest || !vehicleLinkId) return;
+    const plate = vehicleForm.vehiclePlate.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    if (plate.length !== 7) {
+      setError('Informe a placa principal com 7 caracteres.');
+      return;
+    }
+    if (!vehicleForm.vehicleTypeId) {
+      setError('Selecione o tipo do veículo.');
+      return;
+    }
+    setSavingVehicle(true);
+    setError(null);
+    try {
+      const optionalPlate = (value: string) => {
+        const normalized = value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        return normalized || null;
+      };
+      await linksApi.updateFiscal(vehicleLinkId, {
+        vehicleTypeId: vehicleForm.vehicleTypeId,
+        vehiclePlate: plate,
+        vehicleYear: vehicleForm.vehicleYear ? Number(vehicleForm.vehicleYear) : null,
+        trailerPlate: optionalPlate(vehicleForm.trailerPlate),
+        trailer2Plate: optionalPlate(vehicleForm.trailer2Plate),
+        trailer3Plate: optionalPlate(vehicleForm.trailer3Plate),
+        vehicleAxles: vehicleForm.vehicleAxles ? Number(vehicleForm.vehicleAxles) : undefined,
+        rntrc: vehicleForm.rntrc || undefined,
+        carrierType: vehicleForm.carrierType as Link['carrierType'],
+        vehicleOwnerDocument: vehicleForm.vehicleOwnerDocument || undefined,
+        vehicleOwnerName: vehicleForm.vehicleOwnerName || undefined,
+        vehicleChassi: vehicleForm.vehicleChassi || undefined,
+        vehicleRenavam: vehicleForm.vehicleRenavam || undefined,
+        vehicleBodyType: vehicleForm.vehicleBodyType || undefined,
+        vehicleWheelType: vehicleForm.vehicleWheelType || undefined,
+      });
+      if (vehicleLinkId !== manifest.linkId) {
+        await manifestsApi.setResponsible(id, vehicleLinkId);
+      }
+      if (vehicleForm.vehicleTypeId !== manifest.vehicleTypeId) {
+        await manifestsApi.updateSetup(id, {
+          vehicleTypeId: vehicleForm.vehicleTypeId,
+          origin: manifest.origin,
+          destination: manifest.destination,
+          tripType: manifest.tripType === 'REGIONAL_DISTRIBUTION' ? 'DELIVERY' : manifest.tripType,
+          hubId: manifest.hubId ?? null,
+          destHubId: manifest.destHubId ?? null,
+        });
+      }
+      setShowVehicleSheet(false);
+      setVehicleSearch('');
+      flashSuccess('Composição veicular salva e pronta para CIOT/MDF-e.');
+      await load();
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Não foi possível salvar a composição veicular.');
+    } finally {
+      setSavingVehicle(false);
     }
   };
 
@@ -669,6 +925,15 @@ const ManifestDetailPage: React.FC = () => {
 
       {currentStep === 'route' && (
         <JourneySection eyebrow="Etapa 1" title="Rota e veículo" description="A unidade responsável controla a viagem. A origem física começa preenchida pelo Hub, mas pode ser trocada.">
+          <div className="mb-7 rounded-2xl bg-tower-100 p-4 dark:bg-tower-800">
+            <p className="text-xs font-bold uppercase tracking-[0.08em] text-tower-500">Planejamento salvo</p>
+            <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+              <div><dt className="text-tower-500">Percurso principal</dt><dd className="mt-1 font-bold text-tower-900 dark:text-tower-50">{manifest.origin} → {manifest.destination}</dd></div>
+              <div><dt className="text-tower-500">Operação</dt><dd className="mt-1 font-bold text-tower-900 dark:text-tower-50">{tripTypeLabels[manifest.tripType ?? 'TRANSFER']}{manifest.startsWithCollection ? ' · começa com coleta' : ''}</dd></div>
+              <div><dt className="text-tower-500">Unidade responsável</dt><dd className="mt-1 font-bold text-tower-900 dark:text-tower-50">{manifest.hub?.name ?? 'Não definida'}</dd></div>
+              <div><dt className="text-tower-500">Capacidade planejada</dt><dd className="mt-1 font-bold text-tower-900 dark:text-tower-50">{manifest.vehicleType?.name ?? 'Não definida'}</dd></div>
+            </dl>
+          </div>
           <div className="grid gap-5 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <span className="mb-2 block text-sm font-bold text-tower-800 dark:text-tower-100">Tipo de viagem</span>
@@ -763,28 +1028,95 @@ const ManifestDetailPage: React.FC = () => {
       {currentStep === 'orders' && (
       <JourneySection eyebrow="Etapa 2" title="Pedidos e capacidade" description="Bipe ou pesquise os pedidos desta viagem. Os destinos aparecem como referência, sem definir a rota.">
         {canEditOrders && (
-          <div className="mb-4">
+          <div className="mb-6">
             <OrderScanInput manifestId={id} onResolved={handleOrderResolved} disabled={addingOrderId !== null} />
           </div>
         )}
         {manifest.demands && manifest.demands.length > 0 ? (
-          <ul className="space-y-1">
-            {manifest.demands.map((d) => (
-              <li key={d.id} className="flex items-center justify-between text-sm border-b border-tower-100 dark:border-tower-800 py-2 last:border-0">
-                <span>{d.origin} → {d.destination} · {d.commodity} · {d.weight}kg</span>
-                {canEditOrders && (
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveDemand(d.id)}
-                    disabled={removingId === d.id}
-                    className="text-red-600 hover:underline disabled:opacity-50"
-                  >
-                    {removingId === d.id ? 'Removendo…' : 'Remover'}
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
+          <div>
+            <div className="overflow-hidden rounded-2xl border border-tower-200 dark:border-tower-700">
+              <div className="bg-brand-950 px-4 py-5 text-white">
+                <p className="text-xs font-bold uppercase tracking-[0.08em] text-brand-200">Carga consolidada</p>
+                <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-3">
+                  <div><dt className="text-xs text-brand-200">Pedidos</dt><dd className="mt-1 text-xl font-bold">{manifest.demands.length}</dd></div>
+                  <div><dt className="text-xs text-brand-200">Notas fiscais</dt><dd className="mt-1 text-xl font-bold">{cargoSummary.invoiceCount}</dd></div>
+                  <div><dt className="text-xs text-brand-200">Volumes</dt><dd className="mt-1 text-xl font-bold">{numberBR(cargoSummary.units, 0)}</dd></div>
+                  <div><dt className="text-xs text-brand-200">Peso real</dt><dd className="mt-1 text-lg font-bold">{numberBR(cargoSummary.realWeight)} kg</dd></div>
+                  <div><dt className="text-xs text-brand-200">Cubagem</dt><dd className="mt-1 text-lg font-bold">{numberBR(cargoSummary.volume)} m³</dd></div>
+                  <div><dt className="text-xs text-brand-200">Valor da carga</dt><dd className="mt-1 text-lg font-bold">{moneyBR(cargoSummary.value)}</dd></div>
+                </dl>
+              </div>
+              <div className="space-y-5 p-4">
+                <CapacityBar label="Ocupação por peso faturável" current={cargoSummary.effectiveWeight} limit={manifest.vehicleType?.maxWeight} unit="kg" />
+                <CapacityBar label="Ocupação por cubagem" current={cargoSummary.volume} limit={manifest.vehicleType?.maxVolume} unit="m³" />
+                <CapacityBar label="Limite de valor segurado" current={cargoSummary.value} limit={manifest.vehicleType?.maxValue} unit="R$" />
+                <p className={`rounded-xl px-3 py-2 text-sm ${cargoSummary.limiting?.value > 1 ? 'bg-red-50 text-red-800 dark:bg-red-950/30 dark:text-red-200' : cargoSummary.limiting?.value >= .85 ? 'bg-amber-50 text-amber-900 dark:bg-amber-950/30 dark:text-amber-200' : 'bg-emerald-50 text-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200'}`}>
+                  {cargoSummary.limiting?.value > 1
+                    ? `A capacidade de ${cargoSummary.limiting.label} foi excedida. Revise o veículo antes de continuar.`
+                    : cargoSummary.limiting?.value >= .85
+                      ? `Atenção: ${cargoSummary.limiting.label} já utiliza ${numberBR(cargoSummary.limiting.value * 100, 1)}% da capacidade.`
+                      : `Carga compatível com o veículo. O maior consumo está em ${cargoSummary.limiting?.label ?? 'capacidade'}.`}
+                  {` ${cargoSummary.destinations} destino(s) de referência e ${cargoSummary.senders} remetente(s).`}
+                  {cargoSummary.missingInvoiceDetails ? ` ${cargoSummary.missingInvoiceDetails} pedido(s) sem NF detalhada.` : ''}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-7">
+              <h2 className="text-base font-bold text-tower-900 dark:text-tower-50">Pedidos da carga</h2>
+              <div className="mt-3 divide-y divide-tower-200 overflow-hidden rounded-2xl border border-tower-200 dark:divide-tower-700 dark:border-tower-700">
+                {manifest.demands.map((d) => {
+                  const invoices = d.order?.invoices ?? [];
+                  const sender = d.order?.remetentePerson?.tradeName || d.order?.remetentePerson?.legalName || d.client?.companyName || d.origin;
+                  const recipient = d.order?.destinatarioPerson?.tradeName || d.order?.destinatarioPerson?.legalName || d.destination;
+                  const effectiveWeight = Math.max(Number(d.weight || 0), Number(d.cubedWeight || 0));
+                  return (
+                    <details key={d.id} className="group bg-[var(--app-surface)]">
+                      <summary className="admin-focus flex min-h-20 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
+                        <span className="min-w-0">
+                          <span className="block text-sm font-bold text-tower-900 dark:text-tower-50">Pedido #{d.orderNumber}</span>
+                          <span className="mt-1 block truncate text-xs text-tower-500">{sender} → {recipient}</span>
+                          <span className="mt-1 block text-xs font-semibold text-tower-600 dark:text-tower-300">{numberBR(d.weight)} kg · {numberBR(d.volume)} m³ · {invoices.length || (d.nfNumber ? 1 : 0)} NF(s)</span>
+                        </span>
+                        <span className="shrink-0 text-sm font-bold text-brand-700 group-open:rotate-180 dark:text-brand-300" aria-hidden="true">⌄</span>
+                      </summary>
+                      <div className="border-t border-tower-100 px-4 py-4 dark:border-tower-800">
+                        <dl className="grid gap-3 text-sm sm:grid-cols-2">
+                          <div><dt className="text-tower-500">Remetente</dt><dd className="font-semibold text-tower-900 dark:text-tower-50">{sender}</dd></div>
+                          <div><dt className="text-tower-500">Destinatário</dt><dd className="font-semibold text-tower-900 dark:text-tower-50">{recipient}</dd></div>
+                          <div><dt className="text-tower-500">Origem</dt><dd className="font-semibold text-tower-900 dark:text-tower-50">{d.order?.origemPrestacao || d.origin}</dd></div>
+                          <div><dt className="text-tower-500">Destino</dt><dd className="font-semibold text-tower-900 dark:text-tower-50">{d.order?.fimPrestacao || d.destination}</dd></div>
+                          <div><dt className="text-tower-500">Carga</dt><dd className="font-semibold text-tower-900 dark:text-tower-50">{d.commodity} · {d.units} volume(s)</dd></div>
+                          <div><dt className="text-tower-500">Peso usado na capacidade</dt><dd className="font-semibold text-tower-900 dark:text-tower-50">{numberBR(effectiveWeight)} kg {d.cubedWeight && d.cubedWeight > d.weight ? '(cubado)' : '(real)'}</dd></div>
+                          <div><dt className="text-tower-500">Peso real / cubado</dt><dd className="font-semibold text-tower-900 dark:text-tower-50">{numberBR(d.weight)} kg / {numberBR(d.cubedWeight ?? 0)} kg</dd></div>
+                          <div><dt className="text-tower-500">Cubagem / valor</dt><dd className="font-semibold text-tower-900 dark:text-tower-50">{numberBR(d.volume)} m³ · {moneyBR(d.nfValue)}</dd></div>
+                        </dl>
+                        <div className="mt-4 border-t border-tower-100 pt-3 dark:border-tower-800">
+                          <p className="text-xs font-bold uppercase tracking-[0.08em] text-tower-500">Notas fiscais</p>
+                          {invoices.length ? (
+                            <ul className="mt-2 space-y-2">
+                              {invoices.map((invoice) => (
+                                <li key={invoice.id} className="text-xs text-tower-600 dark:text-tower-300">
+                                  <strong className="text-tower-800 dark:text-tower-100">NF {invoice.nfNumber}</strong>
+                                  {' · '}{numberBR(invoice.weight)} kg · {numberBR(invoice.cubedVolume ?? 0)} m³ · {moneyBR(invoice.value)}
+                                  {invoice.nfKey ? <span className="mt-0.5 block break-all text-tower-500">Chave {invoice.nfKey}</span> : null}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : <p className="mt-2 text-xs text-tower-500">Referência: {d.order?.nfNumber || d.nfNumber || 'sem NF detalhada'}</p>}
+                        </div>
+                        {canEditOrders && (
+                          <button type="button" onClick={() => handleRemoveDemand(d.id)} disabled={removingId === d.id} className="admin-focus mt-4 min-h-11 rounded-xl px-3 text-sm font-bold text-red-600 hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-950/30">
+                            {removingId === d.id ? 'Removendo…' : 'Remover da viagem'}
+                          </button>
+                        )}
+                      </div>
+                    </details>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
         ) : (
           <p className="text-sm text-tower-500 dark:text-tower-400">Nenhum pedido nesta viagem ainda.</p>
         )}
@@ -793,30 +1125,43 @@ const ManifestDetailPage: React.FC = () => {
 
       {currentStep === 'route_points' && (
       <JourneySection eyebrow="Etapa 3, opcional" title="Percurso e paradas" description="Adicione manualmente apenas pontos intermediários necessários à operação ou ao MDF-e. Pedidos não geram paradas.">
-        {manifest.tripStops && manifest.tripStops.length > 0 && (
-          <ul className="mb-4 divide-y divide-tower-200 overflow-hidden rounded-xl border border-tower-200 dark:divide-tower-700 dark:border-tower-700">
-            {manifest.tripStops.map((s, index) => (
-              <li key={s.id} className="flex min-h-16 items-center justify-between gap-3 px-3 text-sm">
-                <span className="min-w-0">
-                  <span className="block font-bold text-tower-800 dark:text-tower-100">#{s.sequence} {s.destHub ? `${s.destHub.name} (${s.destHub.code})` : (s.destinationLabel ?? s.destCity ?? 'Ponto de percurso')}</span>
-                  <span className="block text-xs text-tower-500">{s.purpose === 'COLLECTION' ? 'Coleta' : s.purpose === 'DELIVERY' ? 'Descarga/entrega' : s.purpose === 'TRANSFER' ? 'Transferência' : s.purpose === 'OPERATIONAL' ? 'Parada operacional' : 'Passagem/percurso'}</span>
+        <div className="mb-5 overflow-hidden rounded-2xl border border-tower-200 bg-[var(--app-surface)] dark:border-tower-700">
+          <div className="border-b border-tower-200 bg-tower-100 px-4 py-3 dark:border-tower-700 dark:bg-tower-800">
+            <p className="text-xs font-bold uppercase tracking-[0.08em] text-tower-500">Percurso principal da etapa 1</p>
+            <p className="mt-1 text-sm font-bold text-tower-900 dark:text-tower-50">{manifest.origin} → {manifest.destination}</p>
+          </div>
+          <ol className="px-4 py-3">
+            <li className="relative flex min-h-16 gap-4 pb-3">
+              <span className="relative z-10 mt-1 grid size-8 shrink-0 place-items-center rounded-full bg-brand-600 text-xs font-bold text-white">A</span>
+              <span className="absolute bottom-0 left-[15px] top-8 w-0.5 bg-tower-200 dark:bg-tower-700" />
+              <span><span className="block text-xs font-semibold text-tower-500">{manifest.startsWithCollection ? 'Coleta / início' : 'Origem'}</span><strong className="mt-1 block text-sm text-tower-900 dark:text-tower-50">{manifest.origin}</strong></span>
+            </li>
+            {(manifest.tripStops ?? []).map((s, index) => (
+              <li key={s.id} className="relative flex min-h-20 gap-4 pb-3">
+                <span className="relative z-10 mt-1 grid size-8 shrink-0 place-items-center rounded-full border-2 border-brand-500 bg-[var(--app-surface)] text-xs font-bold text-brand-700 dark:text-brand-300">{index + 1}</span>
+                <span className="absolute bottom-0 left-[15px] top-8 w-0.5 bg-tower-200 dark:bg-tower-700" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-xs font-semibold text-tower-500">{s.purpose === 'COLLECTION' ? 'Coleta' : s.purpose === 'DELIVERY' ? 'Descarga/entrega' : s.purpose === 'TRANSFER' ? 'Transferência' : s.purpose === 'OPERATIONAL' ? 'Parada operacional' : 'Passagem/percurso'}</span>
+                  <strong className="mt-1 block text-sm text-tower-900 dark:text-tower-50">{s.destHub ? `${s.destHub.name} (${s.destHub.code})` : (s.destinationLabel || [s.destCity, s.destState].filter(Boolean).join(', ') || 'Ponto de percurso')}</strong>
+                  {canEditPlanning && (
+                    <span className="mt-2 flex flex-wrap gap-1">
+                      <button type="button" onClick={() => moveStop(s.id, -1)} disabled={index === 0} className="admin-focus min-h-10 rounded-lg px-3 text-xs font-bold text-tower-600 hover:bg-tower-100 disabled:opacity-30 dark:text-tower-300 dark:hover:bg-tower-800">Subir</button>
+                      <button type="button" onClick={() => moveStop(s.id, 1)} disabled={index === manifest.tripStops!.length - 1} className="admin-focus min-h-10 rounded-lg px-3 text-xs font-bold text-tower-600 hover:bg-tower-100 disabled:opacity-30 dark:text-tower-300 dark:hover:bg-tower-800">Descer</button>
+                      <button type="button" onClick={() => handleDeleteStop(s.id)} className="admin-focus min-h-10 rounded-lg px-3 text-xs font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30">Remover</button>
+                    </span>
+                  )}
                 </span>
-                {canEditPlanning && (
-                  <span className="flex shrink-0 gap-1">
-                    <button type="button" onClick={() => moveStop(s.id, -1)} disabled={index === 0} className="admin-focus grid size-10 place-items-center rounded-lg text-tower-500 hover:bg-tower-100 disabled:opacity-30 dark:hover:bg-tower-800" aria-label="Mover ponto para cima">↑</button>
-                    <button type="button" onClick={() => moveStop(s.id, 1)} disabled={index === manifest.tripStops!.length - 1} className="admin-focus grid size-10 place-items-center rounded-lg text-tower-500 hover:bg-tower-100 disabled:opacity-30 dark:hover:bg-tower-800" aria-label="Mover ponto para baixo">↓</button>
-                    <button type="button" onClick={() => handleDeleteStop(s.id)} className="admin-focus min-h-10 rounded-lg px-2 text-xs font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30">Remover</button>
-                  </span>
-                )}
               </li>
             ))}
-          </ul>
-        )}
-        {(!manifest.tripStops || manifest.tripStops.length === 0) && !showAddStop && (
-          <div className="mb-4 rounded-xl bg-tower-100 px-4 py-4 text-sm text-tower-600 dark:bg-tower-800 dark:text-tower-300">
-            Nenhum ponto intermediário. Para uma viagem simples, pode continuar sem adicionar nada.
-          </div>
-        )}
+            <li className="relative flex min-h-14 gap-4">
+              <span className="relative z-10 mt-1 grid size-8 shrink-0 place-items-center rounded-full bg-tower-900 text-xs font-bold text-white dark:bg-tower-100 dark:text-tower-900">B</span>
+              <span><span className="block text-xs font-semibold text-tower-500">Destino principal</span><strong className="mt-1 block text-sm text-tower-900 dark:text-tower-50">{manifest.destination}</strong></span>
+            </li>
+          </ol>
+          {!manifest.tripStops?.length && (
+            <p className="border-t border-tower-100 px-4 py-3 text-xs text-tower-500 dark:border-tower-800">Percurso direto. Paradas intermediárias são opcionais e declaradas manualmente.</p>
+          )}
+        </div>
         {canEditOrders && !showAddStop && (
           <button type="button" onClick={() => setShowAddStop(true)} className="px-3 py-1.5 text-sm bg-tower-100 dark:bg-tower-800 text-tower-700 dark:text-tower-300 rounded-lg hover:bg-tower-200 dark:hover:bg-tower-700">
             + Adicionar ponto
@@ -868,8 +1213,25 @@ const ManifestDetailPage: React.FC = () => {
 
       {currentStep === 'cover' && (
       <JourneySection eyebrow="Etapa 4" title="Capa e programação" description="Complete a programação sem redigitar rota, veículo ou carga.">
+        <div className="mb-5 rounded-2xl bg-tower-100 p-4 dark:bg-tower-800">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.08em] text-tower-500">Prévia salva</p>
+              <p className="mt-1 text-sm font-bold text-tower-900 dark:text-tower-50">{manifest.origin} → {manifest.destination}</p>
+            </div>
+            <StatusBadge label={manifest.plannedDepartureAt ? 'Programada' : 'A completar'} tone={manifest.plannedDepartureAt ? 'success' : 'warning'} />
+          </div>
+          <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+            <div><dt className="text-tower-500">Saída prevista</dt><dd className="mt-1 font-bold text-tower-900 dark:text-tower-50">{dateTimeBR(manifest.plannedDepartureAt)}</dd></div>
+            <div><dt className="text-tower-500">Chegada prevista</dt><dd className="mt-1 font-bold text-tower-900 dark:text-tower-50">{dateTimeBR(manifest.plannedArrivalAt)}</dd></div>
+            <div><dt className="text-tower-500">Empresa emitente</dt><dd className="mt-1 font-bold text-tower-900 dark:text-tower-50">{fiscalEmitters.find((item) => item.id === manifest.fiscalEmitterId)?.displayName || fiscalEmitters.find((item) => item.id === manifest.fiscalEmitterId)?.tradeName || 'Não definida'}</dd></div>
+            <div><dt className="text-tower-500">Lacres</dt><dd className="mt-1 font-bold text-tower-900 dark:text-tower-50">{manifest.seloLacre || 'Não informados'}</dd></div>
+            {manifest.liberacao ? <div><dt className="text-tower-500">Liberação</dt><dd className="mt-1 font-bold text-tower-900 dark:text-tower-50">{manifest.liberacao}</dd></div> : null}
+            {manifest.notes ? <div><dt className="text-tower-500">Observações</dt><dd className="mt-1 font-bold text-tower-900 dark:text-tower-50">{manifest.notes}</dd></div> : null}
+          </dl>
+        </div>
         {canEditOrders && !showCapaForm && (
-          <button type="button" onClick={openCapaForm} className="px-3 py-1.5 text-sm bg-tower-100 dark:bg-tower-800 text-tower-700 dark:text-tower-300 rounded-lg hover:bg-tower-200 dark:hover:bg-tower-700">
+          <button type="button" onClick={openCapaForm} className="admin-focus min-h-11 rounded-xl bg-tower-100 px-4 text-sm font-bold text-tower-700 hover:bg-tower-200 dark:bg-tower-800 dark:text-tower-300 dark:hover:bg-tower-700">
             Editar capa
           </button>
         )}
@@ -885,11 +1247,11 @@ const ManifestDetailPage: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Saída prevista</label>
-                <input type="datetime-local" value={capaForm.plannedDepartureAt} onChange={(e) => setCapaForm((f) => ({ ...f, plannedDepartureAt: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+                <input type="text" inputMode="numeric" placeholder="DD/MM/AAAA HH:mm" value={capaForm.plannedDepartureAt} onChange={(e) => setCapaForm((f) => ({ ...f, plannedDepartureAt: maskDateTimeBR(e.target.value) }))} className={fieldClass} />
               </div>
               <div>
                 <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Previsão de chegada</label>
-                <input type="datetime-local" value={capaForm.plannedArrivalAt} onChange={(e) => setCapaForm((f) => ({ ...f, plannedArrivalAt: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg" />
+                <input type="text" inputMode="numeric" placeholder="DD/MM/AAAA HH:mm" value={capaForm.plannedArrivalAt} onChange={(e) => setCapaForm((f) => ({ ...f, plannedArrivalAt: maskDateTimeBR(e.target.value) }))} className={fieldClass} />
               </div>
               <div>
                 <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Lacre(s)</label>
@@ -919,47 +1281,117 @@ const ManifestDetailPage: React.FC = () => {
       )}
 
       {currentStep === 'responsible' && (
-      <JourneySection eyebrow="Etapa 5" title="Responsável pela viagem" description="O Link identifica quem executa a viagem no app. O Driver contém os dados fiscais desse mesmo responsável.">
-        <p className="text-sm text-tower-600 dark:text-tower-400 mb-3">
-          Responsável no app: <strong>{manifest.link?.name ?? 'Não selecionado'}</strong>
-          {manifest.driver && ` · Dados fiscais: ${manifest.driver.name}`}
-        </p>
-        <div className="flex gap-2 flex-wrap">
-          {canEditOrders && !showAssignForm && (
-            <button type="button" onClick={() => { setShowAssignForm(true); setAssignLinkId(manifest.linkId || ''); }} className="px-3 py-1.5 text-sm bg-tower-100 dark:bg-tower-800 text-tower-700 dark:text-tower-300 rounded-lg hover:bg-tower-200 dark:hover:bg-tower-700">
-              {manifest.linkId ? 'Trocar responsável' : 'Selecionar responsável'}
-            </button>
-          )}
-          {manifest.linkId && canEditPlanning && (
-            <button type="button" onClick={openDriverFiscalSheet} className="px-3 py-1.5 text-sm bg-tower-100 dark:bg-tower-800 text-tower-700 dark:text-tower-300 rounded-lg hover:bg-tower-200 dark:hover:bg-tower-700">
-              {manifest.driver ? 'Editar dados fiscais' : 'Completar dados do motorista'}
-            </button>
-          )}
-        </div>
-        {showAssignForm && (
-          <div className="mt-3 flex gap-2 items-end">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Responsável pela viagem</label>
-              <select value={assignLinkId} onChange={(e) => setAssignLinkId(e.target.value)} className="w-full px-3 py-2 border border-tower-200 rounded-lg">
-                <option value="">Selecione</option>
-                {links.filter((l) => l.approvalStatus === 'APPROVED').map((l) => <option key={l.id} value={l.id}>{l.name} ({l.document})</option>)}
-              </select>
+      <JourneySection eyebrow="Etapa 5" title="Responsável, motorista e veículo" description="Pesquise os cadastros existentes por nome, documento ou placa. Se não encontrar, cadastre no contexto e volte com a informação já selecionada.">
+        <div className="overflow-hidden rounded-2xl border border-tower-200 dark:border-tower-700">
+          <div className="p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.08em] text-tower-500">Responsável no app</p>
+                <p className="mt-1 text-base font-bold text-tower-900 dark:text-tower-50">{manifest.link?.name ?? 'Não selecionado'}</p>
+                {manifest.link ? <p className="mt-1 text-xs text-tower-500">{manifest.link.document} · RNTRC {manifest.link.rntrc || 'não informado'}</p> : null}
+              </div>
+              <StatusBadge label={manifest.link ? 'Selecionado' : 'Pendente'} tone={manifest.link ? 'success' : 'warning'} />
             </div>
-            <button type="button" onClick={handleAssignLink} disabled={!assignLinkId} className="px-4 py-2 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50">Selecionar</button>
-            <button type="button" onClick={() => setShowAssignForm(false)} className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg">Fechar</button>
+          </div>
+          <div className="border-t border-tower-200 p-4 dark:border-tower-700">
+            <p className="text-xs font-bold uppercase tracking-[0.08em] text-tower-500">Motorista fiscal</p>
+            {manifest.driver ? (
+              <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                <div><dt className="text-tower-500">Nome</dt><dd className="font-bold text-tower-900 dark:text-tower-50">{manifest.driver.name}</dd></div>
+                <div><dt className="text-tower-500">CPF</dt><dd className="font-bold text-tower-900 dark:text-tower-50">{manifest.driver.document}</dd></div>
+                <div><dt className="text-tower-500">CNH</dt><dd className="font-bold text-tower-900 dark:text-tower-50">{manifest.driver.cnhNumber || 'Não informada'}</dd></div>
+                <div><dt className="text-tower-500">Validade</dt><dd className="font-bold text-tower-900 dark:text-tower-50">{manifest.driver.cnhExpiry ? new Date(manifest.driver.cnhExpiry).toLocaleDateString('pt-BR') : 'Não informada'}</dd></div>
+              </dl>
+            ) : <p className="mt-2 text-sm text-tower-500">Nenhum motorista vinculado.</p>}
+          </div>
+          <div className="border-t border-tower-200 p-4 dark:border-tower-700">
+            <p className="text-xs font-bold uppercase tracking-[0.08em] text-tower-500">Composição veicular</p>
+            {manifest.link?.vehiclePlate ? (
+              <div className="mt-3">
+                <div className="flex flex-wrap gap-2">
+                  {[manifest.link.vehiclePlate, manifest.link.trailerPlate, manifest.link.trailer2Plate, manifest.link.trailer3Plate].filter(Boolean).map((plate, index) => (
+                    <span key={plate} className={`rounded-lg px-3 py-1.5 font-mono text-sm font-bold ${index === 0 ? 'bg-brand-950 text-white' : 'bg-tower-100 text-tower-800 dark:bg-tower-800 dark:text-tower-100'}`}>{plate}</span>
+                  ))}
+                </div>
+                <p className="mt-2 text-xs text-tower-500">{manifest.link.vehicleType?.name || manifest.vehicleType?.name} · {manifest.link.vehicleAxles ? `${manifest.link.vehicleAxles} eixos` : 'eixos não informados'} · Chassi {manifest.link.vehicleChassi || 'não informado'}</p>
+              </div>
+            ) : <p className="mt-2 text-sm text-tower-500">Composição ainda não cadastrada.</p>}
+          </div>
+        </div>
+
+        {canEditPlanning && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {!showAssignForm && <button type="button" onClick={() => { setShowAssignForm(true); setShowDriverForm(false); setAssignLinkId(manifest.linkId || ''); }} className="admin-focus min-h-11 rounded-xl bg-tower-100 px-4 text-sm font-bold text-tower-700 hover:bg-tower-200 dark:bg-tower-800 dark:text-tower-300 dark:hover:bg-tower-700">{manifest.linkId ? 'Trocar responsável' : 'Selecionar responsável'}</button>}
+            {manifest.linkId && !showDriverForm && <button type="button" onClick={() => void openDriverForm()} className="admin-focus min-h-11 rounded-xl bg-tower-100 px-4 text-sm font-bold text-tower-700 hover:bg-tower-200 dark:bg-tower-800 dark:text-tower-300 dark:hover:bg-tower-700">{manifest.driver ? 'Trocar motorista' : 'Selecionar motorista'}</button>}
+            {manifest.driver && <button type="button" onClick={() => openDriverFiscalSheet(manifest.driver)} className="admin-focus min-h-11 rounded-xl bg-tower-100 px-4 text-sm font-bold text-tower-700 hover:bg-tower-200 dark:bg-tower-800 dark:text-tower-300 dark:hover:bg-tower-700">Editar motorista</button>}
+            {manifest.link && <button type="button" onClick={() => openVehicleSheet(manifest.link)} className="admin-focus min-h-11 rounded-xl bg-brand-600 px-4 text-sm font-bold text-white hover:bg-brand-700">{manifest.link.vehiclePlate ? 'Editar veículo' : 'Cadastrar veículo'}</button>}
           </div>
         )}
-        {showDriverForm && (
-          <div className="mt-3 flex gap-2 items-end">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Dados fiscais cadastrados</label>
-              <select value={assignDriverId} onChange={(e) => setAssignDriverId(e.target.value)} className="w-full px-3 py-2 border border-tower-200 rounded-lg">
-                <option value="">Selecione</option>
-                {driversForLink.map((d) => <option key={d.id} value={d.id}>{d.name} ({d.document})</option>)}
-              </select>
+
+        {showAssignForm && (
+          <div className="mt-5 rounded-2xl border border-tower-200 p-4 dark:border-tower-700">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-base font-bold text-tower-900 dark:text-tower-50">Pesquisar responsável</h2>
+              <button type="button" onClick={() => setShowAssignForm(false)} className="admin-focus min-h-10 rounded-lg px-3 text-sm font-bold text-tower-500 hover:bg-tower-100 dark:hover:bg-tower-800">Fechar</button>
             </div>
-            <button type="button" onClick={handleAssignDriver} disabled={!assignDriverId} className="px-4 py-2 bg-brand-600 text-white font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50">Vincular</button>
-            <button type="button" onClick={() => setShowDriverForm(false)} className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg">Fechar</button>
+            <label className="mt-4 block">
+              <span className="mb-2 block text-sm font-bold text-tower-800 dark:text-tower-100">Nome, CPF/CNPJ ou placa</span>
+              <input type="search" autoFocus value={responsibleSearch} onChange={(e) => setResponsibleSearch(e.target.value)} placeholder="Comece a digitar para filtrar" className={fieldClass} />
+            </label>
+            <div className="mt-3 divide-y divide-tower-200 overflow-hidden rounded-xl border border-tower-200 dark:divide-tower-700 dark:border-tower-700">
+              {filteredResponsibleLinks.map((link) => (
+                <button key={link.id} type="button" onClick={() => void handleAssignLink(link.id)} className="admin-focus flex min-h-16 w-full items-center justify-between gap-3 px-3 text-left hover:bg-tower-100 dark:hover:bg-tower-800">
+                  <span><strong className="block text-sm text-tower-900 dark:text-tower-50">{link.name}</strong><span className="mt-1 block text-xs text-tower-500">{link.document} · {link.vehiclePlate || 'sem placa'}</span></span>
+                  <span className="text-sm font-bold text-brand-700 dark:text-brand-300">Usar</span>
+                </button>
+              ))}
+              {!filteredResponsibleLinks.length && <p className="px-3 py-4 text-sm text-tower-500">Nenhum responsável aprovado encontrado.</p>}
+            </div>
+          </div>
+        )}
+
+        {showDriverForm && manifest.linkId && (
+          <div className="mt-5 rounded-2xl border border-tower-200 p-4 dark:border-tower-700">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-base font-bold text-tower-900 dark:text-tower-50">Pesquisar motorista</h2>
+              <button type="button" onClick={() => setShowDriverForm(false)} className="admin-focus min-h-10 rounded-lg px-3 text-sm font-bold text-tower-500 hover:bg-tower-100 dark:hover:bg-tower-800">Fechar</button>
+            </div>
+            <p className="mt-1 text-xs text-tower-500">Busque em todos os responsáveis aprovados. Ao escolher, o responsável e o veículo dele acompanham o motorista.</p>
+            <label className="mt-4 block">
+              <span className="mb-2 block text-sm font-bold text-tower-800 dark:text-tower-100">Pesquisar por nome ou CPF</span>
+              <input type="search" autoFocus value={driverSearch} onChange={(e) => setDriverSearch(e.target.value)} placeholder="Nome ou CPF do motorista" className={fieldClass} />
+            </label>
+            <div className="mt-3 divide-y divide-tower-200 overflow-hidden rounded-xl border border-tower-200 dark:divide-tower-700 dark:border-tower-700">
+              {filteredDrivers.map((driver) => (
+                <div key={driver.id} className="flex min-h-16 items-center justify-between gap-3 px-3">
+                  <button type="button" onClick={() => { void manifestsApi.setResponsible(id!, driver.linkId, driver.id).then(async () => { setShowDriverForm(false); flashSuccess('Motorista e responsável vinculados.'); await load(); }).catch((e: any) => setError(e.response?.data?.error || e.message)); }} className="admin-focus min-w-0 flex-1 rounded-lg py-2 text-left">
+                    <strong className="block truncate text-sm text-tower-900 dark:text-tower-50">{driver.name}</strong><span className="mt-1 block text-xs text-tower-500">CPF {driver.document} · CNH {driver.cnhNumber || 'não informada'}{driver.link?.name ? ` · ${driver.link.name}` : ''}</span>
+                  </button>
+                  <button type="button" onClick={() => openDriverFiscalSheet(driver)} className="admin-focus min-h-10 rounded-lg px-3 text-xs font-bold text-brand-700 hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-brand-950/30">Editar</button>
+                </div>
+              ))}
+              {!filteredDrivers.length && <p className="px-3 py-4 text-sm text-tower-500">Nenhum motorista encontrado por esse nome ou CPF.</p>}
+            </div>
+            <button type="button" onClick={() => openDriverFiscalSheet(null)} className="admin-focus mt-3 min-h-11 rounded-xl bg-brand-600 px-4 text-sm font-bold text-white hover:bg-brand-700">+ Cadastrar motorista para {manifest.link?.name}</button>
+          </div>
+        )}
+
+        {manifest.link && canEditPlanning && (
+          <div className="mt-5 rounded-2xl border border-tower-200 p-4 dark:border-tower-700">
+            <h2 className="text-base font-bold text-tower-900 dark:text-tower-50">Localizar composição por placa</h2>
+            <p className="mt-1 text-xs text-tower-500">Ao usar outra composição, o responsável proprietário dela também será selecionado.</p>
+            <input type="search" value={vehicleSearch} onChange={(e) => setVehicleSearch(e.target.value)} placeholder="Ex: ABC1D23" className={`${fieldClass} mt-4 font-mono uppercase`} />
+            {vehicleSearch && (
+              <div className="mt-3 divide-y divide-tower-200 overflow-hidden rounded-xl border border-tower-200 dark:divide-tower-700 dark:border-tower-700">
+                {vehicleMatches.map((link) => (
+                  <button key={link.id} type="button" onClick={() => openVehicleSheet(link)} className="admin-focus flex min-h-16 w-full items-center justify-between gap-3 px-3 text-left hover:bg-tower-100 dark:hover:bg-tower-800">
+                    <span><strong className="block font-mono text-sm text-tower-900 dark:text-tower-50">{[link.vehiclePlate, link.trailerPlate, link.trailer2Plate, link.trailer3Plate].filter(Boolean).join(' + ')}</strong><span className="mt-1 block text-xs text-tower-500">{link.name}</span></span>
+                    <span className="text-sm font-bold text-brand-700 dark:text-brand-300">Usar</span>
+                  </button>
+                ))}
+                {!vehicleMatches.length && <button type="button" onClick={() => openVehicleSheet(manifest.link)} className="admin-focus min-h-14 w-full px-3 text-left text-sm font-bold text-brand-700 hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-brand-950/30">Placa não encontrada · cadastrar para {manifest.link.name}</button>}
+              </div>
+            )}
           </div>
         )}
       </JourneySection>
@@ -967,6 +1399,17 @@ const ManifestDetailPage: React.FC = () => {
 
       {currentStep === 'freight' && (
       <JourneySection eyebrow="Etapa 6" title="Carta Frete" description="Registre o valor real acordado. Ele vira a fonte de custo e pré-preenche o CIOT.">
+        {manifest.freightAgreement && (
+          <div className="mb-5 rounded-2xl bg-tower-100 p-4 dark:bg-tower-800">
+            <p className="text-xs font-bold uppercase tracking-[0.08em] text-tower-500">Prévia salva</p>
+            <dl className="mt-3 grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
+              <div><dt className="text-tower-500">Frete bruto</dt><dd className="mt-1 font-bold text-tower-900 dark:text-tower-50">{moneyBR(manifest.freightAgreement.freteBruto)}</dd></div>
+              <div><dt className="text-tower-500">Adiantamento</dt><dd className="mt-1 font-bold text-tower-900 dark:text-tower-50">{moneyBR(manifest.freightAgreement.adiantamento)}</dd></div>
+              <div><dt className="text-tower-500">Pedágio</dt><dd className="mt-1 font-bold text-tower-900 dark:text-tower-50">{moneyBR(manifest.freightAgreement.pedagio)}</dd></div>
+              <div><dt className="text-tower-500">Saldo líquido</dt><dd className="mt-1 font-bold text-emerald-700 dark:text-emerald-300">{moneyBR(manifest.freightAgreement.saldoLiquido)}</dd></div>
+            </dl>
+          </div>
+        )}
         {manifest.linkId && (canEditPlanning || canShowFiscalActions(manifest.status)) && (
           !showFreightForm ? (
             <button type="button" onClick={openFreightForm} className="px-3 py-1.5 text-sm bg-tower-100 dark:bg-tower-800 text-tower-700 dark:text-tower-300 rounded-lg hover:bg-tower-200 dark:hover:bg-tower-700">
@@ -1169,12 +1612,61 @@ const ManifestDetailPage: React.FC = () => {
       </JourneySection>
       )}
 
+      {showVehicleSheet && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center">
+          <button type="button" onClick={() => setShowVehicleSheet(false)} className="absolute inset-0 bg-tower-950/55" aria-label="Fechar composição veicular" />
+          <section role="dialog" aria-modal="true" aria-labelledby="vehicle-title" className="mobile-enter relative max-h-[94dvh] w-full overflow-y-auto rounded-t-3xl bg-[var(--app-surface)] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl md:max-w-2xl md:rounded-2xl md:p-6">
+            <div className="mx-auto mb-5 h-1.5 w-12 rounded-full bg-tower-300 md:hidden" />
+            <h2 id="vehicle-title" className="text-xl font-bold text-tower-950 dark:text-tower-50">Composição veicular</h2>
+            <p className="mt-2 text-sm leading-6 text-tower-600 dark:text-tower-300">Cadastre uma vez os dados usados no CIOT e MDF-e. A composição aceita o veículo trator e até três reboques.</p>
+            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <label className="mb-2 block text-sm font-bold">Tipo de veículo</label>
+                <select value={vehicleForm.vehicleTypeId} onChange={(e) => setVehicleForm((form) => ({ ...form, vehicleTypeId: e.target.value }))} className={fieldClass}>
+                  <option value="">Selecione</option>
+                  {vehicleTypes.filter((type) => type.active).map((type) => <option key={type.id} value={type.id}>{type.name} ({type.code})</option>)}
+                </select>
+              </div>
+              <div><label className="mb-2 block text-sm font-bold">Placa principal*</label><input value={vehicleForm.vehiclePlate} onChange={(e) => setVehicleForm((form) => ({ ...form, vehiclePlate: e.target.value.toUpperCase() }))} maxLength={8} placeholder="ABC1D23" className={`${fieldClass} font-mono uppercase`} /></div>
+              <div><label className="mb-2 block text-sm font-bold">Ano</label><input type="number" inputMode="numeric" value={vehicleForm.vehicleYear} onChange={(e) => setVehicleForm((form) => ({ ...form, vehicleYear: e.target.value }))} placeholder="2024" className={fieldClass} /></div>
+              <div><label className="mb-2 block text-sm font-bold">Reboque 1</label><input value={vehicleForm.trailerPlate} onChange={(e) => setVehicleForm((form) => ({ ...form, trailerPlate: e.target.value.toUpperCase() }))} maxLength={8} placeholder="Opcional" className={`${fieldClass} font-mono uppercase`} /></div>
+              <div><label className="mb-2 block text-sm font-bold">Reboque 2</label><input value={vehicleForm.trailer2Plate} onChange={(e) => setVehicleForm((form) => ({ ...form, trailer2Plate: e.target.value.toUpperCase() }))} maxLength={8} placeholder="Opcional" className={`${fieldClass} font-mono uppercase`} /></div>
+              <div><label className="mb-2 block text-sm font-bold">Reboque 3</label><input value={vehicleForm.trailer3Plate} onChange={(e) => setVehicleForm((form) => ({ ...form, trailer3Plate: e.target.value.toUpperCase() }))} maxLength={8} placeholder="Opcional" className={`${fieldClass} font-mono uppercase`} /></div>
+              <details className="sm:col-span-2 rounded-xl border border-tower-200 p-3 dark:border-tower-700">
+                <summary className="admin-focus cursor-pointer list-none rounded-lg text-sm font-bold text-brand-700 dark:text-brand-300">+ Dados fiscais para CIOT e MDF-e</summary>
+                <p className="mt-2 text-xs leading-5 text-tower-500">Eixos, RNTRC e identificação do veículo serão reaproveitados na emissão fiscal.</p>
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <div><label className="mb-2 block text-sm font-bold">Número de eixos</label><input type="number" min={1} inputMode="numeric" value={vehicleForm.vehicleAxles} onChange={(e) => setVehicleForm((form) => ({ ...form, vehicleAxles: e.target.value }))} placeholder="Ex: 6" className={fieldClass} /></div>
+                  <div><label className="mb-2 block text-sm font-bold">RNTRC</label><input inputMode="numeric" value={vehicleForm.rntrc} onChange={(e) => setVehicleForm((form) => ({ ...form, rntrc: e.target.value.replace(/\D/g, '') }))} placeholder="8 ou 9 dígitos" className={fieldClass} /></div>
+                  <div><label className="mb-2 block text-sm font-bold">Tipo do transportador</label><select value={vehicleForm.carrierType} onChange={(e) => setVehicleForm((form) => ({ ...form, carrierType: e.target.value }))} className={fieldClass}><option value="TAC">TAC</option><option value="ETC">ETC</option><option value="CTC">CTC</option><option value="FROTA">Frota própria</option></select></div>
+                  <div><label className="mb-2 block text-sm font-bold">Chassi</label><input value={vehicleForm.vehicleChassi} onChange={(e) => setVehicleForm((form) => ({ ...form, vehicleChassi: e.target.value.toUpperCase() }))} maxLength={17} placeholder="17 caracteres" className={`${fieldClass} uppercase`} /></div>
+                  <div><label className="mb-2 block text-sm font-bold">RENAVAM</label><input inputMode="numeric" value={vehicleForm.vehicleRenavam} onChange={(e) => setVehicleForm((form) => ({ ...form, vehicleRenavam: e.target.value.replace(/\D/g, '') }))} className={fieldClass} /></div>
+                  <div><label className="mb-2 block text-sm font-bold">Tipo de carroceria</label><select value={vehicleForm.vehicleBodyType} onChange={(e) => setVehicleForm((form) => ({ ...form, vehicleBodyType: e.target.value }))} className={fieldClass}><option value="NaoAplicavel">Não aplicável</option><option value="Aberta">Aberta</option><option value="FechadaOuBau">Fechada / baú</option><option value="Granelera">Graneleira</option><option value="PortaContainer">Porta-contêiner</option><option value="Sider">Sider</option></select></div>
+                  <div><label className="mb-2 block text-sm font-bold">Tipo de rodado</label><select value={vehicleForm.vehicleWheelType} onChange={(e) => setVehicleForm((form) => ({ ...form, vehicleWheelType: e.target.value }))} className={fieldClass}><option value="Cavalo">Cavalo</option><option value="Truck">Truck</option><option value="Toco">Toco</option><option value="NaoAplicavel">Não aplicável</option></select></div>
+                </div>
+              </details>
+              <details className="sm:col-span-2 rounded-xl border border-tower-200 p-3 dark:border-tower-700">
+                <summary className="admin-focus cursor-pointer list-none rounded-lg text-sm font-bold text-brand-700 dark:text-brand-300">+ Proprietário do veículo, se diferente</summary>
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <div><label className="mb-2 block text-sm font-bold">Nome / razão social</label><input value={vehicleForm.vehicleOwnerName} onChange={(e) => setVehicleForm((form) => ({ ...form, vehicleOwnerName: e.target.value }))} className={fieldClass} /></div>
+                  <div><label className="mb-2 block text-sm font-bold">CPF / CNPJ</label><input inputMode="numeric" value={vehicleForm.vehicleOwnerDocument} onChange={(e) => setVehicleForm((form) => ({ ...form, vehicleOwnerDocument: e.target.value }))} className={fieldClass} /></div>
+                </div>
+              </details>
+            </div>
+            <div className="mt-6 flex gap-3">
+              <button type="button" onClick={() => setShowVehicleSheet(false)} className="admin-focus min-h-12 rounded-xl px-4 text-sm font-semibold text-tower-600 hover:bg-tower-100 dark:text-tower-300 dark:hover:bg-tower-800">Cancelar</button>
+              <button type="button" onClick={handleSaveVehicle} disabled={savingVehicle} className="admin-focus min-h-12 flex-1 rounded-xl bg-brand-600 px-5 text-sm font-bold text-white hover:bg-brand-700 disabled:opacity-50">{savingVehicle ? 'Salvando…' : 'Salvar e usar'}</button>
+            </div>
+          </section>
+        </div>
+      )}
+
       {showDriverFiscalSheet && (
         <div className="fixed inset-0 z-50 flex items-end justify-center">
           <button type="button" onClick={() => setShowDriverFiscalSheet(false)} className="absolute inset-0 bg-tower-950/55" aria-label="Fechar dados fiscais" />
           <section role="dialog" aria-modal="true" aria-labelledby="driver-fiscal-title" className="mobile-enter relative max-h-[92dvh] w-full overflow-y-auto rounded-t-3xl bg-[var(--app-surface)] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl md:max-w-xl md:rounded-2xl md:p-6">
             <div className="mx-auto mb-5 h-1.5 w-12 rounded-full bg-tower-300 md:hidden" />
-            <h2 id="driver-fiscal-title" className="text-xl font-bold text-tower-950 dark:text-tower-50">Dados fiscais do motorista</h2>
+            <h2 id="driver-fiscal-title" className="text-xl font-bold text-tower-950 dark:text-tower-50">{editingDriverId ? 'Editar motorista' : 'Cadastrar motorista'}</h2>
             <p className="mt-2 text-sm leading-6 text-tower-600 dark:text-tower-300">Estes dados pertencem ao mesmo responsável selecionado e serão reutilizados no CIOT e MDF-e.</p>
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
               <div className="sm:col-span-2"><label className="mb-2 block text-sm font-bold">Nome completo</label><input value={driverFiscalForm.name} onChange={(e) => setDriverFiscalForm((form) => ({ ...form, name: e.target.value }))} className={fieldClass} /></div>

@@ -344,6 +344,7 @@ model Link {
   vehicleYear   Int?
   trailerPlate  String? // Carreta/reboque 1 (composição veicular, CIOT)
   trailer2Plate String? // Carreta/reboque 2 (bitrem/rodotrem, composição veicular)
+  trailer3Plate String? // Carreta/reboque 3 (rodotrem; até 4 placas com o cavalo)
   vehicleAxles  Int? // Número de eixos — crítico para cálculo de piso mínimo ANTT
 
   // Documents

@@ -191,7 +191,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
 
     // Reboque(s) do Link (composição veicular) — hoje nenhum reboque cadastrado era enviado ao
     // ACBr, mesmo quando trailerPlate já existia.
-    const trailerPlates = [manifest.link.trailerPlate, manifest.link.trailer2Plate].filter(
+    const trailerPlates = [manifest.link.trailerPlate, manifest.link.trailer2Plate, manifest.link.trailer3Plate].filter(
         (p): p is string => Boolean(p)
     );
     const veicReboque = trailerPlates.map((placa, i) => ({

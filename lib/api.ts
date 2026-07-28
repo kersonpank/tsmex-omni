@@ -751,6 +751,11 @@ export const linksApi = {
         return response.data;
     },
 
+    searchDrivers: async (query = '') => {
+        const response = await api.get<ApiResponse<Driver[]>>('/links/drivers/search', { params: { q: query } });
+        return response.data;
+    },
+
     createDriver: async (linkId: string, data: { name: string; document: string; phone: string; birthDate?: string; cnhNumber?: string; cnhExpiry?: string }) => {
         const response = await api.post<ApiResponse<Driver>>(`/links/${linkId}/drivers`, data);
         return response.data;

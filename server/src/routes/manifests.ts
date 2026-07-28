@@ -34,7 +34,13 @@ function mapManifestLegsToDemands(manifest: any) {
             client: leg.order.demand.client,
             order: {
                 id: leg.order.id,
-                status: leg.order.status
+                status: leg.order.status,
+                nfNumber: leg.order.nfNumber,
+                origemPrestacao: leg.order.origemPrestacao,
+                fimPrestacao: leg.order.fimPrestacao,
+                remetentePerson: leg.order.remetentePerson,
+                destinatarioPerson: leg.order.destinatarioPerson,
+                invoices: leg.order.invoicesRel ?? [],
             }
         };
     }).filter(Boolean);
@@ -225,6 +231,25 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
                     include: {
                         order: {
                             include: {
+                                remetentePerson: {
+                                    select: { id: true, legalName: true, tradeName: true, document: true, city: true, state: true },
+                                },
+                                destinatarioPerson: {
+                                    select: { id: true, legalName: true, tradeName: true, document: true, city: true, state: true },
+                                },
+                                invoicesRel: {
+                                    orderBy: { createdAt: 'asc' },
+                                    select: {
+                                        id: true,
+                                        type: true,
+                                        nfNumber: true,
+                                        nfKey: true,
+                                        volumes: true,
+                                        weight: true,
+                                        cubedVolume: true,
+                                        value: true,
+                                    },
+                                },
                                 demand: {
                                     select: { id: true, origin: true, destination: true, commodity: true, weight: true, volume: true, nfValue: true, status: true }
                                 }
@@ -268,10 +293,11 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
             where: { id: id },
             include: {
                 vehicleType: true,
-                link: true,
+                link: { include: { vehicleType: true } },
                 driver: true,
                 hub: true,
                 destHub: true,
+                fiscalEmitter: true,
                 fiscalDocuments: { orderBy: { createdAt: 'desc' } },
                 freightAgreement: true,
                 tripStops: {
@@ -282,6 +308,25 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
                     include: {
                         order: {
                             include: {
+                                remetentePerson: {
+                                    select: { id: true, legalName: true, tradeName: true, document: true, city: true, state: true },
+                                },
+                                destinatarioPerson: {
+                                    select: { id: true, legalName: true, tradeName: true, document: true, city: true, state: true },
+                                },
+                                invoicesRel: {
+                                    orderBy: { createdAt: 'asc' },
+                                    select: {
+                                        id: true,
+                                        type: true,
+                                        nfNumber: true,
+                                        nfKey: true,
+                                        volumes: true,
+                                        weight: true,
+                                        cubedVolume: true,
+                                        value: true,
+                                    },
+                                },
                                 demand: {
                                     include: {
                                         client: {

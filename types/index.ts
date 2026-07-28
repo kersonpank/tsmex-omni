@@ -409,8 +409,10 @@ export interface Link {
     vehicleTypeId?: string;
     vehicleType?: VehicleType;
     vehiclePlate: string;
-    vehicleYear?: number;
+    vehicleYear?: number | null;
     trailerPlate?: string | null;
+    trailer2Plate?: string | null;
+    trailer3Plate?: string | null;
     vehicleAxles?: number | null;
     homeBase: string;
     coverageStates: string[];
@@ -443,6 +445,7 @@ export interface Driver {
     cnhNumber?: string | null;
     cnhExpiry?: string | null;
     active: boolean;
+    link?: Link;
 }
 
 export interface DemandEvent {
@@ -453,6 +456,37 @@ export interface DemandEvent {
     location?: string;
     photoUrl?: string;
     createdAt: string;
+}
+
+export interface ManifestOrderParty {
+    id: string;
+    legalName: string;
+    tradeName?: string | null;
+    document: string;
+    city?: string | null;
+    state?: string | null;
+}
+
+export interface ManifestOrderInvoice {
+    id: string;
+    type: 'NFE' | 'OUTRAS';
+    nfNumber: string;
+    nfKey?: string | null;
+    volumes: number;
+    weight: number;
+    cubedVolume?: number | null;
+    value: number;
+}
+
+export interface ManifestOrderSummary {
+    id: string;
+    status: OrderStatus;
+    nfNumber?: string | null;
+    origemPrestacao?: string | null;
+    fimPrestacao?: string | null;
+    remetentePerson?: ManifestOrderParty | null;
+    destinatarioPerson?: ManifestOrderParty | null;
+    invoices?: ManifestOrderInvoice[];
 }
 
 export interface Demand {
@@ -487,7 +521,7 @@ export interface Demand {
     missingFields?: string[];
     declarationData?: Record<string, unknown> | null;
     rawInputData?: Record<string, unknown> | null;
-    order?: { id: string } | null;
+    order?: ManifestOrderSummary | null;
     createdAt: string;
     updatedAt: string;
 }
