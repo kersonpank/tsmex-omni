@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   hubCargoApi,
   intakeDemandsApi,
@@ -13,6 +14,7 @@ import type {
   HubCargoSummary,
 } from '../../../types/index';
 import CodeCaptureInput from '../../ui/CodeCaptureInput';
+import ConfigurableDataTable, { type ColumnDef } from '../../ui/ConfigurableDataTable';
 import InlineNotice from '../../ui/InlineNotice';
 import HubArrivalSheet from './HubArrivalSheet';
 
@@ -121,14 +123,17 @@ const HubOrdersWorkspace: React.FC<HubOrdersWorkspaceProps> = ({
 }) => {
   const {
     bucket,
+    viewMode,
     query,
     selectedOrderIds,
     selectedItems,
     setHub,
     setBucket,
+    setViewMode,
     setQuery,
     toggleOrder,
     addOrder,
+    removeOrder,
     clearSelection,
   } = useHubCargoStore();
   const [summary, setSummary] = useState<HubCargoSummary>(EMPTY_SUMMARY);
@@ -218,18 +223,20 @@ const HubOrdersWorkspace: React.FC<HubOrdersWorkspaceProps> = ({
     [selectedItems, selectedOrderIds],
   );
 
-  const selectedVisibleCount = useMemo(
-    () => items.filter((item) => item.orderId && selectedOrderIds.includes(item.orderId)).length,
-    [items, selectedOrderIds],
-  );
   const selectableVisible = useMemo(
     () => items.filter((item) => item.orderId && item.allowedActions.selectForTrip),
     [items],
   );
 
-  const selectAllVisible = () => {
+  const allVisibleSelected =
+    selectableVisible.length > 0 &&
+    selectableVisible.every((item) => item.orderId && selectedOrderIds.includes(item.orderId));
+
+  const toggleAllVisible = () => {
     selectableVisible.forEach((item) => {
-      if (item.orderId && !selectedOrderIds.includes(item.orderId)) addOrder(item);
+      if (!item.orderId) return;
+      if (allVisibleSelected) removeOrder(item.orderId);
+      else if (!selectedOrderIds.includes(item.orderId)) addOrder(item);
     });
   };
 
@@ -320,8 +327,166 @@ const HubOrdersWorkspace: React.FC<HubOrdersWorkspaceProps> = ({
 
   const currentBucket = BUCKETS.find((option) => option.id === bucket) ?? BUCKETS[0];
 
+  const tableColumns = useMemo<ColumnDef<HubCargoItem>[]>(() => [
+    {
+      id: 'selection',
+      label: 'Selecionar',
+      defaultVisible: true,
+      group: 'Operação',
+      render: (item) => {
+        if (!item.allowedActions.selectForTrip || !item.orderId) return <span className="text-xs text-tower-400">Indisponível</span>;
+        const selected = selectedOrderIds.includes(item.orderId);
+        return (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              toggleOrder(item);
+            }}
+            aria-pressed={selected}
+            aria-label={selected ? 'Remover pedido da viagem' : 'Selecionar pedido para viagem'}
+            className={`admin-focus inline-flex min-h-11 items-center gap-2 rounded-lg border px-3 text-xs font-semibold ${
+              selected
+                ? 'border-brand-600 bg-brand-600 text-white'
+                : 'border-tower-300 bg-white text-tower-700 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-200'
+            }`}
+          >
+            <span aria-hidden>{selected ? '✓' : '○'}</span>
+            {selected ? 'Selecionado' : 'Selecionar'}
+          </button>
+        );
+      },
+    },
+    {
+      id: 'order',
+      label: 'Pedido / NF',
+      defaultVisible: true,
+      group: 'Identificação',
+      render: (item) => (
+        <div className="min-w-32">
+          <p className="font-mono-ids text-xs font-bold text-tower-900 dark:text-tower-100">
+            {item.orderNumber ? `#${item.orderNumber}` : 'Sem pedido'}
+          </p>
+          <p className="mt-0.5 whitespace-nowrap text-xs text-tower-500">NF {item.nfNumber ?? 'não informada'}</p>
+        </div>
+      ),
+    },
+    {
+      id: 'status',
+      label: 'Status',
+      defaultVisible: true,
+      group: 'Operação',
+      render: (item) => <span className="whitespace-nowrap rounded-full bg-tower-100 px-2 py-1 text-[11px] font-semibold text-tower-700 dark:bg-tower-800 dark:text-tower-200">{item.statusLabel}</span>,
+    },
+    {
+      id: 'sender',
+      label: 'Remetente',
+      defaultVisible: true,
+      group: 'Partes',
+      render: (item) => <span className="block min-w-40 max-w-64">{item.senderName ?? 'A conferir'}</span>,
+    },
+    {
+      id: 'recipient',
+      label: 'Destinatário',
+      defaultVisible: true,
+      group: 'Partes',
+      render: (item) => <span className="block min-w-40 max-w-64">{item.recipientName ?? 'A conferir'}</span>,
+    },
+    {
+      id: 'origin',
+      label: 'Origem',
+      defaultVisible: false,
+      group: 'Percurso',
+      render: (item) => <span className="block min-w-36">{item.origin ?? 'A conferir'}</span>,
+    },
+    {
+      id: 'destination',
+      label: 'Destino',
+      defaultVisible: true,
+      group: 'Percurso',
+      render: (item) => <span className="block min-w-36">{item.destination ?? 'A conferir'}</span>,
+    },
+    {
+      id: 'invoices',
+      label: 'NFs',
+      defaultVisible: true,
+      align: 'right',
+      group: 'Carga',
+      render: (item) => <span className="tabular-nums">{formatNumber(item.invoiceCount, 0)}</span>,
+    },
+    {
+      id: 'units',
+      label: 'Volumes',
+      defaultVisible: true,
+      align: 'right',
+      group: 'Carga',
+      render: (item) => <span className="whitespace-nowrap tabular-nums">{formatNumber(item.units, 0)}</span>,
+    },
+    {
+      id: 'weight',
+      label: 'Peso real',
+      defaultVisible: true,
+      align: 'right',
+      group: 'Carga',
+      render: (item) => <span className="whitespace-nowrap tabular-nums">{formatNumber(item.weightKg)} kg</span>,
+    },
+    {
+      id: 'cubedWeight',
+      label: 'Peso cubado',
+      defaultVisible: false,
+      align: 'right',
+      group: 'Carga',
+      render: (item) => <span className="whitespace-nowrap tabular-nums">{formatNumber(item.cubedWeightKg)} kg</span>,
+    },
+    {
+      id: 'effectiveWeight',
+      label: 'Peso considerado',
+      defaultVisible: false,
+      align: 'right',
+      group: 'Carga',
+      render: (item) => <span className="whitespace-nowrap tabular-nums">{formatNumber(item.effectiveWeightKg)} kg</span>,
+    },
+    {
+      id: 'volume',
+      label: 'Cubagem',
+      defaultVisible: true,
+      align: 'right',
+      group: 'Carga',
+      render: (item) => <span className="whitespace-nowrap tabular-nums">{formatNumber(item.volumeM3)} m³</span>,
+    },
+    {
+      id: 'fiscalValue',
+      label: 'Valor fiscal',
+      defaultVisible: false,
+      align: 'right',
+      group: 'Fiscal',
+      render: (item) => <span className="whitespace-nowrap tabular-nums">{formatMoney(item.fiscalValueBRL)}</span>,
+    },
+    {
+      id: 'arrival',
+      label: 'Previsão de chegada',
+      defaultVisible: bucket === 'incoming',
+      group: 'Percurso',
+      render: (item) => <span className="whitespace-nowrap">{formatDate(item.plannedArrivalAt) ?? 'Não informada'}</span>,
+    },
+    {
+      id: 'trip',
+      label: 'Viagem ativa',
+      defaultVisible: false,
+      group: 'Operação',
+      render: (item) => item.activeTrip ? <span className="block min-w-36">{item.activeTrip.origin} → {item.activeTrip.destination}</span> : <span className="text-tower-400">Sem viagem</span>,
+    },
+    {
+      id: 'hub',
+      label: 'Hub atual',
+      defaultVisible: false,
+      group: 'Operação',
+      render: (item) => item.currentHubName ?? 'Não informado',
+    },
+  ], [bucket, selectedOrderIds, toggleOrder]);
+
   return (
-    <section className="mx-auto w-full max-w-6xl pb-32" aria-labelledby="hub-orders-title">
+    <section className={`mx-auto w-full max-w-6xl ${selectedOrderIds.length > 0 ? 'pb-56' : 'pb-32'}`} aria-labelledby="hub-orders-title">
       <header className="mb-4">
         <p className="text-xs font-semibold uppercase tracking-[0.12em] text-brand-600 dark:text-brand-300">Operação de carga</p>
         <div className="mt-1 flex items-end justify-between gap-3">
@@ -429,14 +594,44 @@ const HubOrdersWorkspace: React.FC<HubOrdersWorkspaceProps> = ({
           <h2 className="truncate text-sm font-bold text-tower-900 dark:text-tower-100">{currentBucket.label}</h2>
           <p className="truncate text-xs text-tower-500">{currentBucket.description}</p>
         </div>
-        <button
-          type="button"
-          onClick={() => setFiltersOpen((value) => !value)}
-          aria-expanded={filtersOpen}
-          className="admin-focus min-h-11 shrink-0 rounded-xl border border-tower-300 bg-white px-3 text-sm font-semibold text-tower-700 dark:border-tower-600 dark:bg-tower-900 dark:text-tower-200"
-        >
-          Filtrar{withoutTrip ? ' · 1' : ''}
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <div className="flex rounded-xl border border-tower-300 bg-white p-1 dark:border-tower-600 dark:bg-tower-900" role="group" aria-label="Formato de visualização">
+            <button
+              type="button"
+              onClick={() => setViewMode('list')}
+              aria-pressed={viewMode === 'list'}
+              aria-label="Visualizar como lista"
+              className={`admin-focus grid h-9 w-10 place-items-center rounded-lg transition ${
+                viewMode === 'list'
+                  ? 'bg-brand-600 text-white'
+                  : 'text-tower-500 hover:bg-tower-100 dark:text-tower-300 dark:hover:bg-tower-800'
+              }`}
+            >
+              <ListViewIcon />
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('table')}
+              aria-pressed={viewMode === 'table'}
+              aria-label="Visualizar como tabela"
+              className={`admin-focus grid h-9 w-10 place-items-center rounded-lg transition ${
+                viewMode === 'table'
+                  ? 'bg-brand-600 text-white'
+                  : 'text-tower-500 hover:bg-tower-100 dark:text-tower-300 dark:hover:bg-tower-800'
+              }`}
+            >
+              <TableViewIcon />
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => setFiltersOpen((value) => !value)}
+            aria-expanded={filtersOpen}
+            className="admin-focus min-h-11 rounded-xl border border-tower-300 bg-white px-3 text-sm font-semibold text-tower-700 dark:border-tower-600 dark:bg-tower-900 dark:text-tower-200"
+          >
+            Filtrar{withoutTrip ? ' · 1' : ''}
+          </button>
+        </div>
       </div>
 
       {filtersOpen && (
@@ -472,8 +667,8 @@ const HubOrdersWorkspace: React.FC<HubOrdersWorkspaceProps> = ({
       {bucket === 'stock' && selectableVisible.length > 0 && (
         <div className="mt-3 flex items-center justify-between text-xs text-tower-600 dark:text-tower-300">
           <span>{total} {total === 1 ? 'carga encontrada' : 'cargas encontradas'}</span>
-          <button type="button" onClick={selectAllVisible} className="admin-focus min-h-11 rounded-lg px-2 font-semibold text-brand-700 hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-brand-950/50">
-            {selectedVisibleCount === selectableVisible.length ? 'Visíveis selecionados' : 'Selecionar visíveis'}
+          <button type="button" onClick={toggleAllVisible} className="admin-focus min-h-11 rounded-lg px-2 font-semibold text-brand-700 hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-brand-950/50">
+            {allVisibleSelected ? 'Desmarcar visíveis' : 'Selecionar visíveis'}
           </button>
         </div>
       )}
@@ -483,6 +678,40 @@ const HubOrdersWorkspace: React.FC<HubOrdersWorkspaceProps> = ({
           <LoadingRows />
         ) : items.length === 0 ? (
           <EmptyState bucket={bucket} query={debouncedQuery} canReceive={capabilities.canReceive} onManualEntry={onOpenManualEntry} />
+        ) : viewMode === 'table' ? (
+          <ConfigurableDataTable
+            tableId="hub-cargo-workspace"
+            columns={tableColumns}
+            rows={items}
+            rowKey={(item) => `${item.kind}-${item.id}`}
+            emptyMessage="Nenhuma carga nesta visão."
+            onRowClick={(item) => {
+              if (item.orderId && item.allowedActions.view) onOpenOrder(item.orderId);
+              else if (item.allowedActions.confirmArrival) setArrivalItem(item);
+            }}
+            renderActions={(item) => (
+              <div className="flex min-w-max items-center gap-2">
+                {item.orderId && item.allowedActions.view && (
+                  <button type="button" onClick={() => onOpenOrder(item.orderId!)} className="admin-focus min-h-11 rounded-lg border border-tower-300 px-3 text-xs font-semibold text-tower-700 dark:border-tower-600 dark:text-tower-200">Ver pedido</button>
+                )}
+                {item.activeTrip && item.allowedActions.openTrip && (
+                  <button type="button" onClick={() => onOpenTrip(item.activeTrip!.id)} className="admin-focus min-h-11 rounded-lg border border-tower-300 px-3 text-xs font-semibold text-tower-700 dark:border-tower-600 dark:text-tower-200">Ver viagem</button>
+                )}
+                {item.allowedActions.confirmArrival && (
+                  <button type="button" onClick={() => setArrivalItem(item)} className="admin-focus min-h-11 rounded-lg bg-brand-600 px-3 text-xs font-bold text-white">Confirmar entrada</button>
+                )}
+                {item.allowedActions.triage && (
+                  <button
+                    type="button"
+                    onClick={() => void convertFiscalDocument({ resolution: 'fiscal_document_found', item, accessKey: '' })}
+                    className="admin-focus min-h-11 rounded-lg bg-brand-600 px-3 text-xs font-bold text-white"
+                  >
+                    Preparar entrada
+                  </button>
+                )}
+              </div>
+            )}
+          />
         ) : (
           <div className="divide-y divide-tower-200 overflow-hidden rounded-2xl border border-tower-200 bg-white dark:divide-tower-700 dark:border-tower-700 dark:bg-tower-900">
             {items.map((item) => (
@@ -517,9 +746,9 @@ const HubOrdersWorkspace: React.FC<HubOrdersWorkspaceProps> = ({
         </button>
       )}
 
-      {selectedOrderIds.length > 0 && (
-        <div className="fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-30 px-3 sm:bottom-5 sm:left-auto sm:right-5 sm:w-[440px]">
-          <div className="rounded-2xl border border-brand-400/40 bg-tower-950 p-3 text-white shadow-2xl">
+      {selectedOrderIds.length > 0 && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-x-0 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-50 px-3 sm:bottom-5 sm:left-auto sm:right-5 sm:w-[440px]" role="region" aria-label="Resumo da seleção para viagem">
+          <div className="rounded-2xl border border-brand-400/40 bg-tower-950 p-3 text-white shadow-[0_18px_50px_rgb(8_12_26/0.35)]">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-sm font-bold">{selectedOrderIds.length} {selectedOrderIds.length === 1 ? 'pedido selecionado' : 'pedidos selecionados'}</p>
@@ -533,7 +762,8 @@ const HubOrdersWorkspace: React.FC<HubOrdersWorkspaceProps> = ({
               Criar viagem com a seleção
             </button>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {arrivalItem && (
@@ -555,6 +785,22 @@ const HubOrdersWorkspace: React.FC<HubOrdersWorkspaceProps> = ({
     </section>
   );
 };
+
+const ListViewIcon = () => (
+  <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.7} aria-hidden>
+    <path strokeLinecap="round" d="M6.5 5h9M6.5 10h9M6.5 15h9" />
+    <circle cx="3.25" cy="5" r=".75" fill="currentColor" stroke="none" />
+    <circle cx="3.25" cy="10" r=".75" fill="currentColor" stroke="none" />
+    <circle cx="3.25" cy="15" r=".75" fill="currentColor" stroke="none" />
+  </svg>
+);
+
+const TableViewIcon = () => (
+  <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden>
+    <rect x="2.5" y="3" width="15" height="14" rx="1.5" />
+    <path d="M2.5 7.5h15M7.5 3v14M12.5 3v14" />
+  </svg>
+);
 
 const SummaryFact: React.FC<{ label: string; value: string; strong?: boolean }> = ({ label, value, strong }) => (
   <div className="min-w-[132px] px-4 py-3">

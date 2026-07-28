@@ -5,11 +5,13 @@ import type { HubCargoBucket, HubCargoItem } from '../types/index';
 interface HubCargoState {
     hubId: string | null;
     bucket: HubCargoBucket;
+    viewMode: 'list' | 'table';
     query: string;
     selectedOrderIds: string[];
     selectedItems: Record<string, HubCargoItem>;
     setHub: (hubId: string | null) => void;
     setBucket: (bucket: HubCargoBucket) => void;
+    setViewMode: (viewMode: 'list' | 'table') => void;
     setQuery: (query: string) => void;
     toggleOrder: (item: HubCargoItem) => void;
     addOrder: (item: HubCargoItem) => void;
@@ -23,6 +25,7 @@ export const useHubCargoStore = create<HubCargoState>()(
         (set) => ({
             hubId: null,
             bucket: 'stock',
+            viewMode: 'list',
             query: '',
             selectedOrderIds: [],
             selectedItems: {},
@@ -33,12 +36,14 @@ export const useHubCargoStore = create<HubCargoState>()(
                         : {
                               hubId,
                               bucket: 'stock',
+                              viewMode: state.viewMode,
                               query: '',
                               selectedOrderIds: [],
                               selectedItems: {},
                           },
                 ),
             setBucket: (bucket) => set({ bucket }),
+            setViewMode: (viewMode) => set({ viewMode }),
             setQuery: (query) => set({ query }),
             toggleOrder: (item) =>
                 set((state) => {
