@@ -44,6 +44,7 @@ interface Props {
   currentStep: ManifestJourneyStep;
   readiness?: ManifestReadiness | null;
   backPath: string;
+  onBack?: () => void;
   onStepChange?: (step: ManifestJourneyStep) => void;
   children: React.ReactNode;
   footer?: React.ReactNode;
@@ -56,6 +57,7 @@ export const ManifestJourneyShell: React.FC<Props> = ({
   currentStep,
   readiness,
   backPath,
+  onBack,
   onStepChange,
   children,
   footer,
@@ -67,13 +69,24 @@ export const ManifestJourneyShell: React.FC<Props> = ({
       <header className="sticky top-16 z-20 border-b border-tower-200 bg-[var(--app-surface)]/95 px-4 py-3 backdrop-blur-sm dark:border-tower-700 md:px-6">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
-            <RouterLink
-              to={backPath}
-              className="admin-focus grid size-11 shrink-0 place-items-center rounded-xl text-xl text-tower-600 hover:bg-tower-100 dark:text-tower-300 dark:hover:bg-tower-800"
-              aria-label="Voltar para viagens"
-            >
-              ←
-            </RouterLink>
+            {onBack ? (
+              <button
+                type="button"
+                onClick={onBack}
+                className="admin-focus grid size-11 shrink-0 place-items-center rounded-xl text-xl text-tower-600 hover:bg-tower-100 dark:text-tower-300 dark:hover:bg-tower-800"
+                aria-label="Voltar para a tela anterior"
+              >
+                ←
+              </button>
+            ) : (
+              <RouterLink
+                to={backPath}
+                className="admin-focus grid size-11 shrink-0 place-items-center rounded-xl text-xl text-tower-600 hover:bg-tower-100 dark:text-tower-300 dark:hover:bg-tower-800"
+                aria-label="Voltar para viagens"
+              >
+                ←
+              </RouterLink>
+            )}
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-tower-900 dark:text-tower-50">
                 {manifestId ? `Viagem #${manifestId.slice(0, 8).toUpperCase()}` : 'Nova viagem'}

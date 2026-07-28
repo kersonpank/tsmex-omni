@@ -355,9 +355,6 @@ router.post('/demands/from-nfe-key', async (req: AuthRequest, res: Response, nex
         const data = fromNfeKeySchema.parse(req.body);
         const expectedHubId = requireResolvedHubId(resolveExpectedHubId(req, data.expectedHubId));
         const cargoData = await findCargoDataForChave(data.chave);
-        // Best-effort: primeira chave real bipada pra um Hub sem Distribuição NF-e ativa já
-        // semeia o NSU e liga o pipeline sozinho — nunca bloqueia a criação da demanda.
-        await ensureDistribuicaoBootstrap(expectedHubId, data.chave);
 
         const { demand, lookup } = await createIntakeDemandFromNfeKey({
             chave: data.chave,
@@ -368,6 +365,10 @@ router.post('/demands/from-nfe-key', async (req: AuthRequest, res: Response, nex
         });
 
         res.status(201).json({ success: true, data: demand, lookup });
+
+        // Best-effort: a primeira chave real semeia a Distribuição NF-e, mas essa integração
+        // externa nunca pode atrasar nem transformar em timeout a entrada operacional já criada.
+        void ensureDistribuicaoBootstrap(expectedHubId, data.chave);
     } catch (e) {
         if (e instanceof z.ZodError) return next(new AppError(e.errors[0]?.message ?? 'Payload inválido', 400));
         if (e instanceof Error && e.message.includes('Chave NF-e')) {

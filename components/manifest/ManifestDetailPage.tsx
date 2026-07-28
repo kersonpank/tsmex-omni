@@ -1,6 +1,6 @@
 // components/manifest/ManifestDetailPage.tsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import { manifestsApi, hubsApi, linksApi, fiscalEmittersApi, vehicleTypesApi } from '../../lib/api';
 import type { Manifest, ResolvedOrderSummary, Hub, Link, FiscalEmitter, Driver, CiotTipoViagemSuggestion, CiotEmissionJob, ManifestJourneyStep, ManifestReadiness, VehicleType, ManifestTripType } from '../../types/index';
@@ -57,6 +57,25 @@ const dateTimeInputBR = (value?: string | null) => {
   return `${part(date.getDate())}/${part(date.getMonth() + 1)}/${date.getFullYear()} ${part(date.getHours())}:${part(date.getMinutes())}`;
 };
 
+function hubManifestBackPath(manifest: Manifest | null, hubId?: string | null): string {
+  if (!manifest) return '/hub?tab=viagens';
+  if (manifest.status === 'DRAFT') return '/hub?tab=viagens';
+  if (manifest.hubId === hubId) return '/hub?tab=viagens&view=outbound';
+  if (
+    manifest.destHubId === hubId
+    || (manifest.tripStops ?? []).some((stop) => stop.destHubId === hubId && !stop.completedAt)
+  ) {
+    return '/hub?tab=viagens&view=inbound';
+  }
+  return '/hub?tab=viagens';
+}
+
+function safeJourneyReturnTo(value: unknown, isHubOnly: boolean): string | null {
+  if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//')) return null;
+  if (isHubOnly && !value.startsWith('/hub')) return null;
+  return value;
+}
+
 const maskDateTimeBR = (value: string) => {
   const digits = value.replace(/\D/g, '').slice(0, 12);
   return [
@@ -104,16 +123,32 @@ const CapacityBar: React.FC<{ label: string; current: number; limit?: number; un
 
 const ManifestDetailPage: React.FC = () => {
   const { id } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user, currentRole } = useAuthStore();
   const isHubOnly = currentRole === 'HUB';
   const isAdmin = currentRole === 'ADMIN';
-  const backPath = isHubOnly ? '/hub' : '/gestao?cat=transport&sub=viagens';
   const stepParam = searchParams.get('step') as ManifestJourneyStep | null;
   const requestedStep = manifestJourneySteps.some((step) => step.key === stepParam) ? stepParam : null;
 
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [readiness, setReadiness] = useState<ManifestReadiness | null>(null);
+  const profileHubId = (user?.profile as { hub?: { hubId?: string } } | undefined)?.hub?.hubId;
+  const currentHubId = user?.hubId ?? profileHubId ?? null;
+  const journeyState = location.state as {
+    returnTo?: unknown;
+    tripScrollPositions?: Record<string, number>;
+  } | null;
+  const returnTo = safeJourneyReturnTo(journeyState?.returnTo, isHubOnly);
+  const backPath = returnTo
+    ?? (isHubOnly ? hubManifestBackPath(manifest, currentHubId) : '/gestao?cat=transport&sub=viagens');
+  const handleJourneyBack = () => navigate(backPath, {
+    replace: true,
+    state: journeyState?.tripScrollPositions
+      ? { tripScrollPositions: journeyState.tripScrollPositions }
+      : undefined,
+  });
   const currentStep: ManifestJourneyStep = requestedStep ?? readiness?.currentStep ?? 'orders';
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -341,7 +376,7 @@ const ManifestDetailPage: React.FC = () => {
   const goToStep = (step: ManifestJourneyStep) => {
     const next = new URLSearchParams(searchParams);
     next.set('step', step);
-    setSearchParams(next);
+    setSearchParams(next, { replace: true });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -890,6 +925,7 @@ const ManifestDetailPage: React.FC = () => {
       currentStep={currentStep}
       readiness={readiness}
       backPath={backPath}
+      onBack={handleJourneyBack}
       onStepChange={goToStep}
       footer={(
         <>

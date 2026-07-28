@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { hubsApi, manifestsApi, vehicleTypesApi } from '../../lib/api';
 import { formatApiError } from '../../lib/api';
 import { useAuthStore } from '../../store/authStore';
@@ -20,11 +20,29 @@ const tripOptions: Array<{ value: OperationalTripType; label: string; helper: st
 const inputClass = 'admin-focus min-h-12 w-full rounded-xl border border-tower-300 bg-[var(--app-surface)] px-3.5 text-base text-tower-900 placeholder:text-tower-400 dark:border-tower-600 dark:text-tower-50';
 
 const ManifestCreatePage: React.FC = () => {
+  const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user, currentRole } = useAuthStore();
   const isHubWorkspace = currentRole === 'HUB';
-  const backPath = isHubWorkspace ? '/hub' : '/gestao?cat=transport&sub=viagens';
+  const journeyState = location.state as {
+    returnTo?: unknown;
+    tripScrollPositions?: Record<string, number>;
+  } | null;
+  const requestedReturnTo = journeyState?.returnTo;
+  const validReturnTo = typeof requestedReturnTo === 'string'
+    && requestedReturnTo.startsWith('/')
+    && !requestedReturnTo.startsWith('//')
+    && (!isHubWorkspace || requestedReturnTo.startsWith('/hub'))
+    ? requestedReturnTo
+    : null;
+  const backPath = validReturnTo ?? (isHubWorkspace ? '/hub?tab=viagens' : '/gestao?cat=transport&sub=viagens');
+  const handleJourneyBack = () => navigate(backPath, {
+    replace: true,
+    state: journeyState?.tripScrollPositions
+      ? { tripScrollPositions: journeyState.tripScrollPositions }
+      : undefined,
+  });
   const [hubs, setHubs] = useState<Hub[]>([]);
   const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
   const [loading, setLoading] = useState(true);
@@ -139,7 +157,16 @@ const ManifestCreatePage: React.FC = () => {
       const results = await Promise.allSettled(orderIds.map((orderId) => manifestsApi.addDemand(manifestId, { orderId })));
       const attached = results.filter((result) => result.status === 'fulfilled').length;
       const failed = results.length - attached;
-      navigate(`/manifests/${manifestId}?step=orders&attached=${attached}&failed=${failed}`, { replace: true });
+      navigate(
+        `/manifests/${manifestId}?step=orders&attached=${attached}&failed=${failed}`,
+        {
+          replace: true,
+          state: {
+            returnTo: backPath,
+            tripScrollPositions: journeyState?.tripScrollPositions,
+          },
+        },
+      );
     } catch (cause) {
       setError(formatApiError(cause) || 'Não foi possível criar a viagem.');
     } finally {
@@ -153,9 +180,10 @@ const ManifestCreatePage: React.FC = () => {
     <ManifestJourneyShell
       currentStep="route"
       backPath={backPath}
+      onBack={handleJourneyBack}
       footer={(
         <>
-          <button type="button" onClick={() => navigate(backPath)} className="admin-focus min-h-12 rounded-xl px-4 text-sm font-semibold text-tower-600 hover:bg-tower-100 dark:text-tower-300 dark:hover:bg-tower-800">
+          <button type="button" onClick={handleJourneyBack} className="admin-focus min-h-12 rounded-xl px-4 text-sm font-semibold text-tower-600 hover:bg-tower-100 dark:text-tower-300 dark:hover:bg-tower-800">
             Salvar depois
           </button>
           <button type="button" onClick={createJourney} disabled={saving} className="admin-focus min-h-12 flex-1 rounded-xl bg-brand-600 px-5 text-sm font-bold text-white hover:bg-brand-700 disabled:opacity-60 md:flex-none">

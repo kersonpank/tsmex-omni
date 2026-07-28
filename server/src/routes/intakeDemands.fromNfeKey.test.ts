@@ -35,8 +35,10 @@ describe('POST /intake/demands/from-nfe-key — sem match ACBr (regressão)', ()
         demandEventCreate: prisma.demandEvent.create,
         transaction: prisma.$transaction,
         nfeDistribuicaoDocumentoFindUnique: prisma.nfeDistribuicaoDocumento.findUnique,
+        fiscalEmitterFindFirst: prisma.fiscalEmitter.findFirst,
         axiosGet: axios.get,
     };
+    let bootstrapStarted = false;
 
     before(async () => {
         process.env.JWT_SECRET = jwtSecret;
@@ -55,6 +57,10 @@ describe('POST /intake/demands/from-nfe-key — sem match ACBr (regressão)', ()
 
         // Nenhum documento descoberto pela Distribuição NF-e pra essa chave — caminho majoritário.
         prisma.nfeDistribuicaoDocumento.findUnique = (async () => null) as unknown as typeof prisma.nfeDistribuicaoDocumento.findUnique;
+        prisma.fiscalEmitter.findFirst = (async () => {
+            bootstrapStarted = true;
+            return new Promise(() => {});
+        }) as unknown as typeof prisma.fiscalEmitter.findFirst;
 
         prisma.demand.findFirst = (async () => null) as unknown as typeof prisma.demand.findFirst;
         prisma.demand.create = ((async ({ data }: { data: Record<string, unknown> }) => {
@@ -92,11 +98,13 @@ describe('POST /intake/demands/from-nfe-key — sem match ACBr (regressão)', ()
         prisma.demandEvent.create = original.demandEventCreate;
         prisma.$transaction = original.transaction;
         prisma.nfeDistribuicaoDocumento.findUnique = original.nfeDistribuicaoDocumentoFindUnique;
+        prisma.fiscalEmitter.findFirst = original.fiscalEmitterFindFirst;
         axios.get = original.axiosGet;
     });
 
     it('cria Demand com placeholders quando não há documento ACBr pra chave (comportamento atual preservado)', async () => {
         const token = jwt.sign({ userId: 'hub-user-1' }, jwtSecret);
+        const startedAt = Date.now();
         const res = await httpPostJson<{ success: boolean; data: Record<string, unknown> }>(
             baseUrl,
             '/api/intake/demands/from-nfe-key',
@@ -109,5 +117,7 @@ describe('POST /intake/demands/from-nfe-key — sem match ACBr (regressão)', ()
         assert.equal(res.body.data.nfValue, 0.01);
         assert.equal(res.body.data.weight, 1);
         assert.equal(res.body.data.commodity, 'A definir');
+        assert.equal(bootstrapStarted, true);
+        assert.ok(Date.now() - startedAt < 2_500, 'bootstrap fiscal best-effort não pode bloquear a resposta operacional');
     });
 });

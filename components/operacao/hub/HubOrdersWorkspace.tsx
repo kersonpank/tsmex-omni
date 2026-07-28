@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  formatApiError,
   hubCargoApi,
   intakeDemandsApi,
   nfeDistribuicaoTriagemApi,
@@ -81,6 +82,15 @@ function formatDate(value?: string | null): string | null {
     hour: '2-digit',
     minute: '2-digit',
   }).format(date);
+}
+
+function hubOperationError(cause: unknown, fallback: string, timeoutMessage: string): string {
+  const message = formatApiError(cause);
+  if (/tempo esgotado|timeout/i.test(message)) return timeoutMessage;
+  if (/não foi possível contatar a api|rede|cors/i.test(message)) {
+    return 'Sem conexão com o sistema agora. Confira a internet e tente novamente.';
+  }
+  return message && message !== '[object Object]' ? message : fallback;
 }
 
 function bucketCount(bucket: HubCargoBucket, summary: HubCargoSummary): number {
@@ -186,9 +196,13 @@ const HubOrdersWorkspace: React.FC<HubOrdersWorkspaceProps> = ({
       });
       setItems((current) => append ? [...current, ...response.data] : response.data);
       setTotal(response.pagination.total);
-    } catch (cause: any) {
+    } catch (cause: unknown) {
       setItems(append ? items : []);
-      setError(cause.response?.data?.error || cause.message || 'Não foi possível carregar as cargas.');
+      setError(hubOperationError(
+        cause,
+        'Não foi possível carregar as cargas.',
+        'A lista de cargas demorou mais que o esperado. Tente atualizar novamente.',
+      ));
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -196,8 +210,12 @@ const HubOrdersWorkspace: React.FC<HubOrdersWorkspaceProps> = ({
   }, [bucket, debouncedQuery, hubId, items, sort, withoutTrip]);
 
   useEffect(() => {
-    void refreshSummary().catch((cause: any) => {
-      setError(cause.response?.data?.error || cause.message || 'Não foi possível carregar o resumo.');
+    void refreshSummary().catch((cause: unknown) => {
+      setError(hubOperationError(
+        cause,
+        'Não foi possível carregar o resumo.',
+        'O resumo do Hub demorou mais que o esperado. Tente atualizar novamente.',
+      ));
     });
   }, [refreshSummary]);
 
@@ -260,8 +278,12 @@ const HubOrdersWorkspace: React.FC<HubOrdersWorkspaceProps> = ({
       } else if (result.resolution === 'awaiting_arrival') {
         setArrivalItem(result.item);
       }
-    } catch (cause: any) {
-      setError(cause.response?.data?.error || cause.message || 'Não foi possível interpretar o código.');
+    } catch (cause: unknown) {
+      setError(hubOperationError(
+        cause,
+        'Não foi possível interpretar o código.',
+        'A consulta demorou mais que o esperado. Tente novamente; a chave informada foi preservada.',
+      ));
     } finally {
       setResolving(false);
     }
@@ -286,8 +308,12 @@ const HubOrdersWorkspace: React.FC<HubOrdersWorkspaceProps> = ({
         setSuccess('Documento preparado. Confirme agora a chegada física da carga.');
       }
       await reloadAfterMutation();
-    } catch (cause: any) {
-      setError(cause.response?.data?.error || cause.message || 'Não foi possível preparar esta NF-e para entrada.');
+    } catch (cause: unknown) {
+      setError(hubOperationError(
+        cause,
+        'Não foi possível preparar esta NF-e para entrada.',
+        'A preparação da NF-e demorou mais que o esperado. Tente novamente; nenhuma informação foi perdida.',
+      ));
     } finally {
       setResolving(false);
     }
@@ -318,8 +344,12 @@ const HubOrdersWorkspace: React.FC<HubOrdersWorkspaceProps> = ({
         setArrivalItem(resolved.data.item);
       }
       await reloadAfterMutation();
-    } catch (cause: any) {
-      setError(cause.response?.data?.error || cause.message || 'Não foi possível iniciar a entrada pela NF-e.');
+    } catch (cause: unknown) {
+      setError(hubOperationError(
+        cause,
+        'Não foi possível iniciar a entrada pela NF-e.',
+        'A entrada da NF-e demorou mais que o esperado. Tente novamente; a chave continua disponível.',
+      ));
     } finally {
       setResolving(false);
     }
@@ -947,7 +977,7 @@ const ResolutionPanel: React.FC<ResolutionPanelProps> = (props) => {
         {item?.activeTrip && <button type="button" onClick={() => props.onOpenTrip(item.activeTrip!.id)} className="admin-focus min-h-11 rounded-xl border border-brand-300 px-4 text-sm font-semibold text-brand-900 dark:border-brand-600 dark:text-brand-100">Ver viagem</button>}
         {result.resolution === 'awaiting_arrival' && <button type="button" onClick={() => props.onConfirmArrival(result.item)} className="admin-focus min-h-11 rounded-xl bg-brand-600 px-4 text-sm font-bold text-white">Confirmar entrada física</button>}
         {result.resolution === 'fiscal_document_found' && <button type="button" disabled={busy} onClick={() => props.onConvertFiscal(result)} className="admin-focus min-h-11 rounded-xl bg-brand-600 px-4 text-sm font-bold text-white disabled:opacity-50">Preparar entrada</button>}
-        {result.resolution === 'valid_nfe_not_registered' && <button type="button" disabled={busy} onClick={() => props.onPrepareNfe(result)} className="admin-focus min-h-11 rounded-xl bg-brand-600 px-4 text-sm font-bold text-white disabled:opacity-50">Dar entrada nesta NF-e</button>}
+        {result.resolution === 'valid_nfe_not_registered' && <button type="button" disabled={busy} onClick={() => props.onPrepareNfe(result)} className="admin-focus min-h-11 rounded-xl bg-brand-600 px-4 text-sm font-bold text-white disabled:opacity-50">{busy ? 'Preparando entrada...' : 'Dar entrada nesta NF-e'}</button>}
         {(result.resolution === 'not_found' || result.resolution === 'invalid') && <button type="button" onClick={() => props.onManualEntry(result.preservedCode)} className="admin-focus min-h-11 rounded-xl bg-brand-600 px-4 text-sm font-bold text-white">Cadastrar entrada</button>}
       </div>
     </div>
