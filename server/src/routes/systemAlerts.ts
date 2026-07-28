@@ -15,7 +15,17 @@ router.get('/', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: 
             orderBy: { createdAt: 'desc' },
             take: 50,
         });
-        res.json({ success: true, data: alerts });
+        // Dedup por categoria — retorna apenas o alerta mais recente de cada categoria.
+        // Evita que chamadas legadas ao bare createSystemAlert (sem janela de dedup) inundem o painel.
+        const dedupedAlerts = Object.values(
+            alerts.reduce<Record<string, (typeof alerts)[0]>>((acc, a) => {
+                if (!acc[a.category] || a.createdAt > acc[a.category].createdAt) {
+                    acc[a.category] = a;
+                }
+                return acc;
+            }, {}),
+        );
+        res.json({ success: true, data: dedupedAlerts });
     } catch (error) {
         next(error);
     }
