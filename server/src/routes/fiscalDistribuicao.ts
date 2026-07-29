@@ -13,6 +13,7 @@ import {
 } from '../services/acbr/acbrDistribuicaoNfe.js';
 import { isAcbrCredentialsConfigured } from '../services/acbr/acbrConfig.js';
 import { enqueueSyncEmitterJob } from '../services/queues/distribuicaoNfeQueue.js';
+import { resolveOpenSystemAlerts } from '../services/systemAlertService.js';
 import { listAllDocuments, countDocumentsByStatus } from '../services/fiscal/nfeDistribuicaoRepo.js';
 import type { NfeDistribuicaoDocumentoStatus } from '@prisma/client';
 
@@ -96,6 +97,13 @@ router.post('/distribuicao-nfe/emitters/:fiscalEmitterId/bootstrap-nsu', authori
 
         const ambiente = emitter.environment === 'PRODUCAO' ? 'producao' : 'homologacao';
         await setUltimoNsuStored(emitter.person.document, ambiente, parsed.nsu);
+
+        // NSU semeado agora — fecha na hora qualquer alerta "NSU não configurado" aberto pra
+        // este emitente, sem esperar o próximo ciclo do coordenador (até 12h depois).
+        await resolveOpenSystemAlerts({
+            category: 'FISCAL_DISTRIBUICAO_NFE_NOT_SEEDED',
+            match: (ctx) => ctx.fiscalEmitterId === emitter.id,
+        });
 
         res.json({
             success: true,

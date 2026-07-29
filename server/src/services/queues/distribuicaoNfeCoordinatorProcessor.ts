@@ -1,6 +1,6 @@
 import prisma from '../../lib/prisma.js';
 import { getUltimoNsuStored } from '../acbr/acbrDistribuicaoNfe.js';
-import { createSystemAlert } from '../systemAlertService.js';
+import { createOrMergeSystemAlert, resolveOpenSystemAlerts } from '../systemAlertService.js';
 import { enqueueSyncEmitterJob } from './distribuicaoNfeQueue.js';
 
 export interface CoordinatorProcessorDeps {
@@ -9,7 +9,8 @@ export interface CoordinatorProcessorDeps {
     };
     getUltimoNsuStored: typeof getUltimoNsuStored;
     enqueueSyncEmitterJob: typeof enqueueSyncEmitterJob;
-    createSystemAlert: typeof createSystemAlert;
+    createOrMergeSystemAlert: typeof createOrMergeSystemAlert;
+    resolveOpenSystemAlerts: typeof resolveOpenSystemAlerts;
 }
 
 export const defaultCoordinatorProcessorDeps: CoordinatorProcessorDeps = {
@@ -18,7 +19,8 @@ export const defaultCoordinatorProcessorDeps: CoordinatorProcessorDeps = {
     },
     getUltimoNsuStored,
     enqueueSyncEmitterJob,
-    createSystemAlert,
+    createOrMergeSystemAlert,
+    resolveOpenSystemAlerts,
 };
 
 export interface CoordinatorJobResult {
@@ -51,15 +53,24 @@ export async function processCoordinatorJob(
 
         if (!ultimoNsu || ultimoNsu === '0') {
             skippedNotSeeded += 1;
-            await deps.createSystemAlert({
+            await deps.createOrMergeSystemAlert({
                 category: 'FISCAL_DISTRIBUICAO_NFE_NOT_SEEDED',
                 severity: 'WARNING',
                 title: 'NSU inicial não configurado para varredura automática de NF-e',
                 message: `O emitente ${emitter.id} (CNPJ ${emitter.person.document}, ${ambiente}) está com distribuicaoNfeEnabled=true mas o NSU inicial ainda não foi semeado. Use POST /api/fiscal/distribuicao-nfe/emitters/${emitter.id}/bootstrap-nsu antes que a varredura automática rode a partir de 0 (custo retroativo de créditos por ~90 dias de histórico).`,
                 context: { fiscalEmitterId: emitter.id, cpfCnpj: emitter.person.document, ambiente },
+                dedupMatch: (ctx) => ctx.fiscalEmitterId === emitter.id,
             });
             continue;
         }
+
+        // Rede de segurança: o NSU já está semeado agora — se um ciclo anterior deixou um
+        // alerta OPEN de "não semeado" pra este emitente (semeado por outro caminho, ex.:
+        // bootstrap-nsu manual ou auto-seed na primeira bipagem), fecha sozinho.
+        await deps.resolveOpenSystemAlerts({
+            category: 'FISCAL_DISTRIBUICAO_NFE_NOT_SEEDED',
+            match: (ctx) => ctx.fiscalEmitterId === emitter.id,
+        });
 
         await deps.enqueueSyncEmitterJob(emitter.id);
         enqueued += 1;

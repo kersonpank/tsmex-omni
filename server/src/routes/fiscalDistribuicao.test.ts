@@ -31,10 +31,14 @@ describe('fiscalDistribuicao routes — bootstrap-nsu (guarda FinOps)', () => {
     let server: ReturnType<express.Express['listen']> | null = null;
     let checkpointUpsertCalls: unknown[] = [];
 
+    let systemAlertUpdateManyCalls: unknown[] = [];
+
     const original = {
         userFindUnique: prisma.user.findUnique,
         fiscalEmitterFindUnique: prisma.fiscalEmitter.findUnique,
         checkpointUpsert: prisma.fiscalDistribuicaoCheckpoint.upsert,
+        systemAlertFindMany: prisma.systemAlert.findMany,
+        systemAlertUpdateMany: prisma.systemAlert.updateMany,
     };
 
     before(async () => {
@@ -81,6 +85,15 @@ describe('fiscalDistribuicao routes — bootstrap-nsu (guarda FinOps)', () => {
             return { id: 'chk-1', ...args.create };
         }) as any;
 
+        prisma.systemAlert.findMany = (async () => [
+            { id: 'alert-1', category: 'FISCAL_DISTRIBUICAO_NFE_NOT_SEEDED', status: 'OPEN', context: { fiscalEmitterId } },
+            { id: 'alert-2', category: 'FISCAL_DISTRIBUICAO_NFE_NOT_SEEDED', status: 'OPEN', context: { fiscalEmitterId: 'outro-emitente' } },
+        ]) as any;
+        prisma.systemAlert.updateMany = (async (args: any) => {
+            systemAlertUpdateManyCalls.push(args);
+            return { count: (args.where?.id?.in ?? []).length };
+        }) as any;
+
         const { fiscalDistribuicaoRouter } = await import('./fiscalDistribuicao.js');
         const app = express();
         app.use(express.json());
@@ -103,6 +116,8 @@ describe('fiscalDistribuicao routes — bootstrap-nsu (guarda FinOps)', () => {
         prisma.user.findUnique = original.userFindUnique;
         prisma.fiscalEmitter.findUnique = original.fiscalEmitterFindUnique;
         prisma.fiscalDistribuicaoCheckpoint.upsert = original.checkpointUpsert;
+        prisma.systemAlert.findMany = original.systemAlertFindMany;
+        prisma.systemAlert.updateMany = original.systemAlertUpdateMany;
     });
 
     it('grava o NSU inicial direto no checkpoint (sem passar pela ACBr)', async () => {
@@ -120,6 +135,20 @@ describe('fiscalDistribuicao routes — bootstrap-nsu (guarda FinOps)', () => {
         assert.equal(res.body.data.ambiente, 'homologacao');
         assert.equal(res.body.data.ultimoNsu, '123456');
         assert.equal(checkpointUpsertCalls.length, 1, 'deve gravar o checkpoint exatamente uma vez, direto no banco');
+    });
+
+    it('resolve sozinho o alerta "NSU não configurado" aberto pra este emitente, sem mexer no de outro emitente', async () => {
+        systemAlertUpdateManyCalls = [];
+        const res = await httpPost<{ success: boolean }>(
+            baseUrl,
+            `/api/fiscal/distribuicao-nfe/emitters/${fiscalEmitterId}/bootstrap-nsu`,
+            { nsu: '999' },
+            token,
+        );
+        assert.equal(res.status, 200);
+        assert.equal(systemAlertUpdateManyCalls.length, 1);
+        const [args] = systemAlertUpdateManyCalls as [{ where: { id: { in: string[] } } }];
+        assert.deepEqual(args.where.id.in, ['alert-1'], 'só resolve o alerta do emitente semeado, não o de outro emitente');
     });
 
     it('rejeita NSU não numérico com 400', async () => {

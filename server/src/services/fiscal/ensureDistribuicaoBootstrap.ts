@@ -1,17 +1,20 @@
 import prisma from '../../lib/prisma.js';
 import { putAcbrEmpresaDistNfeConfig, solicitarEPersistirNsu } from '../acbr/acbrDistribuicaoNfe.js';
 import { isAcbrCredentialsConfigured } from '../acbr/acbrConfig.js';
+import { resolveOpenSystemAlerts } from '../systemAlertService.js';
 
 export interface EnsureDistribuicaoBootstrapDeps {
     isAcbrCredentialsConfigured: typeof isAcbrCredentialsConfigured;
     solicitarEPersistirNsu: typeof solicitarEPersistirNsu;
     putAcbrEmpresaDistNfeConfig: typeof putAcbrEmpresaDistNfeConfig;
+    resolveOpenSystemAlerts: typeof resolveOpenSystemAlerts;
 }
 
 export const defaultEnsureDistribuicaoBootstrapDeps: EnsureDistribuicaoBootstrapDeps = {
     isAcbrCredentialsConfigured,
     solicitarEPersistirNsu,
     putAcbrEmpresaDistNfeConfig,
+    resolveOpenSystemAlerts,
 };
 
 function ambienteFromEnvironment(environment: string): 'homologacao' | 'producao' {
@@ -67,6 +70,13 @@ export async function ensureDistribuicaoBootstrap(
             ambiente,
             tipo_consulta: 'cons-chave',
             cons_chave: chave,
+        });
+
+        // NSU semeado agora (auto-seed pela primeira bipagem) — fecha na hora qualquer alerta
+        // "NSU não configurado" aberto pra este emitente.
+        await deps.resolveOpenSystemAlerts({
+            category: 'FISCAL_DISTRIBUICAO_NFE_NOT_SEEDED',
+            match: (ctx) => ctx.fiscalEmitterId === emitter.id,
         });
 
         if (!emitter.distribuicaoNfeEnabled) {

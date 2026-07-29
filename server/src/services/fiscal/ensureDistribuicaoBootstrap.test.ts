@@ -11,8 +11,9 @@ function makeDeps(
     isAcbrCredentialsConfigured = mock.fn(() => true),
     solicitarEPersistirNsu = mock.fn(async (_body: DistribuicaoNfeRequestBody) => ({ ultimo_nsu: 100 })),
     putAcbrEmpresaDistNfeConfig = mock.fn(async () => ({ ok: true })),
+    resolveOpenSystemAlerts = mock.fn(async (_params: { category: string; match: (ctx: Record<string, unknown>) => boolean }) => 0),
 ): EnsureDistribuicaoBootstrapDeps {
-    return { isAcbrCredentialsConfigured, solicitarEPersistirNsu, putAcbrEmpresaDistNfeConfig };
+    return { isAcbrCredentialsConfigured, solicitarEPersistirNsu, putAcbrEmpresaDistNfeConfig, resolveOpenSystemAlerts };
 }
 
 describe('ensureDistribuicaoBootstrap', () => {
@@ -94,6 +95,23 @@ describe('ensureDistribuicaoBootstrap', () => {
         assert.equal(callArg.ambiente, 'homologacao');
         assert.equal(updateCalls.length, 1);
         assert.equal(updateCalls[0]?.distribuicaoNfeEnabled, true);
+    });
+
+    it('checkpoint ausente — semeia e resolve alerta "NSU não configurado" aberto pro emitente', async () => {
+        const solicitarEPersistirNsu = mock.fn(async (_body: DistribuicaoNfeRequestBody) => ({ ultimo_nsu: 100 }));
+        const resolveOpenSystemAlerts = mock.fn(async (_params: { category: string; match: (ctx: Record<string, unknown>) => boolean }) => 1);
+
+        await ensureDistribuicaoBootstrap(
+            HUB_ID,
+            CHAVE,
+            makeDeps(undefined, solicitarEPersistirNsu, undefined, resolveOpenSystemAlerts),
+        );
+
+        assert.equal(resolveOpenSystemAlerts.mock.callCount(), 1);
+        const [args] = resolveOpenSystemAlerts.mock.calls[0].arguments as [{ category: string; match: (ctx: Record<string, unknown>) => boolean }];
+        assert.equal(args.category, 'FISCAL_DISTRIBUICAO_NFE_NOT_SEEDED');
+        assert.ok(args.match({ fiscalEmitterId: 'emitter-1' }));
+        assert.ok(!args.match({ fiscalEmitterId: 'outro' }));
     });
 
     it('distribuicaoNfeEnabled já true — não tenta reativar de novo', async () => {

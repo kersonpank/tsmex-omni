@@ -39,6 +39,7 @@ function makeDeps(overrides: Partial<SyncProcessorDeps> = {}): {
         setUltimoNsuStored: unknown[];
         putAcbrEmpresaDistNfeConfig: unknown[];
         createSystemAlert: unknown[];
+        resolveOpenSystemAlerts: unknown[];
         queuePause: number;
         sleepCalls: number[];
     };
@@ -54,6 +55,7 @@ function makeDeps(overrides: Partial<SyncProcessorDeps> = {}): {
         setUltimoNsuStored: [] as unknown[],
         putAcbrEmpresaDistNfeConfig: [] as unknown[],
         createSystemAlert: [] as unknown[],
+        resolveOpenSystemAlerts: [] as unknown[],
         queuePause: 0,
         sleepCalls: [] as number[],
     };
@@ -105,8 +107,12 @@ function makeDeps(overrides: Partial<SyncProcessorDeps> = {}): {
         }) as any,
         markPausedForQuota: (async () => {}) as any,
         markFailed: (async () => {}) as any,
-        createSystemAlert: (async (...args: unknown[]) => {
+        createOrMergeSystemAlert: (async (...args: unknown[]) => {
             calls.createSystemAlert.push(args);
+        }) as any,
+        resolveOpenSystemAlerts: (async (...args: unknown[]) => {
+            calls.resolveOpenSystemAlerts.push(args);
+            return 0;
         }) as any,
         distribuicaoNfeQueue: {
             pause: (async () => {
@@ -378,5 +384,38 @@ describe('processDistribuicaoNfeSyncJob — 429/402', () => {
         assert.equal(alertArgs.severity, 'WARNING');
         assert.match(alertArgs.message, /ACBR_CLIENT_ID_PRODUCAO/);
         assert.equal(alertArgs.context?.fiscalEmitterId, 'fe-1');
+        assert.equal(calls.resolveOpenSystemAlerts.length, 0, 'job que falhou não deve resolver nada');
+    });
+
+    it('sync termina sem erro → resolve alerta FISCAL_PROVIDER_ERROR aberto anteriormente pro mesmo emitente', async () => {
+        const { deps, calls } = makeDeps();
+        const { job } = makeJob('fe-1');
+
+        await processDistribuicaoNfeSyncJob(job, deps);
+
+        assert.equal(calls.resolveOpenSystemAlerts.length, 1);
+        const [resolveArgs] = calls.resolveOpenSystemAlerts[0] as [{ category: string; match: (ctx: Record<string, unknown>) => boolean }];
+        assert.equal(resolveArgs.category, 'FISCAL_PROVIDER_ERROR');
+        assert.ok(resolveArgs.match({ fiscalEmitterId: 'fe-1' }));
+        assert.ok(!resolveArgs.match({ fiscalEmitterId: 'outro-emitente' }));
+    });
+
+    it('falha repetida no mesmo emitente não duplica FISCAL_PROVIDER_ERROR (dedup por fiscalEmitterId)', async () => {
+        const err = new Error('timeout');
+        const { deps, calls } = makeDeps({
+            solicitarDistribuicaoNfe: (async () => {
+                throw err;
+            }) as any,
+        });
+        const { job: job1 } = makeJob('fe-1');
+        const { job: job2 } = makeJob('fe-1');
+
+        await assert.rejects(() => processDistribuicaoNfeSyncJob(job1, deps), err);
+        await assert.rejects(() => processDistribuicaoNfeSyncJob(job2, deps), err);
+
+        assert.equal(calls.createSystemAlert.length, 2, 'createOrMergeSystemAlert é chamado 2x — quem dedupa de fato é o systemAlertService, testado à parte');
+        const [firstArgs] = calls.createSystemAlert[0] as [{ dedupMatch?: (ctx: Record<string, unknown>) => boolean }];
+        assert.ok(firstArgs.dedupMatch?.({ fiscalEmitterId: 'fe-1' }), 'dedupMatch deve casar pelo mesmo fiscalEmitterId');
+        assert.ok(!firstArgs.dedupMatch?.({ fiscalEmitterId: 'fe-2' }), 'dedupMatch não deve casar com outro emitente');
     });
 });

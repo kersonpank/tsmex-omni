@@ -8,9 +8,12 @@ type FakeEmitter = { id: string; environment: 'HOMOLOGACAO' | 'PRODUCAO'; active
 function makeDeps(params: {
     emitters: FakeEmitter[];
     ultimoNsuByCnpj: Record<string, string>;
+    openNotSeededAlertFiscalEmitterIds?: string[];
 }) {
     const enqueueCalls: string[] = [];
     const alertCalls: unknown[] = [];
+    const resolveCalls: Array<{ category: string; matchedIds: string[] }> = [];
+    const openAlertEmitterIds = new Set(params.openNotSeededAlertFiscalEmitterIds ?? []);
 
     const deps: CoordinatorProcessorDeps = {
         prisma: {
@@ -29,12 +32,17 @@ function makeDeps(params: {
             enqueueCalls.push(fiscalEmitterId);
             return `job-${fiscalEmitterId}`;
         }) as any,
-        createSystemAlert: (async (params: unknown) => {
-            alertCalls.push(params);
+        createOrMergeSystemAlert: (async (p: unknown) => {
+            alertCalls.push(p);
+        }) as any,
+        resolveOpenSystemAlerts: (async (p: { category: string; match: (ctx: Record<string, unknown>) => boolean }) => {
+            const matchedIds = [...openAlertEmitterIds].filter((id) => p.match({ fiscalEmitterId: id }));
+            resolveCalls.push({ category: p.category, matchedIds });
+            return matchedIds.length;
         }) as any,
     };
 
-    return { deps, enqueueCalls, alertCalls };
+    return { deps, enqueueCalls, alertCalls, resolveCalls };
 }
 
 describe('processCoordinatorJob', () => {
@@ -73,6 +81,23 @@ describe('processCoordinatorJob', () => {
         const alert = alertCalls[0] as { category: string; severity: string };
         assert.equal(alert.category, 'FISCAL_DISTRIBUICAO_NFE_NOT_SEEDED');
         assert.equal(alert.severity, 'WARNING');
+    });
+
+    it('emitente com NSU já semeado e alerta OPEN de "não semeado" antigo: resolve sozinho antes de enfileirar', async () => {
+        const { deps, enqueueCalls, resolveCalls } = makeDeps({
+            emitters: [
+                { id: 'fe-agora-semeado', environment: 'HOMOLOGACAO', active: true, distribuicaoNfeEnabled: true, person: { document: '66666666000196' } },
+            ],
+            ultimoNsuByCnpj: { '66666666000196': '10' },
+            openNotSeededAlertFiscalEmitterIds: ['fe-agora-semeado'],
+        });
+
+        await processCoordinatorJob(deps);
+
+        assert.deepEqual(enqueueCalls, ['fe-agora-semeado']);
+        assert.equal(resolveCalls.length, 1);
+        assert.equal(resolveCalls[0].category, 'FISCAL_DISTRIBUICAO_NFE_NOT_SEEDED');
+        assert.deepEqual(resolveCalls[0].matchedIds, ['fe-agora-semeado']);
     });
 
     it('não enfileira nada quando não há emitentes elegíveis', async () => {

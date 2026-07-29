@@ -1671,6 +1671,10 @@ export const systemAlertsApi = {
         const response = await api.post<{ success: boolean; message?: string }>(`/system-alerts/${alertId}/resume-distribuicao-nfe-queue`);
         return response.data;
     },
+    acknowledge: async (alertId: string) => {
+        const response = await api.post<{ success: boolean }>(`/system-alerts/${alertId}/acknowledge`);
+        return response.data;
+    },
 };
 
 export default api;

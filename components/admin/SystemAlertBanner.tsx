@@ -60,6 +60,18 @@ export default function SystemAlertBanner() {
     }
   };
 
+  const handleDismiss = async (alertId: string) => {
+    setResolving(alertId);
+    try {
+      await systemAlertsApi.acknowledge(alertId);
+      await load();
+    } catch (e: any) {
+      window.alert(e.response?.data?.error ?? e.message ?? 'Erro ao dispensar o alerta.');
+    } finally {
+      setResolving(null);
+    }
+  };
+
   if (alerts.length === 0) return null;
 
   return (
@@ -74,7 +86,7 @@ export default function SystemAlertBanner() {
             }`}
           >
             <span><strong>{alert.title}</strong> — {alert.message}</span>
-            {RESUME_ACTION_BY_CATEGORY[alert.category] && (
+            {RESUME_ACTION_BY_CATEGORY[alert.category] ? (
               <button
                 type="button"
                 onClick={() => handleResume(alert.id, alert.category)}
@@ -84,6 +96,17 @@ export default function SystemAlertBanner() {
                 }`}
               >
                 {resolving === alert.id ? 'Retomando…' : 'Retomar fila'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleDismiss(alert.id)}
+                disabled={resolving === alert.id}
+                className={`px-3 py-1 rounded text-xs font-medium disabled:opacity-50 ${
+                  isCritical ? 'bg-white text-red-700' : 'bg-white text-amber-800'
+                }`}
+              >
+                {resolving === alert.id ? 'Dispensando…' : 'Dispensar'}
               </button>
             )}
           </div>
