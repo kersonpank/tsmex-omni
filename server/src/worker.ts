@@ -3,6 +3,7 @@ import { Worker } from 'bullmq';
 import { createRedisConnection } from './lib/redis.js';
 import { CTE_EMISSION_QUEUE_NAME, getCteEmissionQueue } from './services/queues/cteEmissionQueue.js';
 import { processCteEmissionJob, handleCteJobExhausted } from './services/queues/cteEmissionProcessor.js';
+import { runStuckCteJobRepair } from './services/queues/cteRepairService.js';
 import { DISTRIBUICAO_NFE_QUEUE_NAME, ensureDistribuicaoNfeSchedule, type DistribuicaoNfeJobData } from './services/queues/distribuicaoNfeQueue.js';
 import { processCoordinatorJob } from './services/queues/distribuicaoNfeCoordinatorProcessor.js';
 import { processDistribuicaoNfeSyncJob } from './services/queues/distribuicaoNfeSyncProcessor.js';
@@ -141,6 +142,22 @@ void (async () => {
     } catch (err) {
         console.error(JSON.stringify({ level: 'error', source: 'distribuicaoNfeWorker', message: 'Falha ao registrar o agendamento 2x/dia.', error: err instanceof Error ? err.message : String(err) }));
     }
+
+    // Reparo automático de CT-e jobs travados: roda uma vez no startup (pega jobs deixados pelo
+    // crash do worker anterior) e depois a cada 30min. Elimina a necessidade de rodar o script
+    // manual repair-stuck-cte-jobs.ts após crashes ou perda de volume Redis.
+    const runRepairSafe = () => {
+        void runStuckCteJobRepair().catch((err: unknown) => {
+            console.error(JSON.stringify({
+                level: 'error',
+                source: 'cteRepairService',
+                message: 'Reparo periódico de CT-e falhou.',
+                error: err instanceof Error ? err.message : String(err),
+            }));
+        });
+    };
+    runRepairSafe();
+    setInterval(runRepairSafe, 30 * 60 * 1000);
 })();
 
 process.on('SIGTERM', async () => {

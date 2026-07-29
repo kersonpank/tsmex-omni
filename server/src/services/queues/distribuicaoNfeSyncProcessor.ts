@@ -5,6 +5,8 @@ import { AcbrHttpError } from '../acbr/acbrHttp.js';
 import {
     baixarXmlDocumentoDistribuicao,
     getUltimoNsuStored,
+    isDistribuicaoRateLimitError,
+    parseRateLimitMinutes,
     putAcbrEmpresaDistNfeConfig,
     setUltimoNsuStored,
     solicitarDistribuicaoNfe,
@@ -20,8 +22,11 @@ import {
     markXmlDownloaded,
     upsertDiscovered,
 } from '../fiscal/nfeDistribuicaoRepo.js';
-import { createSystemAlert } from '../systemAlertService.js';
+import { createOrMergeSystemAlert } from '../systemAlertService.js';
+import { getDistribuicaoCheckpointStatus } from '../fiscal/distribuicaoCheckpointStatus.js';
 import { getDistribuicaoNfeQueue, type DistribuicaoNfeJobData } from './distribuicaoNfeQueue.js';
+
+const NSU_ALERT_DEDUP_WINDOW_MS = 25 * 60 * 60 * 1000; // 25h — mesma janela do coordinator
 
 type SyncEmitterJobData = Extract<DistribuicaoNfeJobData, { kind: 'sync-emitter' }>;
 
@@ -47,6 +52,7 @@ export interface SyncProcessorDeps {
     };
     getUltimoNsuStored: typeof getUltimoNsuStored;
     setUltimoNsuStored: typeof setUltimoNsuStored;
+    getDistribuicaoCheckpointStatus: typeof getDistribuicaoCheckpointStatus;
     putAcbrEmpresaDistNfeConfig: typeof putAcbrEmpresaDistNfeConfig;
     solicitarDistribuicaoNfe: typeof solicitarDistribuicaoNfe;
     manifestarCienciaOperacao: typeof manifestarCienciaOperacao;
@@ -57,7 +63,7 @@ export interface SyncProcessorDeps {
     markXmlDownloaded: typeof markXmlDownloaded;
     markPausedForQuota: typeof markPausedForQuota;
     markFailed: typeof markFailed;
-    createSystemAlert: typeof createSystemAlert;
+    createOrMergeSystemAlert: typeof createOrMergeSystemAlert;
     distribuicaoNfeQueue: Pick<ReturnType<typeof getDistribuicaoNfeQueue>, 'pause'>;
     sleep: (ms: number) => Promise<void>;
 }
@@ -69,6 +75,7 @@ export const defaultSyncProcessorDeps: SyncProcessorDeps = {
     },
     getUltimoNsuStored,
     setUltimoNsuStored,
+    getDistribuicaoCheckpointStatus,
     putAcbrEmpresaDistNfeConfig,
     solicitarDistribuicaoNfe,
     manifestarCienciaOperacao,
@@ -79,7 +86,7 @@ export const defaultSyncProcessorDeps: SyncProcessorDeps = {
     markXmlDownloaded,
     markPausedForQuota,
     markFailed,
-    createSystemAlert,
+    createOrMergeSystemAlert,
     get distribuicaoNfeQueue() {
         return getDistribuicaoNfeQueue();
     },
@@ -150,7 +157,7 @@ export function extractDocumentoId(raw: unknown): string | null {
     return typeof id === 'string' && id.length > 0 ? id : null;
 }
 
-type DiscoveryOutcome = 'ok' | 'nsu-not-seeded' | 'schema-mismatch';
+type DiscoveryOutcome = 'ok' | 'nsu-not-seeded' | 'rate-limited' | 'schema-mismatch';
 
 async function runDiscoveryPhase(
     deps: SyncProcessorDeps,
@@ -164,14 +171,33 @@ async function runDiscoveryPhase(
     // coordenador (`distribuicaoNfeCoordinatorProcessor.ts`). Redundante de propósito: este
     // processor não deve confiar apenas no coordenador pra nunca deixar passar ultNSU=0.
     if (!ultimoNsuStr || ultimoNsuStr === '0') {
-        await deps.createSystemAlert({
+        await deps.createOrMergeSystemAlert({
             category: 'FISCAL_DISTRIBUICAO_NFE_NOT_SEEDED',
             severity: 'WARNING',
             title: 'NSU inicial não configurado — sync abortada',
             message: `Guarda de segurança: o emitente ${fiscalEmitterId} (CNPJ ${cpfCnpj}, ${ambiente}) tentou sincronizar sem NSU semeado. Use o endpoint bootstrap-nsu antes de tentar de novo.`,
             context: { fiscalEmitterId, cpfCnpj, ambiente },
+            dedupWindowMs: NSU_ALERT_DEDUP_WINDOW_MS,
         });
         return 'nsu-not-seeded';
+    }
+
+    // Pre-check do cooldown de 1h da SEFAZ — evita chamar ACBr quando sabemos que o rate-limit
+    // ainda está ativo (distNfeNextAllowedAt no futuro). Não cria alerta: não é um erro, é uma
+    // espera esperada entre as janelas do agendamento 2x/dia. Sem este check, a chamada a ACBr
+    // retornaria HTTP 400 que caía no handler genérico e criava alerta "Varredura falhou".
+    const checkpoint = await deps.getDistribuicaoCheckpointStatus(cpfCnpj, ambiente);
+    if (checkpoint.nextAllowedAt && new Date(checkpoint.nextAllowedAt) > new Date()) {
+        console.info(
+            JSON.stringify({
+                level: 'info',
+                source: 'distribuicaoNfeSyncProcessor',
+                message: 'Cooldown de distribuição NF-e ainda ativo — fase de descoberta adiada.',
+                fiscalEmitterId,
+                nextAllowedAt: checkpoint.nextAllowedAt,
+            }),
+        );
+        return 'rate-limited';
     }
 
     // Idempotente/sem custo — garante que a config de Distribuição NF-e existe na ACBr pro
@@ -335,12 +361,10 @@ export async function processDistribuicaoNfeSyncJob(
         const cpfCnpj = emitter.person.document;
 
         const discoveryOutcome = await runDiscoveryPhase(deps, fiscalEmitterId, cpfCnpj, ambiente);
-        // 'schema-mismatch': não confiamos em mais nada da resposta da ACBr neste momento —
-        // aborta o job inteiro (sem lançar erro, sem retry automático) até alguém revisar o
-        // log com as chaves do payload e ajustar o parser. Fases 2/3 (manifestação/download)
-        // não rodam nesta execução por segurança; voltam a rodar normalmente assim que o
-        // parser for corrigido. 'nsu-not-seeded' já é tratado dentro da própria fase (não
-        // bloqueia manifestação/download de documentos já descobertos anteriormente).
+        // 'schema-mismatch': aborta o job inteiro até o parser ser corrigido.
+        // 'rate-limited': cooldown ainda ativo — fases 2/3 ainda rodam (documentos já
+        // descobertos antes do cooldown precisam ser manifestados/baixados).
+        // 'nsu-not-seeded': tratado internamente, não bloqueia fases 2/3.
         if (discoveryOutcome === 'schema-mismatch') return;
 
         // Rastreia qual documento estava em processamento quando um erro estourar, pra poder
@@ -376,11 +400,18 @@ export async function processDistribuicaoNfeSyncJob(
             return;
         }
 
-        // Qualquer outra falha (auth, ConfigDistNfeNotFound, rate-limit não mapeado como 429,
-        // timeout etc.) até aqui só virava job "failed" no BullMQ — invisível pra quem clicou em
-        // "Buscar agora". Cria o alerta antes de relançar (o retry automático do BullMQ continua
-        // valendo; isso só torna a falha visível na UI).
-        await deps.createSystemAlert({
+        // Rate-limit HTTP 400 da SEFAZ: reagenda o job com o delay informado pela própria SEFAZ
+        // (mesmo padrão do 429). O pre-check em `runDiscoveryPhase` evita esta situação na maior
+        // parte dos casos; este catch é a segunda camada de defesa.
+        if (isDistribuicaoRateLimitError(err)) {
+            const minutes = parseRateLimitMinutes(err as AcbrHttpError);
+            await rescheduleJob(job, minutes * 60 * 1000);
+            return;
+        }
+
+        // Qualquer outra falha (auth, ConfigDistNfeNotFound, timeout etc.) — cria alerta para
+        // tornar a falha visível na UI; o retry automático do BullMQ continua valendo.
+        await deps.createOrMergeSystemAlert({
             category: 'FISCAL_PROVIDER_ERROR',
             severity: 'WARNING',
             title: 'Varredura de Distribuição NF-e falhou',

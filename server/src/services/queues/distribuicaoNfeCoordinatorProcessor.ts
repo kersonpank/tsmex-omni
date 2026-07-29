@@ -1,7 +1,9 @@
 import prisma from '../../lib/prisma.js';
 import { getUltimoNsuStored } from '../acbr/acbrDistribuicaoNfe.js';
-import { createSystemAlert } from '../systemAlertService.js';
+import { createOrMergeSystemAlert } from '../systemAlertService.js';
 import { enqueueSyncEmitterJob } from './distribuicaoNfeQueue.js';
+
+const NSU_ALERT_DEDUP_WINDOW_MS = 25 * 60 * 60 * 1000; // 25h — cobre as duas execuções do dia (13h e 23h)
 
 export interface CoordinatorProcessorDeps {
     prisma: {
@@ -9,7 +11,7 @@ export interface CoordinatorProcessorDeps {
     };
     getUltimoNsuStored: typeof getUltimoNsuStored;
     enqueueSyncEmitterJob: typeof enqueueSyncEmitterJob;
-    createSystemAlert: typeof createSystemAlert;
+    createOrMergeSystemAlert: typeof createOrMergeSystemAlert;
 }
 
 export const defaultCoordinatorProcessorDeps: CoordinatorProcessorDeps = {
@@ -18,7 +20,7 @@ export const defaultCoordinatorProcessorDeps: CoordinatorProcessorDeps = {
     },
     getUltimoNsuStored,
     enqueueSyncEmitterJob,
-    createSystemAlert,
+    createOrMergeSystemAlert,
 };
 
 export interface CoordinatorJobResult {
@@ -51,12 +53,13 @@ export async function processCoordinatorJob(
 
         if (!ultimoNsu || ultimoNsu === '0') {
             skippedNotSeeded += 1;
-            await deps.createSystemAlert({
+            await deps.createOrMergeSystemAlert({
                 category: 'FISCAL_DISTRIBUICAO_NFE_NOT_SEEDED',
                 severity: 'WARNING',
                 title: 'NSU inicial não configurado para varredura automática de NF-e',
                 message: `O emitente ${emitter.id} (CNPJ ${emitter.person.document}, ${ambiente}) está com distribuicaoNfeEnabled=true mas o NSU inicial ainda não foi semeado. Use POST /api/fiscal/distribuicao-nfe/emitters/${emitter.id}/bootstrap-nsu antes que a varredura automática rode a partir de 0 (custo retroativo de créditos por ~90 dias de histórico).`,
                 context: { fiscalEmitterId: emitter.id, cpfCnpj: emitter.person.document, ambiente },
+                dedupWindowMs: NSU_ALERT_DEDUP_WINDOW_MS,
             });
             continue;
         }
