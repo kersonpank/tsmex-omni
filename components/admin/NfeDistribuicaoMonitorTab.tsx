@@ -91,6 +91,7 @@ const NfeDistribuicaoMonitorTab: React.FC<NfeDistribuicaoMonitorTabProps> = ({ o
   const [manualSearchQuery, setManualSearchQuery] = useState('');
   const [debouncedManualSearchQuery, setDebouncedManualSearchQuery] = useState('');
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
+  const [justConverted, setJustConverted] = useState<Demand | null>(null);
 
   // Debounce (mesmo padrão de HubAwaitingArrivalTab.tsx, 300ms): sem isso, cada
   // tecla digitada refaz as DUAS fontes (Promise.allSettled) e passa por
@@ -175,7 +176,9 @@ const NfeDistribuicaoMonitorTab: React.FC<NfeDistribuicaoMonitorTabProps> = ({ o
     try {
       const result = await nfeDistribuicaoTriagemApi.converter(doc.id);
       if (result.success) {
-        onDemandConverted?.(result.data.demand);
+        // Não navega sozinho — fica na tela NF-e, mostra o banner com o botão "Ver Demanda"
+        // (o clique é que decide ir pra Demandas). Ver `justConverted` abaixo.
+        setJustConverted(result.data.demand);
       }
       await load();
     } catch (e: any) {
@@ -329,6 +332,33 @@ const NfeDistribuicaoMonitorTab: React.FC<NfeDistribuicaoMonitorTabProps> = ({ o
               className="w-full rounded-lg border border-tower-300 bg-white px-3 py-2 text-sm text-tower-900 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100"
             />
           </label>
+        </div>
+      )}
+
+      {justConverted && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-200 bg-brand-50 p-3 text-sm text-brand-900 dark:border-brand-600 dark:bg-brand-900/40 dark:text-brand-100">
+          <span>
+            NF-e convertida em Demanda #{justConverted.orderNumber} ({justConverted.client?.companyName ?? 'sem cliente'}).
+          </span>
+          <div className="flex shrink-0 gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                onDemandConverted?.(justConverted);
+                setJustConverted(null);
+              }}
+              className="cursor-pointer rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700"
+            >
+              Ver Demanda
+            </button>
+            <button
+              type="button"
+              onClick={() => setJustConverted(null)}
+              className="cursor-pointer rounded-lg border border-brand-300 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-100 dark:border-brand-500 dark:text-brand-200 dark:hover:bg-brand-900/60"
+            >
+              Fechar
+            </button>
+          </div>
         </div>
       )}
 

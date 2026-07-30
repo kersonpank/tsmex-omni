@@ -109,6 +109,7 @@ const OperationsCockpit: React.FC<OperationsCockpitProps> = ({
     commercialSubTab: 'cotacoes',
     generalSubTab: 'settings',
     entradaOrderId: null,
+    entradaNfeChave: null,
   };
 
   return (

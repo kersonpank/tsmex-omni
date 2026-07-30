@@ -10,6 +10,8 @@ const GENERAL_SUBS: GeneralSubTab[] = ['settings', 'especies', 'identidade', 'nu
 
 /** Deep link: abrir Entrada já com um pedido (UUID). */
 const ORDER_ID_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Deep link: abrir Entrada já em "Nova entrada" com uma chave NF-e (44 dígitos). */
+const NFE_CHAVE_REGEX = /^\d{44}$/;
 
 export interface AdminNavState {
   category: Category;
@@ -17,6 +19,7 @@ export interface AdminNavState {
   commercialSubTab: CommercialSubTab;
   generalSubTab: GeneralSubTab;
   entradaOrderId: string | null;
+  entradaNfeChave: string | null;
 }
 
 const defaultState = (): AdminNavState => ({
@@ -25,12 +28,20 @@ const defaultState = (): AdminNavState => ({
   commercialSubTab: 'cotacoes',
   generalSubTab: 'settings',
   entradaOrderId: null,
+  entradaNfeChave: null,
 });
 
 function parseEntradaOrderIdFromSearch(search: URLSearchParams, transportSubTab: TransportSubTab): string | null {
   if (transportSubTab !== 'entrada') return null;
   const raw = search.get('orderId');
   if (raw && ORDER_ID_UUID.test(raw)) return raw;
+  return null;
+}
+
+function parseEntradaNfeChaveFromSearch(search: URLSearchParams, transportSubTab: TransportSubTab): string | null {
+  if (transportSubTab !== 'entrada') return null;
+  const raw = search.get('nfeChave');
+  if (raw && NFE_CHAVE_REGEX.test(raw)) return raw;
   return null;
 }
 
@@ -79,6 +90,7 @@ export function parseAdminSearchParams(
     const wanted = isTransportSub(subRaw) ? subRaw : fallback;
     out.transportSubTab = allowed.has(wanted) ? wanted : fallback;
     out.entradaOrderId = parseEntradaOrderIdFromSearch(search, out.transportSubTab);
+    out.entradaNfeChave = parseEntradaNfeChaveFromSearch(search, out.transportSubTab);
     return out;
   }
 
@@ -94,6 +106,7 @@ export function parseAdminSearchParams(
   }
 
   out.entradaOrderId = parseEntradaOrderIdFromSearch(search, out.transportSubTab);
+  out.entradaNfeChave = parseEntradaNfeChaveFromSearch(search, out.transportSubTab);
   return out;
 }
 
@@ -105,13 +118,13 @@ export function normalizeGestaoNavAfterMerge(state: AdminNavState, isHub: boolea
   if (isHub) {
     let s = { ...state };
     if (s.transportSubTab !== 'entrada') {
-      s = { ...s, entradaOrderId: null };
+      s = { ...s, entradaOrderId: null, entradaNfeChave: null };
     }
     return s;
   }
   let s = { ...state };
   if (s.category !== 'transport' || s.transportSubTab !== 'entrada') {
-    s = { ...s, entradaOrderId: null };
+    s = { ...s, entradaOrderId: null, entradaNfeChave: null };
   }
   if (s.category !== 'transport') {
     s = { ...s, transportSubTab: 'demands' };
@@ -133,6 +146,11 @@ function appendEntradaOrderQuery(sp: URLSearchParams, state: AdminNavState, isHu
     sp.set('orderId', state.entradaOrderId);
   } else {
     sp.delete('orderId');
+  }
+  if (onEntrada && state.entradaNfeChave) {
+    sp.set('nfeChave', state.entradaNfeChave);
+  } else {
+    sp.delete('nfeChave');
   }
 }
 

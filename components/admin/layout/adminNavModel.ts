@@ -47,7 +47,7 @@ export function buildAdminNavSections({
         id: 'entrada',
         label: 'Entrada',
         active: !onOrderDetailPage && transportSubTab === 'entrada',
-        onSelect: go({ category: 'transport', transportSubTab: 'entrada', entradaOrderId: null }),
+        onSelect: go({ category: 'transport', transportSubTab: 'entrada', entradaOrderId: null, entradaNfeChave: null }),
       });
     }
     if (hasPermission('demandas')) {
@@ -89,7 +89,7 @@ export function buildAdminNavSections({
     {
       title: 'Rede',
       items: [
-        { id: 'en', label: 'Entrada', active: !onOrderDetailPage && category === 'transport' && transportSubTab === 'entrada', onSelect: go({ category: 'transport', transportSubTab: 'entrada', entradaOrderId: null }) },
+        { id: 'en', label: 'Entrada', active: !onOrderDetailPage && category === 'transport' && transportSubTab === 'entrada', onSelect: go({ category: 'transport', transportSubTab: 'entrada', entradaOrderId: null, entradaNfeChave: null }) },
         { id: 'de', label: 'Demandas', active: !onOrderDetailPage && category === 'transport' && transportSubTab === 'demands', onSelect: go({ category: 'transport', transportSubTab: 'demands' }) },
         { id: 'vi', label: 'Viagens', active: !onOrderDetailPage && category === 'transport' && transportSubTab === 'viagens', onSelect: go({ category: 'transport', transportSubTab: 'viagens' }) },
         { id: 'pe', label: 'Pedidos', active: onOrderDetailPage || (category === 'transport' && transportSubTab === 'pedidos'), onSelect: go({ category: 'transport', transportSubTab: 'pedidos' }) },
