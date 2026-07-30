@@ -399,7 +399,18 @@ const AdminDashboard: React.FC = () => {
       {navState.category === 'transport' && navState.transportSubTab === 'motoristas' && <MotoristasTab />}
       {navState.category === 'transport' && navState.transportSubTab === 'rotas' && <TransportTab />}
       {navState.category === 'transport' && navState.transportSubTab === 'hubs' && <HubsTab />}
-      {navState.category === 'transport' && navState.transportSubTab === 'nfe' && <NfeDistribuicaoMonitorTab />}
+      {navState.category === 'transport' && navState.transportSubTab === 'nfe' && (
+        <NfeDistribuicaoMonitorTab
+          onDemandConverted={(demand) => {
+            setNotice({
+              variant: 'success',
+              message: `NF-e convertida em Demanda #${demand.orderNumber} (${demand.client?.companyName ?? 'sem cliente'}).`,
+            });
+            setTextQ(demand.nfNumber);
+            setNavState({ category: 'transport', transportSubTab: 'demands' });
+          }}
+        />
+      )}
       {navState.category === 'commercial' && navState.commercialSubTab === 'cotacoes' && <CommercialTab forceSubTab="pipeline" />}
       {navState.category === 'commercial' && navState.commercialSubTab === 'clientes' && <ClientesTab />}
       {navState.category === 'commercial' && navState.commercialSubTab === 'tarifas' && <TarifasTab />}

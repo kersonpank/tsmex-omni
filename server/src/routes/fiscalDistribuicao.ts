@@ -15,6 +15,7 @@ import { isAcbrCredentialsConfigured } from '../services/acbr/acbrConfig.js';
 import { enqueueSyncEmitterJob } from '../services/queues/distribuicaoNfeQueue.js';
 import { resolveOpenSystemAlerts } from '../services/systemAlertService.js';
 import { listAllDocuments, countDocumentsByStatus } from '../services/fiscal/nfeDistribuicaoRepo.js';
+import { getCargoDataFromDistribuicaoDocument } from '../services/fiscal/nfeDistribuicaoCargoData.js';
 import type { NfeDistribuicaoDocumentoStatus } from '@prisma/client';
 
 const router = Router();
@@ -153,6 +154,29 @@ router.get('/distribuicao-nfe/monitor', authorize('ADMIN'), async (req: AuthRequ
             countDocumentsByStatus({ fiscalEmitterId, cnpjEmitente }),
         ]);
         res.json({ success: true, data: { documentos, counts } });
+    } catch (e) {
+        next(e);
+    }
+});
+
+/**
+ * Detalhe de um único documento — inclui `cargoData` (dados extraídos do XML: emitente,
+ * destinatário, transportador, produtos, peso, valor). Baixar/parsear o XML é custoso (I/O de
+ * storage), por isso não entra na listagem (`/monitor`) e só acontece aqui, sob demanda, quando
+ * o admin abre o detalhe de uma linha específica.
+ */
+router.get('/distribuicao-nfe/monitor/:id/detalhe', authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const doc = await prisma.nfeDistribuicaoDocumento.findUnique({
+            where: { id: req.params.id as string },
+            include: {
+                fiscalEmitter: { select: { displayName: true, hub: { select: { code: true, name: true } } } },
+                convertedDemand: { select: { id: true, status: true, orderNumber: true } },
+            },
+        });
+        if (!doc) throw new AppError('Documento não encontrado', 404);
+        const cargoData = await getCargoDataFromDistribuicaoDocument(doc).catch(() => null);
+        res.json({ success: true, data: { ...doc, cargoData } });
     } catch (e) {
         next(e);
     }

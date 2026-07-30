@@ -444,11 +444,23 @@ export interface NfeDistribuicaoMonitorDocumento {
     createdAt: string;
 }
 
+/** Detalhe de um documento (`GET /monitor/:id/detalhe`) — inclui `cargoData`, ausente na listagem. */
+export interface NfeDistribuicaoMonitorDetalhe extends NfeDistribuicaoMonitorDocumento {
+    cargoData?: NfeDistribuicaoTriagemCargoData | null;
+}
+
 export const nfeDistribuicaoMonitorApi = {
     list: async (params?: { status?: string; fiscalEmitterId?: string; cnpjEmitente?: string }) => {
         const response = await api.get<ApiResponse<{ documentos: NfeDistribuicaoMonitorDocumento[]; counts: Record<string, number> }>>(
             '/fiscal/distribuicao-nfe/monitor',
             { params },
+        );
+        return response.data;
+    },
+
+    detail: async (id: string) => {
+        const response = await api.get<ApiResponse<NfeDistribuicaoMonitorDetalhe>>(
+            `/fiscal/distribuicao-nfe/monitor/${id}/detalhe`,
         );
         return response.data;
     },

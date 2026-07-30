@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useRegisterGestaoModuleActions } from './layout/GestaoModuleActionsContext';
 import { fiscalEmittersApi, nfeDistribuicaoMonitorApi, nfeDistribuicaoTriagemApi, nfeManualInvoicesApi } from '../../lib/api';
 import type { NfeDistribuicaoMonitorDocumento, OrderInvoiceWithOrder } from '../../lib/api';
-import type { FiscalEmitter } from '../../types/index';
+import type { FiscalEmitter, Demand } from '../../types/index';
+import NfeDetalheModal from './NfeDetalheModal';
 import StatusBadge from '../ui/StatusBadge';
 import type { StatusTone } from '../../lib/demandStatusUi';
 
@@ -66,7 +67,12 @@ function apiErrorMessage(e: unknown, fallback: string): string {
   return fallback;
 }
 
-const NfeDistribuicaoMonitorTab: React.FC = () => {
+interface NfeDistribuicaoMonitorTabProps {
+  /** Chamado após converter com sucesso — quem hospeda decide o que fazer (ex.: ir pra Demandas). */
+  onDemandConverted?: (demand: Demand) => void;
+}
+
+const NfeDistribuicaoMonitorTab: React.FC<NfeDistribuicaoMonitorTabProps> = ({ onDemandConverted }) => {
   const navigate = useNavigate();
   const [docs, setDocs] = useState<NfeDistribuicaoMonitorDocumento[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
@@ -84,6 +90,7 @@ const NfeDistribuicaoMonitorTab: React.FC = () => {
   const [originFilter, setOriginFilter] = useState<OriginFilter>('ALL');
   const [manualSearchQuery, setManualSearchQuery] = useState('');
   const [debouncedManualSearchQuery, setDebouncedManualSearchQuery] = useState('');
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
 
   // Debounce (mesmo padrão de HubAwaitingArrivalTab.tsx, 300ms): sem isso, cada
   // tecla digitada refaz as DUAS fontes (Promise.allSettled) e passa por
@@ -166,7 +173,10 @@ const NfeDistribuicaoMonitorTab: React.FC = () => {
     setBusyId(doc.id);
     setActionError(null);
     try {
-      await nfeDistribuicaoTriagemApi.converter(doc.id);
+      const result = await nfeDistribuicaoTriagemApi.converter(doc.id);
+      if (result.success) {
+        onDemandConverted?.(result.data.demand);
+      }
       await load();
     } catch (e: any) {
       setActionError(e.response?.data?.error ?? e.message ?? 'Erro ao converter em Demanda.');
@@ -361,7 +371,11 @@ const NfeDistribuicaoMonitorTab: React.FC = () => {
             <tbody>
               {rows.map((row) =>
                 row.origin === 'AUTO' ? (
-                  <tr key={row.key} className="border-b border-tower-100 last:border-0 hover:bg-tower-50 dark:border-tower-700 dark:hover:bg-tower-900/40">
+                  <tr
+                    key={row.key}
+                    onClick={() => setSelectedDocId(row.doc.id)}
+                    className="cursor-pointer border-b border-tower-100 last:border-0 hover:bg-tower-50 dark:border-tower-700 dark:hover:bg-tower-900/40"
+                  >
                     <td className="px-4 py-3">
                       <StatusBadge label={originLabels.AUTO} tone="info" />
                     </td>
@@ -385,7 +399,10 @@ const NfeDistribuicaoMonitorTab: React.FC = () => {
                           <button
                             type="button"
                             disabled={busyId === row.doc.id}
-                            onClick={() => void handleConverter(row.doc)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleConverter(row.doc);
+                            }}
                             className="cursor-pointer rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
                           >
                             {busyId === row.doc.id ? '...' : 'Converter'}
@@ -393,7 +410,10 @@ const NfeDistribuicaoMonitorTab: React.FC = () => {
                           <button
                             type="button"
                             disabled={busyId === row.doc.id}
-                            onClick={() => void handleDescartar(row.doc)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleDescartar(row.doc);
+                            }}
                             className="cursor-pointer rounded-lg border border-tower-300 px-3 py-1.5 text-xs font-semibold text-tower-700 hover:bg-tower-50 disabled:opacity-50 dark:border-tower-600 dark:text-tower-200 dark:hover:bg-tower-800"
                           >
                             Descartar
@@ -444,6 +464,8 @@ const NfeDistribuicaoMonitorTab: React.FC = () => {
           </table>
         </div>
       )}
+
+      {selectedDocId && <NfeDetalheModal documentId={selectedDocId} onClose={() => setSelectedDocId(null)} />}
     </div>
   );
 };
