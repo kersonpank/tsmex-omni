@@ -4,7 +4,12 @@ import { Prisma } from '@prisma/client';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { resolveIbgeCode, parseCityState } from '../services/acbr/acbrIbge.js';
-import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
+import {
+    authenticate,
+    authorize,
+    authorizeOperationalPermission,
+    AuthRequest,
+} from '../middleware/auth.js';
 import { freightCalculationsRouter } from './freightCalculations.js';
 import { resolveOrderByCode } from '../services/orderResolve.js';
 import { getNextOrderNumber } from '../services/orderSequence.js';
@@ -616,7 +621,7 @@ const orderEntradaSchema = z.object({
 });
 
 // POST /api/orders/entrada - Create order from entrada (Admin or HUB)
-router.post('/entrada', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/entrada', authenticate, authorize('ADMIN', 'HUB'), authorizeOperationalPermission('entrada'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const body = sanitizeEntradaBody(req.body as Record<string, unknown>);
         const data = orderEntradaSchema.parse(body);
@@ -880,7 +885,7 @@ const orderPeopleSchema = z.object({
 });
 
 // PATCH /api/orders/:id/people - Update order people/parties
-router.patch('/:id/people', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.patch('/:id/people', authenticate, authorize('ADMIN', 'HUB'), authorizeOperationalPermission('entrada'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const id = req.params.id as string;
         const body = sanitizePeopleBody(req.body as Record<string, unknown>);
@@ -1284,7 +1289,7 @@ const orderInvoiceSchema = z.object({
 });
 
 // POST /api/orders/:id/invoices - Add NF to order
-router.post('/:id/invoices', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/:id/invoices', authenticate, authorize('ADMIN', 'HUB'), authorizeOperationalPermission('entrada'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const id = req.params.id as string;
         const data = orderInvoiceSchema.parse(req.body);
@@ -1332,7 +1337,7 @@ router.post('/:id/invoices', authenticate, authorize('ADMIN', 'HUB'), async (req
 });
 
 // PATCH /api/orders/:id/invoices/:invoiceId - Update NF/Declaração
-router.patch('/:id/invoices/:invoiceId', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.patch('/:id/invoices/:invoiceId', authenticate, authorize('ADMIN', 'HUB'), authorizeOperationalPermission('entrada'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const orderId = req.params.id as string;
         const invoiceId = req.params.invoiceId as string;

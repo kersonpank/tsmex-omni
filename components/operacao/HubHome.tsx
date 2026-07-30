@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { hubCargoApi, manifestsApi } from '../../lib/api';
+import { isSafeAppPath, parseHubOrderEditId } from '../../lib/hubOrderEditing';
 import { manifestStatusLabels, manifestStatusTone } from '../../lib/manifestStatusUi';
 import { useAuthStore } from '../../store/authStore';
 import { useHubCargoStore } from '../../store/hubCargoStore';
-import type { HubCargoSummary, Manifest } from '../../types/index';
+import type { HubCargoCapabilities, HubCargoSummary, Manifest } from '../../types/index';
 import EntradaTab from '../admin/EntradaTab';
 import InlineNotice from '../ui/InlineNotice';
 import BottomNav, { type BottomNavItem } from './BottomNav';
@@ -48,6 +49,17 @@ const EMPTY_SUMMARY: HubCargoSummary = {
   incoming: { orders: 0, trips: 0 },
   awaiting: { demands: 0 },
   triage: { documents: 0 },
+};
+const EMPTY_CAPABILITIES: HubCargoCapabilities = {
+  canViewOrders: false,
+  canReceive: false,
+  canCreateTrip: false,
+};
+
+type HubNavigationState = {
+  returnTo?: unknown;
+  returnState?: unknown;
+  cargoScrollY?: number;
 };
 
 function extractArray(response: any): Manifest[] {
@@ -235,8 +247,10 @@ const HubHome: React.FC = () => {
   const tripFilter: TripFilter = isTripFilter(filterParam) ? filterParam : 'all';
   const tripSort: TripSort = isTripSort(sortParam) ? sortParam : 'recent';
   const tripSearch = searchParams.get('tripSearch') ?? '';
+  const requestedEditOrderId = parseHubOrderEditId(searchParams);
   const [manifests, setManifests] = useState<Manifest[]>([]);
   const [summary, setSummary] = useState<HubCargoSummary>(EMPTY_SUMMARY);
+  const [capabilities, setCapabilities] = useState<HubCargoCapabilities>(EMPTY_CAPABILITIES);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -289,7 +303,9 @@ const HubHome: React.FC = () => {
     }
     if (summaryResult.status === 'fulfilled') {
       setSummary(summaryResult.value.data);
+      setCapabilities(summaryResult.value.capabilities ?? EMPTY_CAPABILITIES);
     } else {
+      setCapabilities(EMPTY_CAPABILITIES);
       setError((summaryResult.reason as any)?.response?.data?.error || 'Não foi possível carregar a operação do Hub.');
     }
     setLoading(false);
@@ -378,6 +394,47 @@ const HubHome: React.FC = () => {
   }, []);
 
   const currentReturnTo = `${location.pathname}${location.search}`;
+  const editOrderId = capabilities.canReceive ? requestedEditOrderId : null;
+  const entryContextOpen = manualEntry.open || Boolean(editOrderId);
+
+  useEffect(() => {
+    if (loading || !requestedEditOrderId || capabilities.canReceive) return;
+    setError('Você não tem permissão de Entrada para editar pedidos neste Hub.');
+    updateQuery({ mode: null, orderId: null });
+  }, [capabilities.canReceive, loading, requestedEditOrderId, updateQuery]);
+
+  useEffect(() => {
+    if (loading || tab !== 'pedidos' || entryContextOpen) return;
+    const state = (location.state ?? null) as HubNavigationState | null;
+    if (typeof state?.cargoScrollY !== 'number') return;
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: state.cargoScrollY, behavior: 'auto' });
+    });
+  }, [entryContextOpen, loading, location.state, tab]);
+
+  const openOrder = useCallback((orderId: string) => {
+    navigate(`/orders/${orderId}`, {
+      state: {
+        returnTo: currentReturnTo,
+        cargoScrollY: window.scrollY,
+      },
+    });
+  }, [currentReturnTo, navigate]);
+
+  const closeEntryContext = useCallback(() => {
+    setManualEntry({ open: false });
+    if (!editOrderId) return;
+
+    const state = (location.state ?? null) as HubNavigationState | null;
+    if (isSafeAppPath(state?.returnTo)) {
+      navigate(state.returnTo, {
+        replace: true,
+        state: state.returnState,
+      });
+      return;
+    }
+    updateQuery({ tab: 'pedidos', mode: null, orderId: null });
+  }, [editOrderId, location.state, navigate, updateQuery]);
 
   const openManifest = useCallback((manifestId: string) => {
     const tripScrollPositions = saveTripScrollPositions();
@@ -477,7 +534,7 @@ const HubHome: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[var(--app-page-bg)] pb-24">
-      <main key={`${tab}-${manualEntry.open}`} className="mobile-enter mx-auto max-w-6xl p-4">
+      <main key={`${tab}-${entryContextOpen ? editOrderId ?? 'new' : 'list'}`} className="mobile-enter mx-auto max-w-6xl p-4">
         {error && <div className="mb-4"><InlineNotice variant="error" message={error} onDismiss={() => setError(null)} /></div>}
         {success && <div className="mb-4"><InlineNotice variant="success" message={success} onDismiss={() => setSuccess(null)} /></div>}
         {loading && <div className="py-20 text-center text-sm text-tower-500">Carregando operação...</div>}
@@ -544,10 +601,10 @@ const HubHome: React.FC = () => {
           </section>
         )}
 
-        {!loading && tab === 'pedidos' && !manualEntry.open && (
+        {!loading && tab === 'pedidos' && !entryContextOpen && (
           <HubOrdersWorkspace
             hubId={hubId}
-            onOpenOrder={(orderId) => { window.location.hash = `#/orders/${orderId}`; }}
+            onOpenOrder={openOrder}
             onOpenTrip={openManifest}
             onCreateTrip={createTrip}
             onOpenManualEntry={(initialCode) => setManualEntry({ open: true, initialCode })}
@@ -555,12 +612,13 @@ const HubHome: React.FC = () => {
           />
         )}
 
-        {!loading && tab === 'pedidos' && manualEntry.open && (
+        {!loading && tab === 'pedidos' && entryContextOpen && (
           <EntradaTab
             mobileWizard
-            startCreating
+            startCreating={manualEntry.open}
+            initialOrderId={editOrderId ?? undefined}
             initialNfeCode={manualEntry.initialCode}
-            onCancelContext={() => setManualEntry({ open: false })}
+            onCancelContext={closeEntryContext}
             onCreated={() => setSuccess('Pedido-base criado. Continue nesta tela para completar os dados da carga.')}
           />
         )}
@@ -739,7 +797,11 @@ const HubHome: React.FC = () => {
 
       <BottomNav items={navItems} active={tab} onChange={(key) => {
         setManualEntry({ open: false });
-        changeTab(key as Tab);
+        updateQuery({
+          tab: key === 'inicio' ? null : key,
+          mode: null,
+          orderId: null,
+        });
       }} />
     </div>
   );

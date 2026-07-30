@@ -36,6 +36,7 @@ const fileToBase64 = (file: File): Promise<string> =>
 interface EntradaTabProps {
   mobileWizard?: boolean;
   startCreating?: boolean;
+  initialOrderId?: string;
   initialNfeCode?: string;
   onCreated?: (orderId: string) => void;
   onCancelContext?: () => void;
@@ -44,6 +45,7 @@ interface EntradaTabProps {
 const EntradaTab: React.FC<EntradaTabProps> = ({
   mobileWizard = false,
   startCreating = false,
+  initialOrderId,
   initialNfeCode,
   onCreated,
   onCancelContext,
@@ -279,6 +281,14 @@ const EntradaTab: React.FC<EntradaTabProps> = ({
     const normalized = initialNfeCode?.replace(/\D/g, '').slice(0, 44) ?? '';
     if (normalized) setPrescanChaveInput(normalized);
   }, [handleNovoPedido, initialNfeCode, startCreating]);
+
+  useEffect(() => {
+    if (startCreating || !initialOrderId || !UUID_REGEX.test(initialOrderId)) return;
+    setSelectedOrderId(initialOrderId);
+    setIsCreatingNew(false);
+    setGestaoFilterOpen(false);
+    setSectionsExpanded((prev) => ({ ...prev, pessoas: true }));
+  }, [initialOrderId, startCreating]);
 
   const filteredOrders = useMemo(() => {
     const q = ordersFilterQ.trim().toLowerCase();
@@ -675,6 +685,12 @@ const EntradaTab: React.FC<EntradaTabProps> = ({
   };
 
   const invoicesRel: OrderInvoiceItem[] = order?.invoicesRel ?? [];
+  const editingExistingOrder = Boolean(initialOrderId && selectedOrderId);
+  const contextTitle = startCreating
+    ? 'Nova entrada'
+    : editingExistingOrder
+      ? 'Editar pedido'
+      : 'Pedidos';
 
   const handleAddAttachment = async (file: File) => {
     if (!selectedOrderId) return;
@@ -714,33 +730,40 @@ const EntradaTab: React.FC<EntradaTabProps> = ({
               type="button"
               onClick={onCancelContext}
               className="admin-focus grid h-11 w-11 place-items-center rounded-xl border border-tower-300 text-lg text-tower-700 dark:border-tower-600 dark:text-tower-200"
-              aria-label="Voltar para Pedidos do Hub"
+              aria-label={editingExistingOrder ? 'Voltar ao pedido' : 'Voltar para Pedidos do Hub'}
             >
               ←
             </button>
           )}
           <div>
-            <h2 className="text-lg font-bold text-tower-700 dark:text-tower-200">{startCreating ? 'NOVA ENTRADA' : 'PEDIDOS'}</h2>
-            {startCreating && <p className="text-xs text-tower-500">Ao concluir, você volta para o estoque com o pedido disponível.</p>}
+            <h2 className="text-lg font-bold text-tower-900 dark:text-tower-100">{contextTitle}</h2>
+            {startCreating && <p className="text-xs text-tower-500">Complete os dados conhecidos. O pedido ficará disponível no estoque.</p>}
+            {editingExistingOrder && <p className="text-xs text-tower-500">Os dados salvos aparecem imediatamente no pedido.</p>}
           </div>
         </div>
         <div className="flex gap-2 items-center">
-          <button
-            type="button"
-            onClick={loadOrders}
-            className="px-4 py-2 text-sm text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-700 rounded-lg"
-          >
-            Lista
-          </button>
-          <button
-            type="button"
-            onClick={handleNovoPedido}
-            className="px-4 py-2 text-sm bg-brand-600 text-white font-bold rounded-lg hover:bg-brand-700"
-          >
-            + Novo Pedido
-          </button>
+          {!mobileWizard && (
+            <>
+              <button
+                type="button"
+                onClick={loadOrders}
+                className="px-4 py-2 text-sm text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-700 rounded-lg"
+              >
+                Lista
+              </button>
+              <button
+                type="button"
+                onClick={handleNovoPedido}
+                className="px-4 py-2 text-sm bg-brand-600 text-white font-bold rounded-lg hover:bg-brand-700"
+              >
+                + Novo Pedido
+              </button>
+            </>
+          )}
           {selectedOrderId && (
-            <span className="text-sm font-mono text-tower-600 dark:text-tower-400">#{selectedOrderId.slice(0, 8)}</span>
+            <span className="rounded-full bg-tower-100 px-3 py-1.5 font-mono text-xs text-tower-700 dark:bg-tower-800 dark:text-tower-300">
+              #{order?.demand?.orderNumber ?? selectedOrderId.slice(0, 8)}
+            </span>
           )}
         </div>
       </div>
@@ -748,7 +771,9 @@ const EntradaTab: React.FC<EntradaTabProps> = ({
       {mobileWizard && (
         <div className="rounded-xl border border-tower-200 bg-white p-4 dark:border-tower-700 dark:bg-tower-800">
           <div className="mb-2 flex items-center justify-between">
-            <p className="font-display text-[10px] uppercase tracking-[0.14em] text-tower-500 dark:text-tower-300">Nova entrada de carga</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-tower-500 dark:text-tower-300">
+              {editingExistingOrder ? 'Edição do pedido' : 'Nova entrada de carga'}
+            </p>
             <p className="text-xs text-tower-500 dark:text-tower-300">{safeActiveIndex + 1}/{SECTION_IDS.length}</p>
           </div>
           <div className="flex gap-1">
@@ -1324,10 +1349,17 @@ const EntradaTab: React.FC<EntradaTabProps> = ({
                 </div>
                 <button
                   type="button"
-                  onClick={() => { setSelectedOrderId(null); setIsCreatingNew(false); }}
+                  onClick={() => {
+                    if (onCancelContext) {
+                      onCancelContext();
+                      return;
+                    }
+                    setSelectedOrderId(null);
+                    setIsCreatingNew(false);
+                  }}
                   className="text-tower-500 dark:text-tower-400 hover:text-tower-700 dark:hover:text-tower-200"
                 >
-                  Fechar pedido
+                  {onCancelContext ? 'Concluir e voltar' : 'Fechar pedido'}
                 </button>
               </div>
             </>
@@ -1345,11 +1377,21 @@ const EntradaTab: React.FC<EntradaTabProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => goToSectionByIndex(safeActiveIndex + 1)}
-                  disabled={safeActiveIndex === SECTION_IDS.length - 1}
+                  onClick={() => {
+                    if (safeActiveIndex === SECTION_IDS.length - 1 && onCancelContext) {
+                      onCancelContext();
+                      return;
+                    }
+                    goToSectionByIndex(safeActiveIndex + 1);
+                  }}
+                  disabled={safeActiveIndex === SECTION_IDS.length - 1 && !onCancelContext}
                   className="min-h-[44px] flex-1 rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
                 >
-                  Próximo
+                  {safeActiveIndex === SECTION_IDS.length - 1
+                    ? editingExistingOrder
+                      ? 'Concluir edição'
+                      : 'Concluir entrada'
+                    : 'Próximo'}
                 </button>
               </div>
             </div>

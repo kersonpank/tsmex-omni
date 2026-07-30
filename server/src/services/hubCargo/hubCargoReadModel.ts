@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import prisma from '../../lib/prisma.js';
 import { buildHubOrderVisibilityWhere } from '../../lib/hubOrderAccess.js';
+import { hasOperationalPermission } from '../../lib/operationalPermissions.js';
 import { HUB_CARGO_ACTIVE_MANIFEST_STATUSES } from './hubCargoPolicy.js';
 
 export type HubCargoBucket = 'stock' | 'incoming' | 'awaiting' | 'triage' | 'other';
@@ -92,15 +93,10 @@ export function hubCargoCapabilities(
     roles: string[],
     permissions: string[] | undefined,
 ): HubCargoCapabilities {
-    if (roles.includes('ADMIN')) {
-        return { canViewOrders: true, canReceive: true, canCreateTrip: true };
-    }
-    const values = permissions ?? [];
-    const unrestricted = values.length === 0;
     return {
-        canViewOrders: unrestricted || values.includes('pedidos'),
-        canReceive: unrestricted || values.includes('entrada'),
-        canCreateTrip: unrestricted || values.includes('manifestos'),
+        canViewOrders: hasOperationalPermission(roles, permissions, 'pedidos'),
+        canReceive: hasOperationalPermission(roles, permissions, 'entrada'),
+        canCreateTrip: hasOperationalPermission(roles, permissions, 'manifestos'),
     };
 }
 

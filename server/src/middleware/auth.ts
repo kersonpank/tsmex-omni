@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { AppError } from './errorHandler.js';
 import prisma from '../lib/prisma.js';
 import { UserRole } from '@prisma/client';
+import { hasOperationalPermission } from '../lib/operationalPermissions.js';
 
 export interface AuthRequest extends Request {
     user?: {
@@ -97,6 +98,20 @@ export const authorize = (...roles: UserRole[]) => {
         const hasRole = roles.some(r => req.user!.roles.includes(r));
         if (!hasRole) {
             return next(new AppError('Not authorized', 403));
+        }
+
+        next();
+    };
+};
+
+export const authorizeOperationalPermission = (permission: string) => {
+    return (req: AuthRequest, res: Response, next: NextFunction) => {
+        if (!req.user) {
+            return next(new AppError('Not authenticated', 401));
+        }
+
+        if (!hasOperationalPermission(req.user.roles, req.user.permissions, permission)) {
+            return next(new AppError(`Sem permissão para ${permission} neste Hub.`, 403));
         }
 
         next();

@@ -1,6 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link as RouterLink, useLocation, useParams } from 'react-router-dom';
 import { ordersApi } from '../../lib/api';
+import {
+  canEditHubOrder,
+  hubOrderEditPath,
+  isSafeAppPath,
+} from '../../lib/hubOrderEditing';
 import { useAuthStore } from '../../store/authStore';
 import { gestaoEntradaOrderUrl } from './layout/adminQuery';
 import EmptyState from '../ui/EmptyState';
@@ -9,7 +14,6 @@ import LoadingPanel from '../ui/LoadingPanel';
 import StatusBadge from '../ui/StatusBadge';
 import { CollapsibleSection } from '../ui/CollapsibleSection';
 import type { StatusTone } from '../../lib/demandStatusUi';
-import { OrderColetaForm } from './OrderColetaForm';
 import OrderNFForm from './OrderNFForm';
 import { OrderFreightCalculationSection } from './OrderFreightCalculationSection';
 
@@ -41,6 +45,12 @@ const orderStatusTones: Record<string, StatusTone> = {
 
 type SectionKey = 'coleta' | 'notas' | 'frete' | 'anexos' | 'historico';
 
+type OrderNavigationState = {
+  returnTo?: unknown;
+  returnState?: unknown;
+  cargoScrollY?: number;
+};
+
 const isMeaningfulValue = (value: unknown): boolean => {
   if (value === null || value === undefined) return false;
   if (typeof value === 'string') return value.trim().length > 0 && value.trim() !== '-';
@@ -67,16 +77,9 @@ const OrderDetailPage: React.FC = () => {
   const { user, currentRole } = useAuthStore();
   const effectiveRole =
     currentRole && user?.roles?.includes(currentRole) ? currentRole : user?.roles?.[0];
-  const isHub = user?.roles?.includes('HUB') ?? false;
-  const isAdmin = user?.roles?.includes('ADMIN') ?? false;
   const hubOperacaoOnly = effectiveRole === 'HUB';
-  const hubPermissions =
-    (user?.profile as { hub?: { permissions?: string[] } })?.hub?.permissions ?? (user as { permissions?: string[] })?.permissions ?? [];
-  const hasPermission = useCallback(
-    (p: string) => !isHub || hubPermissions.length === 0 || hubPermissions.includes(p),
-    [isHub, hubPermissions]
-  );
-  const canEditInEntrada = isAdmin || (isHub && hasPermission('entrada'));
+  const canEditInEntrada =
+    effectiveRole === 'ADMIN' || (hubOperacaoOnly && canEditHubOrder(user));
 
   const [order, setOrder] = useState<any | null>(null);
   const [attachments, setAttachments] = useState<any[]>([]);
@@ -84,7 +87,6 @@ const OrderDetailPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [attachmentLoading, setAttachmentLoading] = useState(false);
-  const [editMode, setEditMode] = useState(false);
   const [expandedSections, setExpandedSections] = useState<Record<SectionKey, boolean>>({
     coleta: true,
     notas: true,
@@ -169,20 +171,14 @@ const OrderDetailPage: React.FC = () => {
     });
   }, [order, hasColetaData, hasFiscalData, hasFreightCalcs, hasAttachments, hasHistory]);
 
-  useEffect(() => {
-    if (canEditInEntrada) return;
-    if (editMode && !hasColetaData) {
-      setExpandedSections((s) => ({ ...s, coleta: true }));
-    }
-    if (!editMode && !hasColetaData) {
-      setExpandedSections((s) => ({ ...s, coleta: false }));
-    }
-  }, [editMode, hasColetaData, canEditInEntrada]);
-
-  const backToPedidosPath = useMemo(
-    () => (hubOperacaoOnly ? '/hub' : '/gestao?cat=transport&sub=pedidos'),
-    [hubOperacaoOnly],
-  );
+  const navigationState = (location.state ?? null) as OrderNavigationState | null;
+  const hubReturnTo =
+    isSafeAppPath(navigationState?.returnTo) && navigationState.returnTo.startsWith('/hub')
+      ? navigationState.returnTo
+      : '/hub?tab=pedidos';
+  const backToPedidosPath = hubOperacaoOnly
+    ? hubReturnTo
+    : '/gestao?cat=transport&sub=pedidos';
 
   const handleAddAttachment = async (file: File) => {
     if (!id) return;
@@ -224,32 +220,35 @@ const OrderDetailPage: React.FC = () => {
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
-  const coletaCanToggle = hasColetaData || (!canEditInEntrada && editMode);
+  const coletaCanToggle = hasColetaData;
+  const editPath = hubOperacaoOnly
+    ? hubOrderEditPath(order.id)
+    : gestaoEntradaOrderUrl(order.id, false);
+  const editNavigationState = hubOperacaoOnly
+    ? {
+        returnTo: `${location.pathname}${location.search}`,
+        returnState: navigationState,
+      }
+    : undefined;
 
   return (
     <div className="mx-auto max-w-6xl p-4 md:p-6">
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <RouterLink
           to={backToPedidosPath}
+          state={hubOperacaoOnly ? navigationState : undefined}
           className="admin-focus rounded-lg border border-tower-300 px-3 py-1.5 text-xs font-semibold text-tower-700 hover:bg-tower-100 dark:border-tower-600 dark:text-tower-200 dark:hover:bg-tower-800"
         >
           Voltar para pedidos
         </RouterLink>
-        {canEditInEntrada ? (
+        {canEditInEntrada && (
           <RouterLink
-            to={hubOperacaoOnly ? '/hub' : gestaoEntradaOrderUrl(order.id, isHub)}
+            to={editPath}
+            state={editNavigationState}
             className="admin-focus rounded-lg border border-brand-300 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50 dark:border-brand-700 dark:text-brand-300 dark:hover:bg-brand-900/40"
           >
-            Editar na Entrada
+            Editar pedido
           </RouterLink>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setEditMode((prev) => !prev)}
-            className="admin-focus rounded-lg border border-brand-300 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50 dark:border-brand-700 dark:text-brand-300 dark:hover:bg-brand-900/40"
-          >
-            {editMode ? 'Visualizar pedido' : 'Editar pedido'}
-          </button>
         )}
         <RouterLink
           to={`/tracking/${order.demand?.id ?? order.demandId ?? order.id}`}
@@ -396,39 +395,21 @@ const OrderDetailPage: React.FC = () => {
             helper={!hasColetaData ? 'Sem coleta registrada no momento.' : undefined}
             showToggle
           >
-            {canEditInEntrada ? (
-              hasColetaData ? (
-                <div className="grid gap-3 text-sm md:grid-cols-2">
-                  <p><span className="font-semibold">Disponibilidade:</span> {(order.collectionData as any)?.pickupAvailableTime ?? '-'}</p>
-                  <p><span className="font-semibold">Commodity:</span> {(order.collectionData as any)?.commodity ?? '-'}</p>
-                  <p><span className="font-semibold">Peso:</span> {(order.collectionData as any)?.weight ?? '-'}</p>
-                  <p><span className="font-semibold">Valor NF:</span> {(order.collectionData as any)?.nfValue ?? '-'}</p>
-                  <p className="md:col-span-2"><span className="font-semibold">Observações:</span> {(order.collectionData as any)?.pickupNotes ?? '-'}</p>
-                </div>
-              ) : (
-                <p className="text-sm text-tower-600 dark:text-tower-300">
-                  Edição de coleta neste fluxo é feita em <strong>Transporte → Entrada</strong>. Use o botão <strong>Editar na Entrada</strong> acima.
-                </p>
-              )
-            ) : editMode ? (
-              <OrderColetaForm orderId={order.id} order={order} onSave={load} />
-            ) : (
-              <div className="grid gap-3 text-sm md:grid-cols-2">
-                <p><span className="font-semibold">Disponibilidade:</span> {(order.collectionData as any)?.pickupAvailableTime ?? '-'}</p>
-                <p><span className="font-semibold">Commodity:</span> {(order.collectionData as any)?.commodity ?? '-'}</p>
-                <p><span className="font-semibold">Peso:</span> {(order.collectionData as any)?.weight ?? '-'}</p>
-                <p><span className="font-semibold">Valor NF:</span> {(order.collectionData as any)?.nfValue ?? '-'}</p>
-                <p className="md:col-span-2"><span className="font-semibold">Observações:</span> {(order.collectionData as any)?.pickupNotes ?? '-'}</p>
-              </div>
-            )}
+            <div className="grid gap-3 text-sm md:grid-cols-2">
+              <p><span className="font-semibold">Disponibilidade:</span> {(order.collectionData as any)?.pickupAvailableTime ?? '-'}</p>
+              <p><span className="font-semibold">Commodity:</span> {(order.collectionData as any)?.commodity ?? '-'}</p>
+              <p><span className="font-semibold">Peso:</span> {(order.collectionData as any)?.weight ?? '-'}</p>
+              <p><span className="font-semibold">Valor NF:</span> {(order.collectionData as any)?.nfValue ?? '-'}</p>
+              <p className="md:col-span-2"><span className="font-semibold">Observações:</span> {(order.collectionData as any)?.pickupNotes ?? '-'}</p>
+            </div>
           </CollapsibleSection>
         ) : (
           <section className="rounded-2xl border border-tower-200 bg-white p-5 dark:border-tower-700 dark:bg-tower-900/50">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-tower-600 dark:text-tower-300">Coleta</h2>
             <p className="mt-2 text-sm text-tower-600 dark:text-tower-300">
               {canEditInEntrada
-                ? 'Sem coleta registrada. Use o botão "Editar na Entrada" acima para abrir Transporte → Entrada e informar a coleta.'
-                : 'Sem coleta registrada. Use "Editar pedido" para informar a coleta.'}
+                ? 'Sem coleta registrada. Use "Editar pedido" para informar os dados da coleta.'
+                : 'Sem coleta registrada neste pedido.'}
             </p>
           </section>
         )}
@@ -444,7 +425,7 @@ const OrderDetailPage: React.FC = () => {
             orderId={order.id}
             invoices={order.invoicesRel ?? []}
             onAdded={load}
-            disabled={canEditInEntrada ? true : !editMode}
+            disabled
             collectionData={order.collectionData}
           />
         </CollapsibleSection>

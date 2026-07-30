@@ -104,6 +104,13 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
   }, [invoices.length]);
 
   useEffect(() => {
+    if (!disabled) return;
+    setEditingInvoice(null);
+    setShowForm(false);
+    setShowQRScanner(false);
+  }, [disabled]);
+
+  useEffect(() => {
     if (editingInvoice || !collectionData) return;
     const { form: formUpdates, volumesList: volList } = prefillFromCollectionData(collectionData);
     if (
@@ -280,6 +287,7 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
   };
 
   const totals = {
+    volumes: invoices.reduce((s, i) => s + (i.volumes || 0), 0),
     weight: invoices.reduce((s, i) => s + (i.weight || 0), 0),
     cub: invoices.reduce((s, i) => s + (i.cubedVolume || 0), 0),
     value: invoices.reduce((s, i) => s + (i.value || 0), 0),
@@ -287,10 +295,12 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-tower-600 dark:text-tower-300">
-        Adicione quantas notas forem necessárias (mesmo remetente e destinatário).
-      </p>
-      <div className="flex gap-2 border-b border-tower-200 dark:border-tower-700">
+      {!disabled && (
+        <p className="text-sm text-tower-600 dark:text-tower-300">
+          Adicione quantas notas forem necessárias para o mesmo remetente e destinatário.
+        </p>
+      )}
+      {!disabled && <div className="flex gap-2 border-b border-tower-200 dark:border-tower-700">
         <button
           type="button"
           onClick={() => setTab('NFE')}
@@ -305,8 +315,8 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
         >
           Outras (Declaração)
         </button>
-      </div>
-      {(invoices.length === 0 || showForm || editingInvoice) ? (
+      </div>}
+      {!disabled && ((invoices.length === 0 || showForm || editingInvoice) ? (
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-300 text-sm">{error}</div>}
         {tab === 'NFE' && (
@@ -641,7 +651,7 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
             {tab === 'NFE' ? '+ Adicionar mais NF' : '+ Adicionar outra declaração'}
           </button>
         </div>
-      )}
+      ))}
       {invoices.length > 0 && (
         <div className="mt-6">
           <h4 className="text-sm font-semibold text-tower-700 dark:text-tower-200 mb-2">{invoices.length} Nota(s)</h4>
@@ -657,7 +667,7 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
                   <th className="text-right py-2 px-3 font-medium text-tower-700 dark:text-tower-200">Peso</th>
                   <th className="text-right py-2 px-3 font-medium text-tower-700 dark:text-tower-200">Cub</th>
                   <th className="text-right py-2 px-3 font-medium text-tower-700 dark:text-tower-200">Valor</th>
-                  <th className="text-right py-2 px-3 font-medium text-tower-700 dark:text-tower-200">Ações</th>
+                  {!disabled && <th className="text-right py-2 px-3 font-medium text-tower-700 dark:text-tower-200">Ações</th>}
                 </tr>
               </thead>
               <tbody>
@@ -674,7 +684,7 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
                     <td className="py-2 px-3 text-right text-tower-900 dark:text-tower-200">{inv.weight} kg</td>
                     <td className="py-2 px-3 text-right text-tower-900 dark:text-tower-200">{inv.cubedVolume != null ? `${inv.cubedVolume} m³` : '-'}</td>
                     <td className="py-2 px-3 text-right text-tower-900 dark:text-tower-200">R$ {inv.value.toLocaleString('pt-BR')}</td>
-                    <td className="py-2 px-3 text-right">
+                    {!disabled && <td className="py-2 px-3 text-right">
                       <button
                         type="button"
                         onClick={() => handleEdit(inv)}
@@ -682,16 +692,18 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
                       >
                         Editar
                       </button>
-                    </td>
+                    </td>}
                   </tr>
                 ))}
               </tbody>
               <tfoot className="bg-tower-100 dark:bg-tower-700 border-t-2 border-tower-200 dark:border-tower-600">
                 <tr className="font-semibold">
-                  <td colSpan={8} className="py-2 px-3 text-right text-tower-600 dark:text-tower-200">Total:</td>
+                  <td colSpan={4} className="py-2 px-3 text-right text-tower-600 dark:text-tower-200">Total:</td>
+                  <td className="py-2 px-3 text-right text-tower-900 dark:text-tower-200">{totals.volumes}</td>
                   <td className="py-2 px-3 text-right text-tower-900 dark:text-tower-200">{totals.weight} kg</td>
                   <td className="py-2 px-3 text-right text-tower-900 dark:text-tower-200">{totals.cub > 0 ? `${totals.cub} m³` : '-'}</td>
                   <td className="py-2 px-3 text-right text-tower-900 dark:text-tower-200">R$ {totals.value.toLocaleString('pt-BR')}</td>
+                  {!disabled && <td />}
                 </tr>
               </tfoot>
             </table>
