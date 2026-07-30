@@ -209,6 +209,24 @@ const EntradaTab: React.FC<EntradaTabProps> = ({
     setIsCreatingNew(false);
   }, [loading, location.search, isHub]);
 
+  // Deep link vindo do modal de NF-e convertida ("Dar entrada no pedido"): chave já validada
+  // (veio do `accessKey` da varredura), então dispara a busca automaticamente em vez de só
+  // preencher o campo — o backend (`POST /orders/entrada`) reconhece a chave e reaproveita a
+  // Demand AWAITING_ARRIVAL já criada em vez de duplicar (ver `orders.ts`).
+  useEffect(() => {
+    if (loading) return;
+    const sp = new URLSearchParams(location.search);
+    const sub = sp.get('sub');
+    if (sub !== 'entrada') return;
+    if (!isHub && sp.get('cat') !== 'transport') return;
+    const raw = sp.get('nfeChave');
+    const chave = raw?.replace(/\D/g, '').slice(0, 44) ?? '';
+    if (chave.length !== 44) return;
+    handleNovoPedido();
+    void handlePrescanQR(chave);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, location.search, isHub]);
+
   useEffect(() => {
     hubsApi.list().then((r: any) => setHubs((r?.data ?? r) || [])).catch(() => setHubs([]));
     pricingApi.listRoutes().then((r: any) => setRoutes((r?.data ?? r) || [])).catch(() => setRoutes([]));
@@ -604,6 +622,9 @@ const EntradaTab: React.FC<EntradaTabProps> = ({
         if (routeIdVal && UUID_REGEX.test(routeIdVal)) payload.routeId = routeIdVal;
         const hubIdVal = (effectiveHubId || '').trim();
         if (hubIdVal && UUID_REGEX.test(hubIdVal)) payload.hubId = hubIdVal;
+        // Chave NF-e conhecida (veio do prescan) — backend reaproveita a Demand AWAITING_ARRIVAL
+        // já criada pela varredura/conversão de NF-e em vez de duplicar.
+        if (nfPrescan?.chave) payload.documentKey = nfPrescan.chave;
         const res = await ordersEntradaApi.create(payload as {
           freightTerm: FreightTerm;
           remetentePersonId: string;
@@ -615,6 +636,7 @@ const EntradaTab: React.FC<EntradaTabProps> = ({
           redespachantePersonId?: string;
           routeId?: string;
           hubId?: string;
+          documentKey?: string;
         });
         const o = (res as any)?.data ?? res;
         setSelectedOrderId(o.id);

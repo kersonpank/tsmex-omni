@@ -35,6 +35,7 @@ import {
     shouldApplyLinkOrderScope,
 } from '../lib/hubOrderAccess.js';
 import { parseOrderStatusWhereInput } from '../lib/orderStatusFilter.js';
+import { extractChaveFromInput } from '../lib/nfeChaveIntake.js';
 
 const router = Router();
 
@@ -618,6 +619,10 @@ const orderEntradaSchema = z.object({
     routeId: optionalUuid(),
     hubId: optionalUuid(),
     collectionData: z.record(z.unknown()).optional(),
+    /** Chave NF-e (44 dígitos) — quando presente, reaproveita a Demand AWAITING_ARRIVAL que a
+     * varredura/conversão de NF-e já criou em vez de criar uma Demand do zero (evita duplicar e
+     * preserva nfNumber/nfValue/peso/mercadoria já extraídos do XML). Ver `orders.ts` handler. */
+    documentKey: z.string().trim().optional(),
 });
 
 // POST /api/orders/entrada - Create order from entrada (Admin or HUB)
@@ -682,38 +687,85 @@ router.post('/entrada', authenticate, authorize('ADMIN', 'HUB'), authorizeOperat
         }
 
         const result = await prisma.$transaction(async (tx) => {
-            const orderNumber = await getNextOrderNumber(tx);
-            const demand = await tx.demand.create({
-                data: {
-                    clientId: payerClient.id,
-                    orderNumber,
-                    nfNumber: 'PENDENTE',
-                    nfValue: 0,
-                    origin: data.origemPrestacao,
-                    destination: data.fimPrestacao,
-                    commodity: 'A definir',
-                    weight: 0,
-                    volume: 0,
-                    riskClass: 'B',
-                    intentType: 'DROP_AT_HUB',
-                    status: 'CONVERTED',
-                    sourceType: 'FORM',
-                    expectedHubId: effectiveHubId ?? null,
+            // Chave NF-e presente: reaproveita a Demand AWAITING_ARRIVAL que a varredura/conversão
+            // de NF-e já criou (com nfNumber/nfValue/peso/mercadoria extraídos do XML) em vez de
+            // criar uma Demand do zero, que duplicaria a original (que ficaria órfã pra sempre) e
+            // jogaria fora esses dados. Ver `createIntakeDemandFromNfeKey` (services/intake).
+            let demandId: string | null = null;
+            if (data.documentKey) {
+                const chave = extractChaveFromInput(data.documentKey);
+                const existingIntake = await tx.demand.findFirst({
+                    where: { documentKey: chave, status: 'AWAITING_ARRIVAL' },
+                    include: { order: { select: { id: true } } },
+                });
+                if (existingIntake) {
+                    if (existingIntake.order) {
+                        throw new AppError('Pedido já existe para esta NF-e.', 400);
+                    }
+                    if (isHub && existingIntake.expectedHubId !== effectiveHubId) {
+                        throw new AppError('Not authorized', 403);
+                    }
+                    // compare-and-swap: só atualiza quem ainda está AWAITING_ARRIVAL (evita corrida
+                    // com outra confirmação concorrente da mesma chave).
+                    const updated = await tx.demand.updateMany({
+                        where: { id: existingIntake.id, status: 'AWAITING_ARRIVAL' },
+                        data: {
+                            status: 'CONVERTED',
+                            clientId: payerClient.id,
+                            origin: data.origemPrestacao,
+                            destination: data.fimPrestacao,
+                        },
+                    });
+                    if (updated.count === 0) {
+                        throw new AppError('Esta NF-e já foi processada por outra ação concorrente.', 409);
+                    }
+                    demandId = existingIntake.id;
+                    await tx.demandEvent.create({
+                        data: {
+                            demandId,
+                            status: 'CONVERTED',
+                            description: 'Pedido criado pela entrada manual (NF-e reconhecida)',
+                            location: data.origemPrestacao,
+                        }
+                    });
                 }
-            });
+            }
 
-            await tx.demandEvent.create({
-                data: {
-                    demandId: demand.id,
-                    status: 'CONVERTED',
-                    description: 'Pedido criado pela entrada manual',
-                    location: data.origemPrestacao,
-                }
-            });
+            if (!demandId) {
+                const orderNumber = await getNextOrderNumber(tx);
+                const demand = await tx.demand.create({
+                    data: {
+                        clientId: payerClient.id,
+                        orderNumber,
+                        nfNumber: 'PENDENTE',
+                        nfValue: 0,
+                        origin: data.origemPrestacao,
+                        destination: data.fimPrestacao,
+                        commodity: 'A definir',
+                        weight: 0,
+                        volume: 0,
+                        riskClass: 'B',
+                        intentType: 'DROP_AT_HUB',
+                        status: 'CONVERTED',
+                        sourceType: 'FORM',
+                        expectedHubId: effectiveHubId ?? null,
+                    }
+                });
+                demandId = demand.id;
+
+                await tx.demandEvent.create({
+                    data: {
+                        demandId: demand.id,
+                        status: 'CONVERTED',
+                        description: 'Pedido criado pela entrada manual',
+                        location: data.origemPrestacao,
+                    }
+                });
+            }
 
             const order = await tx.order.create({
                 data: {
-                    demandId: demand.id,
+                    demandId,
                     status: effectiveHubId ? 'AT_HUB' : 'PENDING',
                     currentHubId: effectiveHubId,
                     enteredAtHubAt: effectiveHubId ? new Date() : null,
@@ -741,7 +793,7 @@ router.post('/entrada', authenticate, authorize('ADMIN', 'HUB'), authorizeOperat
                 }
             });
 
-            return { demand, order };
+            return { demandId, order };
         });
 
         const fullOrder = await prisma.order.findUnique({

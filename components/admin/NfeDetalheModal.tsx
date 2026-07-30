@@ -1,18 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { intakeDemandsApi, nfeDistribuicaoMonitorApi } from '../../lib/api';
+import { nfeDistribuicaoMonitorApi } from '../../lib/api';
 import type { NfeDistribuicaoMonitorDetalhe } from '../../lib/api';
-import type { Person } from '../../types/index';
 import StatusBadge from '../ui/StatusBadge';
-import { PersonAutocomplete } from '../ui/PersonAutocomplete';
-
-type FreightTerm = 'CIF' | 'FOB' | 'REDESPACHO';
-
-const FREIGHT_TERM_LABELS: Record<FreightTerm, string> = {
-  CIF: 'CIF — remetente paga',
-  FOB: 'FOB — destinatário paga',
-  REDESPACHO: 'Outro (redespacho)',
-};
 
 function formatCnpj(digits: string): string {
   const d = digits.replace(/\D/g, '');
@@ -58,12 +48,6 @@ const NfeDetalheModal: React.FC<NfeDetalheModalProps> = ({ documentId, onClose }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [freightTerm, setFreightTerm] = useState<FreightTerm>('CIF');
-  const [destinatario, setDestinatario] = useState<Person | null>(null);
-  const [confirmBusy, setConfirmBusy] = useState(false);
-  const [confirmErr, setConfirmErr] = useState<string | null>(null);
-  const [confirmedOrderId, setConfirmedOrderId] = useState<string | null>(null);
-
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -84,31 +68,6 @@ const NfeDetalheModal: React.FC<NfeDetalheModalProps> = ({ documentId, onClose }
       cancelled = true;
     };
   }, [documentId]);
-
-  const handleConfirmArrival = async () => {
-    if (!doc?.convertedDemand || !destinatario) return;
-    setConfirmBusy(true);
-    setConfirmErr(null);
-    try {
-      const result = await intakeDemandsApi.confirmArrival(doc.convertedDemand.id, {
-        destinatarioPersonId: destinatario.id,
-        freightTerm,
-      });
-      const orderId =
-        result.success && result.data.order && typeof result.data.order === 'object' && 'id' in result.data.order
-          ? String((result.data.order as { id: string }).id)
-          : null;
-      if (orderId) {
-        setConfirmedOrderId(orderId);
-      } else {
-        setConfirmErr('Chegada confirmada, mas não foi possível identificar o pedido criado.');
-      }
-    } catch (e) {
-      setConfirmErr(apiErrorMessage(e, 'Não foi possível confirmar a chegada.'));
-    } finally {
-      setConfirmBusy(false);
-    }
-  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
@@ -225,59 +184,25 @@ const NfeDetalheModal: React.FC<NfeDetalheModalProps> = ({ documentId, onClose }
                   → Convertida em Demanda #{doc.convertedDemand.orderNumber ?? doc.convertedDemand.id.slice(0, 8)}
                 </p>
 
-                {doc.convertedDemand.order?.id || confirmedOrderId ? (
+                {doc.convertedDemand.order?.id ? (
                   <button
                     type="button"
-                    onClick={() => navigate(`/orders/${confirmedOrderId ?? doc.convertedDemand!.order!.id}`)}
+                    onClick={() => navigate(`/orders/${doc.convertedDemand!.order!.id}`)}
                     className="cursor-pointer rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
                   >
                     Ir para o pedido
                   </button>
                 ) : doc.convertedDemand.status === 'AWAITING_ARRIVAL' ? (
-                  <div className="space-y-3">
-                    <p className="text-sm font-semibold text-tower-800 dark:text-tower-100">
-                      Confirmar chegada e criar pedido
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {(Object.keys(FREIGHT_TERM_LABELS) as FreightTerm[]).map((ft) => (
-                        <label
-                          key={ft}
-                          className={`cursor-pointer rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
-                            freightTerm === ft
-                              ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-900/30 dark:text-brand-200'
-                              : 'border-tower-300 text-tower-600 hover:bg-tower-50 dark:border-tower-600 dark:text-tower-300 dark:hover:bg-tower-800'
-                          }`}
-                        >
-                          <input
-                            type="radio"
-                            name="freightTerm"
-                            className="sr-only"
-                            checked={freightTerm === ft}
-                            onChange={() => setFreightTerm(ft)}
-                          />
-                          {FREIGHT_TERM_LABELS[ft]}
-                        </label>
-                      ))}
-                    </div>
-                    <PersonAutocomplete
-                      label="Destinatário *"
-                      value={destinatario}
-                      onChange={setDestinatario}
-                      placeholder="Buscar destinatário..."
-                      required
-                    />
-                    {confirmErr && (
-                      <p className="text-sm text-brand-red-600 dark:text-brand-red-400">{confirmErr}</p>
-                    )}
-                    <button
-                      type="button"
-                      disabled={confirmBusy || !destinatario}
-                      onClick={() => void handleConfirmArrival()}
-                      className="h-11 w-full rounded-xl bg-brand-600 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
-                    >
-                      {confirmBusy ? 'Confirmando…' : 'Confirmar chegada e criar pedido'}
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      navigate(`/gestao?cat=transport&sub=entrada&nfeChave=${doc.accessKey}`);
+                    }}
+                    className="cursor-pointer rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
+                  >
+                    Dar entrada no pedido
+                  </button>
                 ) : (
                   <p className="text-xs text-tower-500 dark:text-tower-400">
                     Status da Demanda: {doc.convertedDemand.status}

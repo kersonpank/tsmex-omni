@@ -1173,6 +1173,9 @@ export const ordersEntradaApi = {
         routeId?: string;
         hubId?: string;
         collectionData?: Record<string, unknown>;
+        /** Chave NF-e (44 dígitos) — quando vem do prescan, backend reaproveita a Demand
+         * AWAITING_ARRIVAL já criada em vez de duplicar. */
+        documentKey?: string;
     }) => {
         const response = await api.post<ApiResponse<any>>('/orders/entrada', data);
         return response.data;
