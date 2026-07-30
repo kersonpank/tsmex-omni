@@ -438,7 +438,7 @@ export interface NfeDistribuicaoMonitorDocumento {
     tipo: string;
     status: string;
     lastError?: string | null;
-    convertedDemand?: { id: string; status: string; orderNumber?: number } | null;
+    convertedDemand?: { id: string; status: string; orderNumber?: number; order?: { id: string } | null } | null;
     discardedAt?: string | null;
     fiscalEmitter: { displayName: string | null; hub: { code: string; name: string } | null };
     createdAt: string;

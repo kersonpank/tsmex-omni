@@ -171,7 +171,7 @@ router.get('/distribuicao-nfe/monitor/:id/detalhe', authorize('ADMIN'), async (r
             where: { id: req.params.id as string },
             include: {
                 fiscalEmitter: { select: { displayName: true, hub: { select: { code: true, name: true } } } },
-                convertedDemand: { select: { id: true, status: true, orderNumber: true } },
+                convertedDemand: { select: { id: true, status: true, orderNumber: true, order: { select: { id: true } } } },
             },
         });
         if (!doc) throw new AppError('Documento não encontrado', 404);
