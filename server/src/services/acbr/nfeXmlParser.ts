@@ -20,6 +20,13 @@ export interface ParsedNfeDestinatario {
     cnpj: string;
     razaoSocial: string;
     ie?: string;
+    /** Diferente do emitente, o destinatário não tem enriquecimento externo (BrasilAPI) — o XML é a única fonte de endereço. */
+    municipio?: string;
+    uf?: string;
+    cep?: string;
+    logradouro?: string;
+    numero?: string;
+    bairro?: string;
 }
 
 export interface ParsedNfeTransportador {
@@ -92,6 +99,7 @@ export function parseNfeProcXml(xml: string): ParsedNfeCargo {
     const emit = asRecord(infNFe.emit);
     const enderEmit = asRecord(emit?.enderEmit);
     const dest = asRecord(infNFe.dest);
+    const enderDest = asRecord(dest?.enderDest);
     const det = toArray(infNFe.det);
     const total = asRecord(asRecord(infNFe.total)?.ICMSTot);
     const transp = asRecord(infNFe.transp);
@@ -132,6 +140,12 @@ export function parseNfeProcXml(xml: string): ParsedNfeCargo {
             razaoSocial: toText(dest?.xNome),
             // Ausente quando indIEDest = 2 (isento) ou 9 (não contribuinte) — normal, não é erro de parsing.
             ie: dest?.IE ? toText(dest.IE) : undefined,
+            municipio: enderDest?.xMun ? toText(enderDest.xMun) : undefined,
+            uf: enderDest?.UF ? toText(enderDest.UF) : undefined,
+            cep: enderDest?.CEP ? toText(enderDest.CEP) : undefined,
+            logradouro: enderDest?.xLgr ? toText(enderDest.xLgr) : undefined,
+            numero: enderDest?.nro ? toText(enderDest.nro) : undefined,
+            bairro: enderDest?.xBairro ? toText(enderDest.xBairro) : undefined,
         },
         transportador: transporta?.CNPJ
             ? {

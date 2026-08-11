@@ -171,6 +171,14 @@ router.get('/:chave', authenticate, async (req: Request, res: Response, next: Ne
               cnpj: cargoData.destinatario.cnpj,
               razaoSocial: cargoData.destinatario.razaoSocial || null,
               ie: destinatarioIe ?? null,
+              // Diferente do emitente, o destinatário não tem enriquecimento externo (BrasilAPI)
+              // — o XML da Distribuição NF-e é a única fonte de endereço disponível.
+              municipio: cargoData.destinatario.municipio || null,
+              uf: cargoData.destinatario.uf || null,
+              cep: cargoData.destinatario.cep || null,
+              logradouro: cargoData.destinatario.logradouro || null,
+              numero: cargoData.destinatario.numero || null,
+              bairro: cargoData.destinatario.bairro || null,
             }
           : null,
         // Presente independente de o Hub ser ou não o destinatário — a NF-e pode declarar um

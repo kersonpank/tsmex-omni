@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { parseNfeProcXml } from './nfeXmlParser.js';
 
-function buildNfeProcXml(opts: { multiplosItens?: boolean; multiplosVolumes?: boolean; comIe?: boolean; comTransportador?: boolean } = {}): string {
+function buildNfeProcXml(opts: { multiplosItens?: boolean; multiplosVolumes?: boolean; comIe?: boolean; comTransportador?: boolean; comEnderDest?: boolean } = {}): string {
     const det1 = `
       <det nItem="1">
         <prod>
@@ -53,6 +53,14 @@ function buildNfeProcXml(opts: { multiplosItens?: boolean; multiplosVolumes?: bo
         <CNPJ>10256071000103</CNPJ>
         <xNome>F C C ABREU LTDA</xNome>
         ${opts.comIe ? '<IE>206283703315</IE>' : ''}
+        ${opts.comEnderDest ? `<enderDest>
+          <xLgr>Rua das Industrias</xLgr>
+          <nro>500</nro>
+          <xBairro>Centro</xBairro>
+          <xMun>Diadema</xMun>
+          <UF>SP</UF>
+          <CEP>09950000</CEP>
+        </enderDest>` : ''}
       </dest>
       ${det}
       <total>
@@ -94,8 +102,30 @@ describe('parseNfeProcXml', () => {
             cnpj: '10256071000103',
             razaoSocial: 'F C C ABREU LTDA',
             ie: undefined,
+            municipio: undefined,
+            uf: undefined,
+            cep: undefined,
+            logradouro: undefined,
+            numero: undefined,
+            bairro: undefined,
         });
         assert.equal(result.valorTotalNota, 1155.0);
+    });
+
+    it('extrai endereço completo do destinatário quando <dest><enderDest> está presente no XML', () => {
+        const result = parseNfeProcXml(buildNfeProcXml({ comEnderDest: true }));
+
+        assert.deepEqual(result.destinatario, {
+            cnpj: '10256071000103',
+            razaoSocial: 'F C C ABREU LTDA',
+            ie: undefined,
+            municipio: 'Diadema',
+            uf: 'SP',
+            cep: '09950000',
+            logradouro: 'Rua das Industrias',
+            numero: '500',
+            bairro: 'Centro',
+        });
     });
 
     it('extrai IE do emitente e do destinatário quando presentes no XML', () => {

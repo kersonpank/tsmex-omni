@@ -543,6 +543,12 @@ const EntradaTab: React.FC<EntradaTabProps> = ({
               document: destinatario.cnpj,
               legalName: destinatario.razaoSocial,
               ...(destinatario.ie ? { stateRegistration: destinatario.ie } : {}),
+              ...(destinatario.municipio ? { city: destinatario.municipio } : {}),
+              ...(destinatario.uf ? { state: destinatario.uf } : {}),
+              ...(destinatario.cep ? { cep: destinatario.cep } : {}),
+              ...(destinatario.logradouro ? { address: destinatario.logradouro } : {}),
+              ...(destinatario.numero ? { number: destinatario.numero } : {}),
+              ...(destinatario.bairro ? { neighborhood: destinatario.bairro } : {}),
             });
             const newPerson: Person = (createRes as any)?.data ?? createRes;
             setPeopleForm((f) => ({ ...f, destinatario: newPerson }));

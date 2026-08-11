@@ -36,6 +36,7 @@ function makeDeps(overrides: Partial<SyncProcessorDeps> = {}): {
         upsertDiscovered: unknown[];
         markManifested: string[];
         markXmlDownloaded: unknown[];
+        autoConvertDistribuicaoDocument: string[];
         setUltimoNsuStored: unknown[];
         putAcbrEmpresaDistNfeConfig: unknown[];
         createSystemAlert: unknown[];
@@ -52,6 +53,7 @@ function makeDeps(overrides: Partial<SyncProcessorDeps> = {}): {
         upsertDiscovered: [] as unknown[],
         markManifested: [] as string[],
         markXmlDownloaded: [] as unknown[],
+        autoConvertDistribuicaoDocument: [] as string[],
         setUltimoNsuStored: [] as unknown[],
         putAcbrEmpresaDistNfeConfig: [] as unknown[],
         createSystemAlert: [] as unknown[],
@@ -104,6 +106,10 @@ function makeDeps(overrides: Partial<SyncProcessorDeps> = {}): {
         markXmlDownloaded: (async (...args: unknown[]) => {
             calls.markXmlDownloaded.push(args);
             return true;
+        }) as any,
+        autoConvertDistribuicaoDocument: (async (documentId: string) => {
+            calls.autoConvertDistribuicaoDocument.push(documentId);
+            return { converted: true };
         }) as any,
         markPausedForQuota: (async () => {}) as any,
         markFailed: (async () => {}) as any,
@@ -252,6 +258,45 @@ describe('processDistribuicaoNfeSyncJob — manifestação e download (throttle)
         assert.deepEqual(calls.baixarXmlDocumentoDistribuicao[0], ['nfe_aaa111', 'homologacao'], 'deve usar o id interno da ACBr, nunca a accessKey');
         assert.equal(calls.uploadBase64Object.length, 2);
         assert.ok(calls.sleepCalls.length > 0, 'deve haver throttle (sleep) entre chamadas seriais');
+    });
+
+    it('auto-converte o documento (best-effort) logo após baixar o XML — item 3: some direto pra "Aguardando entrada" sem clique manual', async () => {
+        const docs = [{ id: 'doc-1', accessKey: '1'.repeat(44), status: 'MANIFESTED', xmlDownloadedAt: null, resumoRaw: { id: 'nfe_aaa111' } }];
+        const { deps, calls } = makeDeps({
+            prisma: {
+                fiscalEmitter: { findUnique: (async () => BASE_EMITTER) as any },
+                nfeDistribuicaoDocumento: { findMany: (async () => docs) as any },
+            },
+        });
+        const { job } = makeJob('fe-1');
+        await processDistribuicaoNfeSyncJob(job, deps);
+
+        assert.equal(calls.markXmlDownloaded.length, 1);
+        assert.deepEqual(calls.autoConvertDistribuicaoDocument, ['doc-1']);
+    });
+
+    it('falha na auto-conversão não derruba o job nem interrompe os próximos documentos (fallback: fica em "Pendências fiscais" pra conversão manual)', async () => {
+        const docs = [
+            { id: 'doc-1', accessKey: '1'.repeat(44), status: 'MANIFESTED', xmlDownloadedAt: null, resumoRaw: { id: 'nfe_aaa111' } },
+            { id: 'doc-2', accessKey: '2'.repeat(44), status: 'MANIFESTED', xmlDownloadedAt: null, resumoRaw: { id: 'nfe_bbb222' } },
+        ];
+        const { deps, calls } = makeDeps({
+            prisma: {
+                fiscalEmitter: { findUnique: (async () => BASE_EMITTER) as any },
+                nfeDistribuicaoDocumento: { findMany: (async () => docs) as any },
+            },
+            autoConvertDistribuicaoDocument: (async (documentId: string) => {
+                calls.autoConvertDistribuicaoDocument.push(documentId);
+                if (documentId === 'doc-1') throw new Error('cargoData inválido');
+                return { converted: true };
+            }) as any,
+        });
+        const { job } = makeJob('fe-1');
+
+        await processDistribuicaoNfeSyncJob(job, deps); // não deve lançar
+
+        assert.equal(calls.markXmlDownloaded.length, 2, 'os dois documentos continuam sendo baixados e marcados normalmente');
+        assert.deepEqual(calls.autoConvertDistribuicaoDocument, ['doc-1', 'doc-2'], 'segue pro próximo documento mesmo com falha no anterior');
     });
 
     it('doc tipo NFE_PROC (resumo:false) pula manifestação — SEFAZ já liberou acesso total (ex.: CNPJ citado como transportador)', async () => {

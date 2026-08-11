@@ -20,6 +20,7 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
   const [query, setQuery] = useState('');
   const [people, setPeople] = useState<Person[]>([]);
   const [selected, setSelected] = useState<Person | null>(null);
+  const [remetentePersonId, setRemetentePersonId] = useState<string | null>(null);
   const [loadingSuggestion, setLoadingSuggestion] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,7 +36,44 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
         const key = demand?.documentKey?.replace(/\D/g, '') ?? '';
         if (key.length !== 44) return;
         const lookup = await nfeApi.lookup(key);
-        const document = lookup.data.data.destinatario?.cnpj;
+        const data = lookup.data.data;
+
+        // Remetente: espelha components/admin/EntradaTab.tsx — resolvido do emitente da NF-e
+        // sem exigir campo extra no modal, pra satisfazer o remetentePersonId que o backend
+        // exige em confirmIntakeArrival.ts (best-effort: se falhar, comportamento é o mesmo de
+        // antes — o backend ainda tenta o fallback via demand.client?.personId).
+        if (data.cnpjEmitente) {
+          try {
+            const res = await personsApi.search(data.cnpjEmitente);
+            const persons = responseRows(res as ApiResponse<Person[]> | { data: Person[] });
+            const match = persons.find(
+              (p) => p.document?.replace(/\D/g, '') === data.cnpjEmitente.replace(/\D/g, ''),
+            );
+            if (match) {
+              if (!cancelled) setRemetentePersonId(match.id);
+            } else if (data.emitenteRazaoSocial) {
+              const createRes = await personsApi.create({
+                documentType: 'CNPJ',
+                document: data.cnpjEmitente,
+                legalName: data.emitenteRazaoSocial,
+                ...(data.emitenteTradeName ? { tradeName: data.emitenteTradeName } : {}),
+                ...(data.emitenteMunicipio ? { city: data.emitenteMunicipio } : {}),
+                ...(data.uf ? { state: data.uf } : {}),
+                ...(data.emitenteCep ? { cep: data.emitenteCep } : {}),
+                ...(data.emitenteLogradouro ? { address: data.emitenteLogradouro } : {}),
+                ...(data.emitenteNumero ? { number: data.emitenteNumero } : {}),
+                ...(data.emitenteBairro ? { neighborhood: data.emitenteBairro } : {}),
+                ...(data.emitenteIe ? { stateRegistration: data.emitenteIe } : {}),
+              });
+              const newPerson = ((createRes as any)?.data ?? createRes) as Person;
+              if (!cancelled) setRemetentePersonId(newPerson.id);
+            }
+          } catch {
+            // silencioso — backend ainda tem o fallback via demand.client?.personId
+          }
+        }
+
+        const document = data.destinatario?.cnpj;
         if (!document) return;
         const personResponse = await personsApi.search(document);
         const matches = responseRows(personResponse as ApiResponse<Person[]> | { data: Person[] });
@@ -87,6 +125,7 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
     try {
       const response = await intakeDemandsApi.confirmArrival(item.demandId, {
         destinatarioPersonId: selected.id,
+        ...(remetentePersonId ? { remetentePersonId } : {}),
         freightTerm: 'CIF',
       });
       const order = response.data?.order;

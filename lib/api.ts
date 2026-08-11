@@ -1662,7 +1662,17 @@ export const nfeApi = {
       emitenteNumero: string | null;
       emitenteBairro: string | null;
       emitenteIe: string | null;
-      destinatario: { cnpj: string; razaoSocial: string | null; ie: string | null } | null;
+      destinatario: {
+        cnpj: string;
+        razaoSocial: string | null;
+        ie: string | null;
+        municipio: string | null;
+        uf: string | null;
+        cep: string | null;
+        logradouro: string | null;
+        numero: string | null;
+        bairro: string | null;
+      } | null;
       transportador: { cnpj: string; razaoSocial: string | null; ie: string | null } | null;
       distribuicaoIndisponivel: { motivo: string; nextAllowedAt?: string; mensagem: string } | null;
       modelo: string;

@@ -3,11 +3,9 @@ import { z } from 'zod';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
-import { listReadyForTriage, markConverted, markDiscarded } from '../services/fiscal/nfeDistribuicaoRepo.js';
-import { resolveIntakeByNfeKey } from '../services/intake/resolveIntakeByNfeKey.js';
-import { resolveIntakeClientByDocument } from '../services/intake/resolveIntakeClientByDocument.js';
-import { createIntakeDemandFromNfeKey } from '../services/intake/createIntakeDemand.js';
+import { listReadyForTriage, markDiscarded } from '../services/fiscal/nfeDistribuicaoRepo.js';
 import { getCargoDataFromDistribuicaoDocument } from '../services/fiscal/nfeDistribuicaoCargoData.js';
+import { convertNfeDistribuicaoDocument } from '../services/fiscal/convertNfeDistribuicaoDocument.js';
 
 const router = Router();
 
@@ -45,61 +43,26 @@ const converterSchema = z.object({
     clientId: z.string().uuid().optional(),
 });
 
+const CONVERT_ERROR_MESSAGES: Record<'not_ready' | 'already_has_demand' | 'concurrent_conversion', string> = {
+    not_ready: 'Documento não está pronto para triagem.',
+    already_has_demand:
+        'Já existe uma Demanda para esta chave NF-e (provavelmente criada via bipagem manual). Use a tela de recebimento em vez de converter aqui de novo.',
+    concurrent_conversion: 'Documento já havia sido convertido ou descartado por outra ação concorrente.',
+};
+
 // POST /api/fiscal/distribuicao-nfe/triagem/:id/converter
 router.post('/:id/converter', async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const parsed = converterSchema.parse(req.body);
-        const doc = await prisma.nfeDistribuicaoDocumento.findUnique({
-            where: { id: req.params.id as string },
-            include: {
-                fiscalEmitter: { select: { hubId: true } },
-            },
-        });
-        if (!doc) throw new AppError('Documento não encontrado', 404);
-        if (doc.status !== 'READY_FOR_TRIAGE') {
-            throw new AppError(`Documento não está pronto para triagem (status atual: ${doc.status}).`, 409);
-        }
-
-        // Evita duplicar: alguém pode já ter bipado esta chave manualmente antes do worker rodar.
-        const existing = await resolveIntakeByNfeKey({
-            chave: doc.accessKey,
+        const result = await convertNfeDistribuicaoDocument(req.params.id as string, {
+            clientId: parsed.clientId,
             actingRoles: req.user!.roles,
             actingHubId: req.user!.hubId ?? null,
         });
-        if (existing.resolution !== 'not_found' && existing.resolution !== 'invalid_key') {
-            throw new AppError(
-                'Já existe uma Demanda para esta chave NF-e (provavelmente criada via bipagem manual). Use a tela de recebimento em vez de converter aqui de novo.',
-                409,
-            );
+        if (!result.converted) {
+            throw new AppError(CONVERT_ERROR_MESSAGES[result.reason], 409);
         }
-
-        // Cliente (conta faturável) não é pré-requisito pra converter em Demanda — se resolve
-        // depois, na confirmação de chegada, conforme o frete (CIF/FOB/REDESPACHO). Ver
-        // `resolvePayerClient.ts` e `Demand.clientId` (opcional por propósito no schema).
-        let clientId = parsed.clientId;
-        if (!clientId) {
-            const clientLookup = await resolveIntakeClientByDocument(doc.cnpjEmitente);
-            if (clientLookup.status !== 'not_found') {
-                clientId = clientLookup.client!.id;
-            }
-        }
-
-        const cargoData = await getCargoDataFromDistribuicaoDocument(doc).catch(() => null);
-
-        const { demand } = await createIntakeDemandFromNfeKey({
-            chave: doc.accessKey,
-            clientId,
-            expectedHubId: doc.fiscalEmitter.hubId,
-            sourceType: 'DFE_ACBR',
-            ...(cargoData ? { cargoData } : {}),
-        });
-
-        const converted = await markConverted(doc.id, demand.id);
-        if (!converted) {
-            throw new AppError('Documento já havia sido convertido ou descartado por outra ação concorrente.', 409);
-        }
-
-        res.json({ success: true, data: { demand } });
+        res.json({ success: true, data: { demand: result.demand } });
     } catch (e) {
         if (e instanceof z.ZodError) return next(new AppError(e.errors[0]?.message ?? 'Payload inválido', 400));
         next(e);

@@ -20,6 +20,7 @@ import {
     markXmlDownloaded,
     upsertDiscovered,
 } from '../fiscal/nfeDistribuicaoRepo.js';
+import { convertNfeDistribuicaoDocument } from '../fiscal/convertNfeDistribuicaoDocument.js';
 import { createOrMergeSystemAlert, resolveOpenSystemAlerts } from '../systemAlertService.js';
 import { getDistribuicaoNfeQueue, type DistribuicaoNfeJobData } from './distribuicaoNfeQueue.js';
 
@@ -55,6 +56,10 @@ export interface SyncProcessorDeps {
     upsertDiscovered: typeof upsertDiscovered;
     markManifested: typeof markManifested;
     markXmlDownloaded: typeof markXmlDownloaded;
+    /** Auto-converte o documento recém-baixado em Demand (item 3: some direto em "Aguardando
+     * entrada" sem clique manual em "Pendências fiscais"). Best-effort por design do caller —
+     * ver comentário em `runManifestacaoEDownloadPhases`. */
+    autoConvertDistribuicaoDocument: (documentId: string) => Promise<unknown>;
     markPausedForQuota: typeof markPausedForQuota;
     markFailed: typeof markFailed;
     createOrMergeSystemAlert: typeof createOrMergeSystemAlert;
@@ -78,6 +83,7 @@ export const defaultSyncProcessorDeps: SyncProcessorDeps = {
     upsertDiscovered,
     markManifested,
     markXmlDownloaded,
+    autoConvertDistribuicaoDocument: (documentId: string) => convertNfeDistribuicaoDocument(documentId),
     markPausedForQuota,
     markFailed,
     createOrMergeSystemAlert,
@@ -310,6 +316,25 @@ async function runManifestacaoEDownloadPhases(
                 keyPrefix: `nfe-distribuicao/${doc.accessKey}/xml`,
             });
             await deps.markXmlDownloaded(doc.id, uploaded.storageKey);
+
+            // Auto-conversão é best-effort e nunca propaga falha pro job: se der erro (ex.: XML
+            // sem produtos, race com bipagem manual), o documento fica em READY_FOR_TRIAGE e
+            // continua visível/acionável em "Pendências fiscais" como fallback manual — não se
+            // perde nada, só deixa de ser automático pra esse caso específico.
+            try {
+                await deps.autoConvertDistribuicaoDocument(doc.id);
+            } catch (autoConvertErr) {
+                console.error(
+                    JSON.stringify({
+                        level: 'error',
+                        source: 'distribuicaoNfeSyncProcessor',
+                        message: 'Falha ao auto-converter documento pronto para triagem — permanece READY_FOR_TRIAGE para conversão manual.',
+                        nfeDistribuicaoDocumentoId: doc.id,
+                        accessKey: doc.accessKey,
+                        error: autoConvertErr instanceof Error ? autoConvertErr.message : String(autoConvertErr),
+                    }),
+                );
+            }
         }
     }
 
