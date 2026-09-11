@@ -30,7 +30,7 @@ export async function getEfreteToken(env: EfreteEnvironment = getEfreteEnvironme
     if (existing) return existing;
 
     const promise = (async (): Promise<string> => {
-        const { usuario, senha, integrador } = getEfreteCredentials();
+        const { usuario, senha, integrador } = getEfreteCredentials(env);
         // Login/Logout têm mensagens de erro silenciosas por design (manual v8.1) —
         // `Sucesso: false` sem `Excecao.Mensagem` útil é o comportamento esperado em
         // credencial inválida, não uma falha de parsing nossa.
@@ -63,7 +63,7 @@ export async function efreteAuthedPost<T extends { Sucesso?: boolean; Excecao?: 
     opts: { versao?: number; environment?: EfreteEnvironment; query?: EfreteRequestInit['query'] } = {},
 ): Promise<T> {
     const env = opts.environment ?? getEfreteEnvironment();
-    const { integrador } = getEfreteCredentials();
+    const { integrador } = getEfreteCredentials(env);
     const token = await getEfreteToken(env);
     return efreteFetchJson<T>({
         method: 'POST',
@@ -80,7 +80,7 @@ export async function efreteAuthedGet<T extends { Sucesso?: boolean; Excecao?: {
     opts: { environment?: EfreteEnvironment } = {},
 ): Promise<T> {
     const env = opts.environment ?? getEfreteEnvironment();
-    const { integrador } = getEfreteCredentials();
+    const { integrador } = getEfreteCredentials(env);
     const token = await getEfreteToken(env);
     return efreteFetchJson<T>({
         method: 'GET',
@@ -93,7 +93,7 @@ export async function efreteAuthedGet<T extends { Sucesso?: boolean; Excecao?: {
 export async function logoutEfrete(env: EfreteEnvironment = getEfreteEnvironment()): Promise<void> {
     const cached = cachedByEnv.get(env);
     if (!cached) return;
-    const { integrador } = getEfreteCredentials();
+    const { integrador } = getEfreteCredentials(env);
     try {
         await efreteFetchJson({
             method: 'POST',

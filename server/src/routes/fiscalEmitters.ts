@@ -15,6 +15,7 @@ import { getObjectDownloadUrl } from '../lib/objectStorage.js';
 import { isAcbrCredentialsConfigured } from '../services/acbr/acbrConfig.js';
 import { putAcbrEmpresaCertificado, syncFiscalEmitterToAcbr } from '../services/acbr/acbrEmpresa.js';
 import { buildAcbrRuntimeDiagnostics } from '../services/acbr/acbrDiagnostics.js';
+import { runEfreteDiagnostics } from '../services/efrete/efreteDiagnostics.js';
 import { getCteCfopOption, getCteCstRule } from '../services/fiscal/cteTaxRules.js';
 import {
     getDistribuicaoCheckpointStatus,
@@ -219,6 +220,17 @@ router.get('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest
 
 router.get('/acbr-diagnostics', authenticate, authorize('ADMIN'), (_req: AuthRequest, res: Response) => {
     res.json({ success: true, data: buildAcbrRuntimeDiagnostics() });
+});
+
+router.get('/:id/efrete-diagnostics', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const emitter = await prisma.fiscalEmitter.findUnique({ where: { id: String(req.params.id) }, select: { efreteEnvironment: true } });
+        if (!emitter) throw new AppError('Emitente credenciado não encontrado', 404);
+        const environment = emitter.efreteEnvironment === 'PRODUCAO' ? 'producao' : 'homologacao';
+        res.json({ success: true, data: await runEfreteDiagnostics(environment) });
+    } catch (error) {
+        next(error);
+    }
 });
 
 /** Link assinado (curta duração) para baixar o PFX — só ADMIN; use auditoria nos logs de acesso. */

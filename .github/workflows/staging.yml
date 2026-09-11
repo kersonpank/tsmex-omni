@@ -157,6 +157,22 @@ jobs:
               echo "⚠️  ACBR_CLIENT_ID_PRODUCAO/SECRET_PRODUCAO não configurados — pulando --env-add, mantendo valor atual do serviço."
             fi
 
+            EFRETE_HOM_USER="${{ secrets.EFRETE_HOMOLOGACAO_USUARIO }}"
+            EFRETE_HOM_PASS="${{ secrets.EFRETE_HOMOLOGACAO_SENHA }}"
+            EFRETE_HOM_INT="${{ secrets.EFRETE_HOMOLOGACAO_INTEGRADOR }}"
+            EFRETE_HOM_CNPJ="${{ secrets.EFRETE_HOMOLOGACAO_INTEGRADOR_CNPJ }}"
+            EFRETE_MISSING=()
+            [ -n "$EFRETE_HOM_USER" ] || EFRETE_MISSING+=(EFRETE_HOMOLOGACAO_USUARIO)
+            [ -n "$EFRETE_HOM_PASS" ] || EFRETE_MISSING+=(EFRETE_HOMOLOGACAO_SENHA)
+            [ -n "$EFRETE_HOM_INT" ] || EFRETE_MISSING+=(EFRETE_HOMOLOGACAO_INTEGRADOR)
+            [ -n "$EFRETE_HOM_CNPJ" ] || EFRETE_MISSING+=(EFRETE_HOMOLOGACAO_INTEGRADOR_CNPJ)
+            if [ ${#EFRETE_MISSING[@]} -eq 0 ]; then
+              EXTRA_ENV_ARGS+=(--env-add "EFRETE_HOMOLOGACAO_USUARIO=$EFRETE_HOM_USER" --env-add "EFRETE_HOMOLOGACAO_SENHA=$EFRETE_HOM_PASS" --env-add "EFRETE_HOMOLOGACAO_INTEGRADOR=$EFRETE_HOM_INT" --env-add "EFRETE_HOMOLOGACAO_INTEGRADOR_CNPJ=$EFRETE_HOM_CNPJ")
+              echo "✅ eFrete homologação: quatro secrets presentes; reaplicando em api/worker."
+            else
+              echo "⚠️ eFrete homologação incompleto; mantendo valores atuais. Ausentes: ${EFRETE_MISSING[*]}"
+            fi
+
             # Reaplica REDIS_URL com o nome de serviço Swarm qualificado a cada deploy — não o
             # alias curto "redis", que colide com o alias "redis" de OUTROS stacks deste mesmo
             # host na rede compartilhada ProxyGM (ex.: já causou o `api` resolver pro Redis de
@@ -164,7 +180,25 @@ jobs:
             # Portainer pelo mesmo motivo do bloco ACBR acima. Não é secret — sempre reaplicado.
             EXTRA_ENV_ARGS+=(--env-add "REDIS_URL=redis://${STACK_PREFIX}_redis:6379")
 
+            OLD_API_TASK_ID=$(docker service ps "$API_SVC" --filter desired-state=running --format '{{.ID}}' | head -1)
             docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-api:staging "${EXTRA_ENV_ARGS[@]}" --with-registry-auth --force "$API_SVC"
             docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-api:staging "${EXTRA_ENV_ARGS[@]}" --with-registry-auth --force "$WORKER_SVC"
             docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-web:staging --with-registry-auth --force "$WEB_SVC"
+            echo "Aguardando a nova task da API para diagnóstico eFrete..."
+            API_TASK_ID=""
+            API_CID=""
+            for i in $(seq 1 36); do
+              API_TASK_ID=$(docker service ps "$API_SVC" --filter desired-state=running --format '{{.ID}} {{.CurrentState}}' | awk -v old="$OLD_API_TASK_ID" '$1 != old && $2 == "Running" {print $1; exit}')
+              if [ -n "$API_TASK_ID" ]; then
+                API_CID=$(docker ps --filter "label=com.docker.swarm.task.id=$API_TASK_ID" --filter status=running --format '{{.ID}}' | head -1)
+              fi
+              if [ -n "$API_CID" ]; then break; fi
+              sleep 5
+            done
+            if [ -z "$API_CID" ]; then
+              echo "❌ A nova task da API não ficou pronta no prazo."
+              docker service ps "$API_SVC" --no-trunc
+              exit 1
+            fi
+            docker exec "$API_CID" node dist/scripts/efreteConnectivityCheck.js homologacao
             echo "Staging deploy OK: ${{ steps.vars.outputs.SHA_TAG }}"
