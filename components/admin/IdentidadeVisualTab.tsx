@@ -48,7 +48,10 @@ type FormState = {
   lastCteNumber: number;
   lastDceNumber: number;
   lastMinutaNumber: number;
+  /** Ambiente ACBr para CT-e/MDF-e. */
   environment: 'HOMOLOGACAO' | 'PRODUCAO';
+  /** Ambiente e-Frete para CIOT. */
+  efreteEnvironment: 'HOMOLOGACAO' | 'PRODUCAO';
   provider: FiscalProvider;
   active: boolean;
   defaultForHub: boolean;
@@ -73,6 +76,7 @@ const emptyForm: FormState = {
   lastDceNumber: 0,
   lastMinutaNumber: 0,
   environment: 'HOMOLOGACAO',
+  efreteEnvironment: 'HOMOLOGACAO',
   provider: 'SIMULATED',
   active: true,
   defaultForHub: false,
@@ -111,6 +115,7 @@ function emitterToForm(emitter: FiscalEmitter): FormState {
     lastDceNumber: emitter.lastDceNumber ?? 0,
     lastMinutaNumber: emitter.lastMinutaNumber ?? 0,
     environment: emitter.environment,
+    efreteEnvironment: emitter.efreteEnvironment ?? 'HOMOLOGACAO',
     provider: emitter.provider ?? 'SIMULATED',
     active: emitter.active,
     defaultForHub: emitter.defaultForHub,
@@ -420,6 +425,7 @@ const IdentidadeVisualTab: React.FC = () => {
         lastDceNumber: Math.max(0, Number(form.lastDceNumber) || 0),
         lastMinutaNumber: Math.max(0, Number(form.lastMinutaNumber) || 0),
         environment: form.environment,
+        efreteEnvironment: form.efreteEnvironment,
         provider: form.provider,
         active: form.active,
         defaultForHub: form.defaultForHub,
@@ -702,7 +708,7 @@ const IdentidadeVisualTab: React.FC = () => {
                 </select>
               </label>
               <div className="block md:col-span-2">
-                <span className="text-sm font-medium text-tower-800 dark:text-tower-200">Ambiente ACBr (host da API)</span>
+                <span className="text-sm font-medium text-tower-800 dark:text-tower-200">Ambiente ACBr (CT-e / MDF-e)</span>
                 <p className="mt-0.5 text-xs text-tower-500 dark:text-tower-400">
                   Homologação usa <code className="rounded bg-tower-100 px-1 dark:bg-tower-800">hom.acbr.api.br</code>; produção usa <code className="rounded bg-tower-100 px-1 dark:bg-tower-800">prod.acbr.api.br</code>. Deve coincidir com o certificado A1.
                 </p>
@@ -718,6 +724,25 @@ const IdentidadeVisualTab: React.FC = () => {
                     </span>
                   </Toggle>
                   <span className="text-xs text-tower-500">Ative para produção; desligado = homologação.</span>
+                </div>
+              </div>
+              <div className="block md:col-span-2">
+                <span className="text-sm font-medium text-tower-800 dark:text-tower-200">Ambiente e-Frete (CIOT)</span>
+                <p className="mt-0.5 text-xs text-tower-500 dark:text-tower-400">
+                  Seleciona o endpoint e as credenciais e-Frete do CIOT; é independente do ambiente ACBr.
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-4">
+                  <Toggle
+                    color="amber"
+                    size="large"
+                    checked={form.efreteEnvironment === 'PRODUCAO'}
+                    onChange={(e) => update('efreteEnvironment', e.target.checked ? 'PRODUCAO' : 'HOMOLOGACAO')}
+                  >
+                    <span className="font-medium text-tower-800 dark:text-tower-100">
+                      {form.efreteEnvironment === 'PRODUCAO' ? 'Produção' : 'Homologação'}
+                    </span>
+                  </Toggle>
+                  <span className="text-xs text-tower-500">Ative somente quando as credenciais e-Frete de produção estiverem configuradas.</span>
                 </div>
               </div>
               <label className="block">

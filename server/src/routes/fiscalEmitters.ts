@@ -75,7 +75,10 @@ const fiscalEmitterShape = z.object({
     lastCteNumber: z.number().int().min(0).optional(),
     lastDceNumber: z.number().int().min(0).optional(),
     lastMinutaNumber: z.number().int().min(0).optional(),
+    /** Ambiente ACBr para CT-e/MDF-e. */
     environment: z.enum(['HOMOLOGACAO', 'PRODUCAO']).optional(),
+    /** Ambiente e-Frete para CIOT, independente do ACBr. */
+    efreteEnvironment: z.enum(['HOMOLOGACAO', 'PRODUCAO']).optional(),
     provider: z.enum(['SIMULATED', 'ACBR', 'NUVEM_FISCAL', 'FOCUS_NFE', 'TECNOSPEED', 'PLUGNOTAS', 'OTHER']).optional(),
     providerEmitterId: z.string().max(256).nullable().optional(),
     providerStatus: z.enum(['NOT_CONFIGURED', 'PENDING', 'READY', 'ERROR']).optional(),

@@ -201,7 +201,10 @@ export interface FiscalEmitter {
     lastCteNumber: number;
     lastDceNumber: number;
     lastMinutaNumber: number;
+    /** Ambiente ACBr usado por CT-e/MDF-e. */
     environment: FiscalEnvironment;
+    /** Ambiente e-Frete usado exclusivamente por CIOT. */
+    efreteEnvironment: FiscalEnvironment;
     provider: FiscalProvider;
     providerEmitterId?: string | null;
     providerStatus: FiscalProviderStatus;
