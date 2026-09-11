@@ -908,6 +908,7 @@ model FiscalEmitter {
   /// CST do ICMS padrão do CT-e (e DC-e quando não informado no cálculo)
   defaultCteCst    String?
   environment      FiscalEnvironment @default(HOMOLOGACAO)
+  efreteEnvironment FiscalEnvironment @default(HOMOLOGACAO)
 
   provider          FiscalProvider       @default(SIMULATED)
   providerEmitterId String?

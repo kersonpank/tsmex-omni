@@ -201,7 +201,10 @@ export interface FiscalEmitter {
     lastCteNumber: number;
     lastDceNumber: number;
     lastMinutaNumber: number;
+    /** Ambiente ACBr usado por CT-e/MDF-e. */
     environment: FiscalEnvironment;
+    /** Ambiente e-Frete usado exclusivamente por CIOT. */
+    efreteEnvironment: FiscalEnvironment;
     provider: FiscalProvider;
     providerEmitterId?: string | null;
     providerStatus: FiscalProviderStatus;
@@ -452,6 +455,16 @@ export interface Driver {
     cnhExpiry?: string | null;
     active: boolean;
     link?: Link;
+    person?: {
+        cep?: string | null;
+        address?: string | null;
+        number?: string | null;
+        complement?: string | null;
+        neighborhood?: string | null;
+        city?: string | null;
+        state?: string | null;
+        cityIbgeCode?: string | null;
+    } | null;
 }
 
 export interface DemandEvent {

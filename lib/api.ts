@@ -787,12 +787,46 @@ export const linksApi = {
         return response.data;
     },
 
-    createDriver: async (linkId: string, data: { name: string; document: string; phone: string; birthDate?: string; cnhNumber?: string; cnhExpiry?: string }) => {
+    createDriver: async (linkId: string, data: {
+        name: string;
+        document: string;
+        phone: string;
+        birthDate?: string;
+        cnhNumber?: string;
+        cnhExpiry?: string;
+        address?: {
+            cep: string;
+            address: string;
+            number: string;
+            complement?: string;
+            neighborhood: string;
+            city: string;
+            state: string;
+            cityIbgeCode?: string;
+        };
+    }) => {
         const response = await api.post<ApiResponse<Driver>>(`/links/${linkId}/drivers`, data);
         return response.data;
     },
 
-    updateDriver: async (linkId: string, driverId: string, data: Partial<{ name: string; document: string; phone: string; birthDate: string; cnhNumber: string; cnhExpiry: string }>) => {
+    updateDriver: async (linkId: string, driverId: string, data: Partial<{
+        name: string;
+        document: string;
+        phone: string;
+        birthDate: string;
+        cnhNumber: string;
+        cnhExpiry: string;
+        address: {
+            cep: string;
+            address: string;
+            number: string;
+            complement?: string;
+            neighborhood: string;
+            city: string;
+            state: string;
+            cityIbgeCode?: string;
+        };
+    }>) => {
         const response = await api.patch<ApiResponse<Driver>>(`/links/${linkId}/drivers/${driverId}`, data);
         return response.data;
     },

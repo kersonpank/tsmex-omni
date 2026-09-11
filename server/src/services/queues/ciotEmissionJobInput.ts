@@ -14,12 +14,30 @@ const tipoViagemToApi: Record<string, CiotTipoViagemApi> = {
     TAC_AGREGADO: 'TAC_Agregado',
 };
 
-export async function buildCiotEmissionInputForJob(ciotEmissionJobId: string): Promise<{
+export interface BuildCiotEmissionInputDeps {
+    prisma?: {
+        ciotEmissionJob: { findUniqueOrThrow: (...args: any[]) => Promise<any> };
+        manifest: { findUniqueOrThrow: (...args: any[]) => Promise<any> };
+        fiscalEmitter: {
+            findUnique: (...args: any[]) => Promise<any>;
+            findFirst: (...args: any[]) => Promise<any>;
+        };
+    };
+    resolveIbgeMunicipio?: typeof resolveIbgeMunicipio;
+}
+
+export async function buildCiotEmissionInputForJob(
+    ciotEmissionJobId: string,
+    deps: BuildCiotEmissionInputDeps = {},
+): Promise<{
     mapperInput: CiotMapperInput;
     environment: EfreteEnvironment;
 }> {
-    const job = await prisma.ciotEmissionJob.findUniqueOrThrow({ where: { id: ciotEmissionJobId } });
-    const manifest = await prisma.manifest.findUniqueOrThrow({
+    const db = deps.prisma ?? prisma;
+    const resolveIbge = deps.resolveIbgeMunicipio ?? resolveIbgeMunicipio;
+
+    const job = await db.ciotEmissionJob.findUniqueOrThrow({ where: { id: ciotEmissionJobId } });
+    const manifest = await db.manifest.findUniqueOrThrow({
         where: { id: job.manifestId },
         include: {
             hub: { include: { person: true } },
@@ -36,19 +54,33 @@ export async function buildCiotEmissionInputForJob(ciotEmissionJobId: string): P
     if (!manifest.driver) throw new AppError('Manifesto sem motorista definido ("Definir Motorista") — obrigatório para CIOT.', 400);
     if (!manifest.driver.cnhNumber) throw new AppError('Motorista sem número de CNH cadastrado.', 400);
 
-    const fiscalEmitter = await prisma.fiscalEmitter.findFirst({
-        where: { hubId: manifest.hubId ?? undefined, active: true },
-        orderBy: [{ defaultForHub: 'desc' }, { updatedAt: 'desc' }],
-        include: { person: true },
-    });
-    if (!fiscalEmitter?.person) throw new AppError('Hub sem FiscalEmitter ativo — obrigatório como Contratante do CIOT.', 400);
+    let fiscalEmitter: any = null;
+    if (manifest.fiscalEmitterId != null) {
+        fiscalEmitter = await db.fiscalEmitter.findUnique({
+            where: { id: manifest.fiscalEmitterId },
+            include: { person: true },
+        });
+        if (!fiscalEmitter?.person) {
+            throw new AppError('FiscalEmitter selecionado no manifesto não encontrado ou sem pessoa (CNPJ).', 400);
+        }
+    } else {
+        fiscalEmitter = await db.fiscalEmitter.findFirst({
+            where: { hubId: manifest.hubId ?? undefined, active: true },
+            orderBy: [{ defaultForHub: 'desc' }, { updatedAt: 'desc' }],
+            include: { person: true },
+        });
+        if (!fiscalEmitter?.person) {
+            throw new AppError('Hub sem FiscalEmitter ativo — obrigatório como Contratante do CIOT.', 400);
+        }
+    }
 
-    const environment: EfreteEnvironment = fiscalEmitter.environment === 'PRODUCAO' ? 'producao' : 'homologacao';
+    const efreteEnv = fiscalEmitter.efreteEnvironment ?? 'HOMOLOGACAO';
+    const environment: EfreteEnvironment = efreteEnv === 'PRODUCAO' ? 'producao' : 'homologacao';
     const contratanteDoc = digits(fiscalEmitter.person.document).padStart(14, '0').slice(0, 14);
     const matrizCnpj = resolveMatrizCnpj(contratanteDoc, environment);
 
-    const origemMunicipio = await resolveIbgeMunicipio(manifest.hub.city, manifest.hub.state, manifest.hub.cityIbgeCode);
-    const destinoMunicipio = await resolveIbgeMunicipio(manifest.destHub.city, manifest.destHub.state, manifest.destHub.cityIbgeCode);
+    const origemMunicipio = await resolveIbge(manifest.hub.city, manifest.hub.state, manifest.hub.cityIbgeCode);
+    const destinoMunicipio = await resolveIbge(manifest.destHub.city, manifest.destHub.state, manifest.destHub.cityIbgeCode);
 
     const linkDoc = digits(manifest.link.document);
     const driverDoc = digits(manifest.driver.document);

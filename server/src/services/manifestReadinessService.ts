@@ -66,6 +66,9 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
                     carrierType: true,
                     vehicleAxles: true,
                     vehicleChassi: true,
+                    vehiclePlate: true,
+                    vehicleRenavam: true,
+                    person: { select: { neighborhood: true, cep: true, address: true, number: true, city: true, state: true } },
                 },
             },
             driver: {
@@ -73,7 +76,9 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
                     id: true,
                     linkId: true,
                     cnhNumber: true,
+                    cnhExpiry: true,
                     birthDate: true,
+                    person: { select: { neighborhood: true, cep: true, address: true, number: true, city: true, state: true } },
                 },
             },
             freightAgreement: { select: { id: true, freteBruto: true } },
@@ -139,6 +144,23 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
         add(issue('responsible', 'LINK_REQUIRED', 'Selecione o responsável pela viagem.', 'linkId'));
     } else if (manifest.link.approvalStatus !== 'APPROVED') {
         add(issue('responsible', 'LINK_NOT_APPROVED', 'O responsável selecionado ainda não está aprovado.', 'linkId'));
+    } else {
+        if (!manifest.link.vehicleChassi) {
+            add(issue('responsible', 'VEHICLE_CHASSI_PENDING', 'Chassi do veículo obrigatório para emissão do CIOT.', 'vehicleChassi'));
+        }
+        if (!manifest.link.vehicleAxles) {
+            add(issue('responsible', 'VEHICLE_AXLES_PENDING', 'Número de eixos obrigatório para cálculo de piso ANTT.', 'vehicleAxles'));
+        }
+        if (!manifest.link.rntrc) {
+            add(issue('responsible', 'VEHICLE_RNTRC_PENDING', 'RNTRC do transportador obrigatório para emissão do CIOT.', 'rntrc'));
+        }
+        if (!manifest.link.vehicleRenavam) {
+            add(issue('responsible', 'VEHICLE_RENAVAM_PENDING', 'RENAVAM do veículo pendente.', 'vehicleRenavam', 'warning'));
+        }
+        const lp = manifest.link.person;
+        if (!lp?.neighborhood || !lp?.cep || !lp?.address || !lp?.number || !lp?.city || !lp?.state) {
+            add(issue('responsible', 'LINK_PERSON_ADDRESS_PENDING', 'Endereço do proprietário (Link) incompleto para Gravar Proprietário.', 'linkPersonAddress', 'warning'));
+        }
     }
     if (!manifest.driverId || !manifest.driver) {
         add(issue('responsible', 'DRIVER_REQUIRED', 'Complete os dados fiscais do motorista responsável.', 'driverId'));
@@ -146,10 +168,17 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
         add(issue('responsible', 'DRIVER_LINK_MISMATCH', 'Os dados fiscais não pertencem ao responsável selecionado.', 'driverId'));
     } else {
         if (!manifest.driver.cnhNumber) {
-            add(issue('responsible', 'DRIVER_CNH_PENDING', 'CNH pendente para emissão do CIOT.', 'driverId', 'warning'));
+            add(issue('responsible', 'DRIVER_CNH_PENDING', 'CNH pendente para emissão do CIOT.', 'driverId'));
         }
         if (!manifest.driver.birthDate) {
-            add(issue('responsible', 'DRIVER_BIRTH_DATE_PENDING', 'Data de nascimento pendente para emissão do CIOT.', 'driverId', 'warning'));
+            add(issue('responsible', 'DRIVER_BIRTH_DATE_PENDING', 'Data de nascimento pendente para emissão do CIOT.', 'driverId'));
+        }
+        const dp = manifest.driver.person;
+        if (!dp?.neighborhood || !dp?.cep || !dp?.address || !dp?.number || !dp?.city || !dp?.state) {
+            add(issue('responsible', 'DRIVER_ADDRESS_PENDING', 'Endereço do motorista obrigatório para Gravar Motorista no e-Frete.', 'driverAddress'));
+        }
+        if (manifest.driver.cnhExpiry && manifest.driver.cnhExpiry < new Date()) {
+            add(issue('responsible', 'DRIVER_CNH_EXPIRED', 'CNH do motorista está vencida.', 'cnhExpiry', 'warning'));
         }
     }
 
