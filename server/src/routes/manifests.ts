@@ -1430,7 +1430,7 @@ router.post('/:id/emit-ciot', authenticate, authorize('ADMIN', 'HUB'), async (re
         }
         const body = emitCiotSchema.parse(req.body);
 
-        const manifest = await prisma.manifest.findUnique({ where: { id }, include: { link: true, driver: true } });
+        const manifest = await prisma.manifest.findUnique({ where: { id }, include: { link: true, driver: true, fiscalEmitter: { select: { environment: true } } } });
         if (!manifest) throw new AppError('Manifest not found', 404);
         if (req.user!.roles.includes('HUB') && req.user!.hubId && manifest.hubId !== req.user!.hubId) {
             throw new AppError('Not authorized', 403);
@@ -1486,6 +1486,7 @@ router.post('/:id/emit-ciot', authenticate, authorize('ADMIN', 'HUB'), async (re
                     idOperacaoCliente: `CIOT-${id}-${suffix}`,
                     tipoViagem,
                     requestData: requestData as object,
+                    environment: manifest.fiscalEmitter?.environment ?? 'HOMOLOGACAO',
                 },
             });
         }

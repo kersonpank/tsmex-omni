@@ -2064,6 +2064,7 @@ model CiotEmissionJob {
   queueJobId                  String?              @unique
   idOperacaoCliente           String               @unique // "CIOT-<manifestId>"
   codigoIdentificacaoOperacao String?              @unique // CIOT retornado pela eFrete
+  environment                 String?
   tipoViagem                  CiotTipoViagem
   // "Carta Frete": valores/impostos/distância digitados pelo Hub/Admin no momento da emissão
   // (não tem lugar fixo no schema do Manifest — é dado pontual da operação de transporte).
