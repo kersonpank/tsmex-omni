@@ -53,6 +53,8 @@ function createBaseEntities() {
             carrierType: 'TAC',
             vehiclePlate: 'ABC1D23',
             trailerPlate: null,
+            trailer2Plate: null,
+            trailer3Plate: null,
             person: { id: 'person-link', document: '69641536400', legalName: 'Motorista TAC' },
         },
         driver: {
@@ -62,6 +64,10 @@ function createBaseEntities() {
             phone: '81999346616',
             person: { id: 'person-driver', document: '69641536400', legalName: 'Motorista TAC' },
         },
+        tripStops: [],
+        destinationCity: undefined,
+        destinationState: undefined,
+        destinationCityIbgeCode: undefined,
     };
 
     const explicitEmitter = {
@@ -102,10 +108,70 @@ function createBaseEntities() {
         },
     };
 
-    return { jobRecord, manifestRecord, explicitEmitter, hubDefaultEmitter };
+    return { jobRecord, manifestRecord: manifestRecord as any, explicitEmitter, hubDefaultEmitter };
+}
+
+function makeDeps(jobRecord: any, manifestRecord: any, emitter: any, resolveIbgeMunicipio = async (city: string, state: string, ibge?: string) => ibge ?? `${city}-${state}`) {
+    return {
+        prisma: {
+            ciotEmissionJob: { findUniqueOrThrow: async () => ({ ...jobRecord }) },
+            manifest: { findUniqueOrThrow: async () => ({ ...manifestRecord }) },
+            fiscalEmitter: { findUnique: async () => ({ ...emitter }), findFirst: async () => ({ ...emitter }) },
+        } as any,
+        resolveIbgeMunicipio,
+    };
 }
 
 describe('buildCiotEmissionInputForJob fiscal emitter resolution and eFrete environment', () => {
+    it('maps cavalo and all trailers in normalized order', async () => {
+        const { jobRecord, manifestRecord, hubDefaultEmitter } = createBaseEntities();
+        Object.assign(manifestRecord.link, { vehiclePlate: 'abc-1d23', trailerPlate: ' DEF 456 ', trailer2Plate: 'GHI7J89', trailer3Plate: 'JKL-0M12' });
+        const result = await buildCiotEmissionInputForJob('job-1', makeDeps(jobRecord, manifestRecord, hubDefaultEmitter) as any);
+        assert.deepEqual(result.mapperInput.veiculos, ['ABC1D23', 'DEF456', 'GHI7J89', 'JKL0M12']);
+    });
+
+    it('removes empty, duplicate, and format-equivalent plates', async () => {
+        const { jobRecord, manifestRecord, hubDefaultEmitter } = createBaseEntities();
+        Object.assign(manifestRecord.link, { vehiclePlate: 'abc-1d23', trailerPlate: 'ABC1D23', trailer2Plate: '   ', trailer3Plate: null });
+        const result = await buildCiotEmissionInputForJob('job-1', makeDeps(jobRecord, manifestRecord, hubDefaultEmitter) as any);
+        assert.deepEqual(result.mapperInput.veiculos, ['ABC1D23']);
+    });
+
+    it('uses the last valid stop, skips invalid stops, then falls back to manifest sources', async () => {
+        const { jobRecord, manifestRecord, hubDefaultEmitter } = createBaseEntities();
+        manifestRecord.destHub = null;
+        manifestRecord.tripStops = [
+            { sequence: 1, destCity: 'Primeira', destState: 'MA', destCityIbgeCode: '1', destHub: null },
+            { sequence: 2, destCity: '', destState: '', destCityIbgeCode: null, destHub: null },
+            { sequence: 3, destCity: 'Ultima', destState: 'PA', destCityIbgeCode: '2', destHub: null },
+        ];
+        let destination = '';
+        const result = await buildCiotEmissionInputForJob('job-1', makeDeps(jobRecord, manifestRecord, hubDefaultEmitter, async (city, state, ibge) => { destination = `${city}/${state}`; return ibge ?? 'x'; }) as any);
+        assert.equal(destination, 'Ultima/PA');
+        assert.equal(result.mapperInput.codigoMunicipioDestino, 2);
+
+        manifestRecord.tripStops = [{ sequence: 1, destCity: '', destState: '', destCityIbgeCode: null, destHub: null }, { sequence: 2, destCity: 'Anterior', destState: 'PI', destCityIbgeCode: '3', destHub: null }];
+        await buildCiotEmissionInputForJob('job-1', makeDeps(jobRecord, manifestRecord, hubDefaultEmitter, async (city, state, ibge) => ibge ?? 'x') as any);
+        assert.equal(manifestRecord.tripStops[1].destCity, 'Anterior');
+    });
+
+    it('falls back from no valid stop to destHub, then manifest canonical destination', async () => {
+        const { jobRecord, manifestRecord, hubDefaultEmitter } = createBaseEntities();
+        manifestRecord.tripStops = [{ sequence: 1, destCity: '', destState: '', destHub: null }];
+        let seen = '';
+        await buildCiotEmissionInputForJob('job-1', makeDeps(jobRecord, manifestRecord, hubDefaultEmitter, async (city, state, ibge) => { seen = `${city}/${state}`; return ibge ?? '4'; }) as any);
+        assert.equal(seen, 'Sao Luis/MA');
+        manifestRecord.destHub = null;
+        manifestRecord.destinationCity = 'Canonical City'; manifestRecord.destinationState = 'CE'; manifestRecord.destinationCityIbgeCode = '5';
+        await buildCiotEmissionInputForJob('job-1', makeDeps(jobRecord, manifestRecord, hubDefaultEmitter, async (city, state, ibge) => { seen = `${city}/${state}`; return ibge ?? 'x'; }) as any);
+        assert.equal(seen, 'Canonical City/CE');
+    });
+
+    it('rejects when no canonical destination exists', async () => {
+        const { jobRecord, manifestRecord, hubDefaultEmitter } = createBaseEntities();
+        manifestRecord.destHub = null; manifestRecord.tripStops = [];
+        await assert.rejects(() => buildCiotEmissionInputForJob('job-1', makeDeps(jobRecord, manifestRecord, hubDefaultEmitter) as any), (err: any) => err.statusCode === 400);
+    });
     it('same FiscalEmitter with environment=PRODUCAO and efreteEnvironment=HOMOLOGACAO: CIOT input returns homologacao', async () => {
         const { jobRecord, manifestRecord, explicitEmitter } = createBaseEntities();
         manifestRecord.fiscalEmitterId = explicitEmitter.id;

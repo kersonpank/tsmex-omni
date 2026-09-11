@@ -92,6 +92,8 @@ export async function processCiotEmissionJob(
         ciotJob = await deps.prisma.ciotEmissionJob.findUniqueOrThrow({ where: { id: ciotEmissionJobId } });
         if (ciotJob.phase === 'DONE') return;
 
+        const { mapperInput, environment } = await deps.buildCiotEmissionInputForJob(ciotEmissionJobId);
+
         const manifest = await deps.prisma.manifest.findUniqueOrThrow({
             where: { id: ciotJob.manifestId },
             include: { link: { include: { person: true } }, driver: { include: { person: true } } },
@@ -101,26 +103,25 @@ export async function processCiotEmissionJob(
 
         // Fase 1: cadastros (idempotentes na própria eFrete — sempre antes de emitir operação).
         if (ciotJob.phase === 'QUEUED') {
-            await deps.ensureMotoristaRegistrado(manifest.driver);
-            await deps.ensureProprietarioRegistrado(manifest.link);
-            await deps.ensureVeiculoRegistrado(manifest.link);
+            await deps.ensureMotoristaRegistrado(manifest.driver, environment);
+            await deps.ensureProprietarioRegistrado(manifest.link, environment);
+            await deps.ensureVeiculoRegistrado(manifest.link, environment);
             await deps.prisma.ciotEmissionJob.update({ where: { id: ciotEmissionJobId }, data: { phase: 'CADASTROS_ENSURING' } });
         }
 
         // Fase 2: idempotência — NUNCA reenviar sem checar primeiro se já existe CIOT pra este
         // idOperacaoCliente (timeout anterior pode ter sido aceito do lado da eFrete mesmo sem
         // resposta chegar aqui; reenviar direto duplicaria o CIOT e gera multa ANTT).
-        const existing = await deps.consultarStatusCiot(ciotJob.idOperacaoCliente);
+        const existing = await deps.consultarStatusCiot(ciotJob.idOperacaoCliente, environment);
         let codigoIdentificacaoOperacao = existing.codigoIdentificacaoOperacao;
         let protocoloServico = existing.protocoloServico;
         let rawResponse: unknown = existing.exists ? existing : undefined;
         let rawPayload: unknown;
 
         if (!existing.exists) {
-            const { mapperInput } = await deps.buildCiotEmissionInputForJob(ciotEmissionJobId);
             const payload = buildCiotPayload(mapperInput);
             rawPayload = payload;
-            const submitted = await deps.submitCiotToEfrete(payload);
+            const submitted = await deps.submitCiotToEfrete(payload, environment);
             codigoIdentificacaoOperacao = submitted.codigoIdentificacaoOperacao;
             protocoloServico = submitted.protocoloServico;
             rawResponse = submitted.raw;

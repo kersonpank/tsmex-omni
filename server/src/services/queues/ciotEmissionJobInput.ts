@@ -44,11 +44,11 @@ export async function buildCiotEmissionInputForJob(
             destHub: { include: { person: true } },
             link: { include: { person: true } },
             driver: { include: { person: true } },
+            tripStops: { orderBy: { sequence: 'asc' }, include: { destHub: true } },
         },
     });
 
     if (!manifest.hub?.person) throw new AppError('Manifesto sem Hub com pessoa (CNPJ) para resolver o Contratante do CIOT.', 400);
-    if (!manifest.destHub?.person) throw new AppError('Manifesto sem Hub de destino para resolver o município de descarga do CIOT.', 400);
     if (!manifest.link) throw new AppError('Manifesto sem Link (transportador) atribuído.', 400);
     if (!manifest.link.rntrc || !manifest.link.carrierType) throw new AppError('Link sem RNTRC/tipo de transportador cadastrado — obrigatório para CIOT.', 400);
     if (!manifest.driver) throw new AppError('Manifesto sem motorista definido ("Definir Motorista") — obrigatório para CIOT.', 400);
@@ -80,16 +80,27 @@ export async function buildCiotEmissionInputForJob(
     const matrizCnpj = resolveMatrizCnpj(contratanteDoc, environment);
 
     const origemMunicipio = await resolveIbge(manifest.hub.city, manifest.hub.state, manifest.hub.cityIbgeCode);
-    const destinoMunicipio = await resolveIbge(manifest.destHub.city, manifest.destHub.state, manifest.destHub.cityIbgeCode);
+    const stops = [...(manifest.tripStops ?? [])].sort((a: any, b: any) => a.sequence - b.sequence);
+    const destination = [...stops].reverse().map((stop: any) => ({
+        city: stop.destHub?.city ?? stop.destCity,
+        state: stop.destHub?.state ?? stop.destState,
+        ibge: stop.destHub?.cityIbgeCode ?? stop.destCityIbgeCode,
+    })).find((value) => value.city && value.state) ?? {
+        city: manifest.destHub?.city ?? manifest.destinationCity,
+        state: manifest.destHub?.state ?? manifest.destinationState,
+        ibge: manifest.destHub?.cityIbgeCode ?? manifest.destinationCityIbgeCode,
+    };
+    if (!destination.city || !destination.state) throw new AppError('CIOT sem destino canônico: informe cidade e UF no manifesto ou em uma parada.', 400);
+    const destinoMunicipio = await resolveIbge(destination.city, destination.state, destination.ibge);
 
     const linkDoc = digits(manifest.link.document);
     const driverDoc = digits(manifest.driver.document);
     const driverPhone = splitPhone(manifest.driver.phone);
     if (!driverPhone) throw new AppError('Motorista sem celular válido (DDD + número) cadastrado.', 400);
 
-    const veiculos = [manifest.link.vehiclePlate, ...(manifest.link.trailerPlate ? [manifest.link.trailerPlate] : [])].map((p) =>
-        p.replace(/[^A-Za-z0-9]/g, '').toUpperCase(),
-    );
+    const veiculos = [...new Set([manifest.link.vehiclePlate, manifest.link.trailerPlate, manifest.link.trailer2Plate, manifest.link.trailer3Plate]
+        .filter((p): p is string => Boolean(p && p.trim()))
+        .map((p) => p.replace(/[^A-Za-z0-9]/g, '').toUpperCase()))];
 
     const tipoViagem = tipoViagemToApi[job.tipoViagem];
     const requestData = job.requestData as unknown as StoredCiotRequestData;
