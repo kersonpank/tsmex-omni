@@ -68,7 +68,7 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
                     vehicleChassi: true,
                     vehiclePlate: true,
                     vehicleRenavam: true,
-                    person: { select: { neighborhood: true, cep: true, address: true, number: true, city: true, state: true } },
+                    person: { select: { neighborhood: true, cep: true, address: true, number: true, city: true, state: true, cityIbgeCode: true } },
                 },
             },
             driver: {
@@ -145,6 +145,7 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
     } else if (manifest.link.approvalStatus !== 'APPROVED') {
         add(issue('responsible', 'LINK_NOT_APPROVED', 'O responsável selecionado ainda não está aprovado.', 'linkId'));
     } else {
+        if (!manifest.link.vehiclePlate || !/^[A-Za-z0-9]{7,8}$/.test(manifest.link.vehiclePlate.replace(/[^A-Za-z0-9]/g, ''))) add(issue('responsible', 'VEHICLE_PLATE_PENDING', 'Placa do cavalo obrigatória para emissão do CIOT.', 'vehiclePlate'));
         if (!manifest.link.vehicleChassi) {
             add(issue('responsible', 'VEHICLE_CHASSI_PENDING', 'Chassi do veículo obrigatório para emissão do CIOT.', 'vehicleChassi'));
         }
@@ -158,8 +159,8 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
             add(issue('responsible', 'VEHICLE_RENAVAM_PENDING', 'RENAVAM do veículo pendente.', 'vehicleRenavam', 'warning'));
         }
         const lp = manifest.link.person;
-        if (!lp?.neighborhood || !lp?.cep || !lp?.address || !lp?.number || !lp?.city || !lp?.state) {
-            add(issue('responsible', 'LINK_PERSON_ADDRESS_PENDING', 'Endereço do proprietário (Link) incompleto para Gravar Proprietário.', 'linkPersonAddress', 'warning'));
+        if (!lp?.neighborhood || !lp?.cep || !lp?.address || !lp?.number || !(lp?.city && lp?.state)) {
+            add(issue('responsible', 'LINK_PERSON_ADDRESS_PENDING', 'Endereço do proprietário (Link) incompleto para Gravar Proprietário.', 'linkPersonAddress'));
         }
     }
     if (!manifest.driverId || !manifest.driver) {

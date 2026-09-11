@@ -180,21 +180,21 @@ describe('manifestReadinessService', () => {
         assert.equal(issue?.severity, 'warning');
     });
 
-    // --- Link person address is warning ---
+    // --- Link person address is blocking ---
 
-    it('link person with incomplete address → LINK_PERSON_ADDRESS_PENDING warning', async () => {
+    it('link person with incomplete address → LINK_PERSON_ADDRESS_PENDING blocking', async () => {
         mockWith({ person: { ...completeAddress, neighborhood: '' } });
         const r = await getManifestReadiness('manifest-1');
         const issue = r.issues.find((i) => i.code === 'LINK_PERSON_ADDRESS_PENDING');
         assert.ok(issue, 'LINK_PERSON_ADDRESS_PENDING should be present');
-        assert.equal(issue?.severity, 'warning');
+        assert.equal(issue?.severity, 'blocking');
     });
 
-    it('link person null → LINK_PERSON_ADDRESS_PENDING warning', async () => {
+    it('link person null → LINK_PERSON_ADDRESS_PENDING blocking', async () => {
         mockWith({ person: null });
         const r = await getManifestReadiness('manifest-1');
         const issue = r.issues.find((i) => i.code === 'LINK_PERSON_ADDRESS_PENDING');
         assert.ok(issue, 'LINK_PERSON_ADDRESS_PENDING should be present when person is null');
-        assert.equal(issue?.severity, 'warning');
+        assert.equal(issue?.severity, 'blocking');
     });
 });

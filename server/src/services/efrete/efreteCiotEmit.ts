@@ -1,5 +1,6 @@
 import { efreteAuthedGet, efreteAuthedPost } from './efreteAuth.js';
 import type { AdicionarOperacaoTransporteV2Payload } from './efreteCiotMapper.js';
+import type { EfreteEnvironment } from './efreteConfig.js';
 
 interface AdicionarOperacaoTransporteResponse {
     Sucesso?: boolean;
@@ -15,10 +16,10 @@ export interface SubmitCiotResult {
 }
 
 /** POST /services/Pef/AdicionarOperacaoTransporteV2 — nunca chamar sem antes checar idempotência via consultarStatusCiot. */
-export async function submitCiotToEfrete(payload: AdicionarOperacaoTransporteV2Payload): Promise<SubmitCiotResult> {
+export async function submitCiotToEfrete(payload: AdicionarOperacaoTransporteV2Payload, environment: EfreteEnvironment): Promise<SubmitCiotResult> {
     const res = await efreteAuthedPost<AdicionarOperacaoTransporteResponse>(
         '/services/Pef/AdicionarOperacaoTransporteV2',
-        payload as unknown as Record<string, unknown>,
+        payload as unknown as Record<string, unknown>, { environment },
     );
     if (!res.CodigoIdentificacaoOperacao) {
         throw new Error('eFrete AdicionarOperacaoTransporteV2: resposta sem CodigoIdentificacaoOperacao.');
@@ -46,11 +47,11 @@ export interface ConsultarCiotResult {
  * `submitCiotToEfrete` (inclusive em retry após timeout): se já existir CIOT pra esse id, reusa
  * em vez de reemitir (evita CIOT duplicado / multa ANTT).
  */
-export async function consultarStatusCiot(idOperacaoCliente: string): Promise<ConsultarCiotResult> {
+export async function consultarStatusCiot(idOperacaoCliente: string, environment: EfreteEnvironment): Promise<ConsultarCiotResult> {
     try {
         const res = await efreteAuthedGet<ConsultarCiotResponse>(
             '/services/Pef/ObterCodigoIdentificacaoOperacaoTransportePorIdOperacaoCliente',
-            { IdOperacaoCliente: idOperacaoCliente },
+            { IdOperacaoCliente: idOperacaoCliente }, { environment },
         );
         if (!res.CodigoIdentificacaoOperacao) return { exists: false };
         return { exists: true, codigoIdentificacaoOperacao: res.CodigoIdentificacaoOperacao, estado: res.EstadoCiot, protocoloServico: res.ProtocoloServico };

@@ -1424,6 +1424,9 @@ router.post('/:id/emit-ciot', authenticate, authorize('ADMIN', 'HUB'), async (re
         if (!manifest.link.vehicleAxles || !manifest.link.vehicleChassi) throw new AppError('Cadastre número de eixos e chassi do veículo do Link antes de emitir o CIOT.', 400);
         if (!manifest.driver.cnhNumber || !manifest.driver.birthDate) throw new AppError('Motorista sem CNH/data de nascimento cadastrados.', 400);
 
+        const readiness = await getManifestReadiness(id);
+        if (!readiness.canOffer) throw new AppError('A viagem ainda possui pendências para emissão do CIOT.', 400);
+
         const activeDoc = await prisma.manifestFiscalDocument.findFirst({ where: { manifestId: id, documentType: 'CIOT', status: 'AUTHORIZED' } });
         if (activeDoc) throw new AppError('Já existe um CIOT autorizado para este manifesto. Cancele antes de reemitir.', 409);
 
