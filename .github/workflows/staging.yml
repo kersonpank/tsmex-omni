@@ -188,9 +188,11 @@ jobs:
             API_TASK_ID=""
             API_CID=""
             for i in $(seq 1 36); do
-              API_TASK_ID=$(docker service ps "$API_SVC" --filter desired-state=running --format '{{.ID}} {{.CurrentState}}' | awk -v old="$OLD_API_TASK_ID" '$1 != old && $2 == "Running" {print $1; exit}')
+              API_TASK_ID=$(docker service ps "$API_SVC" --filter desired-state=running --format '{{.ID}} {{.CurrentState}}' | awk -v old="$OLD_API_TASK_ID" '$1 != old && $2 ~ /^Running( |$)/ {print $1; exit}')
               if [ -n "$API_TASK_ID" ]; then
-                API_CID=$(docker ps --filter "label=com.docker.swarm.task.id=$API_TASK_ID" --filter status=running --format '{{.ID}}' | head -1)
+                # Once the replacement is Running, the old task is no longer desired/running;
+                # resolve by the stable service label because task-id label lookup can lag/time out.
+                API_CID=$(docker ps --filter "label=com.docker.swarm.service.name=$API_SVC" --filter status=running --format '{{.ID}}' | head -1)
               fi
               if [ -n "$API_CID" ]; then break; fi
               sleep 5
@@ -198,6 +200,7 @@ jobs:
             if [ -z "$API_CID" ]; then
               echo "❌ A nova task da API não ficou pronta no prazo."
               docker service ps "$API_SVC" --no-trunc
+              docker ps --filter "label=com.docker.swarm.service.name=$API_SVC" --no-trunc || true
               exit 1
             fi
             docker exec "$API_CID" node dist/scripts/efreteConnectivityCheck.js homologacao
