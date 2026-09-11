@@ -781,6 +781,14 @@ const ManifestDetailPage: React.FC = () => {
       setError('Informe nome, CPF e telefone do motorista.');
       return;
     }
+    if (!driverFiscalForm.birthDate) {
+      setError('Informe a data de nascimento do motorista.');
+      return;
+    }
+    if (!driverFiscalForm.cnhNumber.trim()) {
+      setError('Informe o número da CNH do motorista.');
+      return;
+    }
     if (
       !driverFiscalForm.cep ||
       !driverFiscalForm.address ||
