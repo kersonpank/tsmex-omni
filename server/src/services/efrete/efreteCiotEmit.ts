@@ -35,6 +35,37 @@ interface ConsultarCiotResponse {
     Excecao?: { Mensagem?: string; Codigo?: string };
 }
 
+interface ObterCiotPdfResponse {
+    Sucesso?: boolean;
+    Pdf?: string;
+    Excecao?: { Mensagem?: string; Codigo?: string };
+}
+
+export type EfreteGet = typeof efreteAuthedGet;
+
+/** Obtém o PDF obrigatório do CIOT autorizado. */
+export async function obterCiotPdf(
+    codigoIdentificacaoOperacao: string,
+    environment: EfreteEnvironment,
+    documentoViagem?: string,
+    get: EfreteGet = efreteAuthedGet,
+): Promise<string> {
+    const res = await get<ObterCiotPdfResponse>(
+        '/Services/Pef/ObterOperacaoTransportePdf',
+        { CodigoIdentificacaoOperacao: codigoIdentificacaoOperacao, ...(documentoViagem ? { DocumentoViagem: documentoViagem } : {}) },
+        { environment },
+    );
+    const pdf = res.Pdf?.trim();
+    if (!pdf || !/^[A-Za-z0-9+/]*={0,2}$/.test(pdf) || pdf.length % 4 !== 0) {
+        throw new Error('eFrete CIOT: resposta PDF inválida.');
+    }
+    const bytes = Buffer.from(pdf, 'base64');
+    if (!bytes.length || bytes.subarray(0, 5).toString('ascii') !== '%PDF-') {
+        throw new Error('eFrete CIOT: conteúdo retornado não é um PDF.');
+    }
+    return pdf;
+}
+
 export interface ConsultarCiotResult {
     exists: boolean;
     codigoIdentificacaoOperacao?: string;
