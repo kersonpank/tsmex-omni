@@ -3,6 +3,7 @@ import { z } from 'zod';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
+import { upsertPersonForDriver } from '../services/personRoleSync.js';
 
 const router = Router();
 
@@ -453,6 +454,17 @@ router.get('/:id/drivers', authenticate, authorize('ADMIN', 'HUB'), async (req: 
     }
 });
 
+const addressSchema = z.object({
+    cep: z.string().min(8),
+    address: z.string().min(1),
+    number: z.string().min(1),
+    complement: z.string().optional(),
+    neighborhood: z.string().min(1),
+    city: z.string().min(1),
+    state: z.string().length(2),
+    cityIbgeCode: z.string().min(7).optional(),
+});
+
 const driverSchema = z.object({
     name: z.string().min(1),
     document: z.string().min(11),
@@ -460,6 +472,7 @@ const driverSchema = z.object({
     birthDate: z.string().optional(),
     cnhNumber: z.string().optional(),
     cnhExpiry: z.string().optional(),
+    address: addressSchema.optional(),
 });
 
 router.post('/:id/drivers', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -467,20 +480,73 @@ router.post('/:id/drivers', authenticate, authorize('ADMIN', 'HUB'), async (req:
         const id = req.params.id as string;
         const link = await prisma.link.findUnique({ where: { id } });
         if (!link) throw new AppError('Link not found', 404);
+
         const body = driverSchema.parse(req.body);
+        const normalizedDoc = body.document.replace(/\D/g, '');
+
+        // Check if this CPF is already a Driver anywhere
+        const existingDriver = await prisma.driver.findUnique({ where: { document: normalizedDoc } });
+
+        if (existingDriver) {
+            if (existingDriver.linkId !== id) {
+                // CPF belongs to a driver on another Link — 409
+                const ownerLink = await prisma.link.findUnique({
+                    where: { id: existingDriver.linkId },
+                    select: { name: true },
+                });
+                throw new AppError(
+                    `CPF já cadastrado como motorista do Link "${ownerLink?.name ?? existingDriver.linkId}".`,
+                    409,
+                );
+            }
+
+            // Same link — update the existing driver record
+            const { person, personAlreadyExists, notOverwritten } = await upsertPersonForDriver(
+                normalizedDoc,
+                body.name,
+                body.address,
+            );
+
+            const driver = await prisma.driver.update({
+                where: { id: existingDriver.id },
+                data: {
+                    name: body.name,
+                    phone: body.phone,
+                    ...(body.birthDate ? { birthDate: new Date(body.birthDate) } : {}),
+                    ...(body.cnhNumber !== undefined ? { cnhNumber: body.cnhNumber } : {}),
+                    ...(body.cnhExpiry ? { cnhExpiry: new Date(body.cnhExpiry) } : {}),
+                    personId: person.id,
+                },
+            });
+
+            return res.json({ success: true, data: driver, personAlreadyExists, notOverwritten });
+        }
+
+        // New driver — address is required to create Person
+        if (!body.address) {
+            throw new AppError('Endereço é obrigatório para cadastrar um motorista.', 400);
+        }
+
+        const { person, personAlreadyExists, notOverwritten } = await upsertPersonForDriver(
+            normalizedDoc,
+            body.name,
+            body.address,
+        );
 
         const driver = await prisma.driver.create({
             data: {
                 linkId: id,
                 name: body.name,
-                document: body.document.replace(/\D/g, ''),
+                document: normalizedDoc,
                 phone: body.phone,
                 birthDate: body.birthDate ? new Date(body.birthDate) : undefined,
                 cnhNumber: body.cnhNumber,
                 cnhExpiry: body.cnhExpiry ? new Date(body.cnhExpiry) : undefined,
+                personId: person.id,
             },
         });
-        res.status(201).json({ success: true, data: driver });
+
+        return res.status(201).json({ success: true, data: driver, personAlreadyExists, notOverwritten });
     } catch (error) {
         if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
         next(error);
@@ -494,6 +560,22 @@ router.patch('/:id/drivers/:driverId', authenticate, authorize('ADMIN', 'HUB'), 
         if (!existing || existing.linkId !== id) throw new AppError('Driver not found for this link', 404);
 
         const body = driverSchema.partial().parse(req.body);
+
+        let personId = existing.personId;
+        let personAlreadyExists: boolean | undefined;
+        let notOverwritten: string[] | undefined;
+
+        if (body.address || (body.name && !existing.personId)) {
+            const docToUse = body.document
+                ? body.document.replace(/\D/g, '')
+                : existing.document;
+            const nameToUse = body.name ?? existing.name;
+            const result = await upsertPersonForDriver(docToUse, nameToUse, body.address);
+            personId = result.person.id;
+            personAlreadyExists = result.personAlreadyExists;
+            notOverwritten = result.notOverwritten;
+        }
+
         const driver = await prisma.driver.update({
             where: { id: driverId },
             data: {
@@ -503,9 +585,15 @@ router.patch('/:id/drivers/:driverId', authenticate, authorize('ADMIN', 'HUB'), 
                 ...(body.birthDate !== undefined ? { birthDate: new Date(body.birthDate) } : {}),
                 ...(body.cnhNumber !== undefined ? { cnhNumber: body.cnhNumber } : {}),
                 ...(body.cnhExpiry !== undefined ? { cnhExpiry: new Date(body.cnhExpiry) } : {}),
+                ...(personId !== existing.personId ? { personId } : {}),
             },
         });
-        res.json({ success: true, data: driver });
+
+        res.json({
+            success: true,
+            data: driver,
+            ...(personAlreadyExists !== undefined ? { personAlreadyExists, notOverwritten } : {}),
+        });
     } catch (error) {
         if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
         next(error);
