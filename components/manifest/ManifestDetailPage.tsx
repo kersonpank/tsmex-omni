@@ -13,6 +13,10 @@ import OrderScanInput from '../ui/OrderScanInput';
 import { CityAutocomplete } from '../ui/CityAutocomplete';
 import { manifestStatusLabels as statusLabels, manifestStatusTone } from '../../lib/manifestStatusUi';
 import { ManifestJourneyShell, manifestJourneySteps } from './ManifestJourneyShell';
+import TripResponsiblePanel from './TripResponsiblePanel';
+import DriverFiscalSheet from './DriverFiscalSheet';
+import type { DriverFiscalFormState } from './DriverFiscalSheet';
+import VehicleFiscalSheet from './VehicleFiscalSheet';
 
 const JourneySection: React.FC<{ eyebrow: string; title: string; description?: string; children: React.ReactNode }> = ({ eyebrow, title, description, children }) => (
   <section>
@@ -191,7 +195,12 @@ const ManifestDetailPage: React.FC = () => {
   const [driversForLink, setDriversForLink] = useState<Driver[]>([]);
   const [driverLinkId, setDriverLinkId] = useState('');
   const [editingDriverId, setEditingDriverId] = useState<string | null>(null);
-  const [driverFiscalForm, setDriverFiscalForm] = useState({ name: '', document: '', phone: '', birthDate: '', cnhNumber: '', cnhExpiry: '' });
+  const [driverFiscalForm, setDriverFiscalForm] = useState<DriverFiscalFormState>({
+    name: '', document: '', phone: '', birthDate: '', cnhNumber: '', cnhExpiry: '',
+    cep: '', address: '', number: '', complement: '', neighborhood: '', city: '', state: '', cityIbgeCode: '',
+  });
+  const [driverPersonAlreadyHasAddress, setDriverPersonAlreadyHasAddress] = useState(false);
+  const [updatePersonAddress, setUpdatePersonAddress] = useState(false);
   const [showVehicleSheet, setShowVehicleSheet] = useState(false);
   const [vehicleLinkId, setVehicleLinkId] = useState('');
   const [savingVehicle, setSavingVehicle] = useState(false);
@@ -744,6 +753,9 @@ const ManifestDetailPage: React.FC = () => {
     const currentDriver = driver ?? manifest.driver ?? null;
     setDriverLinkId(currentDriver?.linkId ?? manifest.link.id);
     setEditingDriverId(currentDriver?.id ?? null);
+    const hasPersonAddress = !!(currentDriver?.person?.cep);
+    setDriverPersonAlreadyHasAddress(hasPersonAddress);
+    setUpdatePersonAddress(false);
     setDriverFiscalForm({
       name: currentDriver?.name ?? '',
       document: currentDriver?.document ?? '',
@@ -751,6 +763,14 @@ const ManifestDetailPage: React.FC = () => {
       birthDate: currentDriver?.birthDate?.slice(0, 10) ?? '',
       cnhNumber: currentDriver?.cnhNumber ?? '',
       cnhExpiry: currentDriver?.cnhExpiry?.slice(0, 10) ?? '',
+      cep: currentDriver?.person?.cep ?? '',
+      address: currentDriver?.person?.address ?? '',
+      number: currentDriver?.person?.number ?? '',
+      complement: currentDriver?.person?.complement ?? '',
+      neighborhood: currentDriver?.person?.neighborhood ?? '',
+      city: currentDriver?.person?.city ?? '',
+      state: currentDriver?.person?.state ?? '',
+      cityIbgeCode: currentDriver?.person?.cityIbgeCode ?? '',
     });
     setShowDriverFiscalSheet(true);
   };
@@ -761,7 +781,28 @@ const ManifestDetailPage: React.FC = () => {
       setError('Informe nome, CPF e telefone do motorista.');
       return;
     }
+    if (
+      !driverFiscalForm.cep ||
+      !driverFiscalForm.address ||
+      !driverFiscalForm.number ||
+      !driverFiscalForm.neighborhood ||
+      !driverFiscalForm.city ||
+      !driverFiscalForm.state
+    ) {
+      setError('Informe o endereço completo: CEP, logradouro, número, bairro, cidade e estado são obrigatórios.');
+      return;
+    }
     setError(null);
+    const addressPayload = {
+      cep: driverFiscalForm.cep,
+      address: driverFiscalForm.address,
+      number: driverFiscalForm.number,
+      complement: driverFiscalForm.complement || undefined,
+      neighborhood: driverFiscalForm.neighborhood,
+      city: driverFiscalForm.city,
+      state: driverFiscalForm.state,
+      cityIbgeCode: driverFiscalForm.cityIbgeCode || undefined,
+    };
     try {
       let driverId = editingDriverId;
       if (driverId) {
@@ -772,6 +813,7 @@ const ManifestDetailPage: React.FC = () => {
           birthDate: driverFiscalForm.birthDate || undefined,
           cnhNumber: driverFiscalForm.cnhNumber || undefined,
           cnhExpiry: driverFiscalForm.cnhExpiry || undefined,
+          address: addressPayload,
         });
       } else {
         const created = await linksApi.createDriver(driverLinkId, {
@@ -781,6 +823,7 @@ const ManifestDetailPage: React.FC = () => {
           birthDate: driverFiscalForm.birthDate || undefined,
           cnhNumber: driverFiscalForm.cnhNumber || undefined,
           cnhExpiry: driverFiscalForm.cnhExpiry || undefined,
+          address: addressPayload,
         });
         driverId = (created as any)?.data?.id ?? (created as any)?.id;
       }
@@ -829,6 +872,19 @@ const ManifestDetailPage: React.FC = () => {
       setError('Selecione o tipo do veículo.');
       return;
     }
+    const chassi = vehicleForm.vehicleChassi.replace(/\s/g, '');
+    if (!chassi || chassi.length !== 17) {
+      setError('Informe o chassi com exatamente 17 caracteres.');
+      return;
+    }
+    if (!vehicleForm.vehicleAxles || Number(vehicleForm.vehicleAxles) < 1) {
+      setError('Informe o número de eixos (mínimo 1).');
+      return;
+    }
+    if (!vehicleForm.rntrc) {
+      setError('Informe o RNTRC do veículo.');
+      return;
+    }
     setSavingVehicle(true);
     setError(null);
     try {
@@ -875,6 +931,16 @@ const ManifestDetailPage: React.FC = () => {
     } finally {
       setSavingVehicle(false);
     }
+  };
+
+  const handleSelectDriver = (driver: Driver) => {
+    void manifestsApi.setResponsible(id!, driver.linkId, driver.id)
+      .then(async () => {
+        setShowDriverForm(false);
+        flashSuccess('Motorista e responsável vinculados.');
+        await load();
+      })
+      .catch((e: any) => setError(e.response?.data?.error || e.message));
   };
 
   const handleOffer = async () => {
@@ -1317,120 +1383,31 @@ const ManifestDetailPage: React.FC = () => {
       )}
 
       {currentStep === 'responsible' && (
-      <JourneySection eyebrow="Etapa 5" title="Responsável, motorista e veículo" description="Pesquise os cadastros existentes por nome, documento ou placa. Se não encontrar, cadastre no contexto e volte com a informação já selecionada.">
-        <div className="overflow-hidden rounded-2xl border border-tower-200 dark:border-tower-700">
-          <div className="p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.08em] text-tower-500">Responsável no app</p>
-                <p className="mt-1 text-base font-bold text-tower-900 dark:text-tower-50">{manifest.link?.name ?? 'Não selecionado'}</p>
-                {manifest.link ? <p className="mt-1 text-xs text-tower-500">{manifest.link.document} · RNTRC {manifest.link.rntrc || 'não informado'}</p> : null}
-              </div>
-              <StatusBadge label={manifest.link ? 'Selecionado' : 'Pendente'} tone={manifest.link ? 'success' : 'warning'} />
-            </div>
-          </div>
-          <div className="border-t border-tower-200 p-4 dark:border-tower-700">
-            <p className="text-xs font-bold uppercase tracking-[0.08em] text-tower-500">Motorista fiscal</p>
-            {manifest.driver ? (
-              <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
-                <div><dt className="text-tower-500">Nome</dt><dd className="font-bold text-tower-900 dark:text-tower-50">{manifest.driver.name}</dd></div>
-                <div><dt className="text-tower-500">CPF</dt><dd className="font-bold text-tower-900 dark:text-tower-50">{manifest.driver.document}</dd></div>
-                <div><dt className="text-tower-500">CNH</dt><dd className="font-bold text-tower-900 dark:text-tower-50">{manifest.driver.cnhNumber || 'Não informada'}</dd></div>
-                <div><dt className="text-tower-500">Validade</dt><dd className="font-bold text-tower-900 dark:text-tower-50">{manifest.driver.cnhExpiry ? new Date(manifest.driver.cnhExpiry).toLocaleDateString('pt-BR') : 'Não informada'}</dd></div>
-              </dl>
-            ) : <p className="mt-2 text-sm text-tower-500">Nenhum motorista vinculado.</p>}
-          </div>
-          <div className="border-t border-tower-200 p-4 dark:border-tower-700">
-            <p className="text-xs font-bold uppercase tracking-[0.08em] text-tower-500">Composição veicular</p>
-            {manifest.link?.vehiclePlate ? (
-              <div className="mt-3">
-                <div className="flex flex-wrap gap-2">
-                  {[manifest.link.vehiclePlate, manifest.link.trailerPlate, manifest.link.trailer2Plate, manifest.link.trailer3Plate].filter(Boolean).map((plate, index) => (
-                    <span key={plate} className={`rounded-lg px-3 py-1.5 font-mono text-sm font-bold ${index === 0 ? 'bg-brand-950 text-white' : 'bg-tower-100 text-tower-800 dark:bg-tower-800 dark:text-tower-100'}`}>{plate}</span>
-                  ))}
-                </div>
-                <p className="mt-2 text-xs text-tower-500">{manifest.link.vehicleType?.name || manifest.vehicleType?.name} · {manifest.link.vehicleAxles ? `${manifest.link.vehicleAxles} eixos` : 'eixos não informados'} · Chassi {manifest.link.vehicleChassi || 'não informado'}</p>
-              </div>
-            ) : <p className="mt-2 text-sm text-tower-500">Composição ainda não cadastrada.</p>}
-          </div>
-        </div>
-
-        {canEditPlanning && (
-          <div className="mt-4 flex flex-wrap gap-2">
-            {!showAssignForm && <button type="button" onClick={() => { setShowAssignForm(true); setShowDriverForm(false); setAssignLinkId(manifest.linkId || ''); }} className="admin-focus min-h-11 rounded-xl bg-tower-100 px-4 text-sm font-bold text-tower-700 hover:bg-tower-200 dark:bg-tower-800 dark:text-tower-300 dark:hover:bg-tower-700">{manifest.linkId ? 'Trocar responsável' : 'Selecionar responsável'}</button>}
-            {manifest.linkId && !showDriverForm && <button type="button" onClick={() => void openDriverForm()} className="admin-focus min-h-11 rounded-xl bg-tower-100 px-4 text-sm font-bold text-tower-700 hover:bg-tower-200 dark:bg-tower-800 dark:text-tower-300 dark:hover:bg-tower-700">{manifest.driver ? 'Trocar motorista' : 'Selecionar motorista'}</button>}
-            {manifest.driver && <button type="button" onClick={() => openDriverFiscalSheet(manifest.driver)} className="admin-focus min-h-11 rounded-xl bg-tower-100 px-4 text-sm font-bold text-tower-700 hover:bg-tower-200 dark:bg-tower-800 dark:text-tower-300 dark:hover:bg-tower-700">Editar motorista</button>}
-            {manifest.link && <button type="button" onClick={() => openVehicleSheet(manifest.link)} className="admin-focus min-h-11 rounded-xl bg-brand-600 px-4 text-sm font-bold text-white hover:bg-brand-700">{manifest.link.vehiclePlate ? 'Editar veículo' : 'Cadastrar veículo'}</button>}
-          </div>
-        )}
-
-        {showAssignForm && (
-          <div className="mt-5 rounded-2xl border border-tower-200 p-4 dark:border-tower-700">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-base font-bold text-tower-900 dark:text-tower-50">Pesquisar responsável</h2>
-              <button type="button" onClick={() => setShowAssignForm(false)} className="admin-focus min-h-10 rounded-lg px-3 text-sm font-bold text-tower-500 hover:bg-tower-100 dark:hover:bg-tower-800">Fechar</button>
-            </div>
-            <label className="mt-4 block">
-              <span className="mb-2 block text-sm font-bold text-tower-800 dark:text-tower-100">Nome, CPF/CNPJ ou placa</span>
-              <input type="search" autoFocus value={responsibleSearch} onChange={(e) => setResponsibleSearch(e.target.value)} placeholder="Comece a digitar para filtrar" className={fieldClass} />
-            </label>
-            <div className="mt-3 divide-y divide-tower-200 overflow-hidden rounded-xl border border-tower-200 dark:divide-tower-700 dark:border-tower-700">
-              {filteredResponsibleLinks.map((link) => (
-                <button key={link.id} type="button" onClick={() => void handleAssignLink(link.id)} className="admin-focus flex min-h-16 w-full items-center justify-between gap-3 px-3 text-left hover:bg-tower-100 dark:hover:bg-tower-800">
-                  <span><strong className="block text-sm text-tower-900 dark:text-tower-50">{link.name}</strong><span className="mt-1 block text-xs text-tower-500">{link.document} · {link.vehiclePlate || 'sem placa'}</span></span>
-                  <span className="text-sm font-bold text-brand-700 dark:text-brand-300">Usar</span>
-                </button>
-              ))}
-              {!filteredResponsibleLinks.length && <p className="px-3 py-4 text-sm text-tower-500">Nenhum responsável aprovado encontrado.</p>}
-            </div>
-          </div>
-        )}
-
-        {showDriverForm && manifest.linkId && (
-          <div className="mt-5 rounded-2xl border border-tower-200 p-4 dark:border-tower-700">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-base font-bold text-tower-900 dark:text-tower-50">Pesquisar motorista</h2>
-              <button type="button" onClick={() => setShowDriverForm(false)} className="admin-focus min-h-10 rounded-lg px-3 text-sm font-bold text-tower-500 hover:bg-tower-100 dark:hover:bg-tower-800">Fechar</button>
-            </div>
-            <p className="mt-1 text-xs text-tower-500">Busque em todos os responsáveis aprovados. Ao escolher, o responsável e o veículo dele acompanham o motorista.</p>
-            <label className="mt-4 block">
-              <span className="mb-2 block text-sm font-bold text-tower-800 dark:text-tower-100">Pesquisar por nome ou CPF</span>
-              <input type="search" autoFocus value={driverSearch} onChange={(e) => setDriverSearch(e.target.value)} placeholder="Nome ou CPF do motorista" className={fieldClass} />
-            </label>
-            <div className="mt-3 divide-y divide-tower-200 overflow-hidden rounded-xl border border-tower-200 dark:divide-tower-700 dark:border-tower-700">
-              {filteredDrivers.map((driver) => (
-                <div key={driver.id} className="flex min-h-16 items-center justify-between gap-3 px-3">
-                  <button type="button" onClick={() => { void manifestsApi.setResponsible(id!, driver.linkId, driver.id).then(async () => { setShowDriverForm(false); flashSuccess('Motorista e responsável vinculados.'); await load(); }).catch((e: any) => setError(e.response?.data?.error || e.message)); }} className="admin-focus min-w-0 flex-1 rounded-lg py-2 text-left">
-                    <strong className="block truncate text-sm text-tower-900 dark:text-tower-50">{driver.name}</strong><span className="mt-1 block text-xs text-tower-500">CPF {driver.document} · CNH {driver.cnhNumber || 'não informada'}{driver.link?.name ? ` · ${driver.link.name}` : ''}</span>
-                  </button>
-                  <button type="button" onClick={() => openDriverFiscalSheet(driver)} className="admin-focus min-h-10 rounded-lg px-3 text-xs font-bold text-brand-700 hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-brand-950/30">Editar</button>
-                </div>
-              ))}
-              {!filteredDrivers.length && <p className="px-3 py-4 text-sm text-tower-500">Nenhum motorista encontrado por esse nome ou CPF.</p>}
-            </div>
-            <button type="button" onClick={() => openDriverFiscalSheet(null)} className="admin-focus mt-3 min-h-11 rounded-xl bg-brand-600 px-4 text-sm font-bold text-white hover:bg-brand-700">+ Cadastrar motorista para {manifest.link?.name}</button>
-          </div>
-        )}
-
-        {manifest.link && canEditPlanning && (
-          <div className="mt-5 rounded-2xl border border-tower-200 p-4 dark:border-tower-700">
-            <h2 className="text-base font-bold text-tower-900 dark:text-tower-50">Localizar composição por placa</h2>
-            <p className="mt-1 text-xs text-tower-500">Ao usar outra composição, o responsável proprietário dela também será selecionado.</p>
-            <input type="search" value={vehicleSearch} onChange={(e) => setVehicleSearch(e.target.value)} placeholder="Ex: ABC1D23" className={`${fieldClass} mt-4 font-mono uppercase`} />
-            {vehicleSearch && (
-              <div className="mt-3 divide-y divide-tower-200 overflow-hidden rounded-xl border border-tower-200 dark:divide-tower-700 dark:border-tower-700">
-                {vehicleMatches.map((link) => (
-                  <button key={link.id} type="button" onClick={() => openVehicleSheet(link)} className="admin-focus flex min-h-16 w-full items-center justify-between gap-3 px-3 text-left hover:bg-tower-100 dark:hover:bg-tower-800">
-                    <span><strong className="block font-mono text-sm text-tower-900 dark:text-tower-50">{[link.vehiclePlate, link.trailerPlate, link.trailer2Plate, link.trailer3Plate].filter(Boolean).join(' + ')}</strong><span className="mt-1 block text-xs text-tower-500">{link.name}</span></span>
-                    <span className="text-sm font-bold text-brand-700 dark:text-brand-300">Usar</span>
-                  </button>
-                ))}
-                {!vehicleMatches.length && <button type="button" onClick={() => openVehicleSheet(manifest.link)} className="admin-focus min-h-14 w-full px-3 text-left text-sm font-bold text-brand-700 hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-brand-950/30">Placa não encontrada · cadastrar para {manifest.link.name}</button>}
-              </div>
-            )}
-          </div>
-        )}
-      </JourneySection>
+        <TripResponsiblePanel
+          manifest={manifest}
+          canEditPlanning={canEditPlanning}
+          showAssignForm={showAssignForm}
+          setShowAssignForm={setShowAssignForm}
+          showDriverForm={showDriverForm}
+          setShowDriverForm={setShowDriverForm}
+          responsibleSearch={responsibleSearch}
+          setResponsibleSearch={setResponsibleSearch}
+          driverSearch={driverSearch}
+          setDriverSearch={setDriverSearch}
+          vehicleSearch={vehicleSearch}
+          setVehicleSearch={setVehicleSearch}
+          filteredResponsibleLinks={filteredResponsibleLinks}
+          filteredDrivers={filteredDrivers}
+          vehicleMatches={vehicleMatches}
+          assignLinkId={assignLinkId}
+          setAssignLinkId={setAssignLinkId}
+          onAssignLink={(linkId) => void handleAssignLink(linkId)}
+          onOpenDriverSearch={() => void openDriverForm()}
+          onSelectDriver={handleSelectDriver}
+          onOpenDriverFiscalSheet={openDriverFiscalSheet}
+          onOpenVehicleSheet={openVehicleSheet}
+          fieldClass={fieldClass}
+        />
       )}
 
       {currentStep === 'freight' && (
@@ -1649,75 +1626,29 @@ const ManifestDetailPage: React.FC = () => {
       )}
 
       {showVehicleSheet && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center">
-          <button type="button" onClick={() => setShowVehicleSheet(false)} className="absolute inset-0 bg-tower-950/55" aria-label="Fechar composição veicular" />
-          <section role="dialog" aria-modal="true" aria-labelledby="vehicle-title" className="mobile-enter relative max-h-[94dvh] w-full overflow-y-auto rounded-t-3xl bg-[var(--app-surface)] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl md:max-w-2xl md:rounded-2xl md:p-6">
-            <div className="mx-auto mb-5 h-1.5 w-12 rounded-full bg-tower-300 md:hidden" />
-            <h2 id="vehicle-title" className="text-xl font-bold text-tower-950 dark:text-tower-50">Composição veicular</h2>
-            <p className="mt-2 text-sm leading-6 text-tower-600 dark:text-tower-300">Cadastre uma vez os dados usados no CIOT e MDF-e. A composição aceita o veículo trator e até três reboques.</p>
-            <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              <div className="sm:col-span-2">
-                <label className="mb-2 block text-sm font-bold">Tipo de veículo</label>
-                <select value={vehicleForm.vehicleTypeId} onChange={(e) => setVehicleForm((form) => ({ ...form, vehicleTypeId: e.target.value }))} className={fieldClass}>
-                  <option value="">Selecione</option>
-                  {vehicleTypes.filter((type) => type.active).map((type) => <option key={type.id} value={type.id}>{type.name} ({type.code})</option>)}
-                </select>
-              </div>
-              <div><label className="mb-2 block text-sm font-bold">Placa principal*</label><input value={vehicleForm.vehiclePlate} onChange={(e) => setVehicleForm((form) => ({ ...form, vehiclePlate: e.target.value.toUpperCase() }))} maxLength={8} placeholder="ABC1D23" className={`${fieldClass} font-mono uppercase`} /></div>
-              <div><label className="mb-2 block text-sm font-bold">Ano</label><input type="number" inputMode="numeric" value={vehicleForm.vehicleYear} onChange={(e) => setVehicleForm((form) => ({ ...form, vehicleYear: e.target.value }))} placeholder="2024" className={fieldClass} /></div>
-              <div><label className="mb-2 block text-sm font-bold">Reboque 1</label><input value={vehicleForm.trailerPlate} onChange={(e) => setVehicleForm((form) => ({ ...form, trailerPlate: e.target.value.toUpperCase() }))} maxLength={8} placeholder="Opcional" className={`${fieldClass} font-mono uppercase`} /></div>
-              <div><label className="mb-2 block text-sm font-bold">Reboque 2</label><input value={vehicleForm.trailer2Plate} onChange={(e) => setVehicleForm((form) => ({ ...form, trailer2Plate: e.target.value.toUpperCase() }))} maxLength={8} placeholder="Opcional" className={`${fieldClass} font-mono uppercase`} /></div>
-              <div><label className="mb-2 block text-sm font-bold">Reboque 3</label><input value={vehicleForm.trailer3Plate} onChange={(e) => setVehicleForm((form) => ({ ...form, trailer3Plate: e.target.value.toUpperCase() }))} maxLength={8} placeholder="Opcional" className={`${fieldClass} font-mono uppercase`} /></div>
-              <details className="sm:col-span-2 rounded-xl border border-tower-200 p-3 dark:border-tower-700">
-                <summary className="admin-focus cursor-pointer list-none rounded-lg text-sm font-bold text-brand-700 dark:text-brand-300">+ Dados fiscais para CIOT e MDF-e</summary>
-                <p className="mt-2 text-xs leading-5 text-tower-500">Eixos, RNTRC e identificação do veículo serão reaproveitados na emissão fiscal.</p>
-                <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                  <div><label className="mb-2 block text-sm font-bold">Número de eixos</label><input type="number" min={1} inputMode="numeric" value={vehicleForm.vehicleAxles} onChange={(e) => setVehicleForm((form) => ({ ...form, vehicleAxles: e.target.value }))} placeholder="Ex: 6" className={fieldClass} /></div>
-                  <div><label className="mb-2 block text-sm font-bold">RNTRC</label><input inputMode="numeric" value={vehicleForm.rntrc} onChange={(e) => setVehicleForm((form) => ({ ...form, rntrc: e.target.value.replace(/\D/g, '') }))} placeholder="8 ou 9 dígitos" className={fieldClass} /></div>
-                  <div><label className="mb-2 block text-sm font-bold">Tipo do transportador</label><select value={vehicleForm.carrierType} onChange={(e) => setVehicleForm((form) => ({ ...form, carrierType: e.target.value }))} className={fieldClass}><option value="TAC">TAC</option><option value="ETC">ETC</option><option value="CTC">CTC</option><option value="FROTA">Frota própria</option></select></div>
-                  <div><label className="mb-2 block text-sm font-bold">Chassi</label><input value={vehicleForm.vehicleChassi} onChange={(e) => setVehicleForm((form) => ({ ...form, vehicleChassi: e.target.value.toUpperCase() }))} maxLength={17} placeholder="17 caracteres" className={`${fieldClass} uppercase`} /></div>
-                  <div><label className="mb-2 block text-sm font-bold">RENAVAM</label><input inputMode="numeric" value={vehicleForm.vehicleRenavam} onChange={(e) => setVehicleForm((form) => ({ ...form, vehicleRenavam: e.target.value.replace(/\D/g, '') }))} className={fieldClass} /></div>
-                  <div><label className="mb-2 block text-sm font-bold">Tipo de carroceria</label><select value={vehicleForm.vehicleBodyType} onChange={(e) => setVehicleForm((form) => ({ ...form, vehicleBodyType: e.target.value }))} className={fieldClass}><option value="NaoAplicavel">Não aplicável</option><option value="Aberta">Aberta</option><option value="FechadaOuBau">Fechada / baú</option><option value="Granelera">Graneleira</option><option value="PortaContainer">Porta-contêiner</option><option value="Sider">Sider</option></select></div>
-                  <div><label className="mb-2 block text-sm font-bold">Tipo de rodado</label><select value={vehicleForm.vehicleWheelType} onChange={(e) => setVehicleForm((form) => ({ ...form, vehicleWheelType: e.target.value }))} className={fieldClass}><option value="Cavalo">Cavalo</option><option value="Truck">Truck</option><option value="Toco">Toco</option><option value="NaoAplicavel">Não aplicável</option></select></div>
-                </div>
-              </details>
-              <details className="sm:col-span-2 rounded-xl border border-tower-200 p-3 dark:border-tower-700">
-                <summary className="admin-focus cursor-pointer list-none rounded-lg text-sm font-bold text-brand-700 dark:text-brand-300">+ Proprietário do veículo, se diferente</summary>
-                <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                  <div><label className="mb-2 block text-sm font-bold">Nome / razão social</label><input value={vehicleForm.vehicleOwnerName} onChange={(e) => setVehicleForm((form) => ({ ...form, vehicleOwnerName: e.target.value }))} className={fieldClass} /></div>
-                  <div><label className="mb-2 block text-sm font-bold">CPF / CNPJ</label><input inputMode="numeric" value={vehicleForm.vehicleOwnerDocument} onChange={(e) => setVehicleForm((form) => ({ ...form, vehicleOwnerDocument: e.target.value }))} className={fieldClass} /></div>
-                </div>
-              </details>
-            </div>
-            <div className="mt-6 flex gap-3">
-              <button type="button" onClick={() => setShowVehicleSheet(false)} className="admin-focus min-h-12 rounded-xl px-4 text-sm font-semibold text-tower-600 hover:bg-tower-100 dark:text-tower-300 dark:hover:bg-tower-800">Cancelar</button>
-              <button type="button" onClick={handleSaveVehicle} disabled={savingVehicle} className="admin-focus min-h-12 flex-1 rounded-xl bg-brand-600 px-5 text-sm font-bold text-white hover:bg-brand-700 disabled:opacity-50">{savingVehicle ? 'Salvando…' : 'Salvar e usar'}</button>
-            </div>
-          </section>
-        </div>
+        <VehicleFiscalSheet
+          vehicleForm={vehicleForm}
+          setVehicleForm={setVehicleForm}
+          vehicleTypes={vehicleTypes}
+          savingVehicle={savingVehicle}
+          onClose={() => setShowVehicleSheet(false)}
+          onSave={handleSaveVehicle}
+          fieldClass={fieldClass}
+        />
       )}
 
       {showDriverFiscalSheet && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center">
-          <button type="button" onClick={() => setShowDriverFiscalSheet(false)} className="absolute inset-0 bg-tower-950/55" aria-label="Fechar dados fiscais" />
-          <section role="dialog" aria-modal="true" aria-labelledby="driver-fiscal-title" className="mobile-enter relative max-h-[92dvh] w-full overflow-y-auto rounded-t-3xl bg-[var(--app-surface)] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl md:max-w-xl md:rounded-2xl md:p-6">
-            <div className="mx-auto mb-5 h-1.5 w-12 rounded-full bg-tower-300 md:hidden" />
-            <h2 id="driver-fiscal-title" className="text-xl font-bold text-tower-950 dark:text-tower-50">{editingDriverId ? 'Editar motorista' : 'Cadastrar motorista'}</h2>
-            <p className="mt-2 text-sm leading-6 text-tower-600 dark:text-tower-300">Estes dados pertencem ao mesmo responsável selecionado e serão reutilizados no CIOT e MDF-e.</p>
-            <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              <div className="sm:col-span-2"><label className="mb-2 block text-sm font-bold">Nome completo</label><input value={driverFiscalForm.name} onChange={(e) => setDriverFiscalForm((form) => ({ ...form, name: e.target.value }))} className={fieldClass} /></div>
-              <div><label className="mb-2 block text-sm font-bold">CPF</label><input inputMode="numeric" value={driverFiscalForm.document} onChange={(e) => setDriverFiscalForm((form) => ({ ...form, document: e.target.value }))} className={fieldClass} /></div>
-              <div><label className="mb-2 block text-sm font-bold">Telefone</label><input inputMode="tel" value={driverFiscalForm.phone} onChange={(e) => setDriverFiscalForm((form) => ({ ...form, phone: e.target.value }))} className={fieldClass} /></div>
-              <div><label className="mb-2 block text-sm font-bold">Data de nascimento</label><input type="date" value={driverFiscalForm.birthDate} onChange={(e) => setDriverFiscalForm((form) => ({ ...form, birthDate: e.target.value }))} className={fieldClass} /></div>
-              <div><label className="mb-2 block text-sm font-bold">CNH</label><input value={driverFiscalForm.cnhNumber} onChange={(e) => setDriverFiscalForm((form) => ({ ...form, cnhNumber: e.target.value }))} className={fieldClass} /></div>
-              <div><label className="mb-2 block text-sm font-bold">Validade da CNH</label><input type="date" value={driverFiscalForm.cnhExpiry} onChange={(e) => setDriverFiscalForm((form) => ({ ...form, cnhExpiry: e.target.value }))} className={fieldClass} /></div>
-            </div>
-            <div className="mt-6 flex gap-3">
-              <button type="button" onClick={() => setShowDriverFiscalSheet(false)} className="admin-focus min-h-12 rounded-xl px-4 text-sm font-semibold text-tower-600 hover:bg-tower-100 dark:text-tower-300 dark:hover:bg-tower-800">Cancelar</button>
-              <button type="button" onClick={handleSaveDriverFiscal} className="admin-focus min-h-12 flex-1 rounded-xl bg-brand-600 px-5 text-sm font-bold text-white hover:bg-brand-700">Salvar e usar</button>
-            </div>
-          </section>
-        </div>
+        <DriverFiscalSheet
+          editingDriverId={editingDriverId}
+          driverFiscalForm={driverFiscalForm}
+          setDriverFiscalForm={setDriverFiscalForm}
+          personAlreadyHasAddress={driverPersonAlreadyHasAddress}
+          updatePersonAddress={updatePersonAddress}
+          setUpdatePersonAddress={setUpdatePersonAddress}
+          onClose={() => setShowDriverFiscalSheet(false)}
+          onSave={handleSaveDriverFiscal}
+          fieldClass={fieldClass}
+        />
       )}
       </div>
     </ManifestJourneyShell>

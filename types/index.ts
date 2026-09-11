@@ -452,6 +452,16 @@ export interface Driver {
     cnhExpiry?: string | null;
     active: boolean;
     link?: Link;
+    person?: {
+        cep?: string | null;
+        address?: string | null;
+        number?: string | null;
+        complement?: string | null;
+        neighborhood?: string | null;
+        city?: string | null;
+        state?: string | null;
+        cityIbgeCode?: string | null;
+    } | null;
 }
 
 export interface DemandEvent {
