@@ -8,6 +8,7 @@ import { isAcbrCredentialsConfigured } from '../services/acbr/acbrConfig.js';
 import { emitMdfeViaAcbr } from '../services/acbr/acbrMdfeEmit.js';
 import { getManifestMargin } from '../services/pricingService.js';
 import { upsertFreightAgreement } from '../services/manifestFreightAgreementService.js';
+import { getManifestTripPriceEstimate } from '../services/manifestTripPriceEstimateService.js';
 import { isEfreteCredentialsConfigured } from '../services/efrete/efreteConfig.js';
 import { suggestCiotTipoViagem } from '../services/efrete/ciotTipoViagemRule.js';
 import { cancelarCiot } from '../services/efrete/efreteCiotEmit.js';
@@ -903,6 +904,24 @@ const freightAgreementSchema = z.object({
     sestSenat: z.number().nonnegative().optional(),
     outrosDescontos: z.number().nonnegative().optional(),
     outrosDescontosDescricao: z.string().optional(),
+});
+
+// GET /api/manifests/:id/trip-price-estimate — prévia de custo sem alterar a Carta Frete
+router.get('/:id/trip-price-estimate', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('HUB')) {
+        return next(new AppError('Not authorized', 403));
+    }
+    try {
+        const id = req.params.id as string;
+        const manifest = await prisma.manifest.findUnique({ where: { id }, select: { hubId: true } });
+        if (!manifest) throw new AppError('Manifest not found', 404);
+        if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && manifest.hubId !== req.user!.hubId) {
+            throw new AppError('Not authorized to access this manifest', 403);
+        }
+        res.json({ success: true, data: await getManifestTripPriceEstimate(id) });
+    } catch (error) {
+        next(error);
+    }
 });
 
 // GET /api/manifests/:id/freight-agreement — Carta Frete estruturada da viagem

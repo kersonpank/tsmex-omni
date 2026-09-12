@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import { manifestsApi, hubsApi, linksApi, fiscalEmittersApi, vehicleTypesApi } from '../../lib/api';
-import type { Manifest, ResolvedOrderSummary, Hub, Link, FiscalEmitter, Driver, CiotTipoViagemSuggestion, CiotEmissionJob, ManifestJourneyStep, ManifestReadiness, VehicleType, ManifestTripType } from '../../types/index';
+import type { Manifest, ResolvedOrderSummary, Hub, Link, FiscalEmitter, Driver, CiotTipoViagemSuggestion, CiotEmissionJob, ManifestJourneyStep, ManifestReadiness, VehicleType, ManifestTripType, TripPriceEstimate } from '../../types/index';
 import EmptyState from '../ui/EmptyState';
 import ErrorPanel from '../ui/ErrorPanel';
 import LoadingPanel from '../ui/LoadingPanel';
@@ -224,6 +224,8 @@ const ManifestDetailPage: React.FC = () => {
   const emptyFreightForm = { freteBruto: '', adiantamento: '', pedagio: '', irrf: '', inss: '', issqn: '', sestSenat: '', outrosDescontos: '', outrosDescontosDescricao: '' };
   const [showFreightForm, setShowFreightForm] = useState(false);
   const [freightForm, setFreightForm] = useState(emptyFreightForm);
+  const [tripPriceEstimate, setTripPriceEstimate] = useState<TripPriceEstimate | null>(null);
+  const [tripPriceLoading, setTripPriceLoading] = useState(false);
   const freightFormSaldoLiquido = useMemo(() => {
     const n = (v: string) => Number(v || 0);
     return (
@@ -603,6 +605,30 @@ const ManifestDetailPage: React.FC = () => {
       irrf: String(fa.irrf), inss: String(fa.inss), issqn: String(fa.issqn), sestSenat: String(fa.sestSenat),
       outrosDescontos: String(fa.outrosDescontos), outrosDescontosDescricao: fa.outrosDescontosDescricao ?? '',
     } : emptyFreightForm);
+    setShowFreightForm(true);
+  };
+
+  const handleLoadTripPriceEstimate = async () => {
+    if (!id) return;
+    setTripPriceLoading(true);
+    setError(null);
+    try {
+      const res = await manifestsApi.getTripPriceEstimate(id);
+      setTripPriceEstimate((res as any)?.data ?? null);
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Erro ao gerar a prévia de custo da viagem');
+    } finally {
+      setTripPriceLoading(false);
+    }
+  };
+
+  const handleApplyTripPriceEstimate = () => {
+    if (!tripPriceEstimate || tripPriceEstimate.suggestedFreteBruto === null || tripPriceEstimate.suggestedPedagio === null) return;
+    setFreightForm((current) => ({
+      ...current,
+      freteBruto: String(tripPriceEstimate.suggestedFreteBruto),
+      pedagio: String(tripPriceEstimate.suggestedPedagio),
+    }));
     setShowFreightForm(true);
   };
 
@@ -1420,6 +1446,37 @@ const ManifestDetailPage: React.FC = () => {
 
       {currentStep === 'freight' && (
       <JourneySection eyebrow="Etapa 6" title="Carta Frete" description="Registre o valor real acordado. Ele vira a fonte de custo e pré-preenche o CIOT.">
+        {manifest.linkId && (
+          <div className="mb-5 rounded-2xl border border-brand-200 bg-brand-50/50 p-4 dark:border-brand-800 dark:bg-brand-950/20">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold text-tower-900 dark:text-tower-50">Prévia de custo da viagem</p>
+                <p className="mt-1 text-xs text-tower-600 dark:text-tower-300">Separa receita dos pedidos, custo do Link, pedágio e piso ANTT. Não altera a Carta Frete sem sua confirmação.</p>
+              </div>
+              <button type="button" onClick={() => void handleLoadTripPriceEstimate()} disabled={tripPriceLoading} className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50">
+                {tripPriceLoading ? 'Calculando...' : 'Gerar prévia de custo'}
+              </button>
+            </div>
+            {tripPriceEstimate && (
+              <div className="mt-4">
+                <dl className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5">
+                  <div><dt className="text-tower-500">Receita dos pedidos</dt><dd className="mt-1 font-bold">{moneyBR(tripPriceEstimate.commercialRevenue)}</dd></div>
+                  <div><dt className="text-tower-500">Frete sugerido ao Link</dt><dd className="mt-1 font-bold">{tripPriceEstimate.suggestedFreteBruto === null ? 'Indisponível' : moneyBR(tripPriceEstimate.suggestedFreteBruto)}</dd></div>
+                  <div><dt className="text-tower-500">Pedágio</dt><dd className="mt-1 font-bold">{tripPriceEstimate.suggestedPedagio === null ? 'Aguardando API de rota' : moneyBR(tripPriceEstimate.suggestedPedagio)}</dd></div>
+                  <div><dt className="text-tower-500">Piso ANTT</dt><dd className="mt-1 font-bold">{tripPriceEstimate.anttMinimumFreight === null ? 'Aguardando tabela vigente' : moneyBR(tripPriceEstimate.anttMinimumFreight)}</dd></div>
+                  <div><dt className="text-tower-500">Margem estimada</dt><dd className="mt-1 font-bold">{tripPriceEstimate.marginEstimate === null ? 'Indisponível' : moneyBR(tripPriceEstimate.marginEstimate)}</dd></div>
+                </dl>
+                {tripPriceEstimate.floorComparison === 'BELOW' && <InlineNotice variant="warning" message="O frete sugerido está abaixo do piso ANTT calculado. Revise antes de salvar a Carta Frete." />}
+                {tripPriceEstimate.issues.map((item) => <p key={item.code} className="mt-2 text-xs text-tower-600 dark:text-tower-300">• {item.message}</p>)}
+                {tripPriceEstimate.suggestedFreteBruto !== null && tripPriceEstimate.suggestedPedagio !== null && (
+                  <button type="button" onClick={handleApplyTripPriceEstimate} className="mt-3 rounded-lg border border-brand-300 bg-white px-3 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-50 dark:border-brand-700 dark:bg-tower-900 dark:text-brand-300">
+                    Aplicar proposta ao formulário
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         {manifest.freightAgreement && (
           <div className="mb-5 rounded-2xl bg-tower-100 p-4 dark:bg-tower-800">
             <p className="text-xs font-bold uppercase tracking-[0.08em] text-tower-500">Prévia salva</p>
