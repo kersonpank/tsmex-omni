@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
 import { clearEfreteTokenCache, getEfreteToken } from './efreteAuth.js';
+import { EfreteApiError } from './efreteHttp.js';
 
 describe('eFrete auth environment selection', () => {
     const originalEnv = { ...process.env };
@@ -31,5 +32,30 @@ describe('eFrete auth environment selection', () => {
         assert.match(body, /prod-secret/);
         assert.match(body, /prod-integrator/);
         assert.doesNotMatch(body, /hom-user/);
+    });
+
+    it('rejected login raises LOGIN_REJECTED with lengths/whitespace only, never values', async () => {
+        process.env.EFRETE_HOMOLOGACAO_USUARIO = 'usuario@w mesquita';
+        process.env.EFRETE_HOMOLOGACAO_SENHA = 'senha#com#hash';
+        process.env.EFRETE_HOMOLOGACAO_INTEGRADOR = 'hash-integrador';
+        globalThis.fetch = (async () =>
+            new Response(JSON.stringify({ Sucesso: false }), { status: 200 })) as typeof fetch;
+
+        await assert.rejects(
+            () => getEfreteToken('homologacao'),
+            (err: unknown) => {
+                assert.ok(err instanceof EfreteApiError);
+                assert.equal((err as EfreteApiError).excecaoCodigo, 'LOGIN_REJECTED');
+                const msg = (err as Error).message;
+                assert.match(msg, /usuario\.length=18/);
+                assert.match(msg, /senha\.length=14/);
+                assert.match(msg, /Usuario, Senha, Integrador, Versao/);
+                assert.match(msg, /contém espaço/);
+                assert.doesNotMatch(msg, /usuario@w/);
+                assert.doesNotMatch(msg, /senha#com/);
+                assert.doesNotMatch(msg, /hash-integrador/);
+                return true;
+            },
+        );
     });
 });

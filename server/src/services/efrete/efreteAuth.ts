@@ -1,5 +1,5 @@
 import { getEfreteCredentials, getEfreteEnvironment, type EfreteEnvironment } from './efreteConfig.js';
-import { efreteFetchJson, type EfreteRequestInit } from './efreteHttp.js';
+import { EfreteApiError, efreteFetchJson, type EfreteRequestInit } from './efreteHttp.js';
 
 interface LoginResponse {
     Sucesso?: boolean;
@@ -39,9 +39,31 @@ export async function getEfreteToken(env: EfreteEnvironment = getEfreteEnvironme
             path: '/services/Logon/Login',
             body: { Usuario: usuario, Senha: senha, Integrador: integrador, Versao: 1 },
             environment: env,
+        }).catch((err: unknown) => {
+            // O http layer rejeita `Sucesso:false` genericamente. Para o Login — que é silencioso
+            // por design (sem Excecao) — recodificamos como LOGIN_REJECTED com diagnóstico seguro:
+            // apenas labels enviados, comprimentos e presença de espaço; nunca os valores.
+            if (err instanceof EfreteApiError && !err.excecaoCodigo) {
+                throw new EfreteApiError(
+                    `eFrete Login rejeitado (Sucesso:false sem Excecao). Campos enviados: Usuario, Senha, Integrador, Versao. `
+                        + `usuario.length=${usuario.length}${/\s/.test(usuario) ? ' (contém espaço)' : ''}, `
+                        + `senha.length=${senha.length}${/\s/.test(senha) ? ' (contém espaço)' : ''}. `
+                        + `Confira se Usuario é o CPF/e-mail exato cadastrado e se a Senha está correta.`,
+                    { excecaoCodigo: 'LOGIN_REJECTED' },
+                );
+            }
+            throw err;
         });
         if (!res.Token) {
-            throw new Error('eFrete Login: resposta sem Token (credenciais inválidas ou ambiente incorreto).');
+            // Login eFrete rejeita silenciosamente (`Sucesso:false` sem Excecao). Para diagnóstico
+            // sem vazar segredos: apenas labels enviados, comprimentos e presença de espaço.
+            throw new EfreteApiError(
+                `eFrete Login rejeitado (Sucesso:false sem Excecao). Campos enviados: Usuario, Senha, Integrador, Versao. `
+                    + `usuario.length=${usuario.length}${/\s/.test(usuario) ? ' (contém espaço)' : ''}, `
+                    + `senha.length=${senha.length}${/\s/.test(senha) ? ' (contém espaço)' : ''}. `
+                    + `Confira se Usuario é o CPF/e-mail exato cadastrado e se a Senha está correta.`,
+                { excecaoCodigo: 'LOGIN_REJECTED' },
+            );
         }
         cachedByEnv.set(env, { token: res.Token, expiresAtMs: Date.now() + TOKEN_TTL_MS });
         return res.Token;

@@ -33,6 +33,10 @@ export async function runEfreteDiagnostics(
         return { provider: 'EFRETE', environment: upper, configured: true, authentication: 'OK', baseUrl };
     } catch (error) {
         const code = error instanceof EfreteApiError && error.excecaoCodigo ? error.excecaoCodigo : 'AUTHENTICATION_FAILED';
-        return { provider: 'EFRETE', environment: upper, configured: true, authentication: 'ERROR', baseUrl, errorCode: code, message: 'Falha na autenticação eFrete.' };
+        // Em LOGIN_REJECTED a mensagem do erro já é sanitizada (apenas labels/comprimentos/espaço).
+        const message = error instanceof EfreteApiError && error.excecaoCodigo === 'LOGIN_REJECTED' && error.message
+            ? error.message
+            : 'Falha na autenticação eFrete.';
+        return { provider: 'EFRETE', environment: upper, configured: true, authentication: 'ERROR', baseUrl, errorCode: code, message };
     }
 }
