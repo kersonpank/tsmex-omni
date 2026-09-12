@@ -11,6 +11,7 @@ import { upsertFreightAgreement } from '../services/manifestFreightAgreementServ
 import { isEfreteCredentialsConfigured } from '../services/efrete/efreteConfig.js';
 import { suggestCiotTipoViagem } from '../services/efrete/ciotTipoViagemRule.js';
 import { cancelarCiot } from '../services/efrete/efreteCiotEmit.js';
+import { getObjectDownloadUrl } from '../lib/objectStorage.js';
 import { enqueueCiotEmissionJob } from '../services/queues/ciotEmissionQueue.js';
 import type { StoredCiotRequestData } from '../services/queues/ciotEmissionJobInput.js';
 import { getManifestReadiness } from '../services/manifestReadinessService.js';
@@ -1402,6 +1403,24 @@ router.get('/:id/ciot-status', authenticate, authorize('ADMIN', 'HUB'), async (r
     }
 });
 
+// GET /api/manifests/:manifestId/fiscal-documents/:documentId/pdf
+router.get('/:id/fiscal-documents/:documentId/pdf', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const manifestId = String(req.params.id);
+        const documentId = String(req.params.documentId);
+        const manifest = await prisma.manifest.findUnique({ where: { id: manifestId }, select: { hubId: true } });
+        if (!manifest) throw new AppError('Manifesto não encontrado.', 404);
+        if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && manifest.hubId !== req.user!.hubId) {
+            throw new AppError('Sem acesso a este manifesto.', 403);
+        }
+        const document = await prisma.manifestFiscalDocument.findFirst({ where: { id: documentId, manifestId, documentType: 'CIOT', status: 'AUTHORIZED' } });
+        if (!document?.pdfUrl?.startsWith('s3:')) throw new AppError('PDF do CIOT não arquivado.', 404);
+        const key = document.pdfUrl.slice(3);
+        if (!key) throw new AppError('Referência de PDF inválida.', 404);
+        res.json({ downloadUrl: await getObjectDownloadUrl(key, 300), expiresInSeconds: 300 });
+    } catch (err) { next(err); }
+});
+
 // POST /api/manifests/:id/emit-ciot — emissão real via eFrete (assíncrona, fila BullMQ)
 router.post('/:id/emit-ciot', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
@@ -1411,7 +1430,7 @@ router.post('/:id/emit-ciot', authenticate, authorize('ADMIN', 'HUB'), async (re
         }
         const body = emitCiotSchema.parse(req.body);
 
-        const manifest = await prisma.manifest.findUnique({ where: { id }, include: { link: true, driver: true } });
+        const manifest = await prisma.manifest.findUnique({ where: { id }, include: { link: true, driver: true, fiscalEmitter: { select: { environment: true } } } });
         if (!manifest) throw new AppError('Manifest not found', 404);
         if (req.user!.roles.includes('HUB') && req.user!.hubId && manifest.hubId !== req.user!.hubId) {
             throw new AppError('Not authorized', 403);
@@ -1467,6 +1486,7 @@ router.post('/:id/emit-ciot', authenticate, authorize('ADMIN', 'HUB'), async (re
                     idOperacaoCliente: `CIOT-${id}-${suffix}`,
                     tipoViagem,
                     requestData: requestData as object,
+                    environment: manifest.fiscalEmitter?.environment ?? 'HOMOLOGACAO',
                 },
             });
         }

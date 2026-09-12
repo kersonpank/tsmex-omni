@@ -4,8 +4,10 @@ import prisma from '../../lib/prisma.js';
 import { EfreteApiError } from '../efrete/efreteHttp.js';
 import { ensureMotoristaRegistrado, ensureProprietarioRegistrado, ensureVeiculoRegistrado } from '../efrete/efreteCadastro.js';
 import { submitCiotToEfrete, consultarStatusCiot } from '../efrete/efreteCiotEmit.js';
+import { obterCiotPdf } from '../efrete/efreteCiotEmit.js';
 import { buildCiotPayload } from '../efrete/efreteCiotMapper.js';
 import { buildCiotEmissionInputForJob } from './ciotEmissionJobInput.js';
+import { uploadBase64Object } from '../../lib/objectStorage.js';
 import type { CiotEmissionJobData } from './ciotEmissionQueue.js';
 
 const RETRY_DELAY_MS = 5_000;
@@ -21,13 +23,15 @@ export interface CiotEmissionProcessorDeps {
     prisma: {
         ciotEmissionJob: Pick<typeof prisma.ciotEmissionJob, 'findUniqueOrThrow' | 'update'>;
         manifest: Pick<typeof prisma.manifest, 'findUniqueOrThrow'>;
-        manifestFiscalDocument: Pick<typeof prisma.manifestFiscalDocument, 'create'>;
+        manifestFiscalDocument: Pick<typeof prisma.manifestFiscalDocument, 'create'> & Partial<Pick<typeof prisma.manifestFiscalDocument, 'findFirst' | 'update'>>;
     };
     ensureMotoristaRegistrado: typeof ensureMotoristaRegistrado;
     ensureProprietarioRegistrado: typeof ensureProprietarioRegistrado;
     ensureVeiculoRegistrado: typeof ensureVeiculoRegistrado;
     consultarStatusCiot: typeof consultarStatusCiot;
     submitCiotToEfrete: typeof submitCiotToEfrete;
+    obterCiotPdf: typeof obterCiotPdf;
+    uploadBase64Object: typeof uploadBase64Object;
     buildCiotEmissionInputForJob: typeof buildCiotEmissionInputForJob;
 }
 
@@ -42,6 +46,8 @@ export const defaultCiotEmissionProcessorDeps: CiotEmissionProcessorDeps = {
     ensureVeiculoRegistrado,
     consultarStatusCiot,
     submitCiotToEfrete,
+    obterCiotPdf,
+    uploadBase64Object,
     buildCiotEmissionInputForJob,
 };
 
@@ -81,6 +87,15 @@ async function markPendingReconciliation(deps: CiotEmissionProcessorDeps, ciotEm
     });
 }
 
+async function archiveCiotPdf(deps: CiotEmissionProcessorDeps, job: CiotEmissionJobRecord, code: string, environment: 'producao' | 'homologacao', authorized: any, protocol?: string, rawPayload?: unknown, rawResponse?: unknown) {
+    const pdf = await deps.obterCiotPdf(code, environment);
+    const uploaded = await deps.uploadBase64Object({ base64: pdf, fileName: `${code}.pdf`, mimeType: 'application/pdf', keyPrefix: `manifests/${job.manifestId}/ciot` });
+    const data = { manifestId: job.manifestId, documentType: 'CIOT' as const, status: 'AUTHORIZED' as const, number: code, protocol, rawPayload: rawPayload as object | undefined, rawResponse: rawResponse as object | undefined, pdfUrl: `s3:${uploaded.storageKey}`, authorizedAt: new Date() };
+    if (authorized && deps.prisma.manifestFiscalDocument.update) await deps.prisma.manifestFiscalDocument.update({ where: { id: authorized.id }, data });
+    else await deps.prisma.manifestFiscalDocument.create({ data });
+    await deps.prisma.ciotEmissionJob.update({ where: { id: job.id }, data: { phase: 'DONE', attemptCount: 0 } });
+}
+
 export async function processCiotEmissionJob(
     job: Job<CiotEmissionJobData>,
     deps: CiotEmissionProcessorDeps = defaultCiotEmissionProcessorDeps,
@@ -92,7 +107,15 @@ export async function processCiotEmissionJob(
         ciotJob = await deps.prisma.ciotEmissionJob.findUniqueOrThrow({ where: { id: ciotEmissionJobId } });
         if (ciotJob.phase === 'DONE') return;
 
-        const { mapperInput, environment } = await deps.buildCiotEmissionInputForJob(ciotEmissionJobId);
+        const storedEnvironment = ciotJob.environment === 'PRODUCAO' ? 'producao' : ciotJob.environment === 'HOMOLOGACAO' ? 'homologacao' : undefined;
+        if (ciotJob.phase === 'DOWNLOADING_FILES' && ciotJob.codigoIdentificacaoOperacao && storedEnvironment) {
+            const authorized = await deps.prisma.manifestFiscalDocument.findFirst?.({ where: { manifestId: ciotJob.manifestId, documentType: 'CIOT', status: 'AUTHORIZED', number: ciotJob.codigoIdentificacaoOperacao } });
+            if (authorized?.pdfUrl?.startsWith('s3:')) { await deps.prisma.ciotEmissionJob.update({ where: { id: ciotJob.id }, data: { phase: 'DONE', attemptCount: 0 } }); return; }
+            await archiveCiotPdf(deps, ciotJob, ciotJob.codigoIdentificacaoOperacao, storedEnvironment, authorized);
+            return;
+        }
+        const { mapperInput, environment: builtEnvironment } = await deps.buildCiotEmissionInputForJob(ciotEmissionJobId);
+        const environment = storedEnvironment ?? builtEnvironment;
 
         const manifest = await deps.prisma.manifest.findUniqueOrThrow({
             where: { id: ciotJob.manifestId },
@@ -131,28 +154,48 @@ export async function processCiotEmissionJob(
             throw new Error('eFrete não retornou CodigoIdentificacaoOperacao nem na consulta de idempotência nem na emissão.');
         }
 
+        const authorized = await deps.prisma.manifestFiscalDocument.findFirst?.({
+            where: { manifestId: ciotJob.manifestId, documentType: 'CIOT', status: 'AUTHORIZED', number: codigoIdentificacaoOperacao },
+        });
+        if (authorized?.pdfUrl?.startsWith('s3:')) {
+            await deps.prisma.ciotEmissionJob.update({ where: { id: ciotEmissionJobId }, data: { phase: 'DONE', codigoIdentificacaoOperacao, attemptCount: 0 } });
+            return;
+        }
+        // Compatibilidade dos testes/consumidores que injetam apenas o fluxo de emissão;
+        // o processor padrão sempre injeta o arquivamento obrigatório abaixo.
         await deps.prisma.ciotEmissionJob.update({
             where: { id: ciotEmissionJobId },
-            data: { phase: 'DONE', codigoIdentificacaoOperacao, attemptCount: 0 },
+            data: { phase: 'DOWNLOADING_FILES', codigoIdentificacaoOperacao, environment: environment === 'producao' ? 'PRODUCAO' : 'HOMOLOGACAO' },
         });
-        await deps.prisma.manifestFiscalDocument.create({
-            data: {
+        ciotJob.phase = 'DOWNLOADING_FILES';
+        ciotJob.codigoIdentificacaoOperacao = codigoIdentificacaoOperacao;
+        const pdf = await deps.obterCiotPdf(codigoIdentificacaoOperacao, environment);
+        const uploaded = await deps.uploadBase64Object({ base64: pdf, fileName: `${codigoIdentificacaoOperacao}.pdf`, mimeType: 'application/pdf', keyPrefix: `manifests/${ciotJob.manifestId}/ciot` });
+        const documentData = {
                 manifestId: ciotJob.manifestId,
-                documentType: 'CIOT',
-                status: 'AUTHORIZED',
+                documentType: 'CIOT' as const,
+                status: 'AUTHORIZED' as const,
                 number: codigoIdentificacaoOperacao,
                 protocol: protocoloServico,
                 rawPayload: rawPayload as object | undefined,
                 rawResponse: rawResponse as object | undefined,
+                pdfUrl: `s3:${uploaded.storageKey}`,
                 authorizedAt: new Date(),
-            },
-        });
+        };
+        if (authorized && deps.prisma.manifestFiscalDocument.update) await deps.prisma.manifestFiscalDocument.update({ where: { id: authorized.id }, data: { ...documentData, rawPayload: rawPayload as object | undefined, rawResponse: rawResponse as object | undefined } });
+        else await deps.prisma.manifestFiscalDocument.create({ data: documentData });
+        await deps.prisma.ciotEmissionJob.update({ where: { id: ciotEmissionJobId }, data: { phase: 'DONE', attemptCount: 0 } });
     } catch (err) {
         if (err instanceof DelayedError) throw err;
 
         if (!ciotJob) {
             // findUniqueOrThrow inicial falhou — sem attemptCount/maxAttempts pra decidir reagendar.
             throw err;
+        }
+
+        if (ciotJob.phase === 'DOWNLOADING_FILES' && ciotJob.codigoIdentificacaoOperacao) {
+            await deps.prisma.ciotEmissionJob.update({ where: { id: ciotEmissionJobId }, data: { phase: 'DOWNLOADING_FILES', lastError: err instanceof Error ? err.message : String(err) } });
+            return;
         }
 
         // Rejeição de negócio da própria eFrete (`Sucesso: false` com Excecao preenchida — ex.:

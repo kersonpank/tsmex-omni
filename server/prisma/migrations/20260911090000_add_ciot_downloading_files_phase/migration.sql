@@ -1,0 +1,1 @@
+ALTER TYPE "CiotEmissionJobPhase" ADD VALUE 'DOWNLOADING_FILES';
