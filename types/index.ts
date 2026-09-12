@@ -580,6 +580,24 @@ export interface ManifestFreightAgreement {
     updatedAt: string;
 }
 
+export interface TripPriceEstimate {
+    status: 'READY' | 'PARTIAL' | 'UNAVAILABLE';
+    commercialRevenue: number;
+    orderFreightMissingCount: number;
+    suggestedFreteBruto: number | null;
+    suggestedPedagio: number | null;
+    suggestedTotalCost: number | null;
+    anttMinimumFreight: number | null;
+    floorComparison: 'ABOVE' | 'BELOW' | 'UNAVAILABLE';
+    marginEstimate: number | null;
+    issues: Array<{ code: string; message: string }>;
+    sources: {
+        linkFreight: 'CARTA_FRETE' | 'ACORDO_LINK' | 'UNAVAILABLE';
+        toll: 'CARTA_FRETE' | 'ROUTE_PROVIDER_UNAVAILABLE';
+        anttFloor: 'ANTT_PROVIDER_UNAVAILABLE';
+    };
+}
+
 export interface Manifest {
     id: string;
     tripType?: ManifestTripType;

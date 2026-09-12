@@ -13,6 +13,7 @@ import type {
     Manifest,
     ManifestStop,
     ManifestFreightAgreement,
+    TripPriceEstimate,
     ManifestReadiness,
     CreateManifestRequest,
     Hub,
@@ -606,6 +607,11 @@ export const manifestsApi = {
 
     updateCapa: async (id: string, data: { fiscalEmitterId?: string; plannedDepartureAt?: string; plannedArrivalAt?: string; notes?: string; seloLacre?: string; liberacao?: string }) => {
         const response = await api.patch<ApiResponse<Manifest>>(`/manifests/${id}/capa`, data);
+        return response.data;
+    },
+
+    getTripPriceEstimate: async (id: string) => {
+        const response = await api.get<ApiResponse<TripPriceEstimate>>(`/manifests/${id}/trip-price-estimate`);
         return response.data;
     },
 
