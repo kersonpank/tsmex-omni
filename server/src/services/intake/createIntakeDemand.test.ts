@@ -367,7 +367,16 @@ describe('createIntakeDemandFromNfeKey — sourceType', () => {
     const cargoData: ParsedNfeCargo = {
         chave: CHAVE44,
         emitente: { cnpj: '12345678000190', razaoSocial: 'Fornecedor XML LTDA', municipio: 'Imperatriz', uf: 'MA' },
-        destinatario: { cnpj: '10256071000103', razaoSocial: 'F C C ABREU LTDA' },
+        destinatario: {
+            cnpj: '10256071000103',
+            razaoSocial: 'F C C ABREU LTDA',
+            municipio: 'São Luís',
+            uf: 'MA',
+            cep: '65000000',
+            logradouro: 'Rua das Flores',
+            numero: '100',
+            bairro: 'Centro',
+        },
         produtos: [
             { descricao: 'Caixa de parafusos', ncm: '73181500', quantidade: 10, valorUnitario: 25.5, valorTotal: 255 },
             { descricao: 'Chapa de aço', ncm: '72091700', quantidade: 2, valorUnitario: 450, valorTotal: 900 },
@@ -378,23 +387,36 @@ describe('createIntakeDemandFromNfeKey — sourceType', () => {
         valorTotalNota: 1155,
     };
 
-    it('com cargoData (XML já baixado): usa nfValue, origin, commodity, weight, units reais em vez de placeholder', async () => {
+    it('com cargoData (XML já baixado): usa nfValue, origin, destination, commodity, weight, units reais em vez de placeholder', async () => {
         const { demand } = await createIntakeDemandFromNfeKey({ chave: CHAVE44, clientId: CLIENT_ID, cargoData });
 
         assert.equal(demand.nfValue, 1155);
         assert.equal(demand.weight, 125);
         assert.equal(demand.units, 3);
         assert.equal(demand.origin, 'Fornecedor XML LTDA - Imperatriz, MA');
+        assert.equal(demand.destination, 'F C C ABREU LTDA - São Luís, MA');
         assert.equal(demand.commodity, 'Caixa de parafusos e mais 1 item');
 
         const missing = demand.missingFields as string[];
         assert.ok(!missing.includes('weight'), 'weight não deveria estar em missingFields');
         assert.ok(!missing.includes('nfValue'), 'nfValue não deveria estar em missingFields');
         assert.ok(!missing.includes('produtos'), 'produtos não deveria estar em missingFields');
-        assert.ok(missing.includes('destination'), 'destination continua missing (não vem do XML)');
+        assert.ok(!missing.includes('destination'), 'destination veio do XML (destinatario), não deveria estar missing');
         assert.ok(missing.includes('volume'), 'volume continua missing (XML não tem m³)');
         assert.ok(missing.includes('cubagem'), 'cubagem continua missing');
-        assert.ok(missing.includes('destinatario'), 'destinatario continua missing');
+        assert.ok(missing.includes('destinatario'), 'destinatario (vínculo com Person cadastrada) continua missing — resolvido na confirmação de chegada');
+    });
+
+    it('com cargoData mas destinatário sem endereço no XML (só cnpj): destination continua placeholder e missing', async () => {
+        const cargoDataSemEndereco: ParsedNfeCargo = {
+            ...cargoData,
+            destinatario: { cnpj: '10256071000103', razaoSocial: '' },
+        };
+        const { demand } = await createIntakeDemandFromNfeKey({ chave: CHAVE44, clientId: CLIENT_ID, cargoData: cargoDataSemEndereco });
+
+        assert.equal(demand.destination, 'A definir');
+        const missing = demand.missingFields as string[];
+        assert.ok(missing.includes('destination'), 'sem município/UF/razão social do destinatário, destination continua faltando');
     });
 
     it('sem cargoData: mantém placeholders (comportamento atual, sem regressão)', async () => {
@@ -404,11 +426,13 @@ describe('createIntakeDemandFromNfeKey — sourceType', () => {
         assert.equal(demand.weight, 1);
         assert.equal(demand.units, 1);
         assert.equal(demand.commodity, 'A definir');
+        assert.equal(demand.destination, 'A definir');
 
         const missing = demand.missingFields as string[];
         assert.ok(missing.includes('weight'));
         assert.ok(missing.includes('nfValue'));
         assert.ok(missing.includes('produtos'));
+        assert.ok(missing.includes('destination'));
     });
 
     it('cargoData guarda o parse completo em rawInputData.nfeXmlData pra auditoria', async () => {

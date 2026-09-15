@@ -796,7 +796,7 @@ const HubOrdersWorkspace: React.FC<HubOrdersWorkspaceProps> = ({
         document.body,
       )}
 
-      {arrivalItem && (
+      {arrivalItem && typeof document !== 'undefined' && createPortal(
         <HubArrivalSheet
           item={arrivalItem}
           onClose={() => setArrivalItem(null)}
@@ -810,7 +810,8 @@ const HubOrdersWorkspace: React.FC<HubOrdersWorkspaceProps> = ({
               if (orderId) setQuery(String(orderId));
             });
           }}
-        />
+        />,
+        document.body,
       )}
     </section>
   );

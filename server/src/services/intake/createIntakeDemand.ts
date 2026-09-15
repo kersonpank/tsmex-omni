@@ -269,6 +269,17 @@ function describeOrigemFromCargo(emitente: ParsedNfeCargo['emitente']): string {
     return parts.length > 0 ? parts.join(' - ') : PLACEHOLDER_ORIGIN;
 }
 
+function describeDestinoFromCargo(destinatario: ParsedNfeCargo['destinatario']): string {
+    const localidade = [destinatario.municipio, destinatario.uf].filter((p) => p && p.trim()).join(', ');
+    const parts = [destinatario.razaoSocial, localidade].filter((p) => p && p.trim());
+    return parts.length > 0 ? parts.join(' - ') : PLACEHOLDER_DEST;
+}
+
+function hasUsableDestino(destinatario: ParsedNfeCargo['destinatario'] | undefined): boolean {
+    if (!destinatario) return false;
+    return Boolean(destinatario.municipio?.trim() || destinatario.uf?.trim() || destinatario.razaoSocial?.trim());
+}
+
 function describeCommodityFromCargo(produtos: ParsedNfeCargo['produtos']): string {
     if (produtos.length === 0) return PLACEHOLDER_COMMODITY;
     const [first, ...rest] = produtos;
@@ -306,13 +317,20 @@ export async function createIntakeDemandFromNfeKey(
     const nfValueCargo = cargoData?.valorTotalNota ?? 0;
     const nfValue = nfValueCargo > 0 ? nfValueCargo : 0.01;
 
-    // destination/volume/cubagem/destinatario nunca vêm do XML padrão da NF-e (destinatário
-    // fiscal somos nós mesmos, não o destino físico da carga; XML não tem m³ nativo) — sempre
-    // ficam pra conferência manual, com ou sem cargoData.
+    // volume/cubagem nunca vêm do XML padrão da NF-e (não tem m³ nativo) — sempre ficam pra
+    // conferência manual, com ou sem cargoData. destination já vem de cargoData.destinatario
+    // (o destinatário do XML é sempre a contraparte real — cliente final —, não nós mesmos;
+    // nosso papel na NF, quando declarado, é `transportador`) quando disponível.
+    const destinatarioTemDado = hasUsableDestino(cargoData?.destinatario);
+    const destination = destinatarioTemDado
+        ? describeDestinoFromCargo(cargoData!.destinatario)
+        : PLACEHOLDER_DEST;
+
     const forcedMissing = NFE_KEY_ALWAYS_MISSING.filter((field) => {
         if (field === 'weight' && pesoCargo > 0) return false;
         if (field === 'nfValue' && nfValueCargo > 0) return false;
         if (field === 'produtos' && (cargoData?.produtos.length ?? 0) > 0) return false;
+        if (field === 'destination' && destinatarioTemDado) return false;
         return true;
     });
 
@@ -322,7 +340,7 @@ export async function createIntakeDemandFromNfeKey(
             nfNumber: parsed.nnf,
             nfValue,
             origin,
-            destination: PLACEHOLDER_DEST,
+            destination,
             commodity,
             weight,
             volume: 0,
@@ -342,7 +360,7 @@ export async function createIntakeDemandFromNfeKey(
         nfNumber: parsed.nnf,
         nfValue,
         origin,
-        destination: PLACEHOLDER_DEST,
+        destination,
         commodity,
         weight,
         volume: 0.001,

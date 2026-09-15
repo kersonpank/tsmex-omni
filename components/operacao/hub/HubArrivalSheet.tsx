@@ -73,14 +73,37 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
           }
         }
 
-        const document = data.destinatario?.cnpj;
-        if (!document) return;
-        const personResponse = await personsApi.search(document);
+        // Destinatário: mesmo padrão do remetente acima — a NF-e já traz razão social e endereço
+        // completos (`nfeXmlParser.ts` extrai `dest`/`enderDest`); se não achar Person cadastrada
+        // por CNPJ, cria em vez de deixar o campo vazio pro humano redigitar o que já foi lido.
+        const destinatarioDoc = data.destinatario?.cnpj;
+        if (!destinatarioDoc) return;
+        const personResponse = await personsApi.search(destinatarioDoc);
         const matches = responseRows(personResponse as ApiResponse<Person[]> | { data: Person[] });
-        const exact = matches.find((person) => person.document?.replace(/\D/g, '') === document);
-        if (!cancelled && exact) {
-          setSelected(exact);
-          setQuery(`${exact.legalName} (${exact.document})`);
+        const exact = matches.find((person) => person.document?.replace(/\D/g, '') === destinatarioDoc);
+        if (exact) {
+          if (!cancelled) {
+            setSelected(exact);
+            setQuery(`${exact.legalName} (${exact.document})`);
+          }
+        } else if (data.destinatario?.razaoSocial) {
+          const createRes = await personsApi.create({
+            documentType: 'CNPJ',
+            document: destinatarioDoc,
+            legalName: data.destinatario.razaoSocial,
+            ...(data.destinatario.municipio ? { city: data.destinatario.municipio } : {}),
+            ...(data.destinatario.uf ? { state: data.destinatario.uf } : {}),
+            ...(data.destinatario.cep ? { cep: data.destinatario.cep } : {}),
+            ...(data.destinatario.logradouro ? { address: data.destinatario.logradouro } : {}),
+            ...(data.destinatario.numero ? { number: data.destinatario.numero } : {}),
+            ...(data.destinatario.bairro ? { neighborhood: data.destinatario.bairro } : {}),
+            ...(data.destinatario.ie ? { stateRegistration: data.destinatario.ie } : {}),
+          });
+          const newPerson = ((createRes as any)?.data ?? createRes) as Person;
+          if (!cancelled) {
+            setSelected(newPerson);
+            setQuery(`${newPerson.legalName} (${newPerson.document})`);
+          }
         }
       } catch {
         // Sugestão é best-effort. A busca manual continua disponível.
