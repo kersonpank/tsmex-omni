@@ -69,6 +69,31 @@ export async function confirmIntakeArrival(input: ConfirmIntakeArrivalInput): Pr
         where: { matchedDemandId: demand.id },
     });
 
+    // Início/fim de prestação (campos fiscais do CT-e — cidade pura, não texto livre) vêm do
+    // Person vinculado quando ele já tem cidade resolvida contra o catálogo (`resolveIbgeCode`
+    // em `persons.ts`) — mais confiável e mais atual que `demand.origin`/`destination`, que
+    // ficam congelados desde a criação da Demand e podem trazer "razão social - cidade, UF"
+    // (formato pensado pro card de listagem, não pro campo fiscal). Cai pro texto da Demand só
+    // quando o Person não tem cidade (fluxos MANUAL_HUB/DECLARATION sem cargoData).
+    const prestacaoPersons = await prisma.person.findMany({
+        where: { id: { in: [remetentePersonId, input.destinatarioPersonId] } },
+        select: { id: true, city: true, state: true, cityIbgeCode: true },
+    });
+    const remetentePersonRecord = prestacaoPersons.find((p) => p.id === remetentePersonId);
+    const destinatarioPersonRecord = prestacaoPersons.find((p) => p.id === input.destinatarioPersonId);
+
+    const origemPrestacao =
+        remetentePersonRecord?.city && remetentePersonRecord?.state
+            ? `${remetentePersonRecord.city}, ${remetentePersonRecord.state}`
+            : demand.origin;
+    const origemIbgeCode = remetentePersonRecord?.cityIbgeCode ?? null;
+
+    const fimPrestacao =
+        destinatarioPersonRecord?.city && destinatarioPersonRecord?.state
+            ? `${destinatarioPersonRecord.city}, ${destinatarioPersonRecord.state}`
+            : demand.destination;
+    const fimIbgeCode = destinatarioPersonRecord?.cityIbgeCode ?? null;
+
     // Cliente (conta faturável) só se resolve agora — quando o frete/pagador é decidido — e
     // nunca bloqueia: se o pagador não estiver cadastrado como Client, a Demand segue sem
     // clientId (ver `resolvePayerClient.ts`). REDESPACHO usa o destinatário como proxy do
@@ -111,8 +136,10 @@ export async function confirmIntakeArrival(input: ConfirmIntakeArrivalInput): Pr
                 freightTerm,
                 remetentePersonId,
                 destinatarioPersonId: input.destinatarioPersonId,
-                origemPrestacao: demand.origin,
-                fimPrestacao: demand.destination,
+                origemPrestacao,
+                origemIbgeCode,
+                fimPrestacao,
+                fimIbgeCode,
             },
         });
 

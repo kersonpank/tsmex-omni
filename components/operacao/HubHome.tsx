@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { hubCargoApi, manifestsApi } from '../../lib/api';
-import { isSafeAppPath, parseHubOrderEditId } from '../../lib/hubOrderEditing';
+import { hubOrderEditPath, isSafeAppPath, parseHubOrderEditId } from '../../lib/hubOrderEditing';
 import { manifestStatusLabels, manifestStatusTone } from '../../lib/manifestStatusUi';
 import { useAuthStore } from '../../store/authStore';
 import { useHubCargoStore } from '../../store/hubCargoStore';
@@ -421,6 +421,18 @@ const HubHome: React.FC = () => {
     });
   }, [currentReturnTo, navigate]);
 
+  // Pós-"Confirmar entrada física": pula "Ver pedido" → "Editar pedido" (2 cliques) e vai direto
+  // pra edição — o pedido acabou de nascer com origem/destino/pessoas pré-preenchidos da NF-e,
+  // só falta o humano conferir/completar o que a varredura não trouxe.
+  const editOrderAfterArrival = useCallback((orderId: string) => {
+    navigate(hubOrderEditPath(orderId), {
+      state: {
+        returnTo: currentReturnTo,
+        cargoScrollY: window.scrollY,
+      },
+    });
+  }, [currentReturnTo, navigate]);
+
   const closeEntryContext = useCallback(() => {
     setManualEntry({ open: false });
     if (!editOrderId) return;
@@ -605,6 +617,7 @@ const HubHome: React.FC = () => {
           <HubOrdersWorkspace
             hubId={hubId}
             onOpenOrder={openOrder}
+            onEditOrderAfterArrival={editOrderAfterArrival}
             onOpenTrip={openManifest}
             onCreateTrip={createTrip}
             onOpenManualEntry={(initialCode) => setManualEntry({ open: true, initialCode })}

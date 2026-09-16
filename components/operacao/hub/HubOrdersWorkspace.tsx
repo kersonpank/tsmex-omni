@@ -22,6 +22,9 @@ import HubArrivalSheet from './HubArrivalSheet';
 interface HubOrdersWorkspaceProps {
   hubId?: string | null;
   onOpenOrder: (orderId: string) => void;
+  /** Chamado logo após "Confirmar entrada física" — navega direto pra Editar Pedido em vez de
+   * voltar pra lista, poupando os 2 cliques de "Ver pedido" → "Editar pedido". */
+  onEditOrderAfterArrival: (orderId: string) => void;
   onOpenTrip: (tripId: string) => void;
   onCreateTrip: (orderIds: string[]) => void;
   onOpenManualEntry: (initialCode?: string) => void;
@@ -126,6 +129,7 @@ const LoadingRows = () => (
 const HubOrdersWorkspace: React.FC<HubOrdersWorkspaceProps> = ({
   hubId,
   onOpenOrder,
+  onEditOrderAfterArrival,
   onOpenTrip,
   onCreateTrip,
   onOpenManualEntry,
@@ -803,12 +807,17 @@ const HubOrdersWorkspace: React.FC<HubOrdersWorkspaceProps> = ({
           onConfirmed={(orderId) => {
             setArrivalItem(null);
             setResolution(null);
-            setSuccess('Entrada física confirmada. O pedido já está no estoque deste Hub.');
-            setBucket('stock');
             clearSelection();
-            void reloadAfterMutation().then(() => {
-              if (orderId) setQuery(String(orderId));
-            });
+            // Vai direto pra Editar Pedido (em vez de voltar pra lista) — o resumo que o
+            // usuário acabou de conferir no modal já cumpriu o papel de "confirme antes de
+            // gravar"; agora só falta completar o que a varredura da NF-e não trouxe.
+            if (orderId) {
+              onEditOrderAfterArrival(orderId);
+            } else {
+              setSuccess('Entrada física confirmada. O pedido já está no estoque deste Hub.');
+              setBucket('stock');
+              void reloadAfterMutation();
+            }
           }}
         />,
         document.body,

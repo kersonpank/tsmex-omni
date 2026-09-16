@@ -4,15 +4,24 @@ import prisma from '../../lib/prisma.js';
 import { confirmIntakeArrival } from './confirmIntakeArrival.js';
 import { AppError } from '../../middleware/errorHandler.js';
 
-function stubTransactionDeps() {
+function stubTransactionDeps(options: { personsById?: Record<string, { city?: string | null; state?: string | null; cityIbgeCode?: string | null }> } = {}) {
     const original = {
         opportunityFindFirst: prisma.opportunity.findFirst,
         personFindUnique: prisma.person.findUnique,
+        personFindMany: prisma.person.findMany,
         transaction: prisma.$transaction,
     };
     const updateCalls: Array<{ where: unknown; data: Record<string, unknown> }> = [];
+    const orderCreateCalls: Array<{ data: Record<string, unknown> }> = [];
 
     prisma.opportunity.findFirst = (async () => null) as any;
+    prisma.person.findMany = (async ({ where }: any) => {
+        const ids: string[] = where?.id?.in ?? [];
+        const byId = options.personsById ?? {};
+        return ids
+            .filter((id) => id in byId)
+            .map((id) => ({ id, city: null, state: null, cityIbgeCode: null, ...byId[id] }));
+    }) as any;
     prisma.$transaction = (async (fn: any) =>
         fn({
             demand: {
@@ -26,7 +35,10 @@ function stubTransactionDeps() {
                 findMany: async () => [],
             },
             order: {
-                create: async (args: any) => ({ id: 'order-1', ...args.data }),
+                create: async (args: any) => {
+                    orderCreateCalls.push(args);
+                    return { id: 'order-1', ...args.data };
+                },
             },
             orderHistory: {
                 create: async () => ({ id: 'oh-1' }),
@@ -35,9 +47,11 @@ function stubTransactionDeps() {
 
     return {
         updateCalls,
+        orderCreateCalls,
         restore: () => {
             prisma.opportunity.findFirst = original.opportunityFindFirst;
             prisma.person.findUnique = original.personFindUnique;
+            prisma.person.findMany = original.personFindMany;
             prisma.$transaction = original.transaction;
         },
     };
@@ -200,6 +214,82 @@ describe('confirmIntakeArrival', () => {
 
         assert.equal(personLookupCalled, false, 'clientId já resolvido não deve disparar nova busca de pagador');
         assert.equal(deps.updateCalls[0]?.data.clientId, undefined);
+        deps.restore();
+    });
+
+    it('origemPrestacao/fimPrestacao vêm do city/state do Person vinculado (não do texto congelado da Demand)', async () => {
+        const deps = stubTransactionDeps({
+            personsById: {
+                'p-remet': { city: 'Imperatriz', state: 'MA', cityIbgeCode: '2105302' },
+                'p-dest': { city: 'São Luís', state: 'MA', cityIbgeCode: '2111300' },
+            },
+        });
+        prisma.demand.findUnique = (async () => ({
+            id: 'd1',
+            status: 'AWAITING_ARRIVAL',
+            sourceType: 'DFE_ACBR',
+            clientId: 'c1',
+            origin: 'Fornecedor XML LTDA - Imperatriz, MA',
+            destination: 'A definir',
+            nfNumber: 'NF1',
+            manifestId: null,
+            client: { id: 'c1', personId: 'p-remet', companyName: 'X' },
+            order: null,
+            expectedHubId: 'hub-1',
+        })) as unknown as typeof prisma.demand.findUnique;
+
+        await confirmIntakeArrival({
+            demandId: 'd1',
+            actingRoles: ['HUB'],
+            actingHubId: 'hub-1',
+            remetentePersonId: 'p-remet',
+            destinatarioPersonId: 'p-dest',
+            freightTerm: 'CIF',
+        });
+
+        const orderData = deps.orderCreateCalls[0]?.data;
+        assert.equal(orderData?.origemPrestacao, 'Imperatriz, MA', 'não deve gravar a razão social, só a cidade do Person remetente');
+        assert.equal(orderData?.origemIbgeCode, '2105302');
+        assert.equal(orderData?.fimPrestacao, 'São Luís, MA', 'destino vem do Person destinatário, não do placeholder congelado na Demand');
+        assert.equal(orderData?.fimIbgeCode, '2111300');
+        deps.restore();
+    });
+
+    it('sem cidade no Person vinculado: cai pro texto da Demand (regressão MANUAL_HUB/DECLARATION sem cargoData)', async () => {
+        const deps = stubTransactionDeps({
+            personsById: {
+                'p-remet': { city: null, state: null },
+                'p-dest': { city: null, state: null },
+            },
+        });
+        prisma.demand.findUnique = (async () => ({
+            id: 'd1',
+            status: 'AWAITING_ARRIVAL',
+            sourceType: 'MANUAL_HUB',
+            clientId: 'c1',
+            origin: 'São Paulo, SP',
+            destination: 'Rio de Janeiro, RJ',
+            nfNumber: 'NF1',
+            manifestId: null,
+            client: { id: 'c1', personId: 'p-remet', companyName: 'X' },
+            order: null,
+            expectedHubId: 'hub-1',
+        })) as unknown as typeof prisma.demand.findUnique;
+
+        await confirmIntakeArrival({
+            demandId: 'd1',
+            actingRoles: ['HUB'],
+            actingHubId: 'hub-1',
+            remetentePersonId: 'p-remet',
+            destinatarioPersonId: 'p-dest',
+            freightTerm: 'CIF',
+        });
+
+        const orderData = deps.orderCreateCalls[0]?.data;
+        assert.equal(orderData?.origemPrestacao, 'São Paulo, SP');
+        assert.equal(orderData?.origemIbgeCode, null);
+        assert.equal(orderData?.fimPrestacao, 'Rio de Janeiro, RJ');
+        assert.equal(orderData?.fimIbgeCode, null);
         deps.restore();
     });
 });

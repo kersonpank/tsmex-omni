@@ -25,6 +25,9 @@ const isFreightTerm = (v: FreightTerm | null): v is FreightTerm => v !== null;
 
 const SECTION_IDS = ['pessoas', 'coleta', 'nf', 'calculo', 'evolucao', 'imagens'] as const;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Espelha `PLACEHOLDER_ORIGIN`/`PLACEHOLDER_DEST` de `server/src/services/intake/createIntakeDemand.ts`
+ * — precisa ser tratado como "vazio" nos auto-fills de origem/fim de prestação abaixo. */
+const INTAKE_PLACEHOLDER = 'A definir';
 const fileToBase64 = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -248,7 +251,8 @@ const EntradaTab: React.FC<EntradaTabProps> = ({
     const r = peopleForm.remetente;
     if (r?.city && r?.state) {
       setPeopleForm((f) => {
-        if (f.origemPrestacao.trim()) return f;
+        const current = f.origemPrestacao.trim();
+        if (current && current !== INTAKE_PLACEHOLDER) return f;
         return { ...f, origemPrestacao: `${r.city}, ${r.state}` };
       });
     }
@@ -258,7 +262,8 @@ const EntradaTab: React.FC<EntradaTabProps> = ({
     const d = peopleForm.destinatario;
     if (d?.city && d?.state) {
       setPeopleForm((f) => {
-        if (f.fimPrestacao.trim()) return f;
+        const current = f.fimPrestacao.trim();
+        if (current && current !== INTAKE_PLACEHOLDER) return f;
         return { ...f, fimPrestacao: `${d.city}, ${d.state}` };
       });
     }

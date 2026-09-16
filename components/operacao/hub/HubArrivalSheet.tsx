@@ -38,11 +38,14 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
         const lookup = await nfeApi.lookup(key);
         const data = lookup.data.data;
 
-        // Remetente: espelha components/admin/EntradaTab.tsx — resolvido do emitente da NF-e
-        // sem exigir campo extra no modal, pra satisfazer o remetentePersonId que o backend
-        // exige em confirmIntakeArrival.ts (best-effort: se falhar, comportamento é o mesmo de
-        // antes — o backend ainda tenta o fallback via demand.client?.personId).
-        if (data.cnpjEmitente) {
+        // Remetente e destinatário não dependem um do outro — resolvidos em paralelo (cada um
+        // com try/catch próprio, best-effort) em vez de sequenciais, pra cortar o delay do modal.
+        const resolveRemetente = async () => {
+          // Espelha components/admin/EntradaTab.tsx — resolvido do emitente da NF-e sem exigir
+          // campo extra no modal, pra satisfazer o remetentePersonId que o backend exige em
+          // confirmIntakeArrival.ts (best-effort: se falhar, comportamento é o mesmo de antes —
+          // o backend ainda tenta o fallback via demand.client?.personId).
+          if (!data.cnpjEmitente) return;
           try {
             const res = await personsApi.search(data.cnpjEmitente);
             const persons = responseRows(res as ApiResponse<Person[]> | { data: Person[] });
@@ -71,40 +74,48 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
           } catch {
             // silencioso — backend ainda tem o fallback via demand.client?.personId
           }
-        }
+        };
 
-        // Destinatário: mesmo padrão do remetente acima — a NF-e já traz razão social e endereço
-        // completos (`nfeXmlParser.ts` extrai `dest`/`enderDest`); se não achar Person cadastrada
-        // por CNPJ, cria em vez de deixar o campo vazio pro humano redigitar o que já foi lido.
-        const destinatarioDoc = data.destinatario?.cnpj;
-        if (!destinatarioDoc) return;
-        const personResponse = await personsApi.search(destinatarioDoc);
-        const matches = responseRows(personResponse as ApiResponse<Person[]> | { data: Person[] });
-        const exact = matches.find((person) => person.document?.replace(/\D/g, '') === destinatarioDoc);
-        if (exact) {
-          if (!cancelled) {
-            setSelected(exact);
-            setQuery(`${exact.legalName} (${exact.document})`);
+        const resolveDestinatario = async () => {
+          // Mesmo padrão do remetente acima — a NF-e já traz razão social e endereço completos
+          // (`nfeXmlParser.ts` extrai `dest`/`enderDest`); se não achar Person cadastrada por
+          // CNPJ, cria em vez de deixar o campo vazio pro humano redigitar o que já foi lido.
+          const destinatarioDoc = data.destinatario?.cnpj;
+          if (!destinatarioDoc) return;
+          try {
+            const personResponse = await personsApi.search(destinatarioDoc);
+            const matches = responseRows(personResponse as ApiResponse<Person[]> | { data: Person[] });
+            const exact = matches.find((person) => person.document?.replace(/\D/g, '') === destinatarioDoc);
+            if (exact) {
+              if (!cancelled) {
+                setSelected(exact);
+                setQuery(`${exact.legalName} (${exact.document})`);
+              }
+            } else if (data.destinatario?.razaoSocial) {
+              const createRes = await personsApi.create({
+                documentType: 'CNPJ',
+                document: destinatarioDoc,
+                legalName: data.destinatario.razaoSocial,
+                ...(data.destinatario.municipio ? { city: data.destinatario.municipio } : {}),
+                ...(data.destinatario.uf ? { state: data.destinatario.uf } : {}),
+                ...(data.destinatario.cep ? { cep: data.destinatario.cep } : {}),
+                ...(data.destinatario.logradouro ? { address: data.destinatario.logradouro } : {}),
+                ...(data.destinatario.numero ? { number: data.destinatario.numero } : {}),
+                ...(data.destinatario.bairro ? { neighborhood: data.destinatario.bairro } : {}),
+                ...(data.destinatario.ie ? { stateRegistration: data.destinatario.ie } : {}),
+              });
+              const newPerson = ((createRes as any)?.data ?? createRes) as Person;
+              if (!cancelled) {
+                setSelected(newPerson);
+                setQuery(`${newPerson.legalName} (${newPerson.document})`);
+              }
+            }
+          } catch {
+            // silencioso — busca manual continua disponível
           }
-        } else if (data.destinatario?.razaoSocial) {
-          const createRes = await personsApi.create({
-            documentType: 'CNPJ',
-            document: destinatarioDoc,
-            legalName: data.destinatario.razaoSocial,
-            ...(data.destinatario.municipio ? { city: data.destinatario.municipio } : {}),
-            ...(data.destinatario.uf ? { state: data.destinatario.uf } : {}),
-            ...(data.destinatario.cep ? { cep: data.destinatario.cep } : {}),
-            ...(data.destinatario.logradouro ? { address: data.destinatario.logradouro } : {}),
-            ...(data.destinatario.numero ? { number: data.destinatario.numero } : {}),
-            ...(data.destinatario.bairro ? { neighborhood: data.destinatario.bairro } : {}),
-            ...(data.destinatario.ie ? { stateRegistration: data.destinatario.ie } : {}),
-          });
-          const newPerson = ((createRes as any)?.data ?? createRes) as Person;
-          if (!cancelled) {
-            setSelected(newPerson);
-            setQuery(`${newPerson.legalName} (${newPerson.document})`);
-          }
-        }
+        };
+
+        await Promise.all([resolveRemetente(), resolveDestinatario()]);
       } catch {
         // Sugestão é best-effort. A busca manual continua disponível.
       } finally {
