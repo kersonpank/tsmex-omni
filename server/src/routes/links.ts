@@ -9,10 +9,12 @@ import { upsertPersonForDriver, upsertPersonForLinkOwner } from '../services/per
 
 const router = Router();
 
-// POST /api/links - Admin-only direct creation (used by the manifest wizard's "+ Cadastrar
-// novo motorista" shortcut). Nasce já APPROVED/active — o próprio admin está validando o
-// documento ali. Autocadastro do motorista (LinkOnboardingWizard) continua passando por
-// aprovação manual separada; essa rota não substitui aquele fluxo.
+// POST /api/links - Admin/HUB direct creation (used by the manifest wizard's "+ Cadastrar
+// novo motorista" shortcut). Nasce já APPROVED/active — quem está criando (admin ou o
+// operador do hub) está validando o documento ali mesmo, mesmo padrão de authorize já usado
+// em /:id/fiscal, /:id/drivers e /:id/owner-person. Autocadastro do motorista
+// (LinkOnboardingWizard) continua passando por aprovação manual separada; essa rota não
+// substitui aquele fluxo.
 const createLinkSchema = z.object({
     document: z.string().min(11),
     name: z.string().min(1),
@@ -21,7 +23,7 @@ const createLinkSchema = z.object({
     vehicleTypeId: z.string().uuid(),
     homeBase: z.string().optional(),
 });
-router.post('/', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const body = createLinkSchema.parse(req.body);
 

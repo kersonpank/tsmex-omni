@@ -46,6 +46,7 @@ const vehicleTypes: Record<string, Record<string, unknown>> = {
 const users: Record<string, { id: string; roles: string[] }> = {
     'admin-1': { id: 'admin-1', roles: ['ADMIN'] },
     'hub-1': { id: 'hub-1', roles: ['HUB'] },
+    'client-1': { id: 'client-1', roles: ['CLIENT'] },
 };
 
 const BASE_PAYLOAD = {
@@ -178,8 +179,17 @@ describe('POST /api/links', () => {
         assert.equal(res.status, 400, `Expected 400, got ${res.status}: ${JSON.stringify(res.body)}`);
     });
 
-    it('rejects non-ADMIN callers (403)', async () => {
+    it('HUB role is authorized and creates an APPROVED Link (201)', async () => {
         const token = jwt.sign({ userId: 'hub-1' }, jwtSecret);
+        const res = await httpPostJson<any>(baseUrl, '/api/links', token, BASE_PAYLOAD);
+
+        assert.equal(res.status, 201, `Expected 201, got ${res.status}: ${JSON.stringify(res.body)}`);
+        assert.equal((createdLink as any).approvalStatus, 'APPROVED');
+        assert.equal((createdLink as any).active, true);
+    });
+
+    it('rejects callers without ADMIN or HUB (403)', async () => {
+        const token = jwt.sign({ userId: 'client-1' }, jwtSecret);
         const res = await httpPostJson<any>(baseUrl, '/api/links', token, BASE_PAYLOAD);
 
         assert.equal(res.status, 403, `Expected 403, got ${res.status}: ${JSON.stringify(res.body)}`);

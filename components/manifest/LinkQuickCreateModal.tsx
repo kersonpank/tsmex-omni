@@ -32,7 +32,7 @@ const LinkQuickCreateModal: React.FC<Props> = ({ form, setForm, vehicleTypes, sa
       <div className="mx-auto mb-5 h-1.5 w-12 rounded-full bg-tower-300 md:hidden" />
       <h2 id="link-quick-create-title" className="text-xl font-bold text-tower-950 dark:text-tower-50">Cadastrar novo motorista</h2>
       <p className="mt-2 text-sm leading-6 text-tower-600 dark:text-tower-300">
-        Cadastro direto pelo admin — o Link já nasce aprovado. Depois de salvar, complete veículo e motorista sem sair da viagem.
+        Cadastro direto — o Link já nasce aprovado. Depois de salvar, complete veículo e motorista sem sair da viagem.
       </p>
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
