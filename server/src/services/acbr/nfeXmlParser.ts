@@ -27,6 +27,8 @@ export interface ParsedNfeDestinatario {
     logradouro?: string;
     numero?: string;
     bairro?: string;
+    /** `1`=contribuinte ICMS, `2`=isento de inscrição, `9`=não contribuinte — diz *por quê* `ie` está ausente. */
+    indIEDest?: string;
 }
 
 export interface ParsedNfeTransportador {
@@ -146,6 +148,7 @@ export function parseNfeProcXml(xml: string): ParsedNfeCargo {
             logradouro: enderDest?.xLgr ? toText(enderDest.xLgr) : undefined,
             numero: enderDest?.nro ? toText(enderDest.nro) : undefined,
             bairro: enderDest?.xBairro ? toText(enderDest.xBairro) : undefined,
+            indIEDest: dest?.indIEDest ? toText(dest.indIEDest) : undefined,
         },
         transportador: transporta?.CNPJ
             ? {

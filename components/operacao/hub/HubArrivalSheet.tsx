@@ -21,6 +21,7 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
   const [people, setPeople] = useState<Person[]>([]);
   const [selected, setSelected] = useState<Person | null>(null);
   const [remetentePersonId, setRemetentePersonId] = useState<string | null>(null);
+  const [remetentePerson, setRemetentePerson] = useState<Person | null>(null);
   const [loadingSuggestion, setLoadingSuggestion] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +54,10 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
               (p) => p.document?.replace(/\D/g, '') === data.cnpjEmitente.replace(/\D/g, ''),
             );
             if (match) {
-              if (!cancelled) setRemetentePersonId(match.id);
+              if (!cancelled) {
+                setRemetentePersonId(match.id);
+                setRemetentePerson(match);
+              }
             } else if (data.emitenteRazaoSocial) {
               const createRes = await personsApi.create({
                 documentType: 'CNPJ',
@@ -69,7 +73,10 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
                 ...(data.emitenteIe ? { stateRegistration: data.emitenteIe } : {}),
               });
               const newPerson = ((createRes as any)?.data ?? createRes) as Person;
-              if (!cancelled) setRemetentePersonId(newPerson.id);
+              if (!cancelled) {
+                setRemetentePersonId(newPerson.id);
+                setRemetentePerson(newPerson);
+              }
             }
           } catch {
             // silencioso — backend ainda tem o fallback via demand.client?.personId
@@ -102,7 +109,14 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
                 ...(data.destinatario.logradouro ? { address: data.destinatario.logradouro } : {}),
                 ...(data.destinatario.numero ? { number: data.destinatario.numero } : {}),
                 ...(data.destinatario.bairro ? { neighborhood: data.destinatario.bairro } : {}),
-                ...(data.destinatario.ie ? { stateRegistration: data.destinatario.ie } : {}),
+                // IE real sempre vence; só marca ISENTO quando não há IE resolvida e a própria
+                // nota confirma isenção (indIEDest=2) — `9` (não contribuinte) ou ausência do
+                // campo não vira isenção, fica em branco pra revisão humana.
+                ...(data.destinatario.ie
+                  ? { stateRegistration: data.destinatario.ie }
+                  : data.destinatario.indIEDest === '2'
+                    ? { stateRegistration: 'ISENTO' }
+                    : {}),
               });
               const newPerson = ((createRes as any)?.data ?? createRes) as Person;
               if (!cancelled) {
@@ -142,6 +156,17 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
     }, 250);
     return () => window.clearTimeout(timer);
   }, [query, selected]);
+
+  // Prefere a Person já resolvida (mais fresca — lida no momento da confirmação, direto do
+  // XML/cadastro) sobre o texto congelado da Demand (`item.origin`/`item.destination`, gravado
+  // na criação e que pode ter ficado "A definir" quando o XML ainda não tinha baixado então).
+  // Mesma preferência já aplicada em confirmIntakeArrival.ts (Round 2) — aqui só pra exibição.
+  const origemDisplay = remetentePerson?.city && remetentePerson?.state
+    ? `${remetentePerson.city}, ${remetentePerson.state}`
+    : item.origin;
+  const destinoDisplay = selected?.city && selected?.state
+    ? `${selected.city}, ${selected.state}`
+    : item.destination;
 
   const cargoLine = useMemo(() => {
     const parts = [
@@ -197,11 +222,11 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
           </div>
           <div>
             <dt className="text-xs text-tower-500">Origem</dt>
-            <dd className="text-tower-800 dark:text-tower-200">{item.origin ?? 'A conferir'}</dd>
+            <dd className="text-tower-800 dark:text-tower-200">{origemDisplay ?? 'A conferir'}</dd>
           </div>
           <div>
             <dt className="text-xs text-tower-500">Destino</dt>
-            <dd className="text-tower-800 dark:text-tower-200">{item.destination ?? 'A conferir'}</dd>
+            <dd className="text-tower-800 dark:text-tower-200">{destinoDisplay ?? 'A conferir'}</dd>
           </div>
           {cargoLine && (
             <div className="col-span-2">

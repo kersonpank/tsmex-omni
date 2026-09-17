@@ -179,6 +179,10 @@ router.get('/:chave', authenticate, async (req: Request, res: Response, next: Ne
               logradouro: cargoData.destinatario.logradouro || null,
               numero: cargoData.destinatario.numero || null,
               bairro: cargoData.destinatario.bairro || null,
+              // `2` = isento de inscrição — só esse valor autoriza marcar Person.stateRegistration
+              // = 'ISENTO' automaticamente (ver HubArrivalSheet.tsx); `9` (não contribuinte) ou
+              // ausência do campo não vira isenção, fica em branco pra revisão humana.
+              indIEDest: cargoData.destinatario.indIEDest ?? null,
             }
           : null,
         // Presente independente de o Hub ser ou não o destinatário — a NF-e pode declarar um

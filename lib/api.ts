@@ -1712,6 +1712,8 @@ export const nfeApi = {
         logradouro: string | null;
         numero: string | null;
         bairro: string | null;
+        /** `1`=contribuinte ICMS, `2`=isento de inscrição, `9`=não contribuinte. */
+        indIEDest: string | null;
       } | null;
       transportador: { cnpj: string; razaoSocial: string | null; ie: string | null } | null;
       distribuicaoIndisponivel: { motivo: string; nextAllowedAt?: string; mensagem: string } | null;

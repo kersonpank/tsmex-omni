@@ -98,6 +98,7 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
   const { lookup: lookupNfe, loading: nfeLookupLoading, error: nfeLookupError, clearError: clearNfeError } = useNfeLookup();
   const [editingInvoice, setEditingInvoice] = useState<OrderInvoiceItem | null>(null);
   const [showForm, setShowForm] = useState(() => invoices.length === 0);
+  const [autoOpenedInvoiceId, setAutoOpenedInvoiceId] = useState<string | null>(null);
 
   useEffect(() => {
     if (invoices.length === 0) setShowForm(true);
@@ -192,6 +193,20 @@ const OrderNFForm: React.FC<OrderNFFormProps> = ({ orderId, invoices, onAdded, d
     setEditingInvoice(inv);
     fillFormFromInvoice(inv);
   };
+
+  // Cubagem nunca vem da NF-e (não existe no XML padrão) — quando há só 1 nota (o caso comum do
+  // intake por chave NF-e) e ela ainda não tem cubagem, abre direto em edição em vez de exigir
+  // clicar "Editar": o humano só completa o que falta. Não reabre sozinho se o humano cancelar
+  // de propósito (guarda por id já auto-aberto).
+  useEffect(() => {
+    if (invoices.length !== 1 || editingInvoice) return;
+    const inv = invoices[0];
+    if (inv.cubedVolume != null) return;
+    if (autoOpenedInvoiceId === inv.id) return;
+    setAutoOpenedInvoiceId(inv.id);
+    handleEdit(inv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [invoices, editingInvoice, autoOpenedInvoiceId]);
 
   const cancelEdit = () => {
     setEditingInvoice(null);

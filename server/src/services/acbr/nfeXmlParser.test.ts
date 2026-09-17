@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { parseNfeProcXml } from './nfeXmlParser.js';
 
-function buildNfeProcXml(opts: { multiplosItens?: boolean; multiplosVolumes?: boolean; comIe?: boolean; comTransportador?: boolean; comEnderDest?: boolean } = {}): string {
+function buildNfeProcXml(opts: { multiplosItens?: boolean; multiplosVolumes?: boolean; comIe?: boolean; comTransportador?: boolean; comEnderDest?: boolean; indIEDest?: '1' | '2' | '9' } = {}): string {
     const det1 = `
       <det nItem="1">
         <prod>
@@ -53,6 +53,7 @@ function buildNfeProcXml(opts: { multiplosItens?: boolean; multiplosVolumes?: bo
         <CNPJ>10256071000103</CNPJ>
         <xNome>F C C ABREU LTDA</xNome>
         ${opts.comIe ? '<IE>206283703315</IE>' : ''}
+        ${opts.indIEDest ? `<indIEDest>${opts.indIEDest}</indIEDest>` : ''}
         ${opts.comEnderDest ? `<enderDest>
           <xLgr>Rua das Industrias</xLgr>
           <nro>500</nro>
@@ -108,6 +109,7 @@ describe('parseNfeProcXml', () => {
             logradouro: undefined,
             numero: undefined,
             bairro: undefined,
+            indIEDest: undefined,
         });
         assert.equal(result.valorTotalNota, 1155.0);
     });
@@ -125,7 +127,15 @@ describe('parseNfeProcXml', () => {
             logradouro: 'Rua das Industrias',
             numero: '500',
             bairro: 'Centro',
+            indIEDest: undefined,
         });
+    });
+
+    it('extrai indIEDest do destinatário (1=contribuinte, 2=isento, 9=não contribuinte)', () => {
+        assert.equal(parseNfeProcXml(buildNfeProcXml({ indIEDest: '1' })).destinatario.indIEDest, '1');
+        assert.equal(parseNfeProcXml(buildNfeProcXml({ indIEDest: '2' })).destinatario.indIEDest, '2');
+        assert.equal(parseNfeProcXml(buildNfeProcXml({ indIEDest: '9' })).destinatario.indIEDest, '9');
+        assert.equal(parseNfeProcXml(buildNfeProcXml()).destinatario.indIEDest, undefined);
     });
 
     it('extrai IE do emitente e do destinatário quando presentes no XML', () => {
