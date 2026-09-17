@@ -295,7 +295,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
             where: { id: id },
             include: {
                 vehicleType: true,
-                link: { include: { vehicleType: true } },
+                link: { include: { vehicleType: true, person: true } },
                 driver: true,
                 hub: true,
                 destHub: true,

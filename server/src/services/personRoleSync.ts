@@ -1,8 +1,8 @@
 /**
- * personRoleSync — upsert Person as relational base for a Driver role.
+ * personRoleSync — upsert Person as relational base for a role (Driver or Link owner).
  *
  * Person.document is globally unique (CPF/CNPJ digits-only).
- * Driver is only a role pointing to a Person via personId.
+ * Driver/Link are only roles pointing to a Person via personId.
  *
  * Rules:
  *  - If no Person exists: create with supplied address (required).
@@ -35,32 +35,33 @@ const ADDRESS_FIELDS: Array<keyof DriverAddressInput & string> = [
     'cep', 'address', 'number', 'complement', 'neighborhood', 'city', 'state',
 ];
 
-/**
- * Upsert Person for a Driver role.
- *
- * @param normalizedDocument - CPF digits only (caller must normalize)
- * @param legalName          - Driver's full legal name
- * @param address            - Required when creating a new Person; optional for merge
- */
-export async function upsertPersonForDriver(
+interface UpsertPersonForRoleOptions {
+    documentType: 'CPF' | 'CNPJ';
+    missingAddressErrorMessage: string;
+    stateRegistration?: string;
+}
+
+async function upsertPersonForRole(
     normalizedDocument: string,
     legalName: string,
     address: DriverAddressInput | undefined,
+    options: UpsertPersonForRoleOptions,
 ): Promise<UpsertPersonResult> {
     const existing = await prisma.person.findUnique({ where: { document: normalizedDocument } });
 
     if (!existing) {
         if (!address) {
-            throw new AppError('Endereço é obrigatório para cadastrar um motorista.', 400);
+            throw new AppError(options.missingAddressErrorMessage, 400);
         }
 
         const ibgeCode = await resolveIbgeMunicipio(address.city, address.state, address.cityIbgeCode);
 
         const person = await prisma.person.create({
             data: {
-                documentType: 'CPF',
+                documentType: options.documentType,
                 document: normalizedDocument,
                 legalName,
+                stateRegistration: options.stateRegistration ?? null,
                 cep: address.cep,
                 address: address.address,
                 number: address.number,
@@ -83,6 +84,14 @@ export async function upsertPersonForDriver(
         updateData.legalName = legalName;
     } else if (existing.legalName !== legalName) {
         notOverwritten.push('legalName');
+    }
+
+    if (options.stateRegistration) {
+        if (!existing.stateRegistration) {
+            updateData.stateRegistration = options.stateRegistration;
+        } else if (existing.stateRegistration !== options.stateRegistration) {
+            notOverwritten.push('stateRegistration');
+        }
     }
 
     if (address) {
@@ -125,4 +134,45 @@ export async function upsertPersonForDriver(
     }
 
     return { person, personAlreadyExists: true, notOverwritten };
+}
+
+/**
+ * Upsert Person for a Driver role.
+ *
+ * @param normalizedDocument - CPF digits only (caller must normalize)
+ * @param legalName          - Driver's full legal name
+ * @param address            - Required when creating a new Person; optional for merge
+ */
+export async function upsertPersonForDriver(
+    normalizedDocument: string,
+    legalName: string,
+    address: DriverAddressInput | undefined,
+): Promise<UpsertPersonResult> {
+    return upsertPersonForRole(normalizedDocument, legalName, address, {
+        documentType: 'CPF',
+        missingAddressErrorMessage: 'Endereço é obrigatório para cadastrar um motorista.',
+    });
+}
+
+/**
+ * Upsert Person for a Link owner role (transportador contratado — TAC autônomo ou empresa).
+ *
+ * @param documentType        - 'CPF' for autônomo, 'CNPJ' for transportadora
+ * @param normalizedDocument  - CPF/CNPJ digits only (caller must normalize)
+ * @param legalName           - Nome completo (CPF) ou razão social (CNPJ)
+ * @param address             - Required when creating a new Person; optional for merge
+ * @param stateRegistration   - IE, geralmente vinda de lookup de CNPJ; só preenche se vazia
+ */
+export async function upsertPersonForLinkOwner(
+    documentType: 'CPF' | 'CNPJ',
+    normalizedDocument: string,
+    legalName: string,
+    address: DriverAddressInput | undefined,
+    stateRegistration?: string,
+): Promise<UpsertPersonResult> {
+    return upsertPersonForRole(normalizedDocument, legalName, address, {
+        documentType,
+        stateRegistration,
+        missingAddressErrorMessage: 'Endereço é obrigatório para cadastrar o proprietário do veículo.',
+    });
 }

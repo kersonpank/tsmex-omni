@@ -419,6 +419,23 @@ async function main() {
     const truckType = vehicleTypes.find(v => v.code === 'TRUCK');
     if (truckType) {
         const linkPassword = await bcrypt.hash('link123', 10);
+        const carlosDoc = '12345678900'; // TAC autônomo: mesma Person para Link (proprietário) e Driver
+        const carlosPerson = await prisma.person.upsert({
+            where: { document: carlosDoc },
+            update: {},
+            create: {
+                documentType: 'CPF',
+                document: carlosDoc,
+                legalName: 'Carlos Motorista',
+                cep: '01310-100',
+                address: 'Av. Paulista',
+                number: '1578',
+                neighborhood: 'Bela Vista',
+                city: 'São Paulo',
+                state: 'SP',
+                cityIbgeCode: '3550308',
+            },
+        });
         const linkUser = await prisma.user.upsert({
             where: { email: 'motorista@exemplo.com' },
             update: {},
@@ -428,23 +445,46 @@ async function main() {
                 roles: ['LINK'],
                 link: {
                     create: {
+                        personId: carlosPerson.id,
                         name: 'Carlos Motorista',
-                        document: '123.456.789-00',
+                        document: carlosDoc,
                         phone: '(11) 98888-8888',
                         vehicleTypeId: truckType.id,
                         vehiclePlate: 'ABC-1234',
                         vehicleYear: 2022,
+                        vehicleChassi: '9BWZZZ377VT004251',
+                        vehicleAxles: 3,
+                        rntrc: '12345678',
+                        carrierType: 'TAC',
                         homeBase: 'São Paulo, SP',
                         coverageStates: ['SP', 'MG', 'RJ', 'MA', 'CE'],
                         approvalStatus: 'APPROVED',
                         active: true,
                         score: 4.8,
+                        drivers: {
+                            create: {
+                                personId: carlosPerson.id,
+                                name: 'Carlos Motorista',
+                                document: carlosDoc,
+                                phone: '(11) 98888-8888',
+                                birthDate: new Date('1985-03-15'),
+                                cnhNumber: '12345678901',
+                                cnhExpiry: new Date('2027-12-31'),
+                                active: true,
+                            },
+                        },
                     }
                 }
             },
-            include: { link: true }
+            include: { link: { include: { drivers: true } } }
         });
-        console.log(`   ✅ Link user created: ${linkUser.email}`);
+        // Motorista responsável default da viagem = o próprio Carlos (TAC autônomo)
+        const carlosDriver = linkUser.link?.drivers?.[0];
+        if (carlosDriver) {
+            console.log(`   ✅ Link user created: ${linkUser.email} (readiness completa: RNTRC, chassi, eixos, endereço e motorista)`);
+        } else {
+            console.log(`   ✅ Link user created: ${linkUser.email}`);
+        }
     }
 
     // Operador HUB (SP-GRU) — intake / smoke PR002

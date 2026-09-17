@@ -815,6 +815,36 @@ export const linksApi = {
         return response.data;
     },
 
+    create: async (data: {
+        document: string;
+        name: string;
+        phone: string;
+        vehiclePlate: string;
+        vehicleTypeId: string;
+        homeBase?: string;
+    }) => {
+        const response = await api.post<ApiResponse<Link>>('/links', data);
+        return response.data;
+    },
+
+    updateOwnerPerson: async (id: string, data: {
+        legalName?: string;
+        stateRegistration?: string;
+        address?: {
+            cep: string;
+            address: string;
+            number: string;
+            complement?: string;
+            neighborhood: string;
+            city: string;
+            state: string;
+            cityIbgeCode?: string;
+        };
+    }) => {
+        const response = await api.patch<ApiResponse<Link> & { personAlreadyExists?: boolean; notOverwritten?: string[] }>(`/links/${id}/owner-person`, data);
+        return response.data;
+    },
+
     updateDriver: async (linkId: string, driverId: string, data: Partial<{
         name: string;
         document: string;

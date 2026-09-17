@@ -1,11 +1,85 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import bcrypt from 'bcryptjs';
+import { randomUUID } from 'node:crypto';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
-import { upsertPersonForDriver } from '../services/personRoleSync.js';
+import { upsertPersonForDriver, upsertPersonForLinkOwner } from '../services/personRoleSync.js';
 
 const router = Router();
+
+// POST /api/links - Admin-only direct creation (used by the manifest wizard's "+ Cadastrar
+// novo motorista" shortcut). Nasce já APPROVED/active — o próprio admin está validando o
+// documento ali. Autocadastro do motorista (LinkOnboardingWizard) continua passando por
+// aprovação manual separada; essa rota não substitui aquele fluxo.
+const createLinkSchema = z.object({
+    document: z.string().min(11),
+    name: z.string().min(1),
+    phone: z.string().min(8),
+    vehiclePlate: z.string().min(7).max(8),
+    vehicleTypeId: z.string().uuid(),
+    homeBase: z.string().optional(),
+});
+router.post('/', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const body = createLinkSchema.parse(req.body);
+
+        const normalizedDoc = body.document.replace(/\D/g, '');
+        if (normalizedDoc.length !== 11 && normalizedDoc.length !== 14) {
+            throw new AppError('Document must be CPF (11 digits) or CNPJ (14 digits)', 400);
+        }
+
+        const existingLink = await prisma.link.findUnique({ where: { document: normalizedDoc } });
+        if (existingLink) {
+            throw new AppError('Já existe um Link cadastrado com este CPF/CNPJ.', 409);
+        }
+
+        const vehicleType = await prisma.vehicleType.findFirst({
+            where: { id: body.vehicleTypeId, active: true },
+            select: { id: true },
+        });
+        if (!vehicleType) {
+            throw new AppError('Tipo de veículo não encontrado ou inativo.', 400);
+        }
+
+        const normalizedPlate = body.vehiclePlate.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        if (normalizedPlate.length !== 7) {
+            throw new AppError('Placa deve ter 7 caracteres alfanuméricos.', 400);
+        }
+
+        // Link.userId é obrigatório (1:1 com User) — criamos uma conta placeholder;
+        // o motorista define login de verdade quando completar o próprio onboarding.
+        const placeholderEmail = `link-${randomUUID()}@tsmex.internal`;
+        const hashedPassword = await bcrypt.hash(randomUUID(), 10);
+
+        const link = await prisma.$transaction(async (tx) => {
+            const user = await tx.user.create({
+                data: { email: placeholderEmail, password: hashedPassword, roles: ['LINK'], active: true },
+            });
+            return tx.link.create({
+                data: {
+                    userId: user.id,
+                    name: body.name,
+                    document: normalizedDoc,
+                    phone: body.phone,
+                    vehiclePlate: normalizedPlate,
+                    vehicleTypeId: body.vehicleTypeId,
+                    homeBase: body.homeBase || 'A completar',
+                    coverageStates: [],
+                    approvalStatus: 'APPROVED',
+                    active: true,
+                },
+                include: { vehicleType: true },
+            });
+        });
+
+        res.status(201).json({ success: true, data: link, message: 'Link cadastrado e aprovado.' });
+    } catch (error) {
+        if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
+        next(error);
+    }
+});
 
 // GET /api/links - List links (Admin: full; Hub: approved/active only for manifest assignment)
 router.get('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -594,6 +668,47 @@ router.patch('/:id/drivers/:driverId', authenticate, authorize('ADMIN', 'HUB'), 
             data: driver,
             ...(personAlreadyExists !== undefined ? { personAlreadyExists, notOverwritten } : {}),
         });
+    } catch (error) {
+        if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
+        next(error);
+    }
+});
+
+// PATCH /api/links/:id/owner-person - Vincula/cria a Person do próprio Link (endereço + IE do proprietário),
+// usada pelo "Gravar Proprietário" do CIOT. O documento nunca é redigitado: vem de Link.document.
+const ownerPersonSchema = z.object({
+    address: addressSchema.optional(),
+    stateRegistration: z.string().optional(),
+    legalName: z.string().min(1).optional(),
+});
+router.patch('/:id/owner-person', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const id = req.params.id as string;
+        const link = await prisma.link.findUnique({ where: { id } });
+        if (!link) throw new AppError('Link not found', 404);
+
+        const body = ownerPersonSchema.parse(req.body);
+        const normalizedDoc = (link.document ?? '').replace(/\D/g, '');
+        if (normalizedDoc.length !== 11 && normalizedDoc.length !== 14) {
+            throw new AppError('Link ainda não tem um CPF/CNPJ válido cadastrado.', 400);
+        }
+        const documentType = normalizedDoc.length === 14 ? 'CNPJ' : 'CPF';
+
+        const { person, personAlreadyExists, notOverwritten } = await upsertPersonForLinkOwner(
+            documentType,
+            normalizedDoc,
+            body.legalName ?? link.name,
+            body.address,
+            body.stateRegistration,
+        );
+
+        const updated = await prisma.link.update({
+            where: { id },
+            data: { personId: person.id },
+            include: { vehicleType: true },
+        });
+
+        res.json({ success: true, data: updated, personAlreadyExists, notOverwritten });
     } catch (error) {
         if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
         next(error);

@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
-import { manifestsApi, hubsApi, linksApi, fiscalEmittersApi, vehicleTypesApi } from '../../lib/api';
+import { manifestsApi, hubsApi, linksApi, fiscalEmittersApi, vehicleTypesApi, cnpjApi } from '../../lib/api';
 import type { Manifest, ResolvedOrderSummary, Hub, Link, FiscalEmitter, Driver, CiotTipoViagemSuggestion, CiotEmissionJob, ManifestJourneyStep, ManifestReadiness, VehicleType, ManifestTripType, TripPriceEstimate } from '../../types/index';
 import EmptyState from '../ui/EmptyState';
 import ErrorPanel from '../ui/ErrorPanel';
@@ -17,6 +17,10 @@ import TripResponsiblePanel from './TripResponsiblePanel';
 import DriverFiscalSheet from './DriverFiscalSheet';
 import type { DriverFiscalFormState } from './DriverFiscalSheet';
 import VehicleFiscalSheet from './VehicleFiscalSheet';
+import LinkOwnerPersonSheet from './LinkOwnerPersonSheet';
+import type { OwnerPersonFormState } from './LinkOwnerPersonSheet';
+import LinkQuickCreateModal from './LinkQuickCreateModal';
+import type { LinkQuickCreateFormState } from './LinkQuickCreateModal';
 
 const JourneySection: React.FC<{ eyebrow: string; title: string; description?: string; children: React.ReactNode }> = ({ eyebrow, title, description, children }) => (
   <section>
@@ -220,6 +224,19 @@ const ManifestDetailPage: React.FC = () => {
     vehicleRenavam: '',
     vehicleBodyType: 'NaoAplicavel',
     vehicleWheelType: 'Cavalo',
+  });
+  const [showOwnerPersonSheet, setShowOwnerPersonSheet] = useState(false);
+  const [savingOwnerPerson, setSavingOwnerPerson] = useState(false);
+  const [ownerPersonAlreadyHasAddress, setOwnerPersonAlreadyHasAddress] = useState(false);
+  const [updateOwnerPersonAddress, setUpdateOwnerPersonAddress] = useState(false);
+  const [cnpjLookupLoading, setCnpjLookupLoading] = useState(false);
+  const [ownerPersonForm, setOwnerPersonForm] = useState<OwnerPersonFormState>({
+    legalName: '', stateRegistration: '', cep: '', address: '', number: '', complement: '', neighborhood: '', city: '', state: '', cityIbgeCode: '',
+  });
+  const [showLinkQuickCreate, setShowLinkQuickCreate] = useState(false);
+  const [savingLinkQuickCreate, setSavingLinkQuickCreate] = useState(false);
+  const [linkQuickCreateForm, setLinkQuickCreateForm] = useState<LinkQuickCreateFormState>({
+    document: '', name: '', phone: '', vehiclePlate: '', vehicleTypeId: '',
   });
   const emptyFreightForm = { freteBruto: '', adiantamento: '', pedagio: '', irrf: '', inss: '', issqn: '', sestSenat: '', outrosDescontos: '', outrosDescontosDescricao: '' };
   const [showFreightForm, setShowFreightForm] = useState(false);
@@ -967,6 +984,148 @@ const ManifestDetailPage: React.FC = () => {
     }
   };
 
+  const openOwnerPersonSheet = () => {
+    if (!manifest?.link) return;
+    const p = manifest.link.person;
+    const hasAddress = !!p?.cep;
+    setOwnerPersonAlreadyHasAddress(hasAddress);
+    setUpdateOwnerPersonAddress(false);
+    setOwnerPersonForm({
+      legalName: p?.legalName ?? manifest.link.name,
+      stateRegistration: p?.stateRegistration ?? '',
+      cep: p?.cep ?? '',
+      address: p?.address ?? '',
+      number: p?.number ?? '',
+      complement: p?.complement ?? '',
+      neighborhood: p?.neighborhood ?? '',
+      city: p?.city ?? '',
+      state: p?.state ?? '',
+      cityIbgeCode: p?.cityIbgeCode ?? '',
+    });
+    setShowOwnerPersonSheet(true);
+  };
+
+  const handleLookupCnpjForOwner = async () => {
+    const doc = (manifest?.link?.document ?? '').replace(/\D/g, '');
+    if (doc.length !== 14) return;
+    setCnpjLookupLoading(true);
+    setError(null);
+    try {
+      const res = await cnpjApi.consult(doc);
+      const data = (res as any)?.data ?? res;
+      setOwnerPersonForm((f) => ({
+        ...f,
+        legalName: data.legalName || f.legalName,
+        stateRegistration: data.stateRegistration || f.stateRegistration,
+        cep: data.address?.zipCode || f.cep,
+        address: data.address?.street || f.address,
+        number: data.address?.number || f.number,
+        complement: data.address?.complement || f.complement,
+        neighborhood: data.address?.neighborhood || f.neighborhood,
+        city: data.address?.city || f.city,
+        state: data.address?.state || f.state,
+        cityIbgeCode: data.address?.cityIbgeCode || f.cityIbgeCode,
+      }));
+    } catch (e: any) {
+      const status = e.response?.status;
+      setError(status === 404 ? 'CNPJ não encontrado.' : e.response?.data?.error || e.message || 'Não foi possível consultar o CNPJ agora.');
+    } finally {
+      setCnpjLookupLoading(false);
+    }
+  };
+
+  const handleSaveOwnerPerson = async () => {
+    if (!manifest?.link) return;
+    const addressReadOnly = ownerPersonAlreadyHasAddress && !updateOwnerPersonAddress;
+    if (
+      !addressReadOnly &&
+      (!ownerPersonForm.cep || !ownerPersonForm.address || !ownerPersonForm.number || !ownerPersonForm.neighborhood || !ownerPersonForm.city || !ownerPersonForm.state)
+    ) {
+      setError('Informe o endereço completo: CEP, logradouro, número, bairro, cidade e estado são obrigatórios.');
+      return;
+    }
+    setSavingOwnerPerson(true);
+    setError(null);
+    try {
+      await linksApi.updateOwnerPerson(manifest.link.id, {
+        legalName: ownerPersonForm.legalName || undefined,
+        stateRegistration: ownerPersonForm.stateRegistration || undefined,
+        ...(addressReadOnly ? {} : {
+          address: {
+            cep: ownerPersonForm.cep,
+            address: ownerPersonForm.address,
+            number: ownerPersonForm.number,
+            complement: ownerPersonForm.complement || undefined,
+            neighborhood: ownerPersonForm.neighborhood,
+            city: ownerPersonForm.city,
+            state: ownerPersonForm.state,
+            cityIbgeCode: ownerPersonForm.cityIbgeCode || undefined,
+          },
+        }),
+      });
+      setShowOwnerPersonSheet(false);
+      flashSuccess('Endereço do proprietário salvo.');
+      await load();
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Não foi possível salvar o endereço do proprietário.');
+    } finally {
+      setSavingOwnerPerson(false);
+    }
+  };
+
+  const openLinkQuickCreate = () => {
+    setLinkQuickCreateForm({ document: '', name: '', phone: '', vehiclePlate: '', vehicleTypeId: manifest?.vehicleTypeId ?? '' });
+    setShowLinkQuickCreate(true);
+  };
+
+  const handleSaveLinkQuickCreate = async () => {
+    if (!id) return;
+    const f = linkQuickCreateForm;
+    const doc = f.document.replace(/\D/g, '');
+    if (doc.length !== 11 && doc.length !== 14) {
+      setError('Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido.');
+      return;
+    }
+    if (!f.name.trim() || !f.phone.trim()) {
+      setError('Informe nome e telefone do motorista.');
+      return;
+    }
+    const plate = f.vehiclePlate.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    if (plate.length !== 7) {
+      setError('Informe a placa principal com 7 caracteres.');
+      return;
+    }
+    if (!f.vehicleTypeId) {
+      setError('Selecione o tipo de veículo.');
+      return;
+    }
+    setSavingLinkQuickCreate(true);
+    setError(null);
+    try {
+      const created = await linksApi.create({
+        document: doc,
+        name: f.name.trim(),
+        phone: f.phone.trim(),
+        vehiclePlate: plate,
+        vehicleTypeId: f.vehicleTypeId,
+      });
+      const newLinkId = (created as any)?.data?.id ?? (created as any)?.id;
+      if (!newLinkId) throw new Error('Motorista cadastrado, mas não foi possível selecioná-lo automaticamente.');
+      await manifestsApi.setResponsible(id, newLinkId);
+      setShowLinkQuickCreate(false);
+      setShowAssignForm(false);
+      flashSuccess('Motorista cadastrado, aprovado e selecionado. Complete veículo e dados fiscais abaixo.');
+      await load();
+      const newLinkRes = await linksApi.getById(newLinkId);
+      const newLink = (newLinkRes as any)?.data as Link | undefined;
+      if (newLink) openVehicleSheet(newLink);
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Não foi possível cadastrar o motorista.');
+    } finally {
+      setSavingLinkQuickCreate(false);
+    }
+  };
+
   const handleSelectDriver = (driver: Driver) => {
     void manifestsApi.setResponsible(id!, driver.linkId, driver.id)
       .then(async () => {
@@ -1419,6 +1578,7 @@ const ManifestDetailPage: React.FC = () => {
       {currentStep === 'responsible' && (
         <TripResponsiblePanel
           manifest={manifest}
+          readiness={readiness}
           canEditPlanning={canEditPlanning}
           showAssignForm={showAssignForm}
           setShowAssignForm={setShowAssignForm}
@@ -1440,6 +1600,8 @@ const ManifestDetailPage: React.FC = () => {
           onSelectDriver={handleSelectDriver}
           onOpenDriverFiscalSheet={openDriverFiscalSheet}
           onOpenVehicleSheet={openVehicleSheet}
+          onOpenOwnerPersonSheet={openOwnerPersonSheet}
+          onOpenLinkQuickCreate={openLinkQuickCreate}
           fieldClass={fieldClass}
         />
       )}
@@ -1712,6 +1874,36 @@ const ManifestDetailPage: React.FC = () => {
           setUpdatePersonAddress={setUpdatePersonAddress}
           onClose={() => setShowDriverFiscalSheet(false)}
           onSave={handleSaveDriverFiscal}
+          fieldClass={fieldClass}
+        />
+      )}
+
+      {showOwnerPersonSheet && manifest?.link && (
+        <LinkOwnerPersonSheet
+          document={manifest.link.document}
+          documentType={manifest.link.document.replace(/\D/g, '').length === 14 ? 'CNPJ' : 'CPF'}
+          ownerPersonForm={ownerPersonForm}
+          setOwnerPersonForm={setOwnerPersonForm}
+          personAlreadyHasAddress={ownerPersonAlreadyHasAddress}
+          updatePersonAddress={updateOwnerPersonAddress}
+          setUpdatePersonAddress={setUpdateOwnerPersonAddress}
+          cnpjLookupLoading={cnpjLookupLoading}
+          onLookupCnpj={() => void handleLookupCnpjForOwner()}
+          saving={savingOwnerPerson}
+          onClose={() => setShowOwnerPersonSheet(false)}
+          onSave={() => void handleSaveOwnerPerson()}
+          fieldClass={fieldClass}
+        />
+      )}
+
+      {showLinkQuickCreate && (
+        <LinkQuickCreateModal
+          form={linkQuickCreateForm}
+          setForm={setLinkQuickCreateForm}
+          vehicleTypes={vehicleTypes}
+          saving={savingLinkQuickCreate}
+          onClose={() => setShowLinkQuickCreate(false)}
+          onSave={() => void handleSaveLinkQuickCreate()}
           fieldClass={fieldClass}
         />
       )}
