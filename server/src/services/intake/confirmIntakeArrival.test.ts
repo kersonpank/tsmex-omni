@@ -292,4 +292,129 @@ describe('confirmIntakeArrival', () => {
         assert.equal(orderData?.fimIbgeCode, null);
         deps.restore();
     });
+
+    const CHAVE44 = '35260512345678000190550010000000012345678901';
+
+    it('documentType NFE com cargoData completo: cria OrderInvoice com chave/número/emissão/peso/volumes/valor/natureza', async () => {
+        const deps = stubTransactionDeps();
+        prisma.demand.findUnique = (async () => ({
+            id: 'd1',
+            status: 'AWAITING_ARRIVAL',
+            sourceType: 'DFE_ACBR',
+            clientId: 'c1',
+            origin: 'A',
+            destination: 'B',
+            nfNumber: '12345',
+            documentType: 'NFE',
+            documentKey: CHAVE44,
+            rawInputData: {
+                nfeXmlData: {
+                    chave: CHAVE44,
+                    emitente: { cnpj: '12345678000190', razaoSocial: 'Fornecedor XML LTDA' },
+                    destinatario: { cnpj: '10256071000103', razaoSocial: 'F C C ABREU LTDA' },
+                    produtos: [{ descricao: 'Caixa de parafusos', ncm: '73181500', quantidade: 10, valorUnitario: 25.5, valorTotal: 255 }],
+                    pesoBruto: 125,
+                    pesoLiquido: 118.5,
+                    quantidadeVolumes: 3,
+                    valorTotalNota: 1155,
+                },
+            },
+            manifestId: null,
+            client: { id: 'c1', personId: 'p-remet', companyName: 'X' },
+            order: null,
+            expectedHubId: 'hub-1',
+        })) as unknown as typeof prisma.demand.findUnique;
+
+        await confirmIntakeArrival({
+            demandId: 'd1',
+            actingRoles: ['HUB'],
+            actingHubId: 'hub-1',
+            remetentePersonId: 'p-remet',
+            destinatarioPersonId: 'p-dest',
+            freightTerm: 'CIF',
+        });
+
+        const invoiceData = (deps.orderCreateCalls[0]?.data as any)?.invoicesRel?.create;
+        assert.equal(invoiceData?.type, 'NFE');
+        assert.equal(invoiceData?.nfNumber, '12345');
+        assert.equal(invoiceData?.nfKey, CHAVE44);
+        assert.equal(invoiceData?.emissionDate?.getTime(), new Date('2026-05-01').getTime());
+        assert.equal(invoiceData?.nature, 'Caixa de parafusos');
+        assert.equal(invoiceData?.volumes, 3);
+        assert.equal(invoiceData?.weight, 125);
+        assert.equal(invoiceData?.value, 1155);
+        deps.restore();
+    });
+
+    it('documentType NFE sem cargoData (XML ainda não baixado): cria OrderInvoice só com chave/número/emissão', async () => {
+        const deps = stubTransactionDeps();
+        prisma.demand.findUnique = (async () => ({
+            id: 'd1',
+            status: 'AWAITING_ARRIVAL',
+            sourceType: 'NFE_KEY',
+            clientId: 'c1',
+            origin: 'A',
+            destination: 'B',
+            nfNumber: '12345',
+            documentType: 'NFE',
+            documentKey: CHAVE44,
+            rawInputData: null,
+            manifestId: null,
+            client: { id: 'c1', personId: 'p-remet', companyName: 'X' },
+            order: null,
+            expectedHubId: 'hub-1',
+        })) as unknown as typeof prisma.demand.findUnique;
+
+        await confirmIntakeArrival({
+            demandId: 'd1',
+            actingRoles: ['HUB'],
+            actingHubId: 'hub-1',
+            remetentePersonId: 'p-remet',
+            destinatarioPersonId: 'p-dest',
+            freightTerm: 'CIF',
+        });
+
+        const invoiceData = (deps.orderCreateCalls[0]?.data as any)?.invoicesRel?.create;
+        assert.equal(invoiceData?.nfKey, CHAVE44);
+        assert.equal(invoiceData?.nfNumber, '12345');
+        assert.ok(invoiceData?.emissionDate instanceof Date, 'emissão vem só da chave, não depende de cargoData');
+        assert.equal(invoiceData?.nature, undefined);
+        assert.equal(invoiceData?.volumes, 0);
+        assert.equal(invoiceData?.weight, 0);
+        assert.equal(invoiceData?.value, 0);
+        deps.restore();
+    });
+
+    it('documentType não-NFE (DECLARATION): não cria OrderInvoice nenhum', async () => {
+        const deps = stubTransactionDeps();
+        prisma.demand.findUnique = (async () => ({
+            id: 'd1',
+            status: 'AWAITING_ARRIVAL',
+            sourceType: 'DECLARATION',
+            clientId: 'c1',
+            origin: 'A',
+            destination: 'B',
+            nfNumber: 'DECL-1',
+            documentType: 'DECLARATION',
+            documentKey: null,
+            rawInputData: null,
+            manifestId: null,
+            client: { id: 'c1', personId: 'p-remet', companyName: 'X' },
+            order: null,
+            expectedHubId: 'hub-1',
+        })) as unknown as typeof prisma.demand.findUnique;
+
+        await confirmIntakeArrival({
+            demandId: 'd1',
+            actingRoles: ['HUB'],
+            actingHubId: 'hub-1',
+            remetentePersonId: 'p-remet',
+            destinatarioPersonId: 'p-dest',
+            freightTerm: 'CIF',
+        });
+
+        const orderData = deps.orderCreateCalls[0]?.data as any;
+        assert.equal(orderData?.invoicesRel, undefined);
+        deps.restore();
+    });
 });

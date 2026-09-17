@@ -3,6 +3,8 @@ import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { isIntakeSource } from './intakeDemandPolicy.js';
 import { resolvePayerClient } from './resolvePayerClient.js';
+import { parseChaveNfe } from '../../lib/nfeChaveIntake.js';
+import type { ParsedNfeCargo } from '../acbr/nfeXmlParser.js';
 
 export interface ConfirmIntakeArrivalInput {
     demandId: string;
@@ -94,6 +96,28 @@ export async function confirmIntakeArrival(input: ConfirmIntakeArrivalInput): Pr
             : demand.destination;
     const fimIbgeCode = destinatarioPersonRecord?.cityIbgeCode ?? null;
 
+    // Notas Fiscais: espelha o que o formulário manual (OrderNFForm.tsx) grava via
+    // POST /orders/:id/invoices — construído automaticamente a partir do que a varredura da
+    // NF-e já leu, pra não obrigar o humano a redigitar chave/número/peso/valor que o sistema
+    // já tem. Chave/número/emissão vêm só da própria chave (sempre confiáveis, não dependem de
+    // XML baixado); peso/volumes/valor/natureza só quando o XML já baixou (cargoData) — sem
+    // isso, ficam no default do schema (0/undefined), igual ao que já acontece hoje na Demand.
+    const cargoData = (demand.rawInputData as { nfeXmlData?: ParsedNfeCargo } | null)?.nfeXmlData;
+    const parsedChave = demand.documentKey ? parseChaveNfe(demand.documentKey) : null;
+    const orderInvoiceData =
+        demand.documentType === 'NFE' && demand.documentKey
+            ? {
+                  type: 'NFE' as const,
+                  nfNumber: demand.nfNumber,
+                  nfKey: demand.documentKey,
+                  ...(parsedChave ? { emissionDate: new Date(parsedChave.emissionDate) } : {}),
+                  ...(cargoData?.produtos?.[0]?.descricao ? { nature: cargoData.produtos[0].descricao } : {}),
+                  volumes: cargoData?.quantidadeVolumes ?? 0,
+                  weight: cargoData?.pesoBruto ?? cargoData?.pesoLiquido ?? 0,
+                  value: cargoData?.valorTotalNota ?? 0,
+              }
+            : null;
+
     // Cliente (conta faturável) só se resolve agora — quando o frete/pagador é decidido — e
     // nunca bloqueia: se o pagador não estiver cadastrado como Client, a Demand segue sem
     // clientId (ver `resolvePayerClient.ts`). REDESPACHO usa o destinatário como proxy do
@@ -140,6 +164,7 @@ export async function confirmIntakeArrival(input: ConfirmIntakeArrivalInput): Pr
                 origemIbgeCode,
                 fimPrestacao,
                 fimIbgeCode,
+                ...(orderInvoiceData ? { invoicesRel: { create: orderInvoiceData } } : {}),
             },
         });
 
