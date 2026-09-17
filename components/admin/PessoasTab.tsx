@@ -2,9 +2,9 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRegisterGestaoModuleActions } from './layout/GestaoModuleActionsContext';
 import { useSearchParams } from 'react-router-dom';
 import { personsApi, vehicleTypesApi, hubsApi, locationsApi } from '../../lib/api';
-import type { Person, PersonDocumentType, CreatePersonRequest } from '../../types/index';
+import type { Person, PersonDocumentType } from '../../types/index';
 import type { VehicleType, Hub } from '../../types/index';
-import { DocumentInput } from '../ui/DocumentInput';
+import { PersonFormModal } from '../ui/PersonFormModal';
 import { CityAutocomplete } from '../ui/CityAutocomplete';
 import { maskPhone } from '../../lib/formatters';
 
@@ -50,8 +50,6 @@ const PessoasTab: React.FC = () => {
   const [showLinkAsEmitterModal, setShowLinkAsEmitterModal] = useState(false);
   const [openEditFromQuery, setOpenEditFromQuery] = useState(false);
   const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
-  const [formSaving, setFormSaving] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [gestaoFilterOpen, setGestaoFilterOpen] = useState(false);
   const [gestaoSelectedPersonId, setGestaoSelectedPersonId] = useState<string | null>(null);
@@ -607,13 +605,10 @@ const PessoasTab: React.FC = () => {
       {showCreateModal && (
         <PersonFormModal
           mode="create"
+          title="Nova Pessoa"
           initialValues={{}}
           onClose={() => setShowCreateModal(false)}
           onSuccess={() => { setShowCreateModal(false); loadPersons(); }}
-          formError={formError}
-          formSaving={formSaving}
-          setFormError={setFormError}
-          setFormSaving={setFormSaving}
         />
       )}
 
@@ -641,10 +636,6 @@ const PessoasTab: React.FC = () => {
           }}
           onClose={() => setShowEditModal(false)}
           onSuccess={() => { setShowEditModal(false); if (selectedPersonId) openDetail(selectedPersonId); loadPersons(); }}
-          formError={formError}
-          formSaving={formSaving}
-          setFormError={setFormError}
-          setFormSaving={setFormSaving}
         />
       )}
 
@@ -697,232 +688,6 @@ const PessoasTab: React.FC = () => {
     </div>
   );
 };
-
-// Form modal create/edit Person
-const defaultPersonForm = {
-  documentType: 'CPF' as PersonDocumentType,
-  document: '',
-  legalName: '',
-  tradeName: '',
-  cep: '',
-  address: '',
-  number: '',
-  complement: '',
-  neighborhood: '',
-  city: '',
-  state: '',
-  cityIbgeCode: '',
-  country: 'BRASIL',
-  stateRegistration: '',
-  municipalRegistration: '',
-};
-
-function PersonFormModal({
-  mode,
-  personId,
-  isEmitter = false,
-  initialValues,
-  onClose,
-  onSuccess,
-  formError,
-  formSaving,
-  setFormError,
-  setFormSaving,
-}: {
-  mode: 'create' | 'edit';
-  personId?: string;
-  isEmitter?: boolean;
-  initialValues: Partial<CreatePersonRequest & { tradeName: string; cep: string; number: string; complement: string; neighborhood: string; city: string; state: string; cityIbgeCode: string; country: string; stateRegistration?: string; municipalRegistration?: string }>;
-  onClose: () => void;
-  onSuccess: () => void;
-  formError: string | null;
-  formSaving: boolean;
-  setFormError: (v: string | null) => void;
-  setFormSaving: (v: boolean) => void;
-}) {
-  const [form, setForm] = useState({ ...defaultPersonForm, ...initialValues });
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setFormError(null);
-    setFormSaving(true);
-    try {
-      const cleanIeVal = (form.stateRegistration || '').trim().toUpperCase();
-      if (isEmitter && !cleanIeVal) {
-        setFormError("A Inscrição Estadual é obrigatória para emissores fiscais. Caso seja isento, marque a opção 'Isento'.");
-        setFormSaving(false);
-        return;
-      }
-      const payload = {
-        documentType: form.documentType,
-        document: form.document.replace(/\D/g, ''),
-        legalName: form.legalName,
-        tradeName: form.tradeName || undefined,
-        cep: form.cep || undefined,
-        address: form.address || undefined,
-        number: form.number || undefined,
-        complement: form.complement || undefined,
-        neighborhood: form.neighborhood || undefined,
-        city: form.city || undefined,
-        state: form.state || undefined,
-        cityIbgeCode: form.cityIbgeCode || undefined,
-        country: form.country || 'BRASIL',
-        stateRegistration: form.stateRegistration || undefined,
-        municipalRegistration: form.municipalRegistration || undefined,
-      };
-      if (mode === 'create') {
-        await personsApi.create(payload);
-      } else if (personId) {
-        await personsApi.update(personId, payload);
-      }
-      onSuccess();
-    } catch (err: any) {
-      setFormError(err.response?.data?.error || err.message || 'Erro ao salvar');
-    } finally {
-      setFormSaving(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50" onClick={onClose} role="dialog">
-      <div className="bg-white dark:bg-tower-900 rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
-        <h3 className="text-lg font-bold text-tower-900 dark:text-tower-100 mb-4">{mode === 'create' ? 'Nova Pessoa' : 'Editar Pessoa'}</h3>
-        {formError && <p className="text-red-600 dark:text-brand-red-400 text-sm mb-4">{formError}</p>}
-        {isEmitter && (
-          <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 rounded-lg p-3 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2 mb-4">
-            <span className="text-sm">⚠️</span>
-            <div>
-              <p className="font-semibold">Pessoa vinculada como Emissor Fiscal</p>
-              <p className="mt-0.5">A Inscrição Estadual (IE) é obrigatória. Insira uma IE válida (somente números) ou marque como "Isento".</p>
-            </div>
-          </div>
-        )}
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Tipo documento</label>
-            <select
-              value={form.documentType}
-              onChange={e => setForm(f => ({ ...f, documentType: e.target.value as PersonDocumentType }))}
-              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
-              required
-            >
-              <option value="CPF">CPF</option>
-              <option value="CNPJ">CNPJ</option>
-            </select>
-          </div>
-          <DocumentInput
-            label="Documento"
-            value={form.document}
-            onChange={(v) => setForm(f => ({ ...f, document: v }))}
-            documentType={form.documentType}
-            onImport={form.documentType === 'CNPJ' ? (data) => setForm(f => ({
-              ...f,
-              legalName: data.legalName || f.legalName,
-              tradeName: data.tradeName || f.tradeName,
-              address: data.address ? [data.address.street, data.address.number, data.address.complement, data.address.neighborhood].filter(Boolean).join(', ') : f.address,
-              city: data.address?.city || f.city,
-              state: data.address?.state || f.state,
-              cityIbgeCode: data.address?.cityIbgeCode || f.cityIbgeCode,
-              cep: data.address?.zipCode || f.cep,
-              stateRegistration: data.stateRegistration || f.stateRegistration,
-            })) : undefined}
-            placeholder={form.documentType === 'CPF' ? '11 dígitos' : '14 dígitos'}
-            required
-            className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
-          />
-          <div>
-            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Nome / Razão social</label>
-            <input
-              type="text"
-              value={form.legalName}
-              onChange={e => setForm(f => ({ ...f, legalName: e.target.value }))}
-              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Fantasia</label>
-            <input
-              type="text"
-              value={form.tradeName}
-              onChange={e => setForm(f => ({ ...f, tradeName: e.target.value }))}
-              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">CEP</label>
-              <input type="text" value={form.cep} onChange={e => setForm(f => ({ ...f, cep: e.target.value }))} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Cidade</label>
-              <CityAutocomplete
-                value={form.city && form.state ? `${form.city}, ${form.state}` : form.city}
-                onChange={v => {
-                  const parts = v.split(', ');
-                  if (parts.length >= 2) setForm(f => ({ ...f, city: parts[0], state: parts[1], cityIbgeCode: '' }));
-                  else setForm(f => ({ ...f, city: v, cityIbgeCode: '' }));
-                }}
-                onSelect={(city, state, ibgeCode) => setForm(f => ({ ...f, city, state, cityIbgeCode: ibgeCode || '' }))}
-                placeholder="Ex: São Paulo, SP"
-                className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Endereço</label>
-            <input type="text" value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <div className="flex justify-between items-center mb-1">
-                <label className="block text-sm font-medium text-tower-700 dark:text-tower-200">Inscrição Estadual (IE)</label>
-                <label className="flex items-center gap-1 text-xs cursor-pointer text-tower-500 dark:text-tower-400">
-                  <input
-                    type="checkbox"
-                    checked={form.stateRegistration === 'ISENTO'}
-                    onChange={e => {
-                      setForm(f => ({
-                        ...f,
-                        stateRegistration: e.target.checked ? 'ISENTO' : ''
-                      }));
-                    }}
-                    className="rounded border-tower-300 dark:border-tower-600 text-brand-600 focus:ring-brand-500"
-                  />
-                  <span>Isento</span>
-                </label>
-              </div>
-              <input
-                type="text"
-                disabled={form.stateRegistration === 'ISENTO'}
-                value={form.stateRegistration === 'ISENTO' ? 'ISENTO' : form.stateRegistration}
-                onChange={e => setForm(f => ({ ...f, stateRegistration: e.target.value }))}
-                placeholder={form.stateRegistration === 'ISENTO' ? 'ISENTO' : 'Apenas números'}
-                className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 disabled:bg-tower-100 dark:disabled:bg-tower-850 placeholder:text-tower-400 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Inscrição Municipal (IM)</label>
-              <input
-                type="text"
-                value={form.municipalRegistration || ''}
-                onChange={e => setForm(f => ({ ...f, municipalRegistration: e.target.value }))}
-                placeholder="Opcional"
-                className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
-              />
-            </div>
-          </div>
-          <div className="flex gap-2 justify-end pt-4">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-800 rounded-lg">Cancelar</button>
-            <button type="submit" disabled={formSaving} className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50">
-              {formSaving ? 'Salvando...' : 'Gravar Pessoa'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
 
 function AddClientModal({ personId, onClose, onSuccess }: { personId: string; onClose: () => void; onSuccess: () => void }) {
   const [email, setEmail] = useState('');

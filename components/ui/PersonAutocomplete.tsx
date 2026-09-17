@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { personsApi } from '../../lib/api';
-import { DocumentInput } from './DocumentInput';
+import { PersonFormModal } from './PersonFormModal';
 import { maskCNPJOrCPF } from '../../lib/formatters';
 import type { Person, PersonDocumentType } from '../../types/index';
 
@@ -63,6 +63,7 @@ export const PersonAutocomplete: React.FC<PersonAutocompleteProps> = ({
   const [loading, setLoading] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [createModalInitial, setCreateModalInitial] = useState<{ document: string; documentType: PersonDocumentType; legalName: string } | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -132,6 +133,11 @@ export const PersonAutocomplete: React.FC<PersonAutocompleteProps> = ({
     handleSelect(newPerson);
   };
 
+  const handleEditSuccess = (updatedPerson: Person) => {
+    setShowEditModal(false);
+    handleSelect(updatedPerson);
+  };
+
   return (
     <div ref={containerRef} className="relative">
       {label && (
@@ -148,16 +154,26 @@ export const PersonAutocomplete: React.FC<PersonAutocompleteProps> = ({
           }}
           placeholder={placeholder}
           required={required && !value}
-          className={`w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 pr-16 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 ${className}`}
+          className={`w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 ${value ? 'pr-24' : 'pr-16'} bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 ${className}`}
         />
         {value && (
-          <button
-            type="button"
-            onClick={handleClear}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-tower-400 dark:text-tower-400 hover:text-tower-600 dark:hover:text-tower-200 text-sm"
-          >
-            Limpar
-          </button>
+          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowEditModal(true)}
+              className="text-tower-400 dark:text-tower-400 hover:text-brand-600 dark:hover:text-brand-300 text-sm"
+              title="Editar dados desta pessoa"
+            >
+              Editar
+            </button>
+            <button
+              type="button"
+              onClick={handleClear}
+              className="text-tower-400 dark:text-tower-400 hover:text-tower-600 dark:hover:text-tower-200 text-sm"
+            >
+              Limpar
+            </button>
+          </div>
         )}
       </div>
       {showDropdown && (
@@ -216,12 +232,13 @@ export const PersonAutocomplete: React.FC<PersonAutocompleteProps> = ({
       )}
       {showCreateModal && typeof document !== 'undefined' &&
         ReactDOM.createPortal(
-          <PersonCreateModal
+          <PersonFormModal
+            mode="create"
             initialValues={createModalInitial ? {
               document: createModalInitial.document,
               documentType: createModalInitial.documentType,
               legalName: createModalInitial.legalName,
-            } : undefined}
+            } : {}}
             onClose={() => { setShowCreateModal(false); setCreateModalInitial(null); }}
             onSuccess={handleCreateSuccess}
             showAddClientHint={showAddClientHint}
@@ -229,173 +246,34 @@ export const PersonAutocomplete: React.FC<PersonAutocompleteProps> = ({
           document.body
         )
       }
+      {showEditModal && value && typeof document !== 'undefined' &&
+        ReactDOM.createPortal(
+          <PersonFormModal
+            mode="edit"
+            personId={value.id}
+            isEmitter={(value.hubs?.length ?? 0) > 0 || (value.fiscalEmitters?.length ?? 0) > 0}
+            initialValues={{
+              documentType: value.documentType,
+              document: value.document,
+              legalName: value.legalName,
+              tradeName: value.tradeName ?? '',
+              cep: value.cep ?? '',
+              address: value.address ?? '',
+              number: value.number ?? '',
+              complement: value.complement ?? '',
+              neighborhood: value.neighborhood ?? '',
+              city: value.city ?? '',
+              state: value.state ?? '',
+              country: value.country ?? 'BRASIL',
+              stateRegistration: value.stateRegistration ?? '',
+              municipalRegistration: value.municipalRegistration ?? '',
+            }}
+            onClose={() => setShowEditModal(false)}
+            onSuccess={handleEditSuccess}
+          />,
+          document.body
+        )
+      }
     </div>
   );
 };
-
-const defaultPersonForm = {
-  documentType: 'CNPJ' as PersonDocumentType,
-  document: '',
-  legalName: '',
-  tradeName: '',
-  cep: '',
-  address: '',
-  number: '',
-  complement: '',
-  neighborhood: '',
-  city: '',
-  state: '',
-  country: 'BRASIL',
-  stateRegistration: '',
-};
-
-function PersonCreateModal({
-  initialValues,
-  onClose,
-  onSuccess,
-  showAddClientHint,
-}: {
-  initialValues?: { document?: string; documentType?: PersonDocumentType; legalName?: string };
-  onClose: () => void;
-  onSuccess: (person: Person) => void;
-  showAddClientHint?: boolean;
-}) {
-  const [form, setForm] = useState(() => ({
-    ...defaultPersonForm,
-    ...(initialValues && {
-      document: initialValues.document ?? '',
-      documentType: initialValues.documentType ?? 'CNPJ',
-      legalName: initialValues.legalName ?? '',
-    }),
-  }));
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setSaving(true);
-    try {
-      const payload = {
-        documentType: form.documentType,
-        document: form.document.replace(/\D/g, ''),
-        legalName: form.legalName,
-        tradeName: form.tradeName || undefined,
-        cep: form.cep || undefined,
-        address: form.address || undefined,
-        number: form.number || undefined,
-        complement: form.complement || undefined,
-        neighborhood: form.neighborhood || undefined,
-        city: form.city || undefined,
-        state: form.state || undefined,
-        country: form.country || 'BRASIL',
-        stateRegistration: form.stateRegistration || undefined,
-      };
-      const res = await personsApi.create(payload);
-      const created = (res as any)?.data ?? res;
-      onSuccess(created);
-    } catch (err: any) {
-      setError(err.response?.data?.error || err.message || 'Erro ao salvar');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50" onClick={onClose} role="dialog">
-      <div className="bg-white dark:bg-tower-800 rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 border border-tower-200 dark:border-tower-700" onClick={e => e.stopPropagation()}>
-        <h3 className="text-lg font-bold text-tower-900 dark:text-tower-100 mb-4">Cadastrar nova pessoa</h3>
-        {error && <p className="text-red-600 dark:text-red-400 text-sm mb-4">{error}</p>}
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Tipo documento</label>
-            <select
-              value={form.documentType}
-              onChange={e => setForm(f => ({ ...f, documentType: e.target.value as PersonDocumentType }))}
-              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100"
-            >
-              <option value="CPF">CPF</option>
-              <option value="CNPJ">CNPJ</option>
-            </select>
-          </div>
-          <DocumentInput
-            label="Documento"
-            value={form.document}
-            onChange={(v) => setForm(f => ({ ...f, document: v }))}
-            documentType={form.documentType}
-            onImport={form.documentType === 'CNPJ' ? (data: any) => setForm(f => ({
-              ...f,
-              legalName: data.legalName || f.legalName,
-              tradeName: data.tradeName || f.tradeName,
-              address: data.address ? [data.address.street, data.address.number, data.address.complement, data.address.neighborhood].filter(Boolean).join(', ') : f.address,
-              city: data.address?.city || f.city,
-              state: data.address?.state || f.state,
-              cep: data.address?.zipCode || f.cep,
-              stateRegistration: data.stateRegistration || f.stateRegistration,
-            })) : undefined}
-            placeholder={form.documentType === 'CPF' ? '11 dígitos' : '14 dígitos'}
-            required
-            className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500"
-          />
-          <div>
-            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Nome / Razão social *</label>
-            <input
-              type="text"
-              value={form.legalName}
-              onChange={e => setForm(f => ({ ...f, legalName: e.target.value }))}
-              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Fantasia</label>
-            <input
-              type="text"
-              value={form.tradeName}
-              onChange={e => setForm(f => ({ ...f, tradeName: e.target.value }))}
-              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100"
-            />
-          </div>
-          <div>
-            <div className="flex justify-between items-center mb-1">
-              <label className="block text-sm font-medium text-tower-700 dark:text-tower-300">Inscrição Estadual (IE)</label>
-              <label className="flex items-center gap-1 text-xs cursor-pointer text-tower-500 dark:text-tower-400">
-                <input
-                  type="checkbox"
-                  checked={form.stateRegistration === 'ISENTO'}
-                  onChange={e => {
-                    setForm(f => ({
-                      ...f,
-                      stateRegistration: e.target.checked ? 'ISENTO' : ''
-                    }));
-                  }}
-                  className="rounded border-tower-300 text-brand-600 focus:ring-brand-500"
-                />
-                <span>Isento</span>
-              </label>
-            </div>
-            <input
-              type="text"
-              disabled={form.stateRegistration === 'ISENTO'}
-              value={form.stateRegistration === 'ISENTO' ? 'ISENTO' : form.stateRegistration}
-              onChange={e => setForm(f => ({ ...f, stateRegistration: e.target.value }))}
-              placeholder={form.stateRegistration === 'ISENTO' ? 'ISENTO' : 'Apenas números'}
-              className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100 disabled:bg-tower-100 dark:disabled:bg-tower-850 placeholder:text-tower-400 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
-            />
-          </div>
-          {showAddClientHint && (
-            <p className="text-amber-700 dark:text-amber-200 text-sm bg-amber-50 dark:bg-amber-900/30 p-3 rounded-lg border border-amber-200 dark:border-amber-800">
-              Se esta pessoa for o pagador do frete (CIF/FOB/Outro), adicione-a como Cliente em Pessoas após salvar.
-            </p>
-          )}
-          <div className="flex gap-2 justify-end pt-4">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-tower-600 dark:text-tower-300 hover:bg-tower-100 dark:hover:bg-tower-700 rounded-lg">Cancelar</button>
-            <button type="submit" disabled={saving} className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50">
-              {saving ? 'Salvando...' : 'Gravar Pessoa'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}

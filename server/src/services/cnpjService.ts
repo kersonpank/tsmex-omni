@@ -28,6 +28,8 @@ interface CNPJData {
     size?: string;
     source: 'receitaws' | 'sintegra';
     stateRegistration?: string;
+    /** Situação da IE retornada pelo Sintegra (Ativo/Inativo/Baixado) — nunca vem do ReceitaWS. */
+    stateRegistrationStatus?: string;
 }
 
 // Consulta ReceitaWS (gratuita)
@@ -119,9 +121,9 @@ async function consultSintegraWS(cnpj: string, token?: string): Promise<CNPJData
         const state = data.uf || undefined;
         const zipCode = data.cep ? String(data.cep).replace(/\D/g, '') : undefined;
 
-        // Map CNAE
-        let cnae = data.cnae_principal?.codigo || data.cnae || undefined;
-        let cnaeDescription = data.cnae_principal?.descricao || data.cnae_descricao || undefined;
+        // Map CNAE (a API retorna cnae_principal.code/text, não codigo/descricao)
+        let cnae = data.cnae_principal?.code || data.cnae_principal?.codigo || data.cnae || undefined;
+        let cnaeDescription = data.cnae_principal?.text || data.cnae_principal?.descricao || data.cnae_descricao || undefined;
 
         // Clean IE: SintegraWS might return 'ISENTO' or numbers with dots/dashes, clean them or keep ISENTO
         let stateRegistration = data.inscricao_estadual;
@@ -134,11 +136,14 @@ async function consultSintegraWS(cnpj: string, token?: string): Promise<CNPJData
             }
         }
 
+        // situacao_ie: status da própria IE (Ativo/Inativo/Baixado) — distinto de situacao_cnpj.
+        const stateRegistrationStatus = data.situacao_ie || undefined;
+
         return {
             cnpj: cleanCNPJ,
             legalName: data.razao_social || data.nome_empresarial || data.nome || '',
             tradeName: data.nome_fantasia || data.fantasia || undefined,
-            situation: data.situacao_cadastral || data.situacao || undefined,
+            situation: data.situacao_cnpj || data.situacao_cadastral || data.situacao || undefined,
             situationDate: data.data_situacao_cadastral || data.data_situacao || undefined,
             address: (street || city || state || zipCode) ? {
                 street,
@@ -159,6 +164,7 @@ async function consultSintegraWS(cnpj: string, token?: string): Promise<CNPJData
             size: data.porte,
             source: 'sintegra',
             stateRegistration,
+            stateRegistrationStatus,
         };
     } catch (error: any) {
         console.error('SintegraWS error:', error.message);
@@ -184,6 +190,7 @@ export async function consultCNPJ(cnpj: string, sintegraToken?: string): Promise
             if (sintegraData) {
                 if (sintegraData.stateRegistration) {
                     result.stateRegistration = sintegraData.stateRegistration;
+                    result.stateRegistrationStatus = sintegraData.stateRegistrationStatus;
                 }
                 if (!result.tradeName && sintegraData.tradeName) {
                     result.tradeName = sintegraData.tradeName;

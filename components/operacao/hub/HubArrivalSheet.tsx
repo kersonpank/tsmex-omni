@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import ReactDOM from 'react-dom';
 import { intakeDemandsApi, nfeApi, personsApi } from '../../../lib/api';
+import { PersonFormModal } from '../../ui/PersonFormModal';
 import type { ApiResponse, Demand, HubCargoItem, Person } from '../../../types/index';
 
 interface HubArrivalSheetProps {
@@ -25,6 +27,8 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
   const [loadingSuggestion, setLoadingSuggestion] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editingRemetente, setEditingRemetente] = useState(false);
+  const [editingDestinatario, setEditingDestinatario] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -222,7 +226,18 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
           </div>
           <div>
             <dt className="text-xs text-tower-500">Origem</dt>
-            <dd className="text-tower-800 dark:text-tower-200">{origemDisplay ?? 'A conferir'}</dd>
+            <dd className="text-tower-800 dark:text-tower-200">
+              {origemDisplay ?? 'A conferir'}
+              {remetentePerson && (
+                <button
+                  type="button"
+                  onClick={() => setEditingRemetente(true)}
+                  className="admin-focus ml-2 text-xs font-medium text-brand-600 hover:text-brand-700 dark:text-brand-300"
+                >
+                  editar
+                </button>
+              )}
+            </dd>
           </div>
           <div>
             <dt className="text-xs text-tower-500">Destino</dt>
@@ -273,7 +288,18 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
               ))}
             </ul>
           )}
-          {selected && <p className="mt-2 text-xs font-medium text-green-700 dark:text-green-400">Destinatário confirmado pelo cadastro.</p>}
+          {selected && (
+            <p className="mt-2 text-xs font-medium text-green-700 dark:text-green-400">
+              Destinatário confirmado pelo cadastro.
+              <button
+                type="button"
+                onClick={() => setEditingDestinatario(true)}
+                className="admin-focus ml-2 font-medium text-brand-600 hover:text-brand-700 dark:text-brand-300"
+              >
+                editar dados
+              </button>
+            </p>
+          )}
         </div>
 
         {error && <p role="alert" className="mt-3 rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300">{error}</p>}
@@ -287,6 +313,60 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
           {busy ? 'Confirmando entrada...' : 'Confirmar entrada física'}
         </button>
       </section>
+      {editingRemetente && remetentePerson && typeof document !== 'undefined' &&
+        ReactDOM.createPortal(
+          <PersonFormModal
+            mode="edit"
+            personId={remetentePerson.id}
+            initialValues={{
+              documentType: remetentePerson.documentType,
+              document: remetentePerson.document,
+              legalName: remetentePerson.legalName,
+              tradeName: remetentePerson.tradeName ?? '',
+              cep: remetentePerson.cep ?? '',
+              address: remetentePerson.address ?? '',
+              number: remetentePerson.number ?? '',
+              complement: remetentePerson.complement ?? '',
+              neighborhood: remetentePerson.neighborhood ?? '',
+              city: remetentePerson.city ?? '',
+              state: remetentePerson.state ?? '',
+              country: remetentePerson.country ?? 'BRASIL',
+              stateRegistration: remetentePerson.stateRegistration ?? '',
+              municipalRegistration: remetentePerson.municipalRegistration ?? '',
+            }}
+            onClose={() => setEditingRemetente(false)}
+            onSuccess={(updated) => { setEditingRemetente(false); setRemetentePerson(updated); }}
+          />,
+          document.body
+        )
+      }
+      {editingDestinatario && selected && typeof document !== 'undefined' &&
+        ReactDOM.createPortal(
+          <PersonFormModal
+            mode="edit"
+            personId={selected.id}
+            initialValues={{
+              documentType: selected.documentType,
+              document: selected.document,
+              legalName: selected.legalName,
+              tradeName: selected.tradeName ?? '',
+              cep: selected.cep ?? '',
+              address: selected.address ?? '',
+              number: selected.number ?? '',
+              complement: selected.complement ?? '',
+              neighborhood: selected.neighborhood ?? '',
+              city: selected.city ?? '',
+              state: selected.state ?? '',
+              country: selected.country ?? 'BRASIL',
+              stateRegistration: selected.stateRegistration ?? '',
+              municipalRegistration: selected.municipalRegistration ?? '',
+            }}
+            onClose={() => setEditingDestinatario(false)}
+            onSuccess={(updated) => { setEditingDestinatario(false); setSelected(updated); setQuery(`${updated.legalName} (${updated.document})`); }}
+          />,
+          document.body
+        )
+      }
     </div>
   );
 };

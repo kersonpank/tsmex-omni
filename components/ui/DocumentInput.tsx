@@ -2,10 +2,32 @@ import React, { useState } from 'react';
 import { maskCNPJOrCPF, digitsOnly, isCNPJ } from '../../lib/formatters';
 import { cnpjApi } from '../../lib/api';
 
+export interface DocumentImportData {
+  legalName?: string;
+  tradeName?: string;
+  address?: {
+    street?: string;
+    number?: string;
+    complement?: string;
+    neighborhood?: string;
+    city?: string;
+    state?: string;
+    zipCode?: string;
+    cityIbgeCode?: string;
+  };
+  situation?: string;
+  situationDate?: string;
+  stateRegistration?: string;
+  /** Situação da IE (Ativo/Inativo/Baixado) — só vem quando a fonte foi o Sintegra. */
+  stateRegistrationStatus?: string;
+}
+
 interface DocumentInputProps {
   value: string;
   onChange: (value: string) => void;
-  onImport?: (data: { legalName?: string; tradeName?: string; address?: any }) => void;
+  onImport?: (data: DocumentImportData) => void;
+  /** Chamado quando a consulta de importação falha — o pai decide como exibir. */
+  onImportError?: (message: string) => void;
   /** Se informado, limita formato. CPF = 11 dígitos (sem import). CNPJ = 14 com import. */
   documentType?: 'CPF' | 'CNPJ';
   placeholder?: string;
@@ -19,6 +41,7 @@ export const DocumentInput: React.FC<DocumentInputProps> = ({
   value,
   onChange,
   onImport,
+  onImportError,
   documentType,
   placeholder = 'CPF ou CNPJ',
   label,
@@ -47,8 +70,14 @@ export const DocumentInput: React.FC<DocumentInputProps> = ({
       const res = await cnpjApi.consult(doc);
       const data = (res as any)?.data ?? res;
       onImport?.(data);
-    } catch {
-      // Erro tratado pelo pai se necessário
+    } catch (error: any) {
+      const status = error?.response?.status;
+      const message = status === 404
+        ? 'CNPJ não encontrado.'
+        : status === 429
+          ? 'Muitas consultas seguidas, tente novamente em instantes.'
+          : 'Não foi possível importar os dados deste CNPJ agora.';
+      onImportError?.(message);
     } finally {
       setImportLoading(false);
     }

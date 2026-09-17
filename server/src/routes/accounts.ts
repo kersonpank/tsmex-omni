@@ -1031,6 +1031,18 @@ router.get('/cnpj/:cnpj', async (req, res: Response, next: NextFunction) => {
         // Consult CNPJ
         const cnpjData = await consultCNPJ(cnpj, sintegraToken);
 
+        // Se a fonte externa não trouxe IE, reaproveita a IE já cadastrada em Person
+        // (evita gastar crédito Sintegra de novo para um CNPJ já resolvido antes).
+        if (!cnpjData.stateRegistration) {
+            const knownPerson = await prisma.person.findUnique({
+                where: { document: cnpj },
+                select: { stateRegistration: true },
+            });
+            if (knownPerson?.stateRegistration) {
+                cnpjData.stateRegistration = knownPerson.stateRegistration;
+            }
+        }
+
         // Check if CNPJ already exists in database
         const existingCompany = await prisma.accountCompany.findUnique({
             where: { cnpj },

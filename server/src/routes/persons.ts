@@ -409,8 +409,8 @@ router.post('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthReques
     }
 });
 
-// PATCH /api/persons/:id - Update person (Admin only)
-router.patch('/:id', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+// PATCH /api/persons/:id - Update person (Admin ou Hub, mesmo padrão de criação)
+router.patch('/:id', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const id = getParamId(req.params);
         const body = updatePersonSchema.parse(req.body);
