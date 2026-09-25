@@ -713,7 +713,7 @@ const HubOrdersWorkspace: React.FC<HubOrdersWorkspaceProps> = ({
         ) : items.length === 0 ? (
           <EmptyState bucket={bucket} query={debouncedQuery} canReceive={capabilities.canReceive} onManualEntry={onOpenManualEntry} />
         ) : viewMode === 'table' ? (
-          <ConfigurableDataTable
+          <ConfigurableDataTable<HubCargoItem>
             tableId="hub-cargo-workspace"
             columns={tableColumns}
             rows={items}

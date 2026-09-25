@@ -142,12 +142,12 @@ const ChatWeb: React.FC = () => {
     });
   };
 
-  const fileType = (f: File) =>
+  const fileType = (f: File): 'IMAGE' | 'AUDIO' | 'NF' | 'DOCUMENT' =>
     f.type.startsWith('image/') ? 'IMAGE' : f.type.startsWith('audio/') ? 'AUDIO' : f.type === 'application/pdf' ? 'NF' : 'DOCUMENT';
 
   const sendMessage = useCallback(
     async (text: string, attachmentsList?: Array<{ file: File; preview: string }>) => {
-      let uploaded: Array<{ url: string; fileName: string; type: string }> = [];
+      let uploaded: Array<{ url: string; fileName: string; type: 'IMAGE' | 'AUDIO' | 'NF' | 'DOCUMENT' }> = [];
       let messageContent = text;
 
       if (attachmentsList?.length) {
@@ -290,7 +290,7 @@ const ChatWeb: React.FC = () => {
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
-    Array.from(files).forEach((file) => {
+    Array.from<File>(files).forEach((file) => {
       const isImage = file.type.startsWith('image/');
       const isAudio = file.type.startsWith('audio/');
       const isDoc = file.type === 'application/pdf' || file.type.includes('document');

@@ -399,7 +399,7 @@ const CommercialTab: React.FC<{ forceSubTab?: CommercialSubTab }> = ({ forceSubT
             }
             const newIndex = overColumnId ? columns.findIndex(c => c.id === overColumnId) : -1;
             if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
-            const newOrder = arrayMove(columns, oldIndex, newIndex);
+            const newOrder = arrayMove<PipelineColumn>(columns, oldIndex, newIndex);
             try {
                 await pipelineApi.reorderColumns(newOrder.map(c => c.id));
                 setColumns(newOrder);

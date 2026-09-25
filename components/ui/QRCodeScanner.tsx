@@ -123,7 +123,7 @@ const QRCodeScanner: React.FC<QRCodeScannerProps> = ({ onScan, onClose }) => {
         return;
       }
       if (event.key !== 'Tab' || !dialogRef.current) return;
-      const focusable = Array.from(
+      const focusable = Array.from<HTMLButtonElement>(
         dialogRef.current.querySelectorAll<HTMLButtonElement>('button:not([disabled])'),
       );
       if (focusable.length === 0) return;
