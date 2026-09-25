@@ -5,6 +5,7 @@ import { ufToCuf } from './acbrIbge.js';
 import { requireSelectedIbge } from '../selectedCity.js';
 import { acbrFetchJson } from './acbrHttp.js';
 import { cleanIe } from './acbrCteMapper.js';
+import { generateCMdf, isDefinitiveMdfeRejection, reserveNextMdfeNumber } from './mdfeNumbering.js';
 
 function digits(s: string): string {
     return s.replace(/\D/g, '');
@@ -20,6 +21,10 @@ function cityStateFromLegacyLabel(value: string | null | undefined): { city: str
 
 export interface MdfeEmitResult {
     ok: boolean;
+    /** true = resultado desconhecido (timeout/rede/processando): o MDF-e pode existir no provedor — conciliar, nunca reemitir. */
+    pending?: boolean;
+    /** Documento fiscal (ManifestFiscalDocument) já criado/atualizado por esta emissão. */
+    docId?: string;
     apiId?: string;
     accessKey?: string;
     protocol?: string;
@@ -159,15 +164,20 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
     const ufIni = (loadingState ?? 'SP').slice(0, 2).toUpperCase();
     const cUF = ufToCuf(emit.state);
     let apiEnv: AcbrFiscalEnvironment = manifest.fiscalEmitter?.environment ?? 'HOMOLOGACAO';
+    let fiscalEmitterId: string | null = manifest.fiscalEmitter?.id ?? null;
     if (!manifest.fiscalEmitter && manifest.hubId) {
         const fe = await prisma.fiscalEmitter.findFirst({
             where: { hubId: manifest.hubId, active: true },
             orderBy: [{ defaultForHub: 'desc' }, { updatedAt: 'desc' }],
-            select: { environment: true },
+            select: { id: true, environment: true },
         });
         if (fe?.environment === 'PRODUCAO' || fe?.environment === 'HOMOLOGACAO') {
             apiEnv = fe.environment;
         }
+        fiscalEmitterId = fe?.id ?? null;
+    }
+    if (!fiscalEmitterId) {
+        return { ok: false, error: 'Nenhum emitente fiscal ativo para esta viagem/Hub — necessário para numerar o MDF-e (série e sequência por emitente).' };
     }
     const ambiente = apiEnv === 'PRODUCAO' ? 'producao' : 'homologacao';
     const tpAmb = ambiente === 'producao' ? 1 : 2;
@@ -239,6 +249,26 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
             .filter((state) => state && state !== ufIni && state !== ufFim),
     ));
 
+    // Todas as validações acima já passaram: só agora consumimos um número. O número e o cMDF ficam
+    // gravados no documento (status SENT) ANTES de chamar o provedor — assim timeout/queda nunca
+    // perde nem reutiliza numeração, e o retry concilia em vez de reemitir.
+    const cMDF = generateCMdf();
+    const { nMDF, serie } = await reserveNextMdfeNumber(fiscalEmitterId);
+    const pendingDoc = await prisma.manifestFiscalDocument.create({
+        data: {
+            manifestId,
+            fiscalEmitterId,
+            documentType: 'MDFE',
+            status: 'SENT',
+            number: String(nMDF),
+            series: serie,
+            environment: apiEnv,
+            statusReason: 'Enviado ao provedor — aguardando autorização.',
+            rawPayload: { referencia, cMDF, nMDF, serie },
+        },
+    });
+    const docId = pendingDoc.id;
+
     const infMDFe: Record<string, unknown> = {
         versao: '3.00',
         ide: {
@@ -247,9 +277,9 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
             tpEmit: 2,
             tpTransp: 1,
             mod: 58,
-            serie: 1,
-            nMDF: Math.floor(Math.random() * 899999) + 1,
-            cMDF: String(Math.floor(Math.random() * 89999999) + 10000000),
+            serie,
+            nMDF,
+            cMDF,
             cDV: 0,
             modal: 1,
             dhEmi: new Date().toISOString(),
@@ -305,6 +335,11 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
 
     const body = { infMDFe, ambiente, referencia };
 
+    // Resultado desconhecido (timeout/rede/5xx): o MDF-e PODE existir no provedor. Mantém o documento
+    // em SENT (bloqueia reemissão) e devolve `pending` — a conciliação consulta pelo id, nunca reemite.
+    const pending = (message: string, raw?: Record<string, unknown>): MdfeEmitResult => ({ ok: false, pending: true, docId, error: message, raw });
+
+    let id = '';
     try {
         const created = await acbrFetchJson<Record<string, unknown>>('/mdfe', {
             method: 'POST',
@@ -312,56 +347,126 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
             scopes: ['empresa', 'mdfe'],
             apiEnvironment: apiEnv,
         });
-        const id = String(created.id ?? '');
-        if (!id) return { ok: false, error: 'MDF-e: resposta sem id.', raw: created };
+        id = String(created.id ?? '');
+        if (!id) return pending('MDF-e: provedor respondeu sem id — verifique no provedor antes de reemitir.', created);
+        // Guarda o id do provedor já agora: é o que permite conciliar depois de timeout/queda.
+        await prisma.manifestFiscalDocument.update({ where: { id: docId }, data: { pdfUrl: `mdfe:${id}`, rawResponse: created as object } });
+    } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        if (isDefinitiveMdfeRejection(e)) {
+            await prisma.manifestFiscalDocument.update({
+                where: { id: docId },
+                data: { status: 'REJECTED', statusReason: message, rejectedAt: new Date(), rawResponse: { error: message } },
+            });
+            return { ok: false, docId, error: message };
+        }
+        return pending(`Sem confirmação do provedor (${message}). O MDF-e pode ter sido criado — concilie antes de reemitir.`);
+    }
 
-        for (let i = 0; i < 20; i++) {
-            if (i > 0) await new Promise((r) => setTimeout(r, 1500));
-            
-            // Apenas sincroniza com a SEFAZ se já tivermos tentado algumas vezes (ex.: após 5ª tentativa) e de forma espaçada
-            if (i >= 5 && i % 3 === 0) {
-                try {
-                    await acbrFetchJson(`/mdfe/${id}/sincronizar`, { method: 'POST', scopes: ['empresa', 'mdfe'], apiEnvironment: apiEnv });
-                } catch {
-                    /* opcional */
-                }
-            }
-            const doc = await acbrFetchJson<Record<string, unknown>>(`/mdfe/${id}`, { method: 'GET', scopes: ['empresa', 'mdfe'], apiEnvironment: apiEnv });
-            const st = String(doc.status ?? '').toLowerCase();
-            const auth = (doc.autorizacao ?? {}) as Record<string, unknown>;
-            const authSt = String(auth.status ?? '').toLowerCase();
-            const chave = String(auth.chave_acesso ?? doc.chave ?? '').replace(/\D/g, '').slice(0, 44);
-            if (authSt.includes('autorizado') || st === 'autorizado' || chave.length === 44) {
-                let xml: string | undefined;
-                try {
-                    const token = await getAcbrAccessToken(['empresa', 'mdfe'], apiEnv);
-                    const xmlRes = await fetch(`${baseUrl}/mdfe/${id}/xml`, {
-                        headers: { Authorization: `Bearer ${token}` },
-                    });
-                    if (xmlRes.ok) xml = await xmlRes.text();
-                } catch {
-                    /* opcional */
-                }
-                return {
-                    ok: true,
-                    apiId: id,
-                    accessKey: chave || undefined,
-                    protocol: auth.numero_protocolo ? String(auth.numero_protocolo) : undefined,
-                    xml,
-                    raw: doc,
-                };
-            }
-            if (st.includes('rejeit') || st.includes('erro')) {
-                return {
-                    ok: false,
-                    error: String(auth.motivo_status ?? doc.motivo_status ?? 'MDF-e rejeitado'),
-                    raw: doc,
-                };
+    for (let i = 0; i < 20; i++) {
+        if (i > 0) await new Promise((r) => setTimeout(r, 1500));
+        // Apenas sincroniza com a SEFAZ se já tivermos tentado algumas vezes (ex.: após 5ª tentativa) e de forma espaçada
+        if (i >= 5 && i % 3 === 0) {
+            try {
+                await acbrFetchJson(`/mdfe/${id}/sincronizar`, { method: 'POST', scopes: ['empresa', 'mdfe'], apiEnvironment: apiEnv });
+            } catch {
+                /* opcional */
             }
         }
-        return { ok: false, error: 'Timeout MDF-e ACBr', raw: { id } };
+        let doc: Record<string, unknown>;
+        try {
+            doc = await acbrFetchJson<Record<string, unknown>>(`/mdfe/${id}`, { method: 'GET', scopes: ['empresa', 'mdfe'], apiEnvironment: apiEnv });
+        } catch {
+            continue; // consulta falhou (transitório): tenta de novo; se esgotar, fica pendente
+        }
+        const outcome = interpretMdfeStatus(doc);
+        if (outcome.state === 'authorized') return finalizeAuthorized(docId, id, doc, outcome, apiEnv);
+        if (outcome.state === 'rejected') return finalizeRejected(docId, doc, outcome.reason);
+    }
+    return pending('MDF-e ainda sem resposta da SEFAZ. Consulte novamente em instantes — não reemita.', { id });
+}
+
+type MdfeStatusOutcome =
+    | { state: 'authorized'; chave: string; protocol?: string }
+    | { state: 'rejected'; reason: string }
+    | { state: 'processing' };
+
+/** Interpreta a resposta de GET /mdfe/{id} do ACBr. Só há autorização com chave de 44 dígitos ou status explícito. */
+export function interpretMdfeStatus(doc: Record<string, unknown>): MdfeStatusOutcome {
+    const st = String(doc.status ?? '').toLowerCase();
+    const auth = (doc.autorizacao ?? {}) as Record<string, unknown>;
+    const authSt = String(auth.status ?? '').toLowerCase();
+    const chave = String(auth.chave_acesso ?? doc.chave ?? '').replace(/\D/g, '').slice(0, 44);
+    if (authSt.includes('autorizado') || st === 'autorizado' || chave.length === 44) {
+        return { state: 'authorized', chave, protocol: auth.numero_protocolo ? String(auth.numero_protocolo) : undefined };
+    }
+    if (st.includes('rejeit') || st.includes('erro')) {
+        return { state: 'rejected', reason: String(auth.motivo_status ?? doc.motivo_status ?? 'MDF-e rejeitado') };
+    }
+    return { state: 'processing' };
+}
+
+async function finalizeAuthorized(
+    docId: string,
+    apiId: string,
+    doc: Record<string, unknown>,
+    outcome: Extract<MdfeStatusOutcome, { state: 'authorized' }>,
+    apiEnv: AcbrFiscalEnvironment,
+): Promise<MdfeEmitResult> {
+    let xml: string | undefined;
+    try {
+        const token = await getAcbrAccessToken(['empresa', 'mdfe'], apiEnv);
+        const xmlRes = await fetch(`${getAcbrApiBaseUrlForEnvironment(apiEnv)}/mdfe/${apiId}/xml`, {
+            headers: { Authorization: `Bearer ${token}` },
+        });
+        if (xmlRes.ok) xml = await xmlRes.text();
+    } catch {
+        /* XML é opcional: a autorização fiscal já está confirmada */
+    }
+    await prisma.manifestFiscalDocument.update({
+        where: { id: docId },
+        data: {
+            status: 'AUTHORIZED',
+            accessKey: outcome.chave || null,
+            protocol: outcome.protocol ?? null,
+            pdfUrl: `mdfe:${apiId}`,
+            statusReason: null,
+            rawResponse: doc as object,
+            authorizedAt: new Date(),
+        },
+    });
+    return { ok: true, docId, apiId, accessKey: outcome.chave || undefined, protocol: outcome.protocol, xml, raw: doc };
+}
+
+async function finalizeRejected(docId: string, doc: Record<string, unknown>, reason: string): Promise<MdfeEmitResult> {
+    await prisma.manifestFiscalDocument.update({
+        where: { id: docId },
+        data: { status: 'REJECTED', statusReason: reason, rawResponse: doc as object, rejectedAt: new Date() },
+    });
+    return { ok: false, docId, error: reason, raw: doc };
+}
+
+/**
+ * Concilia um MDF-e em SENT consultando o provedor pelo id gravado — sem emitir nada novo.
+ * Sem id do provedor (queda antes da resposta do POST) não há como consultar: permanece SENT e
+ * exige conferência manual no provedor, nunca reemissão automática.
+ */
+export async function reconcileMdfeDocument(docId: string): Promise<MdfeEmitResult> {
+    const doc = await prisma.manifestFiscalDocument.findUnique({ where: { id: docId } });
+    if (!doc || doc.documentType !== 'MDFE') return { ok: false, error: 'Documento MDF-e não encontrado.' };
+    const apiId = doc.pdfUrl?.startsWith('mdfe:') ? doc.pdfUrl.slice('mdfe:'.length) : null;
+    if (!apiId) {
+        return { ok: false, pending: true, docId, error: `MDF-e enviado sem confirmação do provedor: confira no painel ACBr (nº ${doc.number ?? '?'}) antes de reemitir.` };
+    }
+    const apiEnv: AcbrFiscalEnvironment = doc.environment === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO';
+    try {
+        const remote = await acbrFetchJson<Record<string, unknown>>(`/mdfe/${apiId}`, { method: 'GET', scopes: ['empresa', 'mdfe'], apiEnvironment: apiEnv });
+        const outcome = interpretMdfeStatus(remote);
+        if (outcome.state === 'authorized') return finalizeAuthorized(docId, apiId, remote, outcome, apiEnv);
+        if (outcome.state === 'rejected') return finalizeRejected(docId, remote, outcome.reason);
+        return { ok: false, pending: true, docId, apiId, error: 'MDF-e ainda em processamento na SEFAZ.', raw: remote };
     } catch (e) {
-        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+        return { ok: false, pending: true, docId, apiId, error: `Consulta ao provedor falhou (${e instanceof Error ? e.message : String(e)}).` };
     }
 }
 

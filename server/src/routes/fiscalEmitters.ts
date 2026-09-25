@@ -74,6 +74,8 @@ const fiscalEmitterShape = z.object({
     crt: z.string().max(8).nullable().optional(),
     cteSeries: z.number().int().positive().optional(),
     lastCteNumber: z.number().int().min(0).optional(),
+    mdfeSeries: z.number().int().positive().optional(),
+    lastMdfeNumber: z.number().int().min(0).optional(),
     lastDceNumber: z.number().int().min(0).optional(),
     lastMinutaNumber: z.number().int().min(0).optional(),
     /** Ambiente ACBr para CT-e/MDF-e. */

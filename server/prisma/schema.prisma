@@ -903,6 +903,9 @@ model FiscalEmitter {
   lastCteNumber    Int               @default(0)
   lastDceNumber    Int               @default(0)
   lastMinutaNumber Int               @default(0)
+  /// MDF-e (mod. 58): série e último número emitido — sequência local por emitente (Math.random era usado antes)
+  mdfeSeries       Int               @default(1)
+  lastMdfeNumber   Int               @default(0)
   /// CFOP padrão do CT-e (e DC-e quando não informado no cálculo)
   defaultCteCfop   String?
   /// CST do ICMS padrão do CT-e (e DC-e quando não informado no cálculo)

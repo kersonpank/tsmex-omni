@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "FiscalEmitter" ADD COLUMN "mdfeSeries" INTEGER NOT NULL DEFAULT 1,
+ADD COLUMN "lastMdfeNumber" INTEGER NOT NULL DEFAULT 0;
