@@ -1,12 +1,12 @@
 import type { Driver, Link, Person } from '@prisma/client';
-import { resolveIbgeMunicipio } from '../acbr/acbrIbge.js';
+import { requireSelectedIbge } from '../selectedCity.js';
 import { efreteAuthedPost } from './efreteAuth.js';
 import { digits, splitPhone } from './efreteUtil.js';
 import type { EfreteEnvironment } from './efreteConfig.js';
 
 async function buildEndereco(person: Person | null | undefined): Promise<Record<string, unknown>> {
     if (!person) throw new Error('Pessoa sem endereço cadastrado — obrigatório para registro na eFrete.');
-    const cMun = await resolveIbgeMunicipio(person.city, person.state, person.cityIbgeCode);
+    const cMun = await requireSelectedIbge(person.city, person.state, person.cityIbgeCode);
     return {
         Bairro: person.neighborhood || 'Centro',
         CEP: digits(person.cep).padStart(8, '0').slice(0, 8),

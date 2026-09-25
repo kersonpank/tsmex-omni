@@ -2,7 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import axios from 'axios';
-import { resolveIbgeCode } from '../services/acbr/acbrIbge.js';
+import { normalizeCityName } from '../services/selectedCity.js';
 
 const router = Router();
 
@@ -125,7 +125,7 @@ router.get('/cep/:cep', async (req, res: Response, next: NextFunction) => {
             }
         });
 
-        if (cepRecord) {
+        if (cepRecord?.city && cepRecord.state && cepRecord.city.stateId === cepRecord.state.id) {
             return res.json({
                 success: true,
                 data: {
@@ -133,7 +133,8 @@ router.get('/cep/:cep', async (req, res: Response, next: NextFunction) => {
                     logradouro: cepRecord.logradouro,
                     bairro: cepRecord.bairro,
                     cidade: cepRecord.city?.name,
-                    uf: cepRecord.state?.code,
+                    uf: cepRecord.state.code,
+                    cityIbgeCode: cepRecord.city.ibgeCode,
                     state: cepRecord.state,
                     city: cepRecord.city,
                 },
@@ -163,28 +164,20 @@ router.get('/cep/:cep', async (req, res: Response, next: NextFunction) => {
                 });
             }
 
-            if (data.localidade && stateRecord) {
-                cityRecord = await prisma.city.findFirst({
-                    where: {
-                        name: data.localidade,
-                        stateId: stateRecord.id,
-                    }
-                });
-
-                if (!cityRecord) {
-                    const resolved = await resolveIbgeCode(data.localidade, stateRecord.code);
-                    if (resolved) {
-                        cityRecord = await prisma.city.findUnique({
-                            where: { ibgeCode: resolved.ibgeCode }
-                        });
-                    }
-                }
+            // ViaCEP already supplies the official IBGE code. Never search by name.
+            if (data.ibge && stateRecord) {
+                cityRecord = await prisma.city.findUnique({ where: { ibgeCode: String(data.ibge) } });
+            }
+            if (!cityRecord || cityRecord.stateId !== stateRecord?.id) {
+                throw new AppError('Município do CEP indisponível no cadastro IBGE. Tente novamente ou selecione a cidade na busca.', 422);
             }
 
             // Save to database for future queries
             try {
-                await prisma.cEP.create({
-                    data: {
+                await prisma.cEP.upsert({
+                    where: { cep },
+                    update: { logradouro: data.logradouro || null, bairro: data.bairro || null, cityId: cityRecord.id, stateId: stateRecord!.id },
+                    create: {
                         cep,
                         logradouro: data.logradouro || null,
                         bairro: data.bairro || null,
@@ -203,7 +196,8 @@ router.get('/cep/:cep', async (req, res: Response, next: NextFunction) => {
                     cep: data.cep?.replace(/\D/g, ''),
                     logradouro: data.logradouro,
                     bairro: data.bairro,
-                    cidade: data.localidade,
+                    cidade: cityRecord.name,
+                    cityIbgeCode: cityRecord.ibgeCode,
                     uf: data.uf,
                     state: stateRecord,
                     city: cityRecord,
@@ -211,6 +205,7 @@ router.get('/cep/:cep', async (req, res: Response, next: NextFunction) => {
                 source: 'viacep',
             });
         } catch (apiError: any) {
+            if (apiError instanceof AppError) throw apiError;
             if (apiError.response?.status === 404 || apiError.message === 'CEP not found') {
                 throw new AppError('CEP not found', 404);
             }
@@ -222,14 +217,6 @@ router.get('/cep/:cep', async (req, res: Response, next: NextFunction) => {
 });
 
 // ==================== SEARCH ====================
-
-// Normalize text: remove accents and convert to lowercase
-function normalizeText(text: string): string {
-    return text
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .toLowerCase();
-}
 
 // GET /api/locations/search - Search cities by name
 router.get('/search', async (req, res: Response, next: NextFunction) => {
@@ -243,46 +230,21 @@ router.get('/search', async (req, res: Response, next: NextFunction) => {
             });
         }
 
-        // Normalize query for accent-insensitive search
-        const normalizedQuery = normalizeText(q as string);
-
-        // Build where clause - search with original query (Prisma will do case-insensitive)
-        let where: any = {
-            name: {
-                contains: q as string,
-                mode: 'insensitive' as const,
-            }
-        };
-
-        if (state) {
-            const stateRecord = await prisma.state.findUnique({
-                where: { code: state as string }
-            });
-            if (stateRecord) {
-                where.stateId = stateRecord.id;
-            }
-        }
-
-        // Fetch more results than needed to filter by normalized name
+        const query = String(q).trim();
+        const suffix = query.match(/^(.*?)[,\-]\s*([A-Za-z]{2})$/);
+        const searchName = normalizeCityName(suffix ? suffix[1] : query);
+        const searchState = String(state || suffix?.[2] || '').toUpperCase();
+        // Filtering before normalization excluded São Paulo for "sao paulo".
+        // The national catalog has ~5,600 rows; filter accents before limiting.
         const cities = await prisma.city.findMany({
-            where,
-            include: {
-                state: {
-                    select: {
-                        code: true,
-                        name: true,
-                    }
-                }
-            },
+            where: searchState ? { state: { code: searchState } } : {},
+            select: { id: true, name: true, ibgeCode: true, state: { select: { code: true, name: true } } },
             orderBy: { name: 'asc' },
-            take: 200, // Fetch more to filter (increased for better accent-insensitive matching)
         });
-
-        // Filter by normalized name (accent-insensitive)
-        const filtered = cities.filter(city => {
-            const normalizedName = normalizeText(city.name);
-            return normalizedName.includes(normalizedQuery);
-        }).slice(0, 10); // Return max 10 results
+        const rank = (name: string) => name === searchName ? 0 : name.startsWith(searchName) ? 1 : 2;
+        const filtered = cities.filter(city => normalizeCityName(city.name).includes(searchName))
+            .sort((a, b) => rank(normalizeCityName(a.name)) - rank(normalizeCityName(b.name)) || a.name.localeCompare(b.name, 'pt-BR'))
+            .slice(0, 10);
 
         res.json({
             success: true,

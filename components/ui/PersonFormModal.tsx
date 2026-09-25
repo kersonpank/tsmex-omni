@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { personsApi } from '../../lib/api';
 import { DocumentInput, type DocumentImportData } from './DocumentInput';
-import { CityAutocomplete } from './CityAutocomplete';
+import { FiscalAddressFields } from '../manifest/FiscalAddressFields';
 import type { Person, PersonDocumentType, CreatePersonRequest } from '../../types/index';
 
 const defaultPersonForm = {
@@ -82,6 +82,7 @@ export function PersonFormModal({
         setSaving(false);
         return;
       }
+      if ((form.city || form.state || form.cep) && !form.cityIbgeCode) throw new Error('Confirme a cidade pelo CEP ou selecione uma sugestão da busca.');
       const payload = {
         documentType: form.documentType,
         document: form.document.replace(/\D/g, ''),
@@ -162,7 +163,7 @@ export function PersonFormModal({
                 address: data.address ? [data.address.street, data.address.number, data.address.complement, data.address.neighborhood].filter(Boolean).join(', ') : f.address,
                 city: data.address?.city || f.city,
                 state: data.address?.state || f.state,
-                cityIbgeCode: data.address?.cityIbgeCode || f.cityIbgeCode,
+                cityIbgeCode: data.address?.cityIbgeCode || '',
                 cep: data.address?.zipCode || f.cep,
                 stateRegistration: data.stateRegistration || f.stateRegistration,
               }));
@@ -199,30 +200,8 @@ export function PersonFormModal({
               className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">CEP</label>
-              <input type="text" value={form.cep} onChange={e => setForm(f => ({ ...f, cep: e.target.value }))} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Cidade</label>
-              <CityAutocomplete
-                value={form.city && form.state ? `${form.city}, ${form.state}` : form.city}
-                onChange={v => {
-                  const parts = v.split(', ');
-                  if (parts.length >= 2) setForm(f => ({ ...f, city: parts[0], state: parts[1], cityIbgeCode: '' }));
-                  else setForm(f => ({ ...f, city: v, cityIbgeCode: '' }));
-                }}
-                onSelect={(city, state, ibgeCode) => setForm(f => ({ ...f, city, state, cityIbgeCode: ibgeCode || '' }))}
-                placeholder="Ex: São Paulo, SP"
-                className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Endereço</label>
-            <input type="text" value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" />
-          </div>
+          <FiscalAddressFields value={form} onChange={setForm} readOnly={false} required={false}
+            fieldClass="w-full min-h-11 border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-[var(--app-surface)] text-tower-900 dark:text-tower-100" />
           <div className="grid grid-cols-2 gap-4">
             <div>
               <div className="flex justify-between items-center mb-1">

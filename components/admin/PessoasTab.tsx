@@ -1084,7 +1084,7 @@ function LinkPersonAsEmitterModal({
             </div>
             <div>
               <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Estado *</label>
-              <select value={createForm.state} onChange={e => setCreateForm(f => ({ ...f, state: e.target.value, city: '' }))} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" required>
+              <select value={createForm.state} onChange={e => setCreateForm(f => ({ ...f, state: e.target.value, city: '', cityIbgeCode: '' }))} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100 placeholder:text-tower-400 dark:placeholder:text-tower-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-colors" required>
                 <option value="">Selecione</option>
                 {states.map(s => (
                   <option key={s.id} value={s.code}>{s.code} – {s.name}</option>
@@ -1094,6 +1094,7 @@ function LinkPersonAsEmitterModal({
             <div>
               <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Cidade *</label>
               <CityAutocomplete
+                selectedIbgeCode={createForm.cityIbgeCode}
                 value={createForm.city && createForm.state ? `${createForm.city}, ${createForm.state}` : createForm.city}
                 onChange={v => {
                   const parts = v.split(', ');

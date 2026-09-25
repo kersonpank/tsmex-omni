@@ -78,7 +78,8 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
                     cnhNumber: true,
                     cnhExpiry: true,
                     birthDate: true,
-                    person: { select: { neighborhood: true, cep: true, address: true, number: true, city: true, state: true } },
+                    active: true,
+                    person: { select: { neighborhood: true, cep: true, address: true, number: true, city: true, state: true, cityIbgeCode: true } },
                 },
             },
             freightAgreement: { select: { id: true, freteBruto: true } },
@@ -112,10 +113,10 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
         add(issue('route', 'DEST_HUB_REQUIRED', 'Selecione o Hub ou filial da transferência.', 'destHubId'));
     }
     if (!manifest.originCityIbgeCode) {
-        add(issue('route', 'ORIGIN_IBGE_PENDING', 'Selecione a origem na busca de cidades para reutilizar o código IBGE no fiscal.', 'origin', 'warning'));
+        add(issue('route', 'ORIGIN_IBGE_PENDING', 'Selecione a origem na busca de cidades para reutilizar o código IBGE no fiscal.', 'origin'));
     }
     if (!manifest.destinationCityIbgeCode) {
-        add(issue('route', 'DESTINATION_IBGE_PENDING', 'Selecione o destino na busca de cidades para reutilizar o código IBGE no fiscal.', 'destination', 'warning'));
+        add(issue('route', 'DESTINATION_IBGE_PENDING', 'Selecione o destino na busca de cidades para reutilizar o código IBGE no fiscal.', 'destination'));
     }
 
     if (manifest._count.legs < 1) {
@@ -126,7 +127,7 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
         if (!point.destHubId && (!point.destCity || !point.destState)) {
             add(issue('route_points', 'ROUTE_POINT_LOCATION_REQUIRED', 'Complete a cidade e a UF do ponto de percurso.', point.id));
         } else if (!point.destHubId && !point.destCityIbgeCode) {
-            add(issue('route_points', 'ROUTE_POINT_IBGE_PENDING', 'Selecione a cidade do ponto para guardar o código IBGE.', point.id, 'warning'));
+            add(issue('route_points', 'ROUTE_POINT_IBGE_PENDING', 'Selecione a cidade do ponto para guardar o código IBGE.', point.id));
         }
     }
 
@@ -159,12 +160,14 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
             add(issue('responsible', 'VEHICLE_RENAVAM_PENDING', 'RENAVAM do veículo pendente.', 'vehicleRenavam', 'warning'));
         }
         const lp = manifest.link.person;
-        if (!lp?.neighborhood || !lp?.cep || !lp?.address || !lp?.number || !(lp?.city && lp?.state)) {
+        if (!lp?.neighborhood || !lp?.cep || !lp?.address || !lp?.number || !(lp?.city && lp?.state && lp?.cityIbgeCode)) {
             add(issue('responsible', 'LINK_PERSON_ADDRESS_PENDING', 'Endereço do proprietário (Link) incompleto para Gravar Proprietário.', 'linkPersonAddress'));
         }
     }
     if (!manifest.driverId || !manifest.driver) {
         add(issue('responsible', 'DRIVER_REQUIRED', 'Complete os dados fiscais do motorista responsável.', 'driverId'));
+    } else if (manifest.driver.active === false) {
+        add(issue('responsible', 'DRIVER_REQUIRED', 'O motorista está inativo. Selecione um motorista ativo.', 'driverId'));
     } else if (manifest.driver.linkId !== manifest.linkId) {
         add(issue('responsible', 'DRIVER_LINK_MISMATCH', 'Os dados fiscais não pertencem ao responsável selecionado.', 'driverId'));
     } else {
@@ -175,7 +178,7 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
             add(issue('responsible', 'DRIVER_BIRTH_DATE_PENDING', 'Data de nascimento pendente para emissão do CIOT.', 'driverId'));
         }
         const dp = manifest.driver.person;
-        if (!dp?.neighborhood || !dp?.cep || !dp?.address || !dp?.number || !dp?.city || !dp?.state) {
+        if (!dp?.neighborhood || !dp?.cep || !dp?.address || !dp?.number || !dp?.city || !dp?.state || !dp?.cityIbgeCode) {
             add(issue('responsible', 'DRIVER_ADDRESS_PENDING', 'Endereço do motorista obrigatório para Gravar Motorista no e-Frete.', 'driverAddress'));
         }
         if (manifest.driver.cnhExpiry && manifest.driver.cnhExpiry < new Date()) {

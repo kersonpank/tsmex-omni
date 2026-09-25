@@ -389,7 +389,7 @@ describe('POST /api/links/:id/drivers — Person upsert', () => {
 
         // person.update must have been called with cep
         assert.ok(updatedPerson, 'person.update should have been called');
-        assert.equal((updatedPerson as any).cep, '13010-111', 'CEP should be filled');
+        assert.equal((updatedPerson as any).cep, '13010111', 'CEP should be filled');
 
         // address/neighborhood/city were NOT overwritten (they match — no conflict)
         const notOverwritten: string[] = res.body.notOverwritten ?? [];
@@ -416,4 +416,32 @@ describe('POST /api/links/:id/drivers — Person upsert', () => {
         assert.notEqual(res.status, 403, 'HUB should not be forbidden');
         assert.equal(res.status, 201, `Expected 201 for HUB, got ${res.status}: ${JSON.stringify(res.body)}`);
     });
+    it('rejects missing selection instead of resolving a city string', async () => {
+        const response = await httpPostJson<any>(baseUrl, `/api/links/${LINK_A_ID}/drivers`, jwt.sign({ userId: 'admin-1' }, jwtSecret), {
+            ...BASE_DRIVER_PAYLOAD, address: { ...BASE_ADDRESS, city: 'São Paulo, SP', cityIbgeCode: undefined },
+        });
+        assert.equal(response.status, 400);
+        assert.match(response.body.error, /cidade/i);
+    });
+    it('rejects stale municipality identity instead of saving mismatched city and UF', async () => {
+        const response = await httpPostJson<any>(baseUrl, `/api/links/${LINK_A_ID}/drivers`, jwt.sign({ userId: 'admin-1' }, jwtSecret), {
+            ...BASE_DRIVER_PAYLOAD, address: { ...BASE_ADDRESS, city: 'São Paulo do Potengi', state: 'RN' },
+        });
+        assert.equal(response.status, 400);
+        assert.match(response.body.error, /não correspondem/);
+    });
+
 });
+
+const originalSelectedCity = prisma.city.findUnique;
+const originalSelectedCep = prisma.cEP.findUnique;
+// Canonical municipality/CEP boundary used by every address write.
+before(() => {
+    prisma.city.findUnique = (async ({ where }: any) => {
+        if (where.ibgeCode === '3550308') return { name: 'São Paulo', ibgeCode: '3550308', state: { code: 'SP' } };
+        if (where.ibgeCode === '3509502') return { name: 'Campinas', ibgeCode: '3509502', state: { code: 'SP' } };
+        return null;
+    }) as any;
+    prisma.cEP.findUnique = (async () => null) as any;
+});
+after(() => { prisma.city.findUnique = originalSelectedCity; prisma.cEP.findUnique = originalSelectedCep; });

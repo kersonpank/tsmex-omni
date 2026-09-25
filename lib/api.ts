@@ -800,6 +800,7 @@ export const linksApi = {
         birthDate?: string;
         cnhNumber?: string;
         cnhExpiry?: string;
+        updatePersonAddress?: boolean;
         address?: {
             cep: string;
             address: string;
@@ -811,7 +812,7 @@ export const linksApi = {
             cityIbgeCode?: string;
         };
     }) => {
-        const response = await api.post<ApiResponse<Driver>>(`/links/${linkId}/drivers`, data);
+        const response = await api.post<ApiResponse<Driver> & { personAlreadyExists?: boolean; notOverwritten?: string[] }>(`/links/${linkId}/drivers`, data);
         return response.data;
     },
 
@@ -830,6 +831,7 @@ export const linksApi = {
     updateOwnerPerson: async (id: string, data: {
         legalName?: string;
         stateRegistration?: string;
+        updatePersonAddress?: boolean;
         address?: {
             cep: string;
             address: string;
@@ -852,6 +854,7 @@ export const linksApi = {
         birthDate: string;
         cnhNumber: string;
         cnhExpiry: string;
+        updatePersonAddress: boolean;
         address: {
             cep: string;
             address: string;
@@ -863,7 +866,7 @@ export const linksApi = {
             cityIbgeCode?: string;
         };
     }>) => {
-        const response = await api.patch<ApiResponse<Driver>>(`/links/${linkId}/drivers/${driverId}`, data);
+        const response = await api.patch<ApiResponse<Driver> & { personAlreadyExists?: boolean; notOverwritten?: string[] }>(`/links/${linkId}/drivers/${driverId}`, data);
         return response.data;
     },
 };
@@ -1775,5 +1778,4 @@ export const systemAlertsApi = {
 };
 
 export default api;
-
 

@@ -1,3 +1,5 @@
+import { validateSelectedAddress } from '../services/selectedCity.js';
+import { selectedManifestCity } from '../services/manifestSelectedCity.js';
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
@@ -296,7 +298,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
             include: {
                 vehicleType: true,
                 link: { include: { vehicleType: true, person: true } },
-                driver: true,
+                driver: { include: { person: true } },
                 hub: true,
                 destHub: true,
                 fiscalEmitter: true,
@@ -398,6 +400,8 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response, next: Nex
             stops: data.stops,
         });
 
+        const originSelection = await selectedManifestCity(data, 'origin', effectiveHubId);
+        const destinationSelection = await selectedManifestCity(data, 'destination', data.tripType === 'TRANSFER' ? data.destHubId : undefined);
         const manifest = await prisma.manifest.create({
             data: {
                 vehicleTypeId: data.vehicleTypeId,
@@ -409,6 +413,8 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response, next: Nex
                 destinationCity: data.destinationCity,
                 destinationState: data.destinationState,
                 destinationCityIbgeCode: data.destinationCityIbgeCode,
+                ...originSelection,
+                ...destinationSelection,
                 startsWithCollection: data.startsWithCollection,
                 tripType: data.tripType,
                 hubId: effectiveHubId ?? undefined,
@@ -483,6 +489,10 @@ router.patch('/:id/setup', authenticate, async (req: AuthRequest, res: Response,
             destHubId: destHubId ?? undefined,
         });
 
+        const originTouched = ['origin', 'originCity', 'originState', 'originCityIbgeCode'].some(key => key in data);
+        const destinationTouched = ['destination', 'destinationCity', 'destinationState', 'destinationCityIbgeCode'].some(key => key in data);
+        const originSelection = originTouched ? await selectedManifestCity(data, 'origin', hubId) : {};
+        const destinationSelection = destinationTouched ? await selectedManifestCity(data, 'destination', tripType === 'TRANSFER' ? destHubId : undefined) : {};
         const updated = await prisma.manifest.update({
             where: { id },
             data: {
@@ -495,6 +505,8 @@ router.patch('/:id/setup', authenticate, async (req: AuthRequest, res: Response,
                 destinationCity: data.destinationCity,
                 destinationState: data.destinationState,
                 destinationCityIbgeCode: data.destinationCityIbgeCode,
+                ...originSelection,
+                ...destinationSelection,
                 startsWithCollection: data.startsWithCollection,
                 tripType: data.tripType,
                 hubId,
@@ -646,6 +658,7 @@ router.post('/:id/stops', authenticate, async (req: AuthRequest, res: Response, 
             if (!destHub || !destHub.active) throw new AppError('Hub destino não encontrado ou inativo', 400);
         }
 
+        const stopSelection = await selectedManifestCity(data, 'dest', data.destHubId);
         const lastStop = await prisma.manifestStop.findFirst({
             where: { manifestId: id },
             orderBy: { sequence: 'desc' },
@@ -661,6 +674,7 @@ router.post('/:id/stops', authenticate, async (req: AuthRequest, res: Response, 
                 destCity: data.destCity,
                 destState: data.destState,
                 destCityIbgeCode: data.destCityIbgeCode,
+                ...stopSelection,
                 purpose: data.purpose,
                 plannedArrivalAt: data.plannedArrivalAt ? new Date(data.plannedArrivalAt) : undefined,
             },
@@ -712,6 +726,8 @@ router.patch('/:id/stops/:stopId', authenticate, async (req: AuthRequest, res: R
             if (!hub?.active) throw new AppError('Hub destino não encontrado ou inativo.', 400);
         }
 
+        const locationTouched = ['destCity', 'destState', 'destCityIbgeCode', 'destHubId'].some(key => key in data);
+        const stopSelection = locationTouched ? await selectedManifestCity(data, 'dest', destHubId) : {};
         const updated = await prisma.manifestStop.update({
             where: { id: stopId },
             data: {
@@ -720,6 +736,7 @@ router.patch('/:id/stops/:stopId', authenticate, async (req: AuthRequest, res: R
                 destCity: data.destCity,
                 destState: data.destState,
                 destCityIbgeCode: data.destCityIbgeCode,
+                ...stopSelection,
                 purpose: data.purpose,
                 plannedArrivalAt: data.plannedArrivalAt === null
                     ? null
@@ -1472,6 +1489,11 @@ router.post('/:id/emit-ciot', authenticate, authorize('ADMIN', 'HUB'), async (re
         if (existingJob && ['QUEUED', 'CADASTROS_ENSURING', 'SUBMITTED', 'POLLING'].includes(existingJob.phase)) {
             throw new AppError('Já existe uma emissão de CIOT em processamento para este manifesto.', 409);
         }
+
+        const recipientAddress = body.requestData.destinatario.endereco;
+        const recipientCity = await prisma.city.findUnique({ where: { ibgeCode: String(recipientAddress.codigoMunicipio) }, include: { state: true } });
+        if (!recipientCity) throw new AppError('Selecione a cidade do destinatário pela busca ou pelo CEP.', 400);
+        await validateSelectedAddress({ cep: recipientAddress.cep, city: recipientCity.name, state: recipientCity.state.code, cityIbgeCode: recipientCity.ibgeCode });
 
         const suggestion = await suggestCiotTipoViagem(id);
         const tipoViagem = body.tipoViagemOverride ?? manifest.ciotTipoViagemOverride ?? suggestion.tipoViagem;

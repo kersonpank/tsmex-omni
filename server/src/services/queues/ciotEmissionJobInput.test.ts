@@ -82,6 +82,9 @@ function createBaseEntities() {
             id: 'person-explicit',
             document: '22333444000155',
             legalName: 'Emitente Selecionado Ltda',
+            city: 'Guarulhos',
+            state: 'SP',
+            cityIbgeCode: '3518800',
             address: 'Rua das Flores',
             number: '123',
             neighborhood: 'Centro',
@@ -101,6 +104,9 @@ function createBaseEntities() {
             id: 'person-hub-default',
             document: '99888777000166',
             legalName: 'Emitente Padrao Hub Ltda',
+            city: 'Guarulhos',
+            state: 'SP',
+            cityIbgeCode: '3518800',
             address: 'Av Principal',
             number: '500',
             neighborhood: 'Distrito',
@@ -123,6 +129,14 @@ function makeDeps(jobRecord: any, manifestRecord: any, emitter: any, resolveIbge
 }
 
 describe('buildCiotEmissionInputForJob fiscal emitter resolution and eFrete environment', () => {
+    it('uses the selected physical origin and the contractor own address as independent municipalities', async () => {
+        const { jobRecord, manifestRecord, hubDefaultEmitter } = createBaseEntities();
+        Object.assign(manifestRecord, { originCity: 'São Paulo', originState: 'SP', originCityIbgeCode: '3550308' });
+        const result = await buildCiotEmissionInputForJob('job-1', makeDeps(jobRecord, manifestRecord, hubDefaultEmitter) as any);
+        assert.equal(result.mapperInput.codigoMunicipioOrigem, 3550308);
+        assert.equal(result.mapperInput.contratante.endereco.codigoMunicipio, 3518800);
+        assert.equal(result.mapperInput.codigoMunicipioDestino, 2111300);
+    });
     it('maps cavalo and all trailers in normalized order', async () => {
         const { jobRecord, manifestRecord, hubDefaultEmitter } = createBaseEntities();
         Object.assign(manifestRecord.link, { vehiclePlate: 'abc-1d23', trailerPlate: ' DEF 456 ', trailer2Plate: 'GHI7J89', trailer3Plate: 'JKL-0M12' });

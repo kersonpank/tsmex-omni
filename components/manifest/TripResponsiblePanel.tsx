@@ -178,7 +178,7 @@ const TripResponsiblePanel: React.FC<Props> = ({
             <div>
               <dt className="text-tower-500">Validade</dt>
               <dd className="font-bold text-tower-900 dark:text-tower-50">
-                {manifest.driver.cnhExpiry ? new Date(manifest.driver.cnhExpiry).toLocaleDateString('pt-BR') : 'Não informada'}
+                {manifest.driver.cnhExpiry ? new Date(manifest.driver.cnhExpiry).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'Não informada'}
               </dd>
             </div>
           </dl>

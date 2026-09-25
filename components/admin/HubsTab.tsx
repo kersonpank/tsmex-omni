@@ -493,7 +493,7 @@ const HubsTab: React.FC = () => {
                 <Select
                   id="hub-state"
                   value={form.state}
-                  onChange={e => setForm(f => ({ ...f, state: e.target.value, city: '' }))}
+                  onChange={e => setForm(f => ({ ...f, state: e.target.value, city: '', cityIbgeCode: '' }))}
                   required
                 >
                   <option value="">Selecione</option>
@@ -504,6 +504,7 @@ const HubsTab: React.FC = () => {
               </FormField>
               <FormField label="Cidade" htmlFor="hub-city" required>
                 <CityAutocomplete
+                selectedIbgeCode={form.cityIbgeCode}
                   value={form.city && form.state ? `${form.city}, ${form.state}` : (form.city || '')}
                   onChange={v => {
                     const parts = v.split(', ');

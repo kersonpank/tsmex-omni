@@ -8,7 +8,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { getParamId } from '../lib/routeUtils.js';
 import { findOrCreateConcluirCadastroColumn } from './pipeline.js';
-import { validateAndNormalizeCity, resolveIbgeCode } from '../services/acbr/acbrIbge.js';
+import { validateSelectedCity, validateSelectedAddress } from '../services/selectedCity.js';
 
 const router = Router();
 
@@ -360,16 +360,11 @@ router.post('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthReques
         const body = createPersonSchema.parse(req.body);
         validateDocument(body.documentType, body.document);
 
-        if (body.city && body.state) {
-            const resolved = await resolveIbgeCode(body.city, body.state);
-            if (resolved) {
-                body.city = resolved.name;
-                body.cityIbgeCode = resolved.ibgeCode;
-            } else {
-                throw new AppError(`Cidade "${body.city} - ${body.state}" não encontrada no cadastro nacional.`, 400);
-            }
+        if (body.city || body.state || body.cityIbgeCode) {
+            Object.assign(body, await validateSelectedCity(body));
         }
 
+        if (body.cep && body.city && body.state && body.cityIbgeCode) Object.assign(body, await validateSelectedAddress({ ...body, cep: body.cep, city: body.city, state: body.state }));
         const existing = await prisma.person.findUnique({
             where: { document: body.document },
         });
@@ -426,18 +421,17 @@ router.patch('/:id', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRe
         const documentType = body.documentType ?? person.documentType;
         validateDocument(documentType, document);
 
-        if (body.city !== undefined || body.state !== undefined) {
-            const nextCity = body.city !== undefined ? body.city : person.city;
-            const nextState = body.state !== undefined ? body.state : person.state;
-            if (nextCity && nextState) {
-                const resolved = await resolveIbgeCode(nextCity, nextState);
-                if (resolved) {
-                    body.city = resolved.name;
-                    body.cityIbgeCode = resolved.ibgeCode;
-                } else {
-                    throw new AppError(`Cidade "${nextCity} - ${nextState}" não encontrada no cadastro nacional.`, 400);
-                }
-            }
+        if (body.city !== undefined || body.state !== undefined || body.cityIbgeCode !== undefined) {
+            Object.assign(body, await validateSelectedCity({
+                city: body.city ?? person.city,
+                state: body.state ?? person.state,
+                cityIbgeCode: body.cityIbgeCode,
+            }));
+        }
+
+        if (body.cep !== undefined || body.cityIbgeCode !== undefined) {
+            const merged = { ...person, ...body };
+            if (merged.cep && merged.city && merged.state && merged.cityIbgeCode) await validateSelectedAddress({ cep: merged.cep, city: merged.city, state: merged.state, cityIbgeCode: merged.cityIbgeCode });
         }
 
         if (body.document !== undefined || body.documentType !== undefined) {

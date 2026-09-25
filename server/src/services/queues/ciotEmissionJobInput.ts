@@ -1,6 +1,6 @@
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
-import { resolveIbgeMunicipio } from '../acbr/acbrIbge.js';
+import { requireSelectedIbge } from '../selectedCity.js';
 import { resolveMatrizCnpj, type EfreteEnvironment } from '../efrete/efreteConfig.js';
 import { digits, splitPhone } from '../efrete/efreteUtil.js';
 import type { CiotMapperInput, CiotRequestData, CiotTipoViagemApi } from '../efrete/efreteCiotMapper.js';
@@ -23,7 +23,7 @@ export interface BuildCiotEmissionInputDeps {
             findFirst: (...args: any[]) => Promise<any>;
         };
     };
-    resolveIbgeMunicipio?: typeof resolveIbgeMunicipio;
+    resolveIbgeMunicipio?: typeof requireSelectedIbge;
 }
 
 export async function buildCiotEmissionInputForJob(
@@ -34,7 +34,7 @@ export async function buildCiotEmissionInputForJob(
     environment: EfreteEnvironment;
 }> {
     const db = deps.prisma ?? prisma;
-    const resolveIbge = deps.resolveIbgeMunicipio ?? resolveIbgeMunicipio;
+    const resolveIbge = deps.resolveIbgeMunicipio ?? requireSelectedIbge;
 
     const job = await db.ciotEmissionJob.findUniqueOrThrow({ where: { id: ciotEmissionJobId } });
     const manifest = await db.manifest.findUniqueOrThrow({
@@ -52,6 +52,7 @@ export async function buildCiotEmissionInputForJob(
     if (!manifest.link) throw new AppError('Manifesto sem Link (transportador) atribuído.', 400);
     if (!manifest.link.rntrc || !manifest.link.carrierType) throw new AppError('Link sem RNTRC/tipo de transportador cadastrado — obrigatório para CIOT.', 400);
     if (!manifest.driver) throw new AppError('Manifesto sem motorista definido ("Definir Motorista") — obrigatório para CIOT.', 400);
+    if (manifest.driver.active === false) throw new AppError('Motorista inativo. Selecione um motorista ativo.', 400);
     if (!manifest.driver.cnhNumber) throw new AppError('Motorista sem número de CNH cadastrado.', 400);
 
     let fiscalEmitter: any = null;
@@ -79,7 +80,11 @@ export async function buildCiotEmissionInputForJob(
     const contratanteDoc = digits(fiscalEmitter.person.document).padStart(14, '0').slice(0, 14);
     const matrizCnpj = resolveMatrizCnpj(contratanteDoc, environment);
 
-    const origemMunicipio = await resolveIbge(manifest.hub.city, manifest.hub.state, manifest.hub.cityIbgeCode);
+    const origin = manifest.originCity || manifest.originCityIbgeCode
+        ? { city: manifest.originCity, state: manifest.originState, code: manifest.originCityIbgeCode }
+        : { city: manifest.hub.city, state: manifest.hub.state, code: manifest.hub.cityIbgeCode };
+    const origemMunicipio = await resolveIbge(origin.city, origin.state, origin.code);
+    const contratanteMunicipio = await resolveIbge(fiscalEmitter.person.city, fiscalEmitter.person.state, fiscalEmitter.person.cityIbgeCode);
     const stops = [...(manifest.tripStops ?? [])].sort((a: any, b: any) => a.sequence - b.sequence);
     const destination = [...stops].reverse().map((stop: any) => ({
         city: stop.destHub?.city ?? stop.destCity,
@@ -115,7 +120,7 @@ export async function buildCiotEmissionInputForJob(
             endereco: {
                 bairro: fiscalEmitter.person.neighborhood || 'Centro',
                 cep: digits(fiscalEmitter.person.cep).padStart(8, '0').slice(0, 8),
-                codigoMunicipio: Number(origemMunicipio),
+                codigoMunicipio: Number(contratanteMunicipio),
                 rua: fiscalEmitter.person.address || 'S/N',
                 numero: fiscalEmitter.person.number || 'S/N',
                 ...(fiscalEmitter.person.complement ? { complemento: fiscalEmitter.person.complement } : {}),

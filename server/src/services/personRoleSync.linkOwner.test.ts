@@ -20,7 +20,7 @@ const BASE_ADDRESS = {
     neighborhood: 'Bela Vista',
     city: 'São Paulo',
     state: 'SP',
-    cityIbgeCode: '3550308', // explicit → skips IBGE DB lookup
+    cityIbgeCode: '3550308', // verified against the municipality catalog
 };
 
 const persons: Record<string, Record<string, unknown>> = {
@@ -162,4 +162,42 @@ describe('upsertPersonForLinkOwner', () => {
         assert.equal(result.personAlreadyExists, true);
         assert.equal((result.person as any).id, 'person-cpf-existing');
     });
+
+    it('does not fill a missing CEP with one belonging to another selected municipality', async () => {
+        const { upsertPersonForLinkOwner } = await import('./personRoleSync.js');
+        const existing = persons[CPF_EXISTING_FULL];
+        const cep = existing.cep;
+        existing.cep = null;
+        try {
+            const result = await upsertPersonForLinkOwner('CPF', CPF_EXISTING_FULL, 'Autônomo Existente', BASE_ADDRESS);
+            assert.equal(result.person.city, 'Campinas');
+            assert.equal(result.person.cityIbgeCode, '3509502');
+            assert.equal(result.person.cep, null);
+            assert.equal(updatedPerson, null);
+            assert.ok(result.notOverwritten.includes('cep'));
+        } finally { existing.cep = cep; }
+    });
+
+    it('replaces the entire address only when the operator explicitly requests the update', async () => {
+        const { upsertPersonForLinkOwner } = await import('./personRoleSync.js');
+        const result = await upsertPersonForLinkOwner('CPF', CPF_EXISTING_FULL, 'Autônomo Existente', BASE_ADDRESS, undefined, true);
+        assert.deepEqual(
+            [result.person.cep, result.person.city, result.person.state, result.person.cityIbgeCode, result.person.address],
+            ['01310100', 'São Paulo', 'SP', '3550308', 'Av. Paulista'],
+        );
+        assert.deepEqual(result.notOverwritten, []);
+    });
 });
+
+const originalSelectedCity = prisma.city.findUnique;
+const originalSelectedCep = prisma.cEP.findUnique;
+// Canonical municipality/CEP boundary used by every address write.
+before(() => {
+    prisma.city.findUnique = (async ({ where }: any) => {
+        if (where.ibgeCode === '3550308') return { name: 'São Paulo', ibgeCode: '3550308', state: { code: 'SP' } };
+        if (where.ibgeCode === '3509502') return { name: 'Campinas', ibgeCode: '3509502', state: { code: 'SP' } };
+        return null;
+    }) as any;
+    prisma.cEP.findUnique = (async () => null) as any;
+});
+after(() => { prisma.city.findUnique = originalSelectedCity; prisma.cEP.findUnique = originalSelectedCep; });

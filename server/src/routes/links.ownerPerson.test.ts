@@ -199,3 +199,16 @@ describe('PATCH /api/links/:id/owner-person', () => {
         assert.notEqual(res.status, 403, 'HUB should not be forbidden');
     });
 });
+
+const originalSelectedCity = prisma.city.findUnique;
+const originalSelectedCep = prisma.cEP.findUnique;
+// Canonical municipality/CEP boundary used by every address write.
+before(() => {
+    prisma.city.findUnique = (async ({ where }: any) => {
+        if (where.ibgeCode === '3550308') return { name: 'São Paulo', ibgeCode: '3550308', state: { code: 'SP' } };
+        if (where.ibgeCode === '3509502') return { name: 'Campinas', ibgeCode: '3509502', state: { code: 'SP' } };
+        return null;
+    }) as any;
+    prisma.cEP.findUnique = (async () => null) as any;
+});
+after(() => { prisma.city.findUnique = originalSelectedCity; prisma.cEP.findUnique = originalSelectedCep; });

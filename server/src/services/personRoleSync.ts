@@ -11,7 +11,7 @@
  */
 
 import prisma from '../lib/prisma.js';
-import { resolveIbgeMunicipio } from './acbr/acbrIbge.js';
+import { validateSelectedAddress, normalizeCityName } from './selectedCity.js';
 import { AppError } from '../middleware/errorHandler.js';
 
 export interface DriverAddressInput {
@@ -39,6 +39,7 @@ interface UpsertPersonForRoleOptions {
     documentType: 'CPF' | 'CNPJ';
     missingAddressErrorMessage: string;
     stateRegistration?: string;
+    updatePersonAddress?: boolean;
 }
 
 async function upsertPersonForRole(
@@ -47,6 +48,7 @@ async function upsertPersonForRole(
     address: DriverAddressInput | undefined,
     options: UpsertPersonForRoleOptions,
 ): Promise<UpsertPersonResult> {
+    if (address) address = await validateSelectedAddress(address);
     const existing = await prisma.person.findUnique({ where: { document: normalizedDocument } });
 
     if (!existing) {
@@ -54,7 +56,7 @@ async function upsertPersonForRole(
             throw new AppError(options.missingAddressErrorMessage, 400);
         }
 
-        const ibgeCode = await resolveIbgeMunicipio(address.city, address.state, address.cityIbgeCode);
+        const ibgeCode = address.cityIbgeCode!;
 
         const person = await prisma.person.create({
             data: {
@@ -95,33 +97,19 @@ async function upsertPersonForRole(
     }
 
     if (address) {
-        for (const field of ADDRESS_FIELDS) {
-            const existingVal = (existing as Record<string, unknown>)[field];
-            const newVal = address[field as keyof DriverAddressInput];
-            if (newVal !== undefined && newVal !== null && newVal !== '') {
-                if (!existingVal || existingVal === '') {
-                    updateData[field] = newVal;
-                } else if (existingVal !== newVal) {
-                    notOverwritten.push(field);
-                }
+        const fields = [...ADDRESS_FIELDS, 'cityIbgeCode'] as const;
+        // An address is one coherent unit. Never combine a new CEP with an old municipality.
+        const hasExistingAddress = ADDRESS_FIELDS.some(field => Boolean(existing[field]));
+        const compatible = fields.every(field => !existing[field] || !address![field]
+            || (field === 'city' ? normalizeCityName(String(existing[field])) === normalizeCityName(address![field]!)
+                : field === 'cep' ? String(existing[field]).replace(/\D/g, '') === address!.cep
+                : existing[field] === address![field]));
+        if (options.updatePersonAddress || !hasExistingAddress || compatible) {
+            for (const field of fields) {
+                if (options.updatePersonAddress || !existing[field]) updateData[field] = address[field] ?? null;
             }
-        }
-
-        // Resolve cityIbgeCode only when it's still missing after the merge
-        if (!existing.cityIbgeCode) {
-            const cityForIbge = (updateData.city as string | undefined) ?? existing.city ?? undefined;
-            const stateForIbge = (updateData.state as string | undefined) ?? existing.state ?? undefined;
-            if (cityForIbge && stateForIbge) {
-                try {
-                    updateData.cityIbgeCode = await resolveIbgeMunicipio(
-                        cityForIbge,
-                        stateForIbge,
-                        address.cityIbgeCode,
-                    );
-                } catch {
-                    // best-effort; caller can let readiness flag it later
-                }
-            }
+        } else {
+            notOverwritten.push(...fields.filter(field => existing[field] !== address![field]));
         }
     }
 
@@ -147,9 +135,11 @@ export async function upsertPersonForDriver(
     normalizedDocument: string,
     legalName: string,
     address: DriverAddressInput | undefined,
+    updatePersonAddress = false,
 ): Promise<UpsertPersonResult> {
     return upsertPersonForRole(normalizedDocument, legalName, address, {
         documentType: 'CPF',
+        updatePersonAddress,
         missingAddressErrorMessage: 'Endereço é obrigatório para cadastrar um motorista.',
     });
 }
@@ -169,10 +159,12 @@ export async function upsertPersonForLinkOwner(
     legalName: string,
     address: DriverAddressInput | undefined,
     stateRegistration?: string,
+    updatePersonAddress = false,
 ): Promise<UpsertPersonResult> {
     return upsertPersonForRole(normalizedDocument, legalName, address, {
         documentType,
         stateRegistration,
+        updatePersonAddress,
         missingAddressErrorMessage: 'Endereço é obrigatório para cadastrar o proprietário do veículo.',
     });
 }

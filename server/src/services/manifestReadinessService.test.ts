@@ -21,6 +21,7 @@ const completeAddress = {
     address: 'Rua Principal',
     number: '100',
     city: 'São Paulo',
+    cityIbgeCode: '3550308',
     state: 'SP',
 };
 

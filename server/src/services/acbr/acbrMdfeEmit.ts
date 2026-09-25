@@ -1,7 +1,8 @@
 import prisma from '../../lib/prisma.js';
 import { getAcbrAccessToken } from './acbrAuth.js';
 import { getAcbrApiBaseUrlForEnvironment, type AcbrFiscalEnvironment } from './acbrConfig.js';
-import { resolveIbgeMunicipio, ufToCuf } from './acbrIbge.js';
+import { ufToCuf } from './acbrIbge.js';
+import { requireSelectedIbge } from '../selectedCity.js';
 import { acbrFetchJson } from './acbrHttp.js';
 import { cleanIe } from './acbrCteMapper.js';
 
@@ -150,12 +151,11 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
 
     // Emitente explícito da viagem (Fatia C) tem prioridade; senão cai no Hub de origem (compat).
     const emit = manifest.fiscalEmitter?.person ?? manifest.hub.person;
-    const emitCmun = await resolveIbgeMunicipio(emit.city, emit.state, emit.cityIbgeCode);
-    const legacyOrigin = cityStateFromLegacyLabel(manifest.origin);
-    const loadingCity = manifest.originCity ?? legacyOrigin.city ?? manifest.hub.city ?? emit.city;
-    const loadingState = manifest.originState ?? legacyOrigin.state ?? manifest.hub.state ?? emit.state;
-    const loadingIbgeCode = manifest.originCityIbgeCode ?? manifest.hub.cityIbgeCode ?? emit.cityIbgeCode;
-    const loadingCmun = await resolveIbgeMunicipio(loadingCity, loadingState, loadingIbgeCode);
+    const emitCmun = await requireSelectedIbge(emit.city, emit.state, emit.cityIbgeCode);
+    const loadingCity = manifest.originCity;
+    const loadingState = manifest.originState;
+    const loadingIbgeCode = manifest.originCityIbgeCode;
+    const loadingCmun = await requireSelectedIbge(loadingCity, loadingState, loadingIbgeCode);
     const ufIni = (loadingState ?? 'SP').slice(0, 2).toUpperCase();
     const cUF = ufToCuf(emit.state);
     let apiEnv: AcbrFiscalEnvironment = manifest.fiscalEmitter?.environment ?? 'HOMOLOGACAO';
@@ -221,7 +221,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
         }
         let cMunDescarga: string;
         try {
-            cMunDescarga = await resolveIbgeMunicipio(city, state, ibgeCode);
+            cMunDescarga = await requireSelectedIbge(city, state, ibgeCode);
         } catch (e) {
             return { ok: false, error: e instanceof Error ? e.message : String(e) };
         }
@@ -410,7 +410,7 @@ export async function encerrarMdfeViaAcbr(manifestId: string): Promise<MdfeEncer
     const apiEnv: AcbrFiscalEnvironment = manifest?.fiscalEmitter?.environment ?? 'HOMOLOGACAO';
 
     try {
-        const cMun = await resolveIbgeMunicipio(city, state, lastGroup?.destHub?.cityIbgeCode ?? null);
+        const cMun = await requireSelectedIbge(city, state, lastGroup?.destHub?.cityIbgeCode ?? lastGroup?.destCityIbgeCode ?? null);
         const cUF = ufToCuf(state);
         const dtEnc = new Date().toISOString().slice(0, 10);
         await acbrFetchJson(`/mdfe/${apiId}/encerramento`, {

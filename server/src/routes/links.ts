@@ -538,17 +538,18 @@ const addressSchema = z.object({
     neighborhood: z.string().min(1),
     city: z.string().min(1),
     state: z.string().length(2),
-    cityIbgeCode: z.string().min(7).optional(),
+    cityIbgeCode: z.string({ required_error: 'Selecione a cidade na busca ou consulte o CEP.' }).regex(/^\d{7}$/, 'Selecione uma cidade válida com código IBGE.'),
 });
 
 const driverSchema = z.object({
     name: z.string().min(1),
     document: z.string().min(11),
-    phone: z.string().min(10),
+    phone: z.string().min(10, 'Informe o telefone do motorista com DDD (pelo menos 10 dígitos).'),
     birthDate: z.string().optional(),
     cnhNumber: z.string().optional(),
     cnhExpiry: z.string().optional(),
     address: addressSchema.optional(),
+    updatePersonAddress: z.boolean().optional(),
 });
 
 router.post('/:id/drivers', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -581,6 +582,7 @@ router.post('/:id/drivers', authenticate, authorize('ADMIN', 'HUB'), async (req:
                 normalizedDoc,
                 body.name,
                 body.address,
+                body.updatePersonAddress,
             );
 
             const driver = await prisma.driver.update({
@@ -593,6 +595,7 @@ router.post('/:id/drivers', authenticate, authorize('ADMIN', 'HUB'), async (req:
                     ...(body.cnhExpiry ? { cnhExpiry: new Date(body.cnhExpiry) } : {}),
                     personId: person.id,
                 },
+                include: { person: true },
             });
 
             return res.json({ success: true, data: driver, personAlreadyExists, notOverwritten });
@@ -607,6 +610,7 @@ router.post('/:id/drivers', authenticate, authorize('ADMIN', 'HUB'), async (req:
             normalizedDoc,
             body.name,
             body.address,
+            body.updatePersonAddress,
         );
 
         const driver = await prisma.driver.create({
@@ -620,6 +624,7 @@ router.post('/:id/drivers', authenticate, authorize('ADMIN', 'HUB'), async (req:
                 cnhExpiry: body.cnhExpiry ? new Date(body.cnhExpiry) : undefined,
                 personId: person.id,
             },
+            include: { person: true },
         });
 
         return res.status(201).json({ success: true, data: driver, personAlreadyExists, notOverwritten });
@@ -646,7 +651,7 @@ router.patch('/:id/drivers/:driverId', authenticate, authorize('ADMIN', 'HUB'), 
                 ? body.document.replace(/\D/g, '')
                 : existing.document;
             const nameToUse = body.name ?? existing.name;
-            const result = await upsertPersonForDriver(docToUse, nameToUse, body.address);
+            const result = await upsertPersonForDriver(docToUse, nameToUse, body.address, body.updatePersonAddress);
             personId = result.person.id;
             personAlreadyExists = result.personAlreadyExists;
             notOverwritten = result.notOverwritten;
@@ -663,6 +668,7 @@ router.patch('/:id/drivers/:driverId', authenticate, authorize('ADMIN', 'HUB'), 
                 ...(body.cnhExpiry !== undefined ? { cnhExpiry: new Date(body.cnhExpiry) } : {}),
                 ...(personId !== existing.personId ? { personId } : {}),
             },
+            include: { person: true },
         });
 
         res.json({
@@ -680,6 +686,7 @@ router.patch('/:id/drivers/:driverId', authenticate, authorize('ADMIN', 'HUB'), 
 // usada pelo "Gravar Proprietário" do CIOT. O documento nunca é redigitado: vem de Link.document.
 const ownerPersonSchema = z.object({
     address: addressSchema.optional(),
+    updatePersonAddress: z.boolean().optional(),
     stateRegistration: z.string().optional(),
     legalName: z.string().min(1).optional(),
 });
@@ -702,12 +709,13 @@ router.patch('/:id/owner-person', authenticate, authorize('ADMIN', 'HUB'), async
             body.legalName ?? link.name,
             body.address,
             body.stateRegistration,
+            body.updatePersonAddress,
         );
 
         const updated = await prisma.link.update({
             where: { id },
             data: { personId: person.id },
-            include: { vehicleType: true },
+            include: { vehicleType: true, person: true },
         });
 
         res.json({ success: true, data: updated, personAlreadyExists, notOverwritten });

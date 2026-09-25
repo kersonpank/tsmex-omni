@@ -1,6 +1,6 @@
 // components/manifest/LinkOwnerPersonSheet.tsx
 import React from 'react';
-import { CityAutocomplete } from '../ui/CityAutocomplete';
+import { FiscalAddressFields } from './FiscalAddressFields';
 
 export interface OwnerPersonFormState {
   legalName: string;
@@ -30,6 +30,7 @@ interface Props {
   saving: boolean;
   onClose: () => void;
   onSave: () => void;
+  error?: string | null;
   fieldClass: string;
 }
 
@@ -46,6 +47,7 @@ const LinkOwnerPersonSheet: React.FC<Props> = ({
   saving,
   onClose,
   onSave,
+  error,
   fieldClass,
 }) => {
   const addressReadOnly = personAlreadyHasAddress && !updatePersonAddress;
@@ -114,7 +116,7 @@ const LinkOwnerPersonSheet: React.FC<Props> = ({
                   onChange={(e) => setUpdatePersonAddress(e.target.checked)}
                   className="size-4"
                 />
-                Atualizar cadastro-base
+                Atualizar endereço
               </label>
             )}
           </div>
@@ -123,85 +125,10 @@ const LinkOwnerPersonSheet: React.FC<Props> = ({
               Pessoa já cadastrada — endereço do cadastro-base. Marque para alterar.
             </p>
           )}
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className="mb-2 block text-sm font-bold">CEP*</label>
-              <input
-                inputMode="numeric"
-                disabled={addressReadOnly}
-                value={ownerPersonForm.cep}
-                onChange={(e) => setOwnerPersonForm((f) => ({ ...f, cep: e.target.value.replace(/\D/g, '') }))}
-                maxLength={9}
-                placeholder="00000000"
-                className={`${fieldClass}${addressReadOnly ? ' opacity-60' : ''}`}
-              />
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-bold">Logradouro*</label>
-              <input
-                disabled={addressReadOnly}
-                value={ownerPersonForm.address}
-                onChange={(e) => setOwnerPersonForm((f) => ({ ...f, address: e.target.value }))}
-                placeholder="Rua, Av, etc."
-                className={`${fieldClass}${addressReadOnly ? ' opacity-60' : ''}`}
-              />
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-bold">Número*</label>
-              <input
-                disabled={addressReadOnly}
-                value={ownerPersonForm.number}
-                onChange={(e) => setOwnerPersonForm((f) => ({ ...f, number: e.target.value }))}
-                placeholder="123"
-                className={`${fieldClass}${addressReadOnly ? ' opacity-60' : ''}`}
-              />
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-bold">Complemento</label>
-              <input
-                disabled={addressReadOnly}
-                value={ownerPersonForm.complement}
-                onChange={(e) => setOwnerPersonForm((f) => ({ ...f, complement: e.target.value }))}
-                placeholder="Apto, Bloco, etc."
-                className={`${fieldClass}${addressReadOnly ? ' opacity-60' : ''}`}
-              />
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-bold">Bairro*</label>
-              <input
-                disabled={addressReadOnly}
-                value={ownerPersonForm.neighborhood}
-                onChange={(e) => setOwnerPersonForm((f) => ({ ...f, neighborhood: e.target.value }))}
-                className={`${fieldClass}${addressReadOnly ? ' opacity-60' : ''}`}
-              />
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-bold">Cidade*</label>
-              <CityAutocomplete
-                value={ownerPersonForm.city}
-                onChange={(v) => setOwnerPersonForm((f) => ({ ...f, city: v }))}
-                onSelect={(city, state, ibgeCode) =>
-                  setOwnerPersonForm((f) => ({ ...f, city, state, cityIbgeCode: ibgeCode ?? '' }))
-                }
-                disabled={addressReadOnly}
-                className={`${fieldClass}${addressReadOnly ? ' opacity-60' : ''}`}
-                required
-              />
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-bold">Estado (UF)*</label>
-              <input
-                maxLength={2}
-                disabled={addressReadOnly}
-                value={ownerPersonForm.state}
-                onChange={(e) => setOwnerPersonForm((f) => ({ ...f, state: e.target.value.toUpperCase() }))}
-                placeholder="SP"
-                className={`${fieldClass} uppercase${addressReadOnly ? ' opacity-60' : ''}`}
-              />
-            </div>
-          </div>
+          <FiscalAddressFields value={ownerPersonForm} onChange={setOwnerPersonForm} readOnly={addressReadOnly} fieldClass={fieldClass} />
         </div>
 
+        {error && <p role="alert" className="mt-4 rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">{error}</p>}
         <div className="mt-6 flex gap-3">
           <button type="button" onClick={onClose} className="admin-focus min-h-12 rounded-xl px-4 text-sm font-semibold text-tower-600 hover:bg-tower-100 dark:text-tower-300 dark:hover:bg-tower-800">
             Cancelar

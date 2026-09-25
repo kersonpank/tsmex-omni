@@ -27,6 +27,7 @@ interface Props {
   savingVehicle: boolean;
   onClose: () => void;
   onSave: () => void;
+  error?: string | null;
   fieldClass: string;
 }
 
@@ -55,6 +56,7 @@ const VehicleFiscalSheet: React.FC<Props> = ({
   savingVehicle,
   onClose,
   onSave,
+  error,
   fieldClass,
 }) => {
   const handleTypeChange = (vehicleTypeId: string) => {
@@ -270,6 +272,7 @@ const VehicleFiscalSheet: React.FC<Props> = ({
           </details>
         </div>
 
+        {error && <p role="alert" className="mt-4 rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">{error}</p>}
         <div className="mt-6 flex gap-3">
           <button type="button" onClick={onClose} className="admin-focus min-h-12 rounded-xl px-4 text-sm font-semibold text-tower-600 hover:bg-tower-100 dark:text-tower-300 dark:hover:bg-tower-800">
             Cancelar

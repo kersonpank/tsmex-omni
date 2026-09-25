@@ -1,3 +1,4 @@
+import { FiscalAddressFields, fiscalAddressFromPerson, type FiscalAddress } from './FiscalAddressFields';
 // components/manifest/ManifestDetailPage.tsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -266,9 +267,10 @@ const ManifestDetailPage: React.FC = () => {
     retornoVazio: false, composicaoVeicular: false, tipoPagamento: 'TransferenciaBancaria' as const,
     entregaDocumentacao: 'RedeCredenciada' as const, totalOperacao: '', totalViagem: '',
     totalAdiantamento: '', totalQuitacao: '', pedagio: '', combustivel: '',
-    destNome: '', destCpfCnpj: '', destBairro: '', destCep: '', destCodigoMunicipio: '', destRua: '', destNumero: '',
+    destNome: '', destCpfCnpj: '',
   };
   const [ciotForm, setCiotForm] = useState(emptyCiotForm);
+  const [ciotAddress, setCiotAddress] = useState<FiscalAddress>({ cep: '', address: '', number: '', complement: '', neighborhood: '', city: '', state: '', cityIbgeCode: '' });
   const [ciotOverride, setCiotOverride] = useState('');
 
   const cargoSummary = useMemo(() => {
@@ -418,6 +420,7 @@ const ManifestDetailPage: React.FC = () => {
       setError('Selecione a unidade da transferência.');
       return;
     }
+    if (!routeForm.originCityIbgeCode || !routeForm.destinationCityIbgeCode) { setError('Selecione origem e destino nas sugestões de cidades antes de salvar.'); return; }
     setSavingRoute(true);
     setError(null);
     try {
@@ -476,6 +479,7 @@ const ManifestDetailPage: React.FC = () => {
   };
 
   const handleAddStop = async () => {
+    if (!newStopForm.destCityIbgeCode) { setError('Selecione a cidade do ponto na busca ou um Hub com município cadastrado.'); return; }
     if (!id || !manifest) return;
     if (!newStopForm.destHubId && !newStopForm.destCity.trim()) {
       setError('Selecione um Hub/filial ou informe a cidade do ponto de percurso.');
@@ -684,9 +688,9 @@ const ManifestDetailPage: React.FC = () => {
       ...emptyCiotForm,
       documentoViagem: `OS-${id.slice(0, 8)}`,
       composicaoVeicular: Boolean(manifest.link?.trailerPlate),
-      destCodigoMunicipio: manifest.destinationCityIbgeCode ?? '',
       ...(fa ? { totalOperacao: String(fa.freteBruto), totalViagem: String(fa.freteBruto), totalAdiantamento: String(fa.adiantamento), pedagio: String(fa.pedagio) } : {}),
     });
+    setCiotAddress(fiscalAddressFromPerson());
     try {
       const res = await manifestsApi.ciotSuggestion(id);
       setCiotSuggestion((res as any)?.data ?? null);
@@ -720,7 +724,7 @@ const ManifestDetailPage: React.FC = () => {
   const handleEmitCiot = async () => {
     if (!id) return;
     const f = ciotForm;
-    if (!f.distanciaPercorrida || !f.dataFimViagem || !f.destNome || !f.destCpfCnpj || !f.destCodigoMunicipio || !f.destCep || !f.destRua || !f.destNumero || !f.destBairro) {
+    if (!f.distanciaPercorrida || !f.dataFimViagem || !f.destNome || !f.destCpfCnpj || !ciotAddress.cityIbgeCode || !ciotAddress.cep || !ciotAddress.address || !ciotAddress.number || !ciotAddress.neighborhood) {
       setError('Preencha distância, data fim de viagem e os dados do destinatário (obrigatórios para o CIOT).');
       return;
     }
@@ -745,7 +749,7 @@ const ManifestDetailPage: React.FC = () => {
           valores: { totalOperacao: Number(f.totalOperacao || 0), totalViagem: Number(f.totalViagem || 0), totalAdiantamento: Number(f.totalAdiantamento || 0), totalQuitacao: Number(f.totalQuitacao || 0), pedagio: Number(f.pedagio || 0), combustivel: Number(f.combustivel || 0) },
           impostos: {},
           pagamentos: [{ idPagamentoCliente: `PAG-${id.slice(0, 8)}-1`, dataLiberacao: f.dataFimViagem, valor: Number(f.totalViagem || 0), tipoPagamento: f.tipoPagamento, categoria: 'SemCategoria', cpfCnpjCreditado: linkDocument, indicadorPagamento: 'Avista', pix: { tipoChave: 'CpfOuCnpj', valorChave: linkDocument } }],
-          destinatario: { nomeOuRazaoSocial: f.destNome, cpfOuCnpj: f.destCpfCnpj, endereco: { bairro: f.destBairro, cep: f.destCep, codigoMunicipio: Number(f.destCodigoMunicipio), rua: f.destRua, numero: f.destNumero } },
+          destinatario: { nomeOuRazaoSocial: f.destNome, cpfOuCnpj: f.destCpfCnpj, endereco: { bairro: ciotAddress.neighborhood, cep: ciotAddress.cep, codigoMunicipio: Number(ciotAddress.cityIbgeCode), rua: ciotAddress.address, numero: ciotAddress.number } },
         },
       });
       flashSuccess('Emissão de CIOT enfileirada — acompanhando status…');
@@ -793,10 +797,10 @@ const ManifestDetailPage: React.FC = () => {
 
   const openDriverFiscalSheet = (driver?: Driver | null) => {
     if (!manifest?.link) return;
-    const currentDriver = driver ?? manifest.driver ?? null;
+    const currentDriver = driver === undefined ? manifest.driver ?? null : driver;
     setDriverLinkId(currentDriver?.linkId ?? manifest.link.id);
     setEditingDriverId(currentDriver?.id ?? null);
-    const hasPersonAddress = !!(currentDriver?.person?.cep);
+    const hasPersonAddress = !!(currentDriver?.person?.cep && currentDriver.person.cityIbgeCode);
     setDriverPersonAlreadyHasAddress(hasPersonAddress);
     setUpdatePersonAddress(false);
     setDriverFiscalForm({
@@ -815,10 +819,13 @@ const ManifestDetailPage: React.FC = () => {
       state: currentDriver?.person?.state ?? '',
       cityIbgeCode: currentDriver?.person?.cityIbgeCode ?? '',
     });
+    setError(null);
     setShowDriverFiscalSheet(true);
   };
 
+  const [savingDriver, setSavingDriver] = useState(false);
   const handleSaveDriverFiscal = async () => {
+    if (savingDriver) return;
     if (!id || !driverLinkId) return;
     if (!driverFiscalForm.name.trim() || !driverFiscalForm.document.trim() || !driverFiscalForm.phone.trim()) {
       setError('Informe nome, CPF e telefone do motorista.');
@@ -838,12 +845,13 @@ const ManifestDetailPage: React.FC = () => {
       !driverFiscalForm.number ||
       !driverFiscalForm.neighborhood ||
       !driverFiscalForm.city ||
-      !driverFiscalForm.state
+      !driverFiscalForm.state || !driverFiscalForm.cityIbgeCode
     ) {
-      setError('Informe o endereço completo: CEP, logradouro, número, bairro, cidade e estado são obrigatórios.');
+      setError('Informe o endereço completo: CEP, logradouro, número, bairro, cidade e UF confirmadas pelo CEP ou pela busca são obrigatórios.');
       return;
     }
     setError(null);
+    setSavingDriver(true);
     const addressPayload = {
       cep: driverFiscalForm.cep,
       address: driverFiscalForm.address,
@@ -856,27 +864,38 @@ const ManifestDetailPage: React.FC = () => {
     };
     try {
       let driverId = editingDriverId;
+      let saved: Awaited<ReturnType<typeof linksApi.createDriver>>;
       if (driverId) {
-        await linksApi.updateDriver(driverLinkId, driverId, {
+        saved = await linksApi.updateDriver(driverLinkId, driverId, {
           name: driverFiscalForm.name.trim(),
           document: driverFiscalForm.document.replace(/\D/g, ''),
           phone: driverFiscalForm.phone.trim(),
           birthDate: driverFiscalForm.birthDate || undefined,
           cnhNumber: driverFiscalForm.cnhNumber || undefined,
           cnhExpiry: driverFiscalForm.cnhExpiry || undefined,
-          address: addressPayload,
+          ...(driverPersonAlreadyHasAddress && !updatePersonAddress ? {} : { address: addressPayload }),
+          updatePersonAddress,
         });
       } else {
-        const created = await linksApi.createDriver(driverLinkId, {
+        saved = await linksApi.createDriver(driverLinkId, {
           name: driverFiscalForm.name.trim(),
           document: driverFiscalForm.document.replace(/\D/g, ''),
           phone: driverFiscalForm.phone.trim(),
           birthDate: driverFiscalForm.birthDate || undefined,
           cnhNumber: driverFiscalForm.cnhNumber || undefined,
           cnhExpiry: driverFiscalForm.cnhExpiry || undefined,
-          address: addressPayload,
+          ...(driverPersonAlreadyHasAddress && !updatePersonAddress ? {} : { address: addressPayload }),
+          updatePersonAddress,
         });
-        driverId = (created as any)?.data?.id ?? (created as any)?.id;
+        driverId = saved.data?.id ?? null;
+        if (driverId) setEditingDriverId(driverId);
+      }
+      if (saved.notOverwritten?.some(field => field in addressPayload)) {
+        setDriverFiscalForm(form => ({ ...form, ...fiscalAddressFromPerson(saved.data?.person) }));
+        setDriverPersonAlreadyHasAddress(true);
+        setUpdatePersonAddress(false);
+        setError('Este CPF já possui outro endereço fiscal. O endereço existente foi preservado e está exibido no formulário. Confira antes de continuar ou marque "Atualizar endereço" para substituí-lo.');
+        return;
       }
       if (!driverId) throw new Error('Os dados foram salvos, mas não foi possível vinculá-los à viagem.');
       await manifestsApi.setResponsible(id, driverLinkId, driverId);
@@ -886,7 +905,7 @@ const ManifestDetailPage: React.FC = () => {
       await load();
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Não foi possível salvar os dados fiscais do motorista.');
-    }
+    } finally { setSavingDriver(false); }
   };
 
   const openVehicleSheet = (link = manifest?.link) => {
@@ -909,6 +928,7 @@ const ManifestDetailPage: React.FC = () => {
       vehicleBodyType: link.vehicleBodyType ?? 'NaoAplicavel',
       vehicleWheelType: link.vehicleWheelType ?? 'Cavalo',
     });
+    setError(null);
     setShowVehicleSheet(true);
   };
 
@@ -966,8 +986,6 @@ const ManifestDetailPage: React.FC = () => {
       if (vehicleForm.vehicleTypeId !== manifest.vehicleTypeId) {
         await manifestsApi.updateSetup(id, {
           vehicleTypeId: vehicleForm.vehicleTypeId,
-          origin: manifest.origin,
-          destination: manifest.destination,
           tripType: manifest.tripType === 'REGIONAL_DISTRIBUTION' ? 'DELIVERY' : manifest.tripType,
           hubId: manifest.hubId ?? null,
           destHubId: manifest.destHubId ?? null,
@@ -987,7 +1005,7 @@ const ManifestDetailPage: React.FC = () => {
   const openOwnerPersonSheet = () => {
     if (!manifest?.link) return;
     const p = manifest.link.person;
-    const hasAddress = !!p?.cep;
+    const hasAddress = !!(p?.cep && p.cityIbgeCode);
     setOwnerPersonAlreadyHasAddress(hasAddress);
     setUpdateOwnerPersonAddress(false);
     setOwnerPersonForm({
@@ -1002,6 +1020,7 @@ const ManifestDetailPage: React.FC = () => {
       state: p?.state ?? '',
       cityIbgeCode: p?.cityIbgeCode ?? '',
     });
+    setError(null);
     setShowOwnerPersonSheet(true);
   };
 
@@ -1024,7 +1043,7 @@ const ManifestDetailPage: React.FC = () => {
         neighborhood: data.address?.neighborhood || f.neighborhood,
         city: data.address?.city || f.city,
         state: data.address?.state || f.state,
-        cityIbgeCode: data.address?.cityIbgeCode || f.cityIbgeCode,
+        cityIbgeCode: data.address?.cityIbgeCode || '',
       }));
     } catch (e: any) {
       const status = e.response?.status;
@@ -1039,15 +1058,16 @@ const ManifestDetailPage: React.FC = () => {
     const addressReadOnly = ownerPersonAlreadyHasAddress && !updateOwnerPersonAddress;
     if (
       !addressReadOnly &&
-      (!ownerPersonForm.cep || !ownerPersonForm.address || !ownerPersonForm.number || !ownerPersonForm.neighborhood || !ownerPersonForm.city || !ownerPersonForm.state)
+      (!ownerPersonForm.cep || !ownerPersonForm.address || !ownerPersonForm.number || !ownerPersonForm.neighborhood || !ownerPersonForm.city || !ownerPersonForm.state || !ownerPersonForm.cityIbgeCode)
     ) {
-      setError('Informe o endereço completo: CEP, logradouro, número, bairro, cidade e estado são obrigatórios.');
+      setError('Informe o endereço completo: CEP, logradouro, número, bairro, cidade e UF confirmadas pelo CEP ou pela busca são obrigatórios.');
       return;
     }
     setSavingOwnerPerson(true);
     setError(null);
     try {
-      await linksApi.updateOwnerPerson(manifest.link.id, {
+      const saved = await linksApi.updateOwnerPerson(manifest.link.id, {
+        updatePersonAddress: updateOwnerPersonAddress,
         legalName: ownerPersonForm.legalName || undefined,
         stateRegistration: ownerPersonForm.stateRegistration || undefined,
         ...(addressReadOnly ? {} : {
@@ -1063,6 +1083,13 @@ const ManifestDetailPage: React.FC = () => {
           },
         }),
       });
+      if (saved.notOverwritten?.some(field => field in fiscalAddressFromPerson())) {
+        setOwnerPersonForm(form => ({ ...form, ...fiscalAddressFromPerson(saved.data?.person) }));
+        setOwnerPersonAlreadyHasAddress(true);
+        setUpdateOwnerPersonAddress(false);
+        setError('Este proprietário já possui outro endereço fiscal. O endereço existente foi preservado e está exibido no formulário. Confira antes de continuar ou marque "Atualizar endereço" para substituí-lo.');
+        return;
+      }
       setShowOwnerPersonSheet(false);
       flashSuccess('Endereço do proprietário salvo.');
       await load();
@@ -1075,6 +1102,7 @@ const ManifestDetailPage: React.FC = () => {
 
   const openLinkQuickCreate = () => {
     setLinkQuickCreateForm({ document: '', name: '', phone: '', vehiclePlate: '', vehicleTypeId: manifest?.vehicleTypeId ?? '' });
+    setError(null);
     setShowLinkQuickCreate(true);
   };
 
@@ -1220,6 +1248,7 @@ const ManifestDetailPage: React.FC = () => {
 
       {currentStep === 'route' && (
         <JourneySection eyebrow="Etapa 1" title="Rota e veículo" description="A unidade responsável controla a viagem. A origem física começa preenchida pelo Hub, mas pode ser trocada.">
+          {readiness?.steps.route.issues.map(issue => <div key={issue.code} className="mb-3"><InlineNotice variant="warning" message={issue.message} /></div>)}
           <div className="mb-7 rounded-2xl bg-tower-100 p-4 dark:bg-tower-800">
             <p className="text-xs font-bold uppercase tracking-[0.08em] text-tower-500">Planejamento salvo</p>
             <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
@@ -1275,6 +1304,7 @@ const ManifestDetailPage: React.FC = () => {
             <div>
               <label className="mb-2 block text-sm font-bold text-tower-800 dark:text-tower-100">{routeForm.startsWithCollection ? 'Local de coleta' : 'Origem da viagem'}</label>
               <CityAutocomplete
+                selectedIbgeCode={routeForm.originCityIbgeCode}
                 value={routeForm.origin}
                 onChange={(value) => setRouteForm((form) => ({ ...form, origin: value, originCity: '', originState: '', originCityIbgeCode: '' }))}
                 onSelect={(city, state, ibgeCode) => setRouteForm((form) => ({ ...form, origin: `${city}, ${state}`, originCity: city, originState: state, originCityIbgeCode: ibgeCode ?? '' }))}
@@ -1301,6 +1331,7 @@ const ManifestDetailPage: React.FC = () => {
             <div className={routeForm.tripType === 'DELIVERY' ? '' : 'sm:col-span-2'}>
               <label className="mb-2 block text-sm font-bold text-tower-800 dark:text-tower-100">Destino principal</label>
               <CityAutocomplete
+                selectedIbgeCode={routeForm.destinationCityIbgeCode}
                 value={routeForm.destination}
                 onChange={(value) => setRouteForm((form) => ({ ...form, destination: value, destinationCity: '', destinationState: '', destinationCityIbgeCode: '' }))}
                 onSelect={(city, state, ibgeCode) => setRouteForm((form) => ({ ...form, destination: `${city}, ${state}`, destinationCity: city, destinationState: state, destinationCityIbgeCode: ibgeCode ?? '' }))}
@@ -1487,6 +1518,7 @@ const ManifestDetailPage: React.FC = () => {
             <div>
               <label className="mb-2 block text-sm font-bold text-tower-800 dark:text-tower-100">Cidade do ponto</label>
               <CityAutocomplete
+                selectedIbgeCode={newStopForm.destCityIbgeCode}
                 value={newStopForm.destCity ? `${newStopForm.destCity}${newStopForm.destState ? `, ${newStopForm.destState}` : ''}` : ''}
                 onChange={(value) => setNewStopForm((f) => ({ ...f, destHubId: '', destCity: value, destState: '', destCityIbgeCode: '' }))}
                 onSelect={(city, state, ibgeCode) => setNewStopForm((f) => ({ ...f, destHubId: '', destCity: city, destState: state, destCityIbgeCode: ibgeCode ?? '' }))}
@@ -1831,11 +1863,7 @@ const ManifestDetailPage: React.FC = () => {
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-2">
                     <input placeholder="Nome/Razão social*" value={ciotForm.destNome} onChange={(e) => setCiotForm((f) => ({ ...f, destNome: e.target.value }))} className="px-3 py-2 border border-tower-200 rounded-lg" />
                     <input placeholder="CPF/CNPJ*" value={ciotForm.destCpfCnpj} onChange={(e) => setCiotForm((f) => ({ ...f, destCpfCnpj: e.target.value }))} className="px-3 py-2 border border-tower-200 rounded-lg" />
-                    <input placeholder="Bairro*" value={ciotForm.destBairro} onChange={(e) => setCiotForm((f) => ({ ...f, destBairro: e.target.value }))} className="px-3 py-2 border border-tower-200 rounded-lg" />
-                    <input placeholder="CEP*" value={ciotForm.destCep} onChange={(e) => setCiotForm((f) => ({ ...f, destCep: e.target.value }))} className="px-3 py-2 border border-tower-200 rounded-lg" />
-                    <input placeholder="Rua*" value={ciotForm.destRua} onChange={(e) => setCiotForm((f) => ({ ...f, destRua: e.target.value }))} className="px-3 py-2 border border-tower-200 rounded-lg" />
-                    <input placeholder="Número*" value={ciotForm.destNumero} onChange={(e) => setCiotForm((f) => ({ ...f, destNumero: e.target.value }))} className="px-3 py-2 border border-tower-200 rounded-lg" />
-                    <input placeholder="Código IBGE do município*" value={ciotForm.destCodigoMunicipio} onChange={(e) => setCiotForm((f) => ({ ...f, destCodigoMunicipio: e.target.value }))} className="px-3 py-2 border border-tower-200 rounded-lg" />
+                    <div className="col-span-full"><FiscalAddressFields value={ciotAddress} onChange={setCiotAddress} readOnly={fiscalBusy} fieldClass={fieldClass} /></div>
                   </div>
                 </div>
 
@@ -1854,6 +1882,7 @@ const ManifestDetailPage: React.FC = () => {
 
       {showVehicleSheet && (
         <VehicleFiscalSheet
+          error={error}
           vehicleForm={vehicleForm}
           setVehicleForm={setVehicleForm}
           vehicleTypes={vehicleTypes}
@@ -1866,6 +1895,8 @@ const ManifestDetailPage: React.FC = () => {
 
       {showDriverFiscalSheet && (
         <DriverFiscalSheet
+          error={error}
+          saving={savingDriver}
           editingDriverId={editingDriverId}
           driverFiscalForm={driverFiscalForm}
           setDriverFiscalForm={setDriverFiscalForm}
@@ -1880,6 +1911,7 @@ const ManifestDetailPage: React.FC = () => {
 
       {showOwnerPersonSheet && manifest?.link && (
         <LinkOwnerPersonSheet
+          error={error}
           document={manifest.link.document}
           documentType={manifest.link.document.replace(/\D/g, '').length === 14 ? 'CNPJ' : 'CPF'}
           ownerPersonForm={ownerPersonForm}
@@ -1898,6 +1930,7 @@ const ManifestDetailPage: React.FC = () => {
 
       {showLinkQuickCreate && (
         <LinkQuickCreateModal
+          error={error}
           form={linkQuickCreateForm}
           setForm={setLinkQuickCreateForm}
           vehicleTypes={vehicleTypes}

@@ -132,6 +132,7 @@ const ManifestCreatePage: React.FC = () => {
       setError(form.tripType === 'TRANSFER' ? 'Selecione a unidade de destino.' : 'Selecione a unidade de transferência.');
       return;
     }
+    if (!form.originCityIbgeCode || !form.destinationCityIbgeCode) { setError('Selecione origem e destino nas sugestões de cidades antes de salvar.'); return; }
     setSaving(true);
     setError(null);
     try {
@@ -262,6 +263,7 @@ const ManifestCreatePage: React.FC = () => {
             </label>
             <CityAutocomplete
               id="journey-origin"
+              selectedIbgeCode={form.originCityIbgeCode}
               value={form.origin}
               onChange={(value) => setForm((current) => ({ ...current, origin: value, originCity: '', originState: '', originCityIbgeCode: '' }))}
               onSelect={(city, state, ibgeCode) => setForm((current) => ({ ...current, origin: `${city}, ${state}`, originCity: city, originState: state, originCityIbgeCode: ibgeCode ?? '' }))}
@@ -286,6 +288,7 @@ const ManifestCreatePage: React.FC = () => {
             <label htmlFor="journey-destination" className="mb-2 block text-sm font-bold text-tower-800 dark:text-tower-100">Destino principal</label>
             <CityAutocomplete
               id="journey-destination"
+              selectedIbgeCode={form.destinationCityIbgeCode}
               value={form.destination}
               onChange={(value) => setForm((current) => ({ ...current, destination: value, destinationCity: '', destinationState: '', destinationCityIbgeCode: '' }))}
               onSelect={(city, state, ibgeCode) => setForm((current) => ({ ...current, destination: `${city}, ${state}`, destinationCity: city, destinationState: state, destinationCityIbgeCode: ibgeCode ?? '' }))}
