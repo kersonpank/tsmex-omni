@@ -6,6 +6,8 @@ import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { upsertPersonForDriver, upsertPersonForLinkOwner } from '../services/personRoleSync.js';
+import { linkCompositionSchema, linkVehicleInclude, setLinkComposition } from '../services/vehicleUnitService.js';
+import { normalizePlate, resolveComposition } from '../services/vehicleUnitRules.js';
 
 const router = Router();
 
@@ -126,6 +128,7 @@ router.get('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest
                       approvalStatus: true,
                       active: true,
                       vehicleType: true,
+                      ...linkVehicleInclude,
                   },
                   orderBy: { createdAt: 'desc' },
               })
@@ -136,6 +139,7 @@ router.get('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest
                           select: { email: true, active: true },
                       },
                       vehicleType: true,
+                      ...linkVehicleInclude,
                       onboarding: true,
                       _count: {
                           select: { manifests: true },
@@ -481,6 +485,24 @@ const patchLinkFiscalSchema = z.object({
     vehicleBodyType: z.enum(['NaoAplicavel', 'Aberta', 'FechadaOuBau', 'Granelera', 'PortaContainer', 'Sider']).optional(),
     vehicleWheelType: z.enum(['NaoAplicavel', 'Truck', 'Toco', 'Cavalo']).optional(),
 });
+const VEHICLE_FIELD_KEYS = [
+    'vehiclePlate', 'vehicleYear', 'rntrc', 'trailerPlate', 'trailer2Plate', 'trailer3Plate', 'vehicleAxles',
+    'vehicleOwnerDocument', 'vehicleOwnerName', 'vehicleChassi', 'vehicleRenavam', 'vehicleBodyType', 'vehicleWheelType',
+] as const;
+
+// PUT /api/links/:id/composition - Composição veicular por unidades (cavalo + até 3 reboques).
+// Cada placa vira/atualiza uma VehicleUnit reutilizável; o Link só referencia as unidades.
+router.put('/:id/composition', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const body = linkCompositionSchema.parse(req.body);
+        const link = await setLinkComposition(req.params.id as string, body);
+        res.json({ success: true, data: link });
+    } catch (error) {
+        if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
+        next(error);
+    }
+});
+
 router.patch('/:id/fiscal', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const id = req.params.id as string;
@@ -489,24 +511,52 @@ router.patch('/:id/fiscal', authenticate, authorize('ADMIN', 'HUB'), async (req:
             const vehicleType = await prisma.vehicleType.findFirst({ where: { id: body.vehicleTypeId, active: true }, select: { id: true } });
             if (!vehicleType) throw new AppError('Tipo de veículo não encontrado ou inativo.', 400);
         }
-        const normalizePlate = (plate: string | null | undefined) =>
-            typeof plate === 'string' ? plate.replace(/[^A-Za-z0-9]/g, '').toUpperCase() : plate;
         for (const plate of [body.vehiclePlate, body.trailerPlate, body.trailer2Plate, body.trailer3Plate]) {
             const normalized = normalizePlate(plate);
             if (normalized && normalized.length !== 7) {
                 throw new AppError('Cada placa deve ter 7 caracteres alfanuméricos.', 400);
             }
         }
+
+        const existing = await prisma.link.findUnique({ where: { id }, include: linkVehicleInclude });
+        if (!existing) throw new AppError('Link not found', 404);
+
+        // Dados de veículo (placa, chassi, RENAVAM, eixos, RNTRC, reboques, dono) moram nas
+        // VehicleUnit; este endpoint legado só traduz o payload para a composição do Link.
+        const touchesVehicle = VEHICLE_FIELD_KEYS.some((key) => body[key] !== undefined);
+        if (touchesVehicle) {
+            const current = resolveComposition(existing);
+            const tractionPlate = body.vehiclePlate ?? current.traction?.plate;
+            if (!tractionPlate) throw new AppError('Informe a placa principal (cavalo) da composição.', 400);
+            const trailerSlots = [body.trailerPlate, body.trailer2Plate, body.trailer3Plate];
+            const trailerPlates = trailerSlots
+                .map((slot, i) => (slot !== undefined ? slot : current.trailers[i]?.plate))
+                .filter((plate): plate is string => Boolean(plate));
+            const composition = linkCompositionSchema.parse({
+                traction: {
+                    plate: tractionPlate,
+                    chassi: body.vehicleChassi,
+                    renavam: body.vehicleRenavam,
+                    axles: body.vehicleAxles,
+                    rntrc: body.rntrc,
+                    bodyType: body.vehicleBodyType,
+                    wheelType: body.vehicleWheelType,
+                    year: body.vehicleYear,
+                    ownerDocument: body.vehicleOwnerDocument,
+                    ownerName: body.vehicleOwnerName,
+                },
+                trailers: trailerPlates.map((plate) => ({ plate })),
+            });
+            await setLinkComposition(id, composition);
+        }
+
         const link = await prisma.link.update({
             where: { id },
             data: {
-                ...body,
-                ...(body.vehiclePlate !== undefined ? { vehiclePlate: normalizePlate(body.vehiclePlate)! } : {}),
-                ...(body.trailerPlate !== undefined ? { trailerPlate: normalizePlate(body.trailerPlate) } : {}),
-                ...(body.trailer2Plate !== undefined ? { trailer2Plate: normalizePlate(body.trailer2Plate) } : {}),
-                ...(body.trailer3Plate !== undefined ? { trailer3Plate: normalizePlate(body.trailer3Plate) } : {}),
+                ...(body.vehicleTypeId !== undefined ? { vehicleTypeId: body.vehicleTypeId } : {}),
+                ...(body.carrierType !== undefined ? { carrierType: body.carrierType } : {}),
             },
-            include: { vehicleType: true },
+            include: { vehicleType: true, ...linkVehicleInclude },
         });
         res.json({ success: true, data: link });
     } catch (error) {

@@ -406,6 +406,31 @@ export interface LinkOnboarding {
     onboardingComplete?: boolean;
 }
 
+export type VehicleUnitRole = 'TRACTION' | 'TRAILER';
+export type VehicleUnitField = 'plate' | 'chassi' | 'renavam' | 'axles' | 'rntrc';
+
+/** Unidade física de veículo (cavalo ou reboque), identificada pela placa e reutilizável entre viagens. */
+export interface VehicleUnit {
+    id: string;
+    plate: string;
+    role: VehicleUnitRole;
+    chassi?: string | null;
+    renavam?: string | null;
+    axles?: number | null;
+    rntrc?: string | null;
+    bodyType?: string | null;
+    wheelType?: string | null;
+    brand?: string | null;
+    model?: string | null;
+    year?: number | null;
+    ownerPersonId?: string | null;
+    ownerDocument?: string | null;
+    ownerName?: string | null;
+    ownerPerson?: { id: string; legalName: string; document: string } | null;
+    /** Pendências reais da unidade (vazio = pronta para CIOT/MDF-e). Calculado pelo servidor. */
+    missingFields?: Array<{ field: VehicleUnitField; label: string; reason: 'missing' | 'invalid' }>;
+}
+
 export interface Link {
     id: string;
     userId: string;
@@ -442,6 +467,12 @@ export interface Link {
     vehicleRenavam?: string | null;
     vehicleBodyType?: string | null;
     vehicleWheelType?: string | null;
+
+    // Composição veicular por unidades (fonte da verdade; as colunas acima são espelho legado)
+    tractionUnit?: VehicleUnit | null;
+    trailer1Unit?: VehicleUnit | null;
+    trailer2Unit?: VehicleUnit | null;
+    trailer3Unit?: VehicleUnit | null;
 }
 
 export interface Driver {

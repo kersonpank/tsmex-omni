@@ -144,6 +144,19 @@ describe('buildCiotEmissionInputForJob fiscal emitter resolution and eFrete envi
         assert.deepEqual(result.mapperInput.veiculos, ['ABC1D23', 'DEF456', 'GHI7J89', 'JKL0M12']);
     });
 
+    it('takes plates and the contratado RNTRC from the Vehicle Units (cavalo RNTRC wins over the legacy Link RNTRC)', async () => {
+        const { jobRecord, manifestRecord, hubDefaultEmitter } = createBaseEntities();
+        Object.assign(manifestRecord.link, {
+            vehiclePlate: null, rntrc: '111111111',
+            tractionUnit: { id: 'u1', plate: 'ABC1D23', role: 'TRACTION', rntrc: '987654321' },
+            trailer1Unit: { id: 'u2', plate: 'DEF4G56', role: 'TRAILER' },
+            trailer2Unit: { id: 'u3', plate: 'GHI7J89', role: 'TRAILER' },
+        });
+        const result = await buildCiotEmissionInputForJob('job-1', makeDeps(jobRecord, manifestRecord, hubDefaultEmitter) as any);
+        assert.deepEqual(result.mapperInput.veiculos, ['ABC1D23', 'DEF4G56', 'GHI7J89']);
+        assert.equal(result.mapperInput.contratado.rntrc, '987654321');
+    });
+
     it('removes empty, duplicate, and format-equivalent plates', async () => {
         const { jobRecord, manifestRecord, hubDefaultEmitter } = createBaseEntities();
         Object.assign(manifestRecord.link, { vehiclePlate: 'abc-1d23', trailerPlate: 'ABC1D23', trailer2Plate: '   ', trailer3Plate: null });

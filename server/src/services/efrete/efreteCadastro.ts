@@ -60,23 +60,39 @@ export async function ensureProprietarioRegistrado(link: Link & { person: Person
     );
 }
 
-/** Gravar Veículo — NumeroDeEixos é crítico pro cálculo de piso mínimo ANTT. */
-export async function ensureVeiculoRegistrado(link: Link, environment: EfreteEnvironment): Promise<void> {
-    if (!link.vehicleChassi) throw new Error(`Link ${link.name}: chassi do veículo obrigatório para registro na eFrete.`);
-    if (!link.vehicleAxles) throw new Error(`Link ${link.name}: número de eixos obrigatório para registro na eFrete (piso mínimo ANTT).`);
-    if (!link.rntrc) throw new Error(`Link ${link.name}: RNTRC obrigatório para registro do veículo na eFrete.`);
+/** Dados mínimos de uma unidade (cavalo ou reboque) para o Gravar Veículo da e-Frete. */
+export interface EfreteVeiculoInput {
+    plate: string;
+    chassi?: string | null;
+    renavam?: string | null;
+    axles?: number | null;
+    rntrc?: string | null;
+    bodyType?: string | null;
+    wheelType?: string | null;
+}
+
+/**
+ * Gravar Veículo — uma chamada por placa da composição (cavalo e cada reboque).
+ * NumeroDeEixos é crítico pro cálculo de piso mínimo ANTT; RENAVAM e RNTRC são obrigatórios por unidade.
+ */
+export async function ensureVeiculoRegistrado(unit: EfreteVeiculoInput, environment: EfreteEnvironment): Promise<void> {
+    const plate = unit.plate.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 7);
+    if (!unit.chassi) throw new Error(`Veículo ${plate}: chassi obrigatório para registro na eFrete.`);
+    if (!unit.axles) throw new Error(`Veículo ${plate}: número de eixos obrigatório para registro na eFrete (piso mínimo ANTT).`);
+    if (!unit.rntrc) throw new Error(`Veículo ${plate}: RNTRC obrigatório para registro na eFrete.`);
+    if (!unit.renavam) throw new Error(`Veículo ${plate}: RENAVAM obrigatório para registro na eFrete.`);
 
     await efreteAuthedPost<EfreteGravarResponse>(
         '/services/veiculos/gravar',
         {
             Veiculo: {
-                Chassi: link.vehicleChassi,
-                NumeroDeEixos: link.vehicleAxles,
-                Placa: link.vehiclePlate.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 7),
-                RNTRC: digits(link.rntrc).padStart(9, '0').slice(0, 9),
-                ...(link.vehicleRenavam ? { Renavam: Number(digits(link.vehicleRenavam)) } : {}),
-                TipoCarroceria: link.vehicleBodyType || 'NaoAplicavel',
-                TipoRodado: link.vehicleWheelType || 'NaoAplicavel',
+                Chassi: unit.chassi,
+                NumeroDeEixos: unit.axles,
+                Placa: plate,
+                RNTRC: digits(unit.rntrc).padStart(9, '0').slice(0, 9),
+                Renavam: Number(digits(unit.renavam)),
+                TipoCarroceria: unit.bodyType || 'NaoAplicavel',
+                TipoRodado: unit.wheelType || 'NaoAplicavel',
             },
         },
         { versao: 1, environment },

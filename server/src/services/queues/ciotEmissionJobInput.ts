@@ -1,3 +1,5 @@
+import { linkVehicleInclude } from '../vehicleUnitService.js';
+import { resolveComposition, tractionRntrc } from '../vehicleUnitRules.js';
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { requireSelectedIbge } from '../selectedCity.js';
@@ -42,7 +44,7 @@ export async function buildCiotEmissionInputForJob(
         include: {
             hub: { include: { person: true } },
             destHub: { include: { person: true } },
-            link: { include: { person: true } },
+            link: { include: { person: true, ...linkVehicleInclude } },
             driver: { include: { person: true } },
             tripStops: { orderBy: { sequence: 'asc' }, include: { destHub: true } },
         },
@@ -50,7 +52,9 @@ export async function buildCiotEmissionInputForJob(
 
     if (!manifest.hub?.person) throw new AppError('Manifesto sem Hub com pessoa (CNPJ) para resolver o Contratante do CIOT.', 400);
     if (!manifest.link) throw new AppError('Manifesto sem Link (transportador) atribuído.', 400);
-    if (!manifest.link.rntrc || !manifest.link.carrierType) throw new AppError('Link sem RNTRC/tipo de transportador cadastrado — obrigatório para CIOT.', 400);
+    const composition = resolveComposition(manifest.link);
+    const contratadoRntrc = tractionRntrc(composition, manifest.link.rntrc);
+    if (!contratadoRntrc || !manifest.link.carrierType) throw new AppError('Cavalo sem RNTRC (ou Link sem tipo de transportador) — obrigatório para CIOT.', 400);
     if (!manifest.driver) throw new AppError('Manifesto sem motorista definido ("Definir Motorista") — obrigatório para CIOT.', 400);
     if (manifest.driver.active === false) throw new AppError('Motorista inativo. Selecione um motorista ativo.', 400);
     if (!manifest.driver.cnhNumber) throw new AppError('Motorista sem número de CNH cadastrado.', 400);
@@ -103,9 +107,7 @@ export async function buildCiotEmissionInputForJob(
     const driverPhone = splitPhone(manifest.driver.phone);
     if (!driverPhone) throw new AppError('Motorista sem celular válido (DDD + número) cadastrado.', 400);
 
-    const veiculos = [...new Set([manifest.link.vehiclePlate, manifest.link.trailerPlate, manifest.link.trailer2Plate, manifest.link.trailer3Plate]
-        .filter((p): p is string => Boolean(p && p.trim()))
-        .map((p) => p.replace(/[^A-Za-z0-9]/g, '').toUpperCase()))];
+    const veiculos = composition.units.map((unit) => unit.plate);
 
     const tipoViagem = tipoViagemToApi[job.tipoViagem];
     const requestData = job.requestData as unknown as StoredCiotRequestData;
@@ -127,7 +129,7 @@ export async function buildCiotEmissionInputForJob(
             },
             ...(tipoViagem === 'TAC_Agregado' ? { rntrc: digits(fiscalEmitter.rntrc ?? '').padStart(9, '0').slice(0, 9) } : {}),
         },
-        contratado: { cpfOuCnpj: linkDoc, rntrc: digits(manifest.link.rntrc).padStart(9, '0').slice(0, 9) },
+        contratado: { cpfOuCnpj: linkDoc, rntrc: contratadoRntrc.padStart(9, '0').slice(0, 9) },
         motorista: { cpfOuCnpj: driverDoc, cnh: manifest.driver.cnhNumber, celular: { ddd: driverPhone.ddd, numero: driverPhone.numero } },
         codigoMunicipioOrigem: Number(origemMunicipio),
         codigoMunicipioDestino: Number(destinoMunicipio),

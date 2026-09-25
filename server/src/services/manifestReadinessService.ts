@@ -1,6 +1,8 @@
 import type { ManifestStatus } from '@prisma/client';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { linkVehicleInclude } from './vehicleUnitService.js';
+import { compositionIssues, describeUnitIssues, resolveComposition, type VehicleUnitField } from './vehicleUnitRules.js';
 
 export type ManifestJourneyStep =
     | 'route'
@@ -49,6 +51,14 @@ function issue(
     return { step, code, message, field, severity };
 }
 
+const TRACTION_FIELD_ISSUES: Record<VehicleUnitField, { code: string; message: string; field: string }> = {
+    plate: { code: 'VEHICLE_PLATE_PENDING', message: 'Placa do cavalo obrigatória para emissão do CIOT.', field: 'vehiclePlate' },
+    chassi: { code: 'VEHICLE_CHASSI_PENDING', message: 'Chassi do veículo obrigatório para emissão do CIOT.', field: 'vehicleChassi' },
+    axles: { code: 'VEHICLE_AXLES_PENDING', message: 'Número de eixos obrigatório para cálculo de piso ANTT.', field: 'vehicleAxles' },
+    rntrc: { code: 'VEHICLE_RNTRC_PENDING', message: 'RNTRC do veículo obrigatório para emissão do CIOT.', field: 'rntrc' },
+    renavam: { code: 'VEHICLE_RENAVAM_PENDING', message: 'RENAVAM do veículo obrigatório para emissão do CIOT e MDF-e.', field: 'vehicleRenavam' },
+};
+
 function isPlanningLocked(status: ManifestStatus) {
     return status !== 'DRAFT';
 }
@@ -68,6 +78,10 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
                     vehicleChassi: true,
                     vehiclePlate: true,
                     vehicleRenavam: true,
+                    trailerPlate: true,
+                    trailer2Plate: true,
+                    trailer3Plate: true,
+                    ...linkVehicleInclude,
                     person: { select: { neighborhood: true, cep: true, address: true, number: true, city: true, state: true, cityIbgeCode: true } },
                 },
             },
@@ -146,18 +160,18 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
     } else if (manifest.link.approvalStatus !== 'APPROVED') {
         add(issue('responsible', 'LINK_NOT_APPROVED', 'O responsável selecionado ainda não está aprovado.', 'linkId'));
     } else {
-        if (!manifest.link.vehiclePlate || !/^[A-Za-z0-9]{7,8}$/.test(manifest.link.vehiclePlate.replace(/[^A-Za-z0-9]/g, ''))) add(issue('responsible', 'VEHICLE_PLATE_PENDING', 'Placa do cavalo obrigatória para emissão do CIOT.', 'vehiclePlate'));
-        if (!manifest.link.vehicleChassi) {
-            add(issue('responsible', 'VEHICLE_CHASSI_PENDING', 'Chassi do veículo obrigatório para emissão do CIOT.', 'vehicleChassi'));
-        }
-        if (!manifest.link.vehicleAxles) {
-            add(issue('responsible', 'VEHICLE_AXLES_PENDING', 'Número de eixos obrigatório para cálculo de piso ANTT.', 'vehicleAxles'));
-        }
-        if (!manifest.link.rntrc) {
-            add(issue('responsible', 'VEHICLE_RNTRC_PENDING', 'RNTRC do transportador obrigatório para emissão do CIOT.', 'rntrc'));
-        }
-        if (!manifest.link.vehicleRenavam) {
-            add(issue('responsible', 'VEHICLE_RENAVAM_PENDING', 'RENAVAM do veículo pendente.', 'vehicleRenavam', 'warning'));
+        // Pendência só aparece quando a Unidade de Veículo realmente não tem o dado — cada unidade
+        // (cavalo e reboques) carrega chassi, RENAVAM, eixos e RNTRC obrigatórios.
+        const composition = resolveComposition(manifest.link);
+        for (const unitIssue of compositionIssues(composition)) {
+            if (unitIssue.unit === 'TRAILER') {
+                add(issue('responsible', 'TRAILER_UNIT_PENDING', `Reboque ${unitIssue.plate}: complete ${describeUnitIssues(unitIssue)}.`, `trailerUnit:${unitIssue.plate}`));
+                continue;
+            }
+            for (const f of unitIssue.fields) {
+                const spec = TRACTION_FIELD_ISSUES[f.field];
+                add(issue('responsible', spec.code, f.reason === 'invalid' ? `${f.label} do cavalo inválido.` : spec.message, spec.field));
+            }
         }
         const lp = manifest.link.person;
         if (!lp?.neighborhood || !lp?.cep || !lp?.address || !lp?.number || !(lp?.city && lp?.state && lp?.cityIbgeCode)) {

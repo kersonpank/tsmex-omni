@@ -8,7 +8,7 @@ function setup(phase: string, existing: boolean) {
     const deps: any = {
         prisma: {
             ciotEmissionJob: { findUniqueOrThrow: async () => ciotJob, update: async (...args: unknown[]) => calls.push(['update', [...args]]) },
-            manifest: { findUniqueOrThrow: async () => ({ link: { id: 'link' }, driver: { id: 'driver' } }) },
+            manifest: { findUniqueOrThrow: async () => ({ link: { id: 'link', vehiclePlate: 'ABC1D23', rntrc: '123456789', trailerPlate: 'REB1A11', tractionUnit: { id: 'u1', plate: 'ABC1D23', role: 'TRACTION', chassi: '9BWZZZ377VT004251', renavam: '12345678901', axles: 3, rntrc: '987654321', ownerDocument: '11222333000181', ownerName: 'Dono' } }, driver: { id: 'driver' } }) },
             manifestFiscalDocument: { create: async (...args: unknown[]) => calls.push(['document', [...args]]), findFirst: async () => null, update: async (...args: unknown[]) => calls.push(['document-update', [...args]]) },
         },
         buildCiotEmissionInputForJob: async () => ({ mapperInput: { tipoViagem: 'Padrao', idOperacaoCliente: 'op-1', matrizCnpj: '12345678901234', contratante: { nomeOuRazaoSocial: 'C', cpfOuCnpj: '12345678901234', endereco: { bairro: 'B', cep: '12345678', codigoMunicipio: 1, rua: 'R', numero: '1' } }, contratado: { cpfOuCnpj: '1', rntrc: '1' }, motorista: { cpfOuCnpj: '1', cnh: '1', celular: { ddd: 11, numero: 999999999 } }, codigoMunicipioOrigem: 1, codigoMunicipioDestino: 2, veiculos: ['ABC1D23'], requestData: { documentoViagem: 'D', distanciaPercorrida: 1, dataFimViagem: '2026-01-01', altoDesempenho: false, composicaoVeicular: false, tipoPagamento: 'TransferenciaBancaria', entregaDocumentacao: 'Cliente', valores: { totalOperacao: 1, totalViagem: 1, totalAdiantamento: 0, totalQuitacao: 1 }, impostos: {}, pagamentos: [], destinatario: { nomeOuRazaoSocial: 'D', cpfOuCnpj: '1', endereco: { bairro: 'B', cep: '12345678', codigoMunicipio: 2, rua: 'R', numero: '1' } } } }, environment: 'producao' }),
@@ -31,6 +31,16 @@ describe('CIOT processor environment and idempotency', () => {
             const call = calls.find(([kind]) => kind === name);
             assert.equal(call?.[1].at(-1), 'producao', name);
         }
+    });
+
+    it('registers one vehicle per plate (cavalo and reboque) and the owner with the cavalo RNTRC', async () => {
+        const { calls, deps, job } = setup('QUEUED', false);
+        await processCiotEmissionJob(job, deps);
+        const plates = calls.filter(([kind]) => kind === 'veiculo').map(([, args]) => (args[0] as { plate: string }).plate);
+        assert.deepEqual(plates, ['ABC1D23', 'REB1A11']);
+        const owner = calls.find(([kind]) => kind === 'proprietario')?.[1][0] as { rntrc: string; vehicleOwnerDocument: string };
+        assert.equal(owner.rntrc, '987654321');
+        assert.equal(owner.vehicleOwnerDocument, '11222333000181');
     });
 
     it('consults existing CIOT with environment and does not submit', async () => {

@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import morgan from 'morgan';
 import { authRouter } from './routes/auth.js';
 import { vehicleTypesRouter } from './routes/vehicleTypes.js';
+import { vehicleUnitsRouter } from './routes/vehicleUnits.js';
 import { hubsRouter } from './routes/hubs.js';
 import { clientsRouter } from './routes/clients.js';
 import { linksRouter } from './routes/links.js';
@@ -70,6 +71,7 @@ app.get('/health', (req, res) => {
 // Routes
 app.use('/api/auth', authRouter);
 app.use('/api/vehicle-types', vehicleTypesRouter);
+app.use('/api/vehicle-units', vehicleUnitsRouter);
 app.use('/api/hubs', hubsRouter);
 app.use('/api/clients', clientsRouter);
 app.use('/api/links', linksRouter);

@@ -17,7 +17,8 @@ import { ManifestJourneyShell, manifestJourneySteps } from './ManifestJourneyShe
 import TripResponsiblePanel from './TripResponsiblePanel';
 import DriverFiscalSheet from './DriverFiscalSheet';
 import type { DriverFiscalFormState } from './DriverFiscalSheet';
-import VehicleFiscalSheet from './VehicleFiscalSheet';
+import VehicleFiscalSheet, { type CompositionFormState } from './VehicleFiscalSheet';
+import { compositionDraftIssues, describeIssues, draftsFromLink, draftToInput, emptyDraft } from './vehicleUnitDraft';
 import LinkOwnerPersonSheet from './LinkOwnerPersonSheet';
 import type { OwnerPersonFormState } from './LinkOwnerPersonSheet';
 import LinkQuickCreateModal from './LinkQuickCreateModal';
@@ -209,22 +210,11 @@ const ManifestDetailPage: React.FC = () => {
   const [showVehicleSheet, setShowVehicleSheet] = useState(false);
   const [vehicleLinkId, setVehicleLinkId] = useState('');
   const [savingVehicle, setSavingVehicle] = useState(false);
-  const [vehicleForm, setVehicleForm] = useState({
+  const [vehicleForm, setVehicleForm] = useState<CompositionFormState>({
     vehicleTypeId: '',
-    vehiclePlate: '',
-    vehicleYear: '',
-    trailerPlate: '',
-    trailer2Plate: '',
-    trailer3Plate: '',
-    vehicleAxles: '',
-    rntrc: '',
     carrierType: 'TAC',
-    vehicleOwnerDocument: '',
-    vehicleOwnerName: '',
-    vehicleChassi: '',
-    vehicleRenavam: '',
-    vehicleBodyType: 'NaoAplicavel',
-    vehicleWheelType: 'Cavalo',
+    traction: emptyDraft('TRACTION'),
+    trailers: [],
   });
   const [showOwnerPersonSheet, setShowOwnerPersonSheet] = useState(false);
   const [savingOwnerPerson, setSavingOwnerPerson] = useState(false);
@@ -911,22 +901,12 @@ const ManifestDetailPage: React.FC = () => {
   const openVehicleSheet = (link = manifest?.link) => {
     if (!link) return;
     setVehicleLinkId(link.id);
+    const drafts = draftsFromLink(link);
     setVehicleForm({
       vehicleTypeId: link.vehicleTypeId ?? manifest?.vehicleTypeId ?? '',
-      vehiclePlate: link.vehiclePlate ?? '',
-      vehicleYear: link.vehicleYear ? String(link.vehicleYear) : '',
-      trailerPlate: link.trailerPlate ?? '',
-      trailer2Plate: link.trailer2Plate ?? '',
-      trailer3Plate: link.trailer3Plate ?? '',
-      vehicleAxles: link.vehicleAxles ? String(link.vehicleAxles) : '',
-      rntrc: link.rntrc ?? '',
       carrierType: link.carrierType ?? 'TAC',
-      vehicleOwnerDocument: link.vehicleOwnerDocument ?? '',
-      vehicleOwnerName: link.vehicleOwnerName ?? '',
-      vehicleChassi: link.vehicleChassi ?? '',
-      vehicleRenavam: link.vehicleRenavam ?? '',
-      vehicleBodyType: link.vehicleBodyType ?? 'NaoAplicavel',
-      vehicleWheelType: link.vehicleWheelType ?? 'Cavalo',
+      traction: drafts.traction,
+      trailers: drafts.trailers,
     });
     setError(null);
     setShowVehicleSheet(true);
@@ -934,51 +914,28 @@ const ManifestDetailPage: React.FC = () => {
 
   const handleSaveVehicle = async () => {
     if (!id || !manifest || !vehicleLinkId) return;
-    const plate = vehicleForm.vehiclePlate.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-    if (plate.length !== 7) {
-      setError('Informe a placa principal com 7 caracteres.');
-      return;
-    }
     if (!vehicleForm.vehicleTypeId) {
       setError('Selecione o tipo do veículo.');
       return;
     }
-    const chassi = vehicleForm.vehicleChassi.replace(/\s/g, '');
-    if (!chassi || chassi.length !== 17) {
-      setError('Informe o chassi com exatamente 17 caracteres.');
-      return;
-    }
-    if (!vehicleForm.vehicleAxles || Number(vehicleForm.vehicleAxles) < 1) {
-      setError('Informe o número de eixos (mínimo 1).');
-      return;
-    }
-    if (!vehicleForm.rntrc) {
-      setError('Informe o RNTRC do veículo.');
+    // Cada unidade (cavalo e reboques) precisa estar completa: chassi, RENAVAM, eixos e RNTRC.
+    const pending = compositionDraftIssues(vehicleForm.traction, vehicleForm.trailers);
+    if (pending.length) {
+      const first = pending[0];
+      setError(`${first.label}${first.plate ? ` ${first.plate}` : ''}: complete ${describeIssues(first.issues)}.`);
       return;
     }
     setSavingVehicle(true);
     setError(null);
     try {
-      const optionalPlate = (value: string) => {
-        const normalized = value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-        return normalized || null;
-      };
+      // Unidades primeiro (cadastro mestre reutilizável); depois só o que é do Link/viagem.
+      await linksApi.setComposition(vehicleLinkId, {
+        traction: draftToInput(vehicleForm.traction),
+        trailers: vehicleForm.trailers.map(draftToInput),
+      });
       await linksApi.updateFiscal(vehicleLinkId, {
         vehicleTypeId: vehicleForm.vehicleTypeId,
-        vehiclePlate: plate,
-        vehicleYear: vehicleForm.vehicleYear ? Number(vehicleForm.vehicleYear) : null,
-        trailerPlate: optionalPlate(vehicleForm.trailerPlate),
-        trailer2Plate: optionalPlate(vehicleForm.trailer2Plate),
-        trailer3Plate: optionalPlate(vehicleForm.trailer3Plate),
-        vehicleAxles: vehicleForm.vehicleAxles ? Number(vehicleForm.vehicleAxles) : undefined,
-        rntrc: vehicleForm.rntrc || undefined,
         carrierType: vehicleForm.carrierType as Link['carrierType'],
-        vehicleOwnerDocument: vehicleForm.vehicleOwnerDocument || undefined,
-        vehicleOwnerName: vehicleForm.vehicleOwnerName || undefined,
-        vehicleChassi: vehicleForm.vehicleChassi || undefined,
-        vehicleRenavam: vehicleForm.vehicleRenavam || undefined,
-        vehicleBodyType: vehicleForm.vehicleBodyType || undefined,
-        vehicleWheelType: vehicleForm.vehicleWheelType || undefined,
       });
       if (vehicleLinkId !== manifest.linkId) {
         await manifestsApi.setResponsible(id, vehicleLinkId);
@@ -1883,8 +1840,8 @@ const ManifestDetailPage: React.FC = () => {
       {showVehicleSheet && (
         <VehicleFiscalSheet
           error={error}
-          vehicleForm={vehicleForm}
-          setVehicleForm={setVehicleForm}
+          form={vehicleForm}
+          setForm={setVehicleForm}
           vehicleTypes={vehicleTypes}
           savingVehicle={savingVehicle}
           onClose={() => setShowVehicleSheet(false)}

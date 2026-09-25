@@ -1,6 +1,7 @@
 import axios from 'axios';
 import type {
     NfSpecies,
+    VehicleUnit,
     Demand,
     CreateDemandRequest,
     CreateIntakeDemandRequest,
@@ -788,6 +789,12 @@ export const linksApi = {
         return response.data;
     },
 
+    /** Composição por unidades: cada placa vira/atualiza uma Unidade de Veículo reutilizável. */
+    setComposition: async (id: string, data: { traction: VehicleUnitInput; trailers: VehicleUnitInput[] }) => {
+        const response = await api.put<ApiResponse<Link>>(`/links/${id}/composition`, data);
+        return response.data;
+    },
+
     getDrivers: async (linkId: string) => {
         const response = await api.get<ApiResponse<Driver[]>>(`/links/${linkId}/drivers`);
         return response.data;
@@ -872,6 +879,39 @@ export const linksApi = {
         };
     }>) => {
         const response = await api.patch<ApiResponse<Driver> & { personAlreadyExists?: boolean; notOverwritten?: string[] }>(`/links/${linkId}/drivers/${driverId}`, data);
+        return response.data;
+    },
+};
+
+// ========== VEHICLE UNITS API ==========
+
+export type VehicleUnitInput = {
+    plate: string;
+    chassi?: string | null;
+    renavam?: string | null;
+    axles?: number | null;
+    rntrc?: string | null;
+    bodyType?: string | null;
+    wheelType?: string | null;
+    year?: number | null;
+    ownerDocument?: string | null;
+    ownerName?: string | null;
+};
+
+export const vehicleUnitsApi = {
+    /** Busca por placa (parcial) antes de qualquer formulário de cadastro. */
+    search: async (q: string, role?: VehicleUnit['role']) => {
+        const response = await api.get<ApiResponse<VehicleUnit[]>>('/vehicle-units', { params: { q, role } });
+        return response.data;
+    },
+
+    create: async (data: VehicleUnitInput & { role: VehicleUnit['role'] }) => {
+        const response = await api.post<ApiResponse<VehicleUnit>>('/vehicle-units', data);
+        return response.data;
+    },
+
+    update: async (id: string, data: Omit<VehicleUnitInput, 'plate'>) => {
+        const response = await api.patch<ApiResponse<VehicleUnit>>(`/vehicle-units/${id}`, data);
         return response.data;
     },
 };
