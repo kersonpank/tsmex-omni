@@ -158,6 +158,7 @@ model Person {
   hubs           Hub[]
   fiscalEmitters FiscalEmitter[]
   drivers        Driver[]
+  vehicleUnits   VehicleUnit[]
 
   // Orders (partes)
   ordersAsRemetente     Order[] @relation("OrderRemetente")
@@ -347,6 +348,17 @@ model Link {
   trailer3Plate String? // Carreta/reboque 3 (rodotrem; até 4 placas com o cavalo)
   vehicleAxles  Int? // Número de eixos — crítico para cálculo de piso mínimo ANTT
 
+  // Composição veicular: cada placa é uma VehicleUnit reutilizável (fonte da verdade).
+  // As colunas vehicle*/trailer*/rntrc acima ficam como espelho legado até a limpeza.
+  tractionUnitId String?
+  tractionUnit   VehicleUnit? @relation("LinkTractionUnit", fields: [tractionUnitId], references: [id], onDelete: SetNull)
+  trailer1UnitId String?
+  trailer1Unit   VehicleUnit? @relation("LinkTrailer1Unit", fields: [trailer1UnitId], references: [id], onDelete: SetNull)
+  trailer2UnitId String?
+  trailer2Unit   VehicleUnit? @relation("LinkTrailer2Unit", fields: [trailer2UnitId], references: [id], onDelete: SetNull)
+  trailer3UnitId String?
+  trailer3Unit   VehicleUnit? @relation("LinkTrailer3Unit", fields: [trailer3UnitId], references: [id], onDelete: SetNull)
+
   // Documents
   cnhNumber String?
   cnhExpiry DateTime?
@@ -387,6 +399,49 @@ model Link {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+enum VehicleUnitRole {
+  TRACTION // Cavalo / caminhão trator (placa principal)
+  TRAILER // Reboque / carreta / semirreboque
+}
+
+// Unidade física de veículo, identificada pela placa. Cadastrada uma vez e reutilizada em qualquer
+// composição/viagem. Histórico futuro (manutenção, pneus) se pendura AQUI, não na viagem.
+// RNTRC e RENAVAM são obrigatórios por unidade (decisão do negócio) — ver vehicleUnitService.
+model VehicleUnit {
+  id    String          @id @default(uuid())
+  plate String          @unique // 7 caracteres alfanuméricos, maiúsculas, sem separador
+  role  VehicleUnitRole
+
+  chassi    String? // 17 caracteres
+  renavam   String?
+  axles     Int? // crítico para o piso mínimo ANTT
+  rntrc     String? // registro ANTT do transportador dono desta unidade
+  bodyType  String? // TipoCarroceria eFrete
+  wheelType String? // TipoRodado eFrete
+  brand     String?
+  model     String?
+  year      Int?
+
+  // Proprietário: Person quando existe; documento/nome soltos preservam o legado (Link.vehicleOwner*)
+  ownerPersonId  String?
+  ownerPerson    Person? @relation(fields: [ownerPersonId], references: [id], onDelete: SetNull)
+  ownerDocument  String?
+  ownerName      String?
+
+  active Boolean @default(true)
+
+  tractionLinks Link[] @relation("LinkTractionUnit")
+  trailer1Links Link[] @relation("LinkTrailer1Unit")
+  trailer2Links Link[] @relation("LinkTrailer2Unit")
+  trailer3Links Link[] @relation("LinkTrailer3Unit")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([role])
+  @@index([ownerPersonId])
 }
 
 enum LinkCarrierType {

@@ -2,12 +2,15 @@
 import React from 'react';
 import StatusBadge from '../ui/StatusBadge';
 import type { Manifest, Link, Driver, ManifestReadiness, ManifestReadinessIssue } from '../../types/index';
+import { describeIssues, linkCompositionSummary } from './vehicleUnitDraft';
 
 const ISSUE_CTA_LABEL: Record<string, string> = {
   VEHICLE_PLATE_PENDING: 'Completar veículo',
   VEHICLE_CHASSI_PENDING: 'Completar veículo',
   VEHICLE_AXLES_PENDING: 'Completar veículo',
   VEHICLE_RNTRC_PENDING: 'Completar veículo',
+  VEHICLE_RENAVAM_PENDING: 'Completar veículo',
+  TRAILER_UNIT_PENDING: 'Completar reboque',
   LINK_PERSON_ADDRESS_PENDING: 'Completar endereço do proprietário',
   DRIVER_REQUIRED: 'Cadastrar motorista',
   DRIVER_CNH_PENDING: 'Completar motorista',
@@ -26,7 +29,7 @@ const PendingIssuesList: React.FC<{
 
   const resolve = (code: string) => {
     if (code === 'LINK_PERSON_ADDRESS_PENDING') return onOpenOwnerPersonSheet;
-    if (code.startsWith('VEHICLE_')) return onOpenVehicleSheet;
+    if (code.startsWith('VEHICLE_') || code === 'TRAILER_UNIT_PENDING') return onOpenVehicleSheet;
     return onOpenDriverFiscalSheet;
   };
 
@@ -45,7 +48,7 @@ const PendingIssuesList: React.FC<{
       </div>
       <ul className="divide-y divide-amber-200 dark:divide-amber-800">
         {blocking.map((item) => (
-          <li key={item.code} className="flex items-center justify-between gap-3 px-4 py-3">
+          <li key={`${item.code}:${item.field ?? ''}`} className="flex items-center justify-between gap-3 px-4 py-3">
             <span className="text-sm text-amber-900 dark:text-amber-100">{item.message}</span>
             <button
               type="button"
@@ -161,7 +164,7 @@ const TripResponsiblePanel: React.FC<Props> = ({
             <p className="mt-1 text-base font-bold text-tower-900 dark:text-tower-50">{manifest.link?.name ?? 'Não selecionado'}</p>
             {manifest.link ? (
               <p className="mt-1 text-xs text-tower-500">
-                {manifest.link.document} · RNTRC {manifest.link.rntrc || 'não informado'}
+                {manifest.link.document} · RNTRC {manifest.link.tractionUnit?.rntrc || manifest.link.rntrc || 'não informado'}
               </p>
             ) : null}
           </div>
@@ -188,26 +191,29 @@ const TripResponsiblePanel: React.FC<Props> = ({
       </div>
       <div className="border-t border-tower-200 p-4 dark:border-tower-700">
         <p className="text-xs font-bold uppercase tracking-[0.08em] text-tower-500">Composição veicular</p>
-        {manifest.link?.vehiclePlate ? (
+        {linkCompositionSummary(manifest.link).length ? (
           <div className="mt-3">
-            <div className="flex flex-wrap gap-2">
-              {[manifest.link.vehiclePlate, manifest.link.trailerPlate, manifest.link.trailer2Plate, manifest.link.trailer3Plate]
-                .filter(Boolean)
-                .map((plate, index) => (
+            <ul className="space-y-2">
+              {linkCompositionSummary(manifest.link).map((unit) => (
+                <li key={unit.plate} className="flex flex-wrap items-center gap-2">
                   <span
-                    key={plate}
                     className={`rounded-lg px-3 py-1.5 font-mono text-sm font-bold ${
-                      index === 0 ? 'bg-brand-950 text-white' : 'bg-tower-100 text-tower-800 dark:bg-tower-800 dark:text-tower-100'
+                      unit.role === 'TRACTION' ? 'bg-brand-950 text-white' : 'bg-tower-100 text-tower-800 dark:bg-tower-800 dark:text-tower-100'
                     }`}
                   >
-                    {plate}
+                    {unit.plate}
                   </span>
-                ))}
-            </div>
+                  <span className="text-xs text-tower-500">{unit.role === 'TRACTION' ? 'Cavalo' : 'Reboque'}</span>
+                  {unit.issues.length ? (
+                    <StatusBadge label={`Falta: ${describeIssues(unit.issues)}`} tone="warning" />
+                  ) : (
+                    <StatusBadge label="Pronta" tone="success" />
+                  )}
+                </li>
+              ))}
+            </ul>
             <p className="mt-2 text-xs text-tower-500">
-              {manifest.link.vehicleType?.name || manifest.vehicleType?.name} ·{' '}
-              {manifest.link.vehicleAxles ? `${manifest.link.vehicleAxles} eixos` : 'eixos não informados'} · Chassi{' '}
-              {manifest.link.vehicleChassi || 'não informado'}
+              {manifest.link?.vehicleType?.name || manifest.vehicleType?.name}
             </p>
           </div>
         ) : (
@@ -252,7 +258,7 @@ const TripResponsiblePanel: React.FC<Props> = ({
             onClick={() => onOpenVehicleSheet(manifest.link)}
             className="admin-focus min-h-11 rounded-xl bg-brand-600 px-4 text-sm font-bold text-white hover:bg-brand-700"
           >
-            {manifest.link.vehiclePlate ? 'Editar veículo' : 'Cadastrar veículo'}
+            {linkCompositionSummary(manifest.link).length ? 'Editar veículo' : 'Cadastrar veículo'}
           </button>
         )}
       </div>

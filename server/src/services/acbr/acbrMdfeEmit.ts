@@ -5,6 +5,9 @@ import { ufToCuf } from './acbrIbge.js';
 import { requireSelectedIbge } from '../selectedCity.js';
 import { acbrFetchJson } from './acbrHttp.js';
 import { cleanIe } from './acbrCteMapper.js';
+import { linkVehicleInclude } from '../vehicleUnitService.js';
+import { compositionIssues, describeUnitIssues, resolveComposition } from '../vehicleUnitRules.js';
+import { buildMdfeVehicles } from './acbrMdfeVehicles.js';
 
 function digits(s: string): string {
     return s.replace(/\D/g, '');
@@ -118,7 +121,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
         where: { id: manifestId },
         include: {
             hub: { include: { person: true } },
-            link: true,
+            link: { include: linkVehicleInclude },
             fiscalEmitter: { include: { person: true } },
             tripStops: {
                 orderBy: { sequence: 'asc' },
@@ -129,8 +132,13 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
     if (!manifest?.hub?.person) {
         return { ok: false, error: 'Manifesto sem Hub com pessoa (CNPJ) para emitir MDF-e.' };
     }
-    if (!manifest.link?.vehiclePlate) {
+    const composition = manifest.link ? resolveComposition(manifest.link) : null;
+    if (!manifest.link || !composition?.traction) {
         return { ok: false, error: 'Manifesto sem Link com placa do veículo (obrigatório para MDF-e rodoviário).' };
+    }
+    const vehicleIssues = compositionIssues(composition);
+    if (vehicleIssues.length) {
+        return { ok: false, error: `Composição veicular incompleta para o MDF-e: ${vehicleIssues.map((i) => `${i.plate ?? 'cavalo'} (${describeUnitIssues(i)})`).join('; ')}.` };
     }
     const groups = await collectDescargaGroupsForManifest(manifestId);
     const allChaves = groups.flatMap((g) => g.chaves);
@@ -177,34 +185,13 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
         return { ok: false, error: 'Emitente MDF-e deve ser CNPJ (Hub).' };
     }
 
-    let rntrcSource = manifest.link.rntrc;
-    if (!rntrcSource) {
-        console.warn(JSON.stringify({ level: 'warn', source: 'acbrMdfeEmit', message: 'Link sem RNTRC próprio — usando RNTRC do Hub como fallback (deveria estar cadastrado no Link).', manifestId }));
-        rntrcSource = manifest.hub.rntrc;
-    }
-    const rntrc = digits(rntrcSource ?? '').padStart(8, '0').slice(0, 8) || '00000000';
-    const ld = digits(manifest.link.document);
-    const prop =
-        ld.length === 11
-            ? { CPF: ld.padStart(11, '0'), RNTRC: rntrc, xNome: manifest.link.name, UF: ufIni, tpProp: 1 }
-            : { CNPJ: ld.padStart(14, '0').slice(0, 14), RNTRC: rntrc, xNome: manifest.link.name, UF: ufIni, tpProp: 0 };
-
-    // Reboque(s) do Link (composição veicular) — hoje nenhum reboque cadastrado era enviado ao
-    // ACBr, mesmo quando trailerPlate já existia.
-    const trailerPlates = [manifest.link.trailerPlate, manifest.link.trailer2Plate, manifest.link.trailer3Plate].filter(
-        (p): p is string => Boolean(p)
-    );
-    const veicReboque = trailerPlates.map((placa, i) => ({
-        cInt: String(i + 2),
-        placa: placa.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 7),
-        RENAVAM: '00000000000',
-        tara: 0,
-        capKG: 99999,
-        capM3: 0,
-        prop,
-        tpCar: '00',
-        UF: ufIni,
-    }));
+    // Cavalo e reboques vêm das Unidades de Veículo: RENAVAM, RNTRC e proprietário por placa.
+    const { rntrc, veicTracao, veicReboque } = buildMdfeVehicles({
+        composition,
+        carrier: { document: manifest.link!.document, name: manifest.link!.name },
+        fallbackRntrc: manifest.link!.rntrc ?? manifest.hub.rntrc,
+        uf: ufIni,
+    });
 
     // Uma entrada de infMunDescarga por parada/descarga real da viagem (Fatia B) — cada uma com
     // o município REAL de destino daquela parada (nunca o do emitente/origem) e só as chaves de
@@ -282,18 +269,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
             versaoModal: '3.00',
             rodo: {
                 infANTT: { RNTRC: rntrc, ...(ciotDoc?.number ? { infCIOT: [{ CIOT: ciotDoc.number }] } : {}) },
-                veicTracao: {
-                    cInt: '1',
-                    placa: manifest.link.vehiclePlate.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 7),
-                    RENAVAM: '00000000000',
-                    tara: 0,
-                    capKG: 99999,
-                    capM3: 0,
-                    prop,
-                    tpRod: '01',
-                    tpCar: '00',
-                    UF: ufIni,
-                },
+                veicTracao,
                 ...(veicReboque.length ? { veicReboque } : {}),
             },
         },

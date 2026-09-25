@@ -18,6 +18,8 @@ import { getObjectDownloadUrl } from '../lib/objectStorage.js';
 import { enqueueCiotEmissionJob } from '../services/queues/ciotEmissionQueue.js';
 import type { StoredCiotRequestData } from '../services/queues/ciotEmissionJobInput.js';
 import { getManifestReadiness } from '../services/manifestReadinessService.js';
+import { linkVehicleInclude } from '../services/vehicleUnitService.js';
+import { compositionIssues, describeUnitIssues, resolveComposition, tractionRntrc } from '../services/vehicleUnitRules.js';
 import {
     addOrderToManifest,
     assertOperationalTripType,
@@ -215,7 +217,8 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
                 link: {
                     select: {
                         id: true, name: true, phone: true, document: true, vehiclePlate: true,
-                        rntrc: true, carrierType: true, vehicleAxles: true, vehicleChassi: true, trailerPlate: true,
+                        rntrc: true, carrierType: true, vehicleAxles: true, vehicleChassi: true, vehicleRenavam: true,
+                        trailerPlate: true, trailer2Plate: true, trailer3Plate: true, ...linkVehicleInclude,
                     },
                 },
                 driver: { select: { id: true, name: true, document: true, cnhNumber: true, birthDate: true } },
@@ -297,7 +300,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
             where: { id: id },
             include: {
                 vehicleType: true,
-                link: { include: { vehicleType: true, person: true } },
+                link: { include: { vehicleType: true, person: true, ...linkVehicleInclude } },
                 driver: { include: { person: true } },
                 hub: true,
                 destHub: true,
@@ -1466,7 +1469,7 @@ router.post('/:id/emit-ciot', authenticate, authorize('ADMIN', 'HUB'), async (re
         }
         const body = emitCiotSchema.parse(req.body);
 
-        const manifest = await prisma.manifest.findUnique({ where: { id }, include: { link: true, driver: true, fiscalEmitter: { select: { environment: true } } } });
+        const manifest = await prisma.manifest.findUnique({ where: { id }, include: { link: { include: linkVehicleInclude }, driver: true, fiscalEmitter: { select: { environment: true } } } });
         if (!manifest) throw new AppError('Manifest not found', 404);
         if (req.user!.roles.includes('HUB') && req.user!.hubId && manifest.hubId !== req.user!.hubId) {
             throw new AppError('Not authorized', 403);
@@ -1475,8 +1478,13 @@ router.post('/:id/emit-ciot', authenticate, authorize('ADMIN', 'HUB'), async (re
         // Preflight — falhar cedo com mensagem clara em vez de deixar o job travar depois na eFrete.
         if (!manifest.driverId || !manifest.driver) throw new AppError('Defina o motorista da viagem antes de emitir o CIOT ("Definir Motorista").', 400);
         if (!manifest.link) throw new AppError('Manifesto sem Link (transportador) atribuído.', 400);
-        if (!manifest.link.rntrc || !manifest.link.carrierType) throw new AppError('Cadastre RNTRC e tipo de transportador (TAC/ETC/CTC/FROTA) do Link antes de emitir o CIOT.', 400);
-        if (!manifest.link.vehicleAxles || !manifest.link.vehicleChassi) throw new AppError('Cadastre número de eixos e chassi do veículo do Link antes de emitir o CIOT.', 400);
+        const composition = resolveComposition(manifest.link);
+        const contratadoRntrc = tractionRntrc(composition, manifest.link.rntrc);
+        if (!contratadoRntrc || !manifest.link.carrierType) throw new AppError('Cadastre o RNTRC do cavalo e o tipo de transportador (TAC/ETC/CTC/FROTA) do Link antes de emitir o CIOT.', 400);
+        const unitIssues = compositionIssues(composition);
+        if (unitIssues.length) {
+            throw new AppError(`Complete os dados do veículo antes de emitir o CIOT: ${unitIssues.map((i) => `${i.plate ?? 'cavalo'} (${describeUnitIssues(i)})`).join('; ')}.`, 400);
+        }
         if (!manifest.driver.cnhNumber || !manifest.driver.birthDate) throw new AppError('Motorista sem CNH/data de nascimento cadastrados.', 400);
 
         const readiness = await getManifestReadiness(id);
@@ -1502,7 +1510,7 @@ router.post('/:id/emit-ciot', authenticate, authorize('ADMIN', 'HUB'), async (re
         if (tipoViagem === 'FRACIONADO' && (!contratantesCargaFracionada || contratantesCargaFracionada.length < 1)) {
             throw new AppError('Fracionado exige ao menos 1 CNPJ em contratantesCargaFracionada.', 400);
         }
-        if (tipoViagem === 'TAC_AGREGADO' && !manifest.link.rntrc) {
+        if (tipoViagem === 'TAC_AGREGADO' && !contratadoRntrc) {
             throw new AppError('TAC_AGREGADO exige RNTRC do Contratante (FiscalEmitter do Hub).', 400);
         }
 

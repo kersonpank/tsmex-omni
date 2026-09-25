@@ -28,7 +28,7 @@ const completeAddress = {
 const baseLink = {
     id: 'link-1',
     approvalStatus: 'APPROVED',
-    rntrc: 'RNTRC123456',
+    rntrc: '123456789',
     carrierType: 'TAC',
     vehicleAxles: 4,
     vehicleChassi: 'ABC123DEF456GHI78',
@@ -160,15 +160,57 @@ describe('manifestReadinessService', () => {
         assert.equal(r.canOffer, false);
     });
 
-    // --- RENAVAM is warning only ---
+    // --- RENAVAM é obrigatório (decisão do negócio: junto com chassi e eixos) ---
 
-    it('missing RENAVAM → VEHICLE_RENAVAM_PENDING warning, canOffer still true', async () => {
+    it('missing RENAVAM → VEHICLE_RENAVAM_PENDING blocking, canOffer false', async () => {
         mockWith({ vehicleRenavam: null });
         const r = await getManifestReadiness('manifest-1');
         const issue = r.issues.find((i) => i.code === 'VEHICLE_RENAVAM_PENDING');
         assert.ok(issue, 'VEHICLE_RENAVAM_PENDING should be present');
-        assert.equal(issue?.severity, 'warning');
+        assert.equal(issue?.severity, 'blocking');
+        assert.equal(r.canOffer, false);
+    });
+
+    // --- Unidade de Veículo: pendência só quando a unidade realmente não tem o dado ---
+
+    const completeUnit = (overrides: object = {}) => ({
+        id: 'unit-t', plate: 'ABC1D23', role: 'TRACTION', chassi: '9BWZZZ377VT004251', renavam: '12345678901',
+        axles: 3, rntrc: '123456789', ...overrides,
+    });
+    const completeTrailerUnit = (overrides: object = {}) => ({ ...completeUnit(), id: 'unit-r', plate: 'REB1A11', role: 'TRAILER', ...overrides });
+    const legacyEmpty = { vehiclePlate: null, vehicleChassi: null, vehicleAxles: null, rntrc: null, vehicleRenavam: null };
+
+    it('cavalo e reboque completos na unidade → sem pendência de veículo, mesmo com colunas legadas vazias', async () => {
+        mockWith({ ...legacyEmpty, tractionUnit: completeUnit(), trailer1Unit: completeTrailerUnit() });
+        const r = await getManifestReadiness('manifest-1');
+        assert.deepEqual(r.issues.filter((i) => i.code.startsWith('VEHICLE_') || i.code === 'TRAILER_UNIT_PENDING'), []);
         assert.equal(r.canOffer, true);
+    });
+
+    it('reboque sem chassi/RENAVAM/eixos/RNTRC → TRAILER_UNIT_PENDING blocking, sem pendência do cavalo', async () => {
+        mockWith({ ...legacyEmpty, tractionUnit: completeUnit(), trailer1Unit: completeTrailerUnit({ chassi: null, renavam: null, axles: null, rntrc: null }) });
+        const r = await getManifestReadiness('manifest-1');
+        const issue = r.issues.find((i) => i.code === 'TRAILER_UNIT_PENDING');
+        assert.ok(issue, 'TRAILER_UNIT_PENDING should be present');
+        assert.equal(issue?.severity, 'blocking');
+        assert.equal(issue?.field, 'trailerUnit:REB1A11');
+        assert.match(issue!.message, /REB1A11.*Chassi, RENAVAM, Número de eixos, RNTRC/);
+        assert.equal(r.issues.some((i) => i.code.startsWith('VEHICLE_')), false);
+        assert.equal(r.canOffer, false);
+    });
+
+    it('reboque só com placa legada (sem backfill) também gera pendência do reboque', async () => {
+        mockWith({ trailerPlate: 'REB1A11' });
+        const r = await getManifestReadiness('manifest-1');
+        assert.ok(r.issues.some((i) => i.code === 'TRAILER_UNIT_PENDING' && i.field === 'trailerUnit:REB1A11'));
+        assert.equal(r.canOffer, false);
+    });
+
+    it('chassi com tamanho errado é pendência de dado inválido, não de ausente', async () => {
+        mockWith({ vehicleChassi: 'CURTO' });
+        const r = await getManifestReadiness('manifest-1');
+        const issue = r.issues.find((i) => i.code === 'VEHICLE_CHASSI_PENDING');
+        assert.match(issue!.message, /inválido/);
     });
 
     // --- Expired CNH is warning ---
