@@ -36,8 +36,12 @@ import {
 } from '../lib/hubOrderAccess.js';
 import { parseOrderStatusWhereInput } from '../lib/orderStatusFilter.js';
 import { extractChaveFromInput } from '../lib/nfeChaveIntake.js';
+import { resourceGuard, uuidParam } from '../middleware/resourceAccess.js';
 
 const router = Router();
+
+// Anti-IDOR: qualquer rota com /:id (UUID) — inclusive as sub-rotas de freight-calculations — só para quem enxerga o pedido.
+router.use(uuidParam(), ...resourceGuard('order'));
 
 router.use('/:orderId/freight-calculations', freightCalculationsRouter);
 

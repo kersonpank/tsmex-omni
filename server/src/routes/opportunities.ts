@@ -4,15 +4,21 @@ import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { getNextOrderNumber } from '../services/orderSequence.js';
+import { accountScope, resourceGuard, uuidParam } from '../middleware/resourceAccess.js';
 
 const router = Router();
+
+// Anti-IDOR: oportunidade por id só ADMIN ou a conta dona (CLIENT).
+router.use(uuidParam(), ...resourceGuard('opportunity'));
 
 // ==================== GET OPPORTUNITIES ====================
 
 // GET /api/opportunities - List opportunities (with filters)
 router.get('/', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const { accountId, stage, sessionId, limit = '50' } = req.query;
+        const { accountId: requestedAccountId, stage, sessionId, limit = '50' } = req.query;
+        const ownAccountId = await accountScope(req.user!);
+        const accountId = ownAccountId ?? requestedAccountId; // CLIENT: sempre a própria conta
 
         const opportunities = await prisma.opportunity.findMany({
             where: {
@@ -112,6 +118,8 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response, next: Nex
         });
 
         const data = schema.parse(req.body);
+        const ownAccountId = await accountScope(req.user!);
+        if (ownAccountId && data.accountId !== ownAccountId) throw new AppError('Conta não autorizada.', 403);
 
         // Determine completeness
         let completeness: 'MINIMAL' | 'INCOMPLETE' | 'COMPLETE' = 'MINIMAL';
@@ -387,7 +395,8 @@ router.post('/:id/convert-to-demand', authenticate, authorize('ADMIN'), async (r
 // GET /api/opportunities/search/similar - Find similar opportunities
 router.get('/search/similar', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const { accountId, origin, destination, weight } = req.query;
+        const { accountId: requestedAccountId, origin, destination, weight } = req.query;
+        const accountId = (await accountScope(req.user!)) ?? requestedAccountId;
 
         if (!accountId || !origin || !destination) {
             throw new AppError('accountId, origin, and destination are required', 400);

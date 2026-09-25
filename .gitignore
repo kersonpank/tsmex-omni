@@ -5,6 +5,7 @@
 server/.env
 server/.env.*
 !server/.env.example
+.env.vps.local
 
 # Logs
 logs

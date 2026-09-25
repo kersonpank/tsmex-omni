@@ -4,8 +4,12 @@ import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { getOrderFreightValue, getOfficialFreightTotal } from '../services/pricingService.js';
+import { resourceGuard, uuidParam } from '../middleware/resourceAccess.js';
 
 const router = Router();
+
+// Anti-IDOR: fatura por id só ADMIN ou a conta dona (CLIENT).
+router.use(uuidParam(), ...resourceGuard('invoice'));
 
 // Helper function to generate invoice number
 async function generateInvoiceNumber(): Promise<string> {

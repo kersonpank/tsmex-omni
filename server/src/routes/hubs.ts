@@ -6,6 +6,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { validateSelectedCity } from '../services/selectedCity.js';
 import { getNextOrderNumber } from '../services/orderSequence.js';
+import { assertHubInvite, signHubInvite } from '../services/hubInvite.js';
 
 const router = Router();
 
@@ -194,10 +195,27 @@ router.post('/entrada', authenticate, authorize('HUB'), async (req: AuthRequest,
     }
 });
 
-// GET /api/hubs/:id/cadastro-info - Info pública para página de cadastro (sem auth)
+// POST /api/hubs/:id/invites - Gera link de convite (ADMIN, ou HUB do próprio depósito)
+router.post('/:id/invites', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const id = req.params.id as string;
+        const isAdmin = req.user!.roles.includes('ADMIN');
+        if (!isAdmin && req.user!.hubId !== id) {
+            throw new AppError('Você só pode convidar operadores para o seu depósito.', 403);
+        }
+        const hub = await prisma.hub.findUnique({ where: { id }, select: { id: true, active: true } });
+        if (!hub || !hub.active) throw new AppError('Hub não encontrado ou inativo', 404);
+        res.status(201).json({ success: true, data: { token: signHubInvite(id), expiresInDays: 7 } });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// GET /api/hubs/:id/cadastro-info - Info para página de cadastro (público, exige convite)
 router.get('/:id/cadastro-info', async (req: Request, res: Response, next: NextFunction) => {
     try {
         const id = req.params.id as string;
+        assertHubInvite(req.query.token, id);
         const hub = await prisma.hub.findUnique({
             where: { id },
             select: { id: true, name: true, code: true, active: true },
@@ -211,10 +229,11 @@ router.get('/:id/cadastro-info', async (req: Request, res: Response, next: NextF
     }
 });
 
-// POST /api/hubs/:id/register - Cadastro público via link (sem auth)
+// POST /api/hubs/:id/register - Cadastro público via link de convite (token assinado, sem sessão)
 router.post('/:id/register', async (req: Request, res: Response, next: NextFunction) => {
     try {
         const hubId = req.params.id as string;
+        assertHubInvite(req.body?.inviteToken, hubId);
         const body = addHubUserSchema.parse(req.body);
 
         const hub = await prisma.hub.findUnique({
@@ -291,7 +310,8 @@ router.post('/:id/register', async (req: Request, res: Response, next: NextFunct
                 roles: ['HUB'],
                 personId: person.id,
                 hubId,
-                permissions: body.permissions ?? [],
+                // Cadastro público nunca concede permissões: quem convida as define depois (usersApi.updatePermissions).
+                permissions: [],
             },
         });
 

@@ -695,12 +695,17 @@ export const hubsApi = {
         return response.data;
     },
 
-    getCadastroInfo: async (hubId: string) => {
-        const response = await api.get<ApiResponse<{ name: string; code: string }>>(`/hubs/${hubId}/cadastro-info`);
+    createInvite: async (hubId: string) => {
+        const response = await api.post<ApiResponse<{ token: string; expiresInDays: number }>>(`/hubs/${hubId}/invites`);
         return response.data;
     },
 
-    register: async (hubId: string, data: { document: string; legalName: string; email: string; password: string }) => {
+    getCadastroInfo: async (hubId: string, inviteToken: string) => {
+        const response = await api.get<ApiResponse<{ name: string; code: string }>>(`/hubs/${hubId}/cadastro-info`, { params: { token: inviteToken } });
+        return response.data;
+    },
+
+    register: async (hubId: string, data: { document: string; legalName: string; email: string; password: string; inviteToken: string }) => {
         const response = await api.post<ApiResponse<{ id: string; email: string; hubId: string; message: string }>>(`/hubs/${hubId}/register`, data);
         return response.data;
     },

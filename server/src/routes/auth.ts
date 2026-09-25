@@ -4,13 +4,13 @@ import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { authenticate, AuthRequest } from '../middleware/auth.js';
+import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 
 const router = Router();
 
 // Validation schemas
 const registerSchema = z.object({
-    email: z.string().email('Invalid email'),
+    email: z.string().trim().toLowerCase().email('Invalid email'),
     password: z.string().min(6, 'Password must be at least 6 characters'),
     role: z.enum(['ADMIN', 'CLIENT', 'LINK']),
     // Client-specific fields
@@ -29,7 +29,7 @@ const registerSchema = z.object({
 });
 
 const loginSchema = z.object({
-    email: z.string().email('Invalid email'),
+    email: z.string().trim().toLowerCase().email('Invalid email'),
     password: z.string().min(1, 'Password is required'),
 });
 
@@ -57,17 +57,29 @@ function generateToken(userId: string): string {
 }
 
 // POST /api/auth/register
-router.post('/register', async (req, res: Response, next: NextFunction) => {
+const register = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const data = registerSchema.parse(req.body);
+        const provision = req.user?.roles.includes('ADMIN') === true;
+        // Cadastro público: só CLIENT e LINK (LINK nasce PENDING até aprovação do ADMIN).
+        if (!provision && data.role === 'ADMIN') {
+            throw new AppError('Este perfil deve ser cadastrado por um administrador.', 403);
+        }
+        if (data.role === 'CLIENT' && (!data.companyName || !data.document || !data.contactName || !data.phone)) {
+            throw new AppError('Informe empresa, documento, contato e telefone.', 400);
+        }
 
         const existingUser = await prisma.user.findUnique({
             where: { email: data.email },
             include: { link: true, client: true, admin: true },
         });
 
-        // Se usuário existe: adicionar papel em vez de erro (multi-conta)
+        // Se usuário existe: adicionar papel (multi-conta) somente provando a senha da conta.
         if (existingUser) {
+            if (!provision) {
+                const passwordOk = await bcrypt.compare(data.password, existingUser.password);
+                if (!passwordOk) throw new AppError('Conta já cadastrada. Faça login ou informe a senha correta para adicionar o perfil.', 401);
+            }
             const hasRole = (existingUser.roles ?? []).includes(data.role as any);
             if (hasRole) {
                 throw new AppError(`Este email já possui o perfil ${data.role}. Faça login.`, 400);
@@ -103,6 +115,9 @@ router.post('/register', async (req, res: Response, next: NextFunction) => {
                 }
                 return { ...existingUser, roles: newRoles };
             });
+            if (provision) {
+                return res.status(201).json({ success: true, data: { id: user.id, email: user.email, roles: user.roles } });
+            }
             const token = generateToken(user.id);
             const payload: { user: { id: string; email: string; roles: string[] }; token: string; linkId?: string } = {
                 user: { id: user.id, email: user.email, roles: user.roles },
@@ -113,7 +128,6 @@ router.post('/register', async (req, res: Response, next: NextFunction) => {
             return res.status(201).json({ success: true, data: payload });
         }
 
-        // Novo usuário
         const hashedPassword = await bcrypt.hash(data.password, 10);
 
         const user = await prisma.$transaction(async (tx) => {
@@ -151,6 +165,9 @@ router.post('/register', async (req, res: Response, next: NextFunction) => {
                 let accountId: string | null = null;
                 let accountCompanyId: string | null = null;
 
+                if (existingCompany && !provision) {
+                    throw new AppError('Empresa já cadastrada. Solicite acesso ao administrador.', 409);
+                }
                 if (existingCompany) {
                     accountId = existingCompany.accountId;
                     accountCompanyId = existingCompany.id;
@@ -279,6 +296,9 @@ router.post('/register', async (req, res: Response, next: NextFunction) => {
             return newUser;
         });
 
+        if (provision) {
+            return res.status(201).json({ success: true, data: { id: user.id, email: user.email, roles: user.roles } });
+        }
         const token = generateToken(user.id);
         const payload: { user: { id: string; email: string; roles: string[] }; token: string; linkId?: string } = {
             user: { id: user.id, email: user.email, roles: user.roles },
@@ -299,7 +319,10 @@ router.post('/register', async (req, res: Response, next: NextFunction) => {
         }
         next(error);
     }
-});
+};
+
+router.post('/register', register);
+router.post('/provision', authenticate, authorize('ADMIN'), register);
 
 // POST /api/auth/login
 router.post('/login', async (req, res: Response, next: NextFunction) => {

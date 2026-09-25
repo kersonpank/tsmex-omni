@@ -229,10 +229,10 @@ function AddHubOperatorModal({
   );
 }
 
-function getHubCadastroUrl(hubId: string): string {
+function getHubCadastroUrl(hubId: string, inviteToken: string): string {
   if (typeof window === 'undefined') return '';
   const base = `${window.location.origin}${window.location.pathname || '/'}`;
-  return `${base}#/hub/cadastro?hubId=${hubId}`;
+  return `${base}#/hub/cadastro?hubId=${hubId}&token=${encodeURIComponent(inviteToken)}`;
 }
 
 const HubsTab: React.FC = () => {
@@ -310,12 +310,16 @@ const HubsTab: React.FC = () => {
     setGestaoFilterOpen(false);
   }, []);
 
-  const copyCadastroLink = (hubId: string) => {
-    const url = getHubCadastroUrl(hubId);
-    navigator.clipboard.writeText(url).then(() => {
+  const copyCadastroLink = async (hubId: string) => {
+    try {
+      const res = await hubsApi.createInvite(hubId);
+      const data = (res as any)?.data ?? res;
+      await navigator.clipboard.writeText(getHubCadastroUrl(hubId, data.token));
       setCopiedId(hubId);
       setTimeout(() => setCopiedId(null), 2000);
-    });
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Erro ao gerar link de convite');
+    }
   };
 
   const loadHubUsers = async (hubId: string) => {

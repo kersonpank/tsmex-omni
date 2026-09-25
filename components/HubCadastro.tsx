@@ -7,6 +7,7 @@ import { DocumentInput } from './ui/DocumentInput';
 const HubCadastro: React.FC = () => {
   const [searchParams] = useSearchParams();
   const hubId = searchParams.get('hubId');
+  const inviteToken = searchParams.get('token');
   const navigate = useNavigate();
 
   const [hubInfo, setHubInfo] = useState<{ name: string; code: string } | null>(null);
@@ -24,12 +25,12 @@ const HubCadastro: React.FC = () => {
   });
 
   useEffect(() => {
-    if (!hubId) {
-      setError('Link inválido. O link de cadastro deve conter o identificador do depósito.');
+    if (!hubId || !inviteToken) {
+      setError('Link inválido. Peça um novo link de convite ao administrador do depósito.');
       setLoading(false);
       return;
     }
-    hubsApi.getCadastroInfo(hubId)
+    hubsApi.getCadastroInfo(hubId, inviteToken)
       .then((res: any) => {
         const data = (res as any)?.data ?? res;
         setHubInfo({ name: data.name, code: data.code });
@@ -40,11 +41,11 @@ const HubCadastro: React.FC = () => {
         setHubInfo(null);
       })
       .finally(() => setLoading(false));
-  }, [hubId]);
+  }, [hubId, inviteToken]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!hubId) return;
+    if (!hubId || !inviteToken) return;
     if (form.password !== form.confirmPassword) {
       setError('As senhas não coincidem.');
       return;
@@ -61,6 +62,7 @@ const HubCadastro: React.FC = () => {
         legalName: form.legalName,
         email: form.email,
         password: form.password,
+        inviteToken,
       });
       setSuccess(true);
       setTimeout(() => navigate('/login'), 2500);
