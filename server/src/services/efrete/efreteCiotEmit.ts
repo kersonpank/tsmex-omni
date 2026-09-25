@@ -1,6 +1,7 @@
 import { efreteAuthedGet, efreteAuthedPost } from './efreteAuth.js';
 import type { AdicionarOperacaoTransporteV2Payload } from './efreteCiotMapper.js';
 import type { EfreteEnvironment } from './efreteConfig.js';
+import { EfreteApiError } from './efreteHttp.js';
 
 interface AdicionarOperacaoTransporteResponse {
     Sucesso?: boolean;
@@ -86,11 +87,30 @@ export async function consultarStatusCiot(idOperacaoCliente: string, environment
         );
         if (!res.CodigoIdentificacaoOperacao) return { exists: false };
         return { exists: true, codigoIdentificacaoOperacao: res.CodigoIdentificacaoOperacao, estado: res.EstadoCiot, protocoloServico: res.ProtocoloServico };
-    } catch {
-        // Não encontrado é um resultado esperado desta consulta, não uma falha de infraestrutura;
-        // tratamos qualquer erro de API aqui como "ainda não existe" — o submit segue o fluxo normal.
-        return { exists: false };
+    } catch (err) {
+        // Só "operação inexistente" autoriza a emissão. Auth, timeout, rede, 5xx e resposta ilegível
+        // PROPAGAM: o CIOT pode já existir na eFrete — tratar como "não existe" reemitiria (duplicado/multa ANTT).
+        if (isCiotNotFoundError(err)) return { exists: false };
+        throw err;
     }
+}
+
+/**
+ * A consulta por IdOperacaoCliente respondeu de forma DEFINITIVA que a operação não existe?
+ * O manual eFrete v8.2 (§2.5.3) não documenta o código/mensagem de "não encontrado": aceitamos HTTP 404 ou
+ * uma exceção de negócio (`Sucesso:false`) cuja mensagem indique inexistência, mais códigos extras
+ * configuráveis em EFRETE_CONSULTA_NOT_FOUND_CODES (validar em sandbox e ajustar sem deploy). Na dúvida,
+ * NÃO é not-found (falha visível e reprocessável em vez de CIOT duplicado).
+ */
+export function isCiotNotFoundError(err: unknown): boolean {
+    if (!(err instanceof EfreteApiError)) return false;
+    if (err.httpStatus === 404) return true;
+    // Sem excecaoMensagem/excecaoCodigo = timeout, rede, JSON inválido ou HTTP de infraestrutura.
+    if (!err.excecaoMensagem && !err.excecaoCodigo) return false;
+    if (err.httpStatus !== undefined && err.httpStatus !== 200) return false;
+    const extraCodes = (process.env.EFRETE_CONSULTA_NOT_FOUND_CODES ?? '').split(',').map((c) => c.trim()).filter(Boolean);
+    if (err.excecaoCodigo && extraCodes.includes(err.excecaoCodigo)) return true;
+    return /n[aã]o\s+(foi\s+)?(encontrad|localizad|existe)|inexist|n[aã]o\s+h[aá]\s+opera|nenhuma\s+opera/i.test(err.excecaoMensagem ?? '');
 }
 
 interface CancelarEncerrarResponse {
