@@ -27,15 +27,19 @@ describe('invoices routes — validação de frete oficial (Brief 5)', () => {
     const accountId = 'a0000000-0000-0000-0000-000000000001';
     const orderId = 'b0000000-0000-0000-0000-000000000002';
     let token = '';
+    let currentRoles: Array<'ADMIN' | 'HUB'> = ['ADMIN'];
     let baseUrl = '';
     let server: ReturnType<express.Express['listen']> | null = null;
 
     const original = {
         userFindUnique: prisma.user.findUnique,
         accountFindUnique: prisma.account.findUnique,
+        orderFindUnique: prisma.order.findUnique,
         orderFreightCalculationFindFirst: prisma.orderFreightCalculation.findFirst,
         invoiceFindFirst: prisma.invoice.findFirst,
+        invoiceItemFindFirst: prisma.invoiceItem.findFirst,
         invoiceCreate: prisma.invoice.create,
+        queryRaw: prisma.$queryRaw,
         transaction: prisma.$transaction,
     };
 
@@ -46,7 +50,7 @@ describe('invoices routes — validação de frete oficial (Brief 5)', () => {
         prisma.user.findUnique = ((async () => ({
             id: 'admin-user-1',
             email: 'admin@tsmex.com',
-            roles: ['ADMIN'],
+            roles: currentRoles,
             active: true,
             permissions: [],
             admin: { id: 'adm-1' },
@@ -58,8 +62,10 @@ describe('invoices routes — validação de frete oficial (Brief 5)', () => {
             id: accountId,
             name: 'Conta Cliente'
         })) as any);
+        prisma.order.findUnique = (async () => ({ demand: { client: { accountId } } })) as any;
 
         prisma.invoice.findFirst = (async () => null) as any;
+        prisma.invoiceItem.findFirst = (async () => null) as any;
 
         prisma.invoice.create = (async ({ data }: any) => {
             return {
@@ -72,6 +78,7 @@ describe('invoices routes — validação de frete oficial (Brief 5)', () => {
         prisma.$transaction = (async (fn: any) => {
             return fn(prisma);
         }) as any;
+        prisma.$queryRaw = (async () => []) as any;
 
         const { invoicesRouter } = await import('./invoices.js');
         const app = express();
@@ -93,10 +100,13 @@ describe('invoices routes — validação de frete oficial (Brief 5)', () => {
         }
         prisma.user.findUnique = original.userFindUnique;
         prisma.account.findUnique = original.accountFindUnique;
+        prisma.order.findUnique = original.orderFindUnique;
         prisma.orderFreightCalculation.findFirst = original.orderFreightCalculationFindFirst;
         prisma.invoice.findFirst = original.invoiceFindFirst;
+        prisma.invoiceItem.findFirst = original.invoiceItemFindFirst;
         prisma.invoice.create = original.invoiceCreate;
         prisma.$transaction = original.transaction;
+        prisma.$queryRaw = original.queryRaw;
     });
 
     it('POST /invoices deve retornar 400 se o pedido não tiver cálculo de frete oficial', async () => {
@@ -123,7 +133,8 @@ describe('invoices routes — validação de frete oficial (Brief 5)', () => {
     it('POST /invoices deve herdar o frete oficial e ter sucesso se existir cálculo de frete', async () => {
         // Mock com cálculo oficial de 750.00
         prisma.orderFreightCalculation.findFirst = (async () => ({
-            freightTotal: 750.00
+            freightTotal: 750.00,
+            status: 'CTE_AUTHORIZED',
         })) as any;
 
         const res = await httpPost<{ success: boolean; data: { subtotal: number; total: number } }>(
@@ -140,7 +151,29 @@ describe('invoices routes — validação de frete oficial (Brief 5)', () => {
 
         assert.equal(res.status, 201);
         assert.equal(res.body.success, true);
-        assert.equal(res.body.data.subtotal, 750.00);
-        assert.equal(res.body.data.total, 780.00); // 750 + 50 - 20
+        assert.equal(Number(res.body.data.subtotal), 750.00);
+        assert.equal(Number(res.body.data.total), 780.00); // 750 + 50 - 20
+    });
+
+    it('denies invoice lists to a hub-only user', async () => {
+        currentRoles = ['HUB'];
+        try {
+            const response = await fetch(`${baseUrl}/api/invoices`, { headers: { authorization: `Bearer ${token}` } });
+            assert.equal(response.status, 403);
+        } finally {
+            currentRoles = ['ADMIN'];
+        }
+    });
+
+    it('increments invoice numbers numerically after 999', async () => {
+        prisma.$queryRaw = (async () => [{ lastNumber: 999n }]) as any;
+        prisma.orderFreightCalculation.findFirst = (async () => ({ freightTotal: 750, status: 'CTE_AUTHORIZED' })) as any;
+        try {
+            const response = await httpPost<{ data: { invoiceNumber: string } }>(baseUrl, '/api/invoices', { orderId, accountId }, token);
+            assert.equal(response.status, 201);
+            assert.equal(response.body.data.invoiceNumber, `FAT-${new Date().getFullYear()}-1000`);
+        } finally {
+            prisma.$queryRaw = (async () => []) as any;
+        }
     });
 });

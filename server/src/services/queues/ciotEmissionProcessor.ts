@@ -92,7 +92,7 @@ async function markPendingReconciliation(deps: CiotEmissionProcessorDeps, ciotEm
 async function archiveCiotPdf(deps: CiotEmissionProcessorDeps, job: CiotEmissionJobRecord, code: string, environment: 'producao' | 'homologacao', authorized: any, protocol?: string, rawPayload?: unknown, rawResponse?: unknown) {
     const pdf = await deps.obterCiotPdf(code, environment);
     const uploaded = await deps.uploadBase64Object({ base64: pdf, fileName: `${code}.pdf`, mimeType: 'application/pdf', keyPrefix: `manifests/${job.manifestId}/ciot` });
-    const data = { manifestId: job.manifestId, documentType: 'CIOT' as const, status: 'AUTHORIZED' as const, number: code, protocol, rawPayload: rawPayload as object | undefined, rawResponse: rawResponse as object | undefined, pdfUrl: `s3:${uploaded.storageKey}`, authorizedAt: new Date() };
+    const data = { manifestId: job.manifestId, documentType: 'CIOT' as const, status: 'AUTHORIZED' as const, number: code, protocol, environment: environment === 'producao' ? 'PRODUCAO' : 'HOMOLOGACAO', rawPayload: rawPayload as object | undefined, rawResponse: rawResponse as object | undefined, pdfUrl: `s3:${uploaded.storageKey}`, authorizedAt: new Date() };
     if (authorized && deps.prisma.manifestFiscalDocument.update) await deps.prisma.manifestFiscalDocument.update({ where: { id: authorized.id }, data });
     else await deps.prisma.manifestFiscalDocument.create({ data });
     await deps.prisma.ciotEmissionJob.update({ where: { id: job.id }, data: { phase: 'DONE', attemptCount: 0 } });
@@ -188,6 +188,7 @@ export async function processCiotEmissionJob(
                 status: 'AUTHORIZED' as const,
                 number: codigoIdentificacaoOperacao,
                 protocol: protocoloServico,
+                environment: environment === 'producao' ? 'PRODUCAO' : 'HOMOLOGACAO',
                 rawPayload: rawPayload as object | undefined,
                 rawResponse: rawResponse as object | undefined,
                 pdfUrl: `s3:${uploaded.storageKey}`,

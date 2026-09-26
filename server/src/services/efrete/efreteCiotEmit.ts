@@ -121,15 +121,17 @@ interface CancelarEncerrarResponse {
     Excecao?: { Mensagem?: string; Codigo?: string };
 }
 
-export async function cancelarCiot(codigoIdentificacaoOperacao: string, justificativa: string): Promise<void> {
+export async function cancelarCiot(codigoIdentificacaoOperacao: string, justificativa: string, environment: string | null): Promise<void> {
+    if (environment !== 'PRODUCAO' && environment !== 'HOMOLOGACAO') throw new Error('Ambiente original do CIOT desconhecido; confira o documento antes de cancelar.');
     await efreteAuthedPost<CancelarEncerrarResponse>('/Services/Pef/CancelarOperacaoTransporte', {
         CodigoIdentificacaoOperacao: codigoIdentificacaoOperacao,
         Justificativa: justificativa,
-    });
+    }, { environment: environment === 'PRODUCAO' ? 'producao' : 'homologacao' });
 }
 
-export async function encerrarCiot(codigoIdentificacaoOperacao: string): Promise<void> {
+export async function encerrarCiot(codigoIdentificacaoOperacao: string, environment: string | null): Promise<void> {
+    if (environment !== 'PRODUCAO' && environment !== 'HOMOLOGACAO') throw new Error('Ambiente original do CIOT desconhecido; confira o documento antes de encerrar.');
     await efreteAuthedPost<CancelarEncerrarResponse>('/Services/Pef/EncerrarOperacaoTransporte', {
         CodigoIdentificacaoOperacao: codigoIdentificacaoOperacao,
-    });
+    }, { environment: environment === 'PRODUCAO' ? 'producao' : 'homologacao' });
 }

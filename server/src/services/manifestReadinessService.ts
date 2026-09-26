@@ -26,6 +26,7 @@ export interface ManifestReadinessIssue {
 
 export interface ManifestReadiness {
     canOffer: boolean;
+    canStart: boolean;
     currentStep: ManifestJourneyStep;
     steps: Record<ManifestJourneyStep, { state: ManifestStepState; issues: ManifestReadinessIssue[] }>;
     issues: ManifestReadinessIssue[];
@@ -107,6 +108,7 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
                     destState: true,
                     destCityIbgeCode: true,
                     purpose: true,
+                    _count: { select: { legs: true } },
                 },
             },
             _count: { select: { legs: true } },
@@ -138,6 +140,12 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
     }
 
     for (const point of manifest.tripStops) {
+        if ((point._count?.legs ?? 0) > 0 && point.purpose !== 'TRANSFER' && point.purpose !== 'DELIVERY') {
+            add(issue('route_points', 'DISCHARGE_PURPOSE_REQUIRED', 'Defina esta descarga como transferência ou entrega antes de iniciar.', point.id));
+        }
+        if ((point._count?.legs ?? 0) > 0 && point.purpose === 'TRANSFER' && !point.destHubId) {
+            add(issue('route_points', 'TRANSFER_HUB_REQUIRED', 'Selecione o hub que receberá a carga nesta parada.', point.id));
+        }
         if (!point.destHubId && (!point.destCity || !point.destState)) {
             add(issue('route_points', 'ROUTE_POINT_LOCATION_REQUIRED', 'Complete a cidade e a UF do ponto de percurso.', point.id));
         } else if (!point.destHubId && !point.destCityIbgeCode) {
@@ -173,6 +181,11 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
                 add(issue('responsible', spec.code, f.reason === 'invalid' ? `${f.label} do cavalo inválido.` : spec.message, spec.field));
             }
         }
+        for (const unit of composition.units) {
+            if (!unit.tareKg || !unit.capacityKg) {
+                add(issue('fiscal', 'MDFE_VEHICLE_CAPACITY_PENDING', `Informe tara e capacidade em kg reais para ${unit.plate}.`, `vehicleUnit:${unit.plate}`, manifest.status === 'ACCEPTED' ? 'blocking' : 'warning'));
+            }
+        }
         const lp = manifest.link.person;
         if (!lp?.neighborhood || !lp?.cep || !lp?.address || !lp?.number || !(lp?.city && lp?.state && lp?.cityIbgeCode)) {
             add(issue('responsible', 'LINK_PERSON_ADDRESS_PENDING', 'Endereço do proprietário (Link) incompleto para Gravar Proprietário.', 'linkPersonAddress'));
@@ -204,6 +217,23 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
         add(issue('freight', 'FREIGHT_AGREEMENT_REQUIRED', 'Informe a Carta Frete antes de enviar a oferta.', 'freteBruto'));
     }
 
+    if (manifest.status === 'ACCEPTED') {
+        const [legs, fiscalDocs] = await Promise.all([
+            prisma.orderLeg.findMany({ where: { manifestId }, select: { orderId: true, order: { select: { freightCalculations: { where: { documentType: 'CTE', status: 'CTE_AUTHORIZED' }, select: { cteAccessKey: true, cteProtocol: true, cteXml: true, cteXmlStorageKey: true } } } } } }),
+            prisma.manifestFiscalDocument.findMany({ where: { manifestId, documentType: { in: ['MDFE', 'CIOT'] }, status: 'AUTHORIZED' }, select: { documentType: true, accessKey: true, protocol: true, xmlUrl: true } }),
+        ]);
+        for (const leg of legs) {
+            const validCte = leg.order.freightCalculations.some((doc) => /^\d{44}$/.test(doc.cteAccessKey ?? '') && !!doc.cteProtocol && !!(doc.cteXml || doc.cteXmlStorageKey));
+            if (!validCte) add(issue('fiscal', 'CTE_AUTHORIZATION_REQUIRED', `Pedido ${leg.orderId.slice(0, 8)} sem CT-e autorizado com XML, chave e protocolo.`, leg.orderId));
+        }
+        if (!fiscalDocs.some((doc) => doc.documentType === 'MDFE' && /^\d{44}$/.test(doc.accessKey ?? '') && !!doc.protocol && !!doc.xmlUrl)) {
+            add(issue('fiscal', 'MDFE_AUTHORIZATION_REQUIRED', 'MDF-e autorizado com XML, chave e protocolo obrigatório para a saída.'));
+        }
+        if (manifest.link?.carrierType !== 'FROTA' && !manifest.ciotDispensado && !fiscalDocs.some((doc) => doc.documentType === 'CIOT')) {
+            add(issue('fiscal', 'CIOT_REQUIRED', 'Emita o CIOT ou registre dispensa justificada antes da saída.'));
+        }
+    }
+
     const blocking = Array.from(byStep.values()).flat().filter((item) => item.severity === 'blocking');
     const locked = isPlanningLocked(manifest.status);
     const firstIncomplete = planningSteps.find((step) => (byStep.get(step) ?? []).some((item) => item.severity === 'blocking'));
@@ -230,6 +260,7 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
 
     return {
         canOffer: manifest.status === 'DRAFT' && blocking.length === 0,
+        canStart: manifest.status === 'ACCEPTED' && blocking.length === 0,
         currentStep,
         steps,
         issues: Array.from(byStep.values()).flat(),

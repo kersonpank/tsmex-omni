@@ -163,6 +163,7 @@ const ManifestDetailPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [mdfeMessage, setMdfeMessage] = useState<string | null>(null);
   const [addingOrderId, setAddingOrderId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -668,6 +669,7 @@ const ManifestDetailPage: React.FC = () => {
 
   const getCiotAuthorizedDoc = () => manifest?.fiscalDocuments?.find((d) => d.documentType === 'CIOT' && d.status === 'AUTHORIZED') ?? null;
   const getMdfeAuthorizedDoc = () => manifest?.fiscalDocuments?.find((d) => d.documentType === 'MDFE' && d.status === 'AUTHORIZED') ?? null;
+  const getMdfePendingDoc = () => manifest?.fiscalDocuments?.find((d) => d.documentType === 'MDFE' && d.status === 'SENT') ?? null;
 
   const openCiotForm = async () => {
     if (!id || !manifest) return;
@@ -775,8 +777,9 @@ const ManifestDetailPage: React.FC = () => {
     setError(null);
     setFiscalBusy(true);
     try {
-      await manifestsApi.emitMdfe(id);
-      flashSuccess('MDF-e solicitado via ACBr. Verifique documentos fiscais do manifesto.');
+      const response = await manifestsApi.emitMdfe(id);
+      if (response.pending) setMdfeMessage(response.message ?? 'MDF-e pendente de conciliação. Não reemita.');
+      else { setMdfeMessage(null); flashSuccess('MDF-e autorizado e XML conferido.'); }
       await load();
     } catch (e: any) {
       setError(e.response?.data?.error || e.response?.data?.message || e.message || 'Erro ao emitir MDF-e');
@@ -1729,10 +1732,12 @@ const ManifestDetailPage: React.FC = () => {
                   Emitir CIOT
                 </button>
               )}
-              <button type="button" disabled={fiscalBusy || (!getCiotAuthorizedDoc() && !manifest.ciotDispensado)} onClick={handleEmitMdfe} className="rounded-lg border border-tower-300 bg-white px-3 py-1.5 text-sm text-tower-800 hover:bg-tower-50 disabled:opacity-50 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100">
-                {getMdfeAuthorizedDoc() ? 'MDF-e emitido' : 'MDF-e (ACBr)'}
+              <button type="button" disabled={fiscalBusy || !!getMdfeAuthorizedDoc() || (!getCiotAuthorizedDoc() && !manifest.ciotDispensado)} onClick={handleEmitMdfe} className="rounded-lg border border-tower-300 bg-white px-3 py-1.5 text-sm text-tower-800 hover:bg-tower-50 disabled:opacity-50 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100">
+                {getMdfeAuthorizedDoc() ? 'MDF-e autorizado' : getMdfePendingDoc() ? 'Consultar MDF-e pendente' : 'Emitir MDF-e (ACBr)'}
               </button>
             </div>
+            {getMdfePendingDoc() && <InlineNotice variant="info" message={`MDF-e nº ${getMdfePendingDoc()!.number ?? '?'} enviado e ainda sem autorização comprovada. ${getMdfePendingDoc()!.statusReason ?? 'Consulte a ACBr; não reemita.'}`} />}
+            {mdfeMessage && <InlineNotice variant="info" message={mdfeMessage} />}
 
             {ciotSuggestion && showCiotForm && (
               <p className="text-sm text-tower-600 dark:text-tower-400 mb-3">

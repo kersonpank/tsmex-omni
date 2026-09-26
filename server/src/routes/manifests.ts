@@ -18,6 +18,7 @@ import { getObjectDownloadUrl } from '../lib/objectStorage.js';
 import { enqueueCiotEmissionJob } from '../services/queues/ciotEmissionQueue.js';
 import type { StoredCiotRequestData } from '../services/queues/ciotEmissionJobInput.js';
 import { getManifestReadiness } from '../services/manifestReadinessService.js';
+import { listManifestDeliveryProgress, recordDeliveryAttempt } from '../services/deliveryAttempts.js';
 import { manifestScope, resourceGuard, uuidParam } from '../middleware/resourceAccess.js';
 import { linkVehicleInclude } from '../services/vehicleUnitService.js';
 import { compositionIssues, describeUnitIssues, resolveComposition, tractionRntrc } from '../services/vehicleUnitRules.js';
@@ -832,6 +833,34 @@ router.patch('/:id/stops/reorder/all', authenticate, async (req: AuthRequest, re
     }
 });
 
+router.get('/:id/delivery-progress', authenticate, authorize('ADMIN', 'HUB', 'LINK'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try { res.json({ success: true, data: await listManifestDeliveryProgress(req.params.id as string) }); }
+    catch (error) { next(error); }
+});
+
+router.post('/:id/delivery-attempts', authenticate, authorize('ADMIN', 'HUB', 'LINK'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const input = z.object({
+            orderId: z.string().uuid(),
+            result: z.enum(['DELIVERED', 'PARTIAL', 'FAILED']),
+            deliveredQuantity: z.number().int().min(0).optional(),
+            receiverName: z.string().trim().max(160).optional(),
+            occurredAt: z.string().datetime().optional(),
+            evidenceStorageKey: z.string().trim().max(500).optional(),
+            exceptionReason: z.string().trim().max(1000).optional(),
+            nextAction: z.enum(['REATTEMPT', 'RETURN_TO_HUB', 'TRANSFER']).optional(),
+            performedByUserId: z.string().uuid().optional(),
+            idempotencyKey: z.string().uuid(),
+        }).parse(req.body);
+        const performedByUserId = req.user!.roles.includes('LINK') && !req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('HUB') ? req.user!.id : input.performedByUserId;
+        const attempt = await recordDeliveryAttempt(req.params.id as string, req.user!.id, { ...input, performedByUserId });
+        res.status(201).json({ success: true, data: attempt });
+    } catch (error) {
+        if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
+        next(error);
+    }
+});
+
 // PATCH /api/manifests/:id/stops/:stopId/complete — conclui só os pedidos daquela parada
 // HUB pode concluir a parada em que é o destino (confirma recebimento da carga que chegou);
 // LINK/ADMIN mantêm acesso total (motorista confirmando entrega, ou operação central).
@@ -843,6 +872,12 @@ router.patch('/:id/stops/:stopId/complete', authenticate, async (req: AuthReques
         const id = req.params.id as string;
         const stopId = req.params.stopId as string;
         const kmChegada = typeof req.body?.kmChegada === 'number' ? req.body.kmChegada : undefined;
+
+        if (req.user!.roles.includes('LINK') && !req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('HUB')) {
+            const link = await prisma.link.findFirst({ where: { userId: req.user!.id }, select: { id: true } });
+            const assigned = link && await prisma.manifest.findFirst({ where: { id, linkId: link.id }, select: { id: true } });
+            if (!assigned) throw new AppError('Manifest not found', 404);
+        }
 
         if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('LINK')) {
             const stop = await prisma.manifestStop.findUnique({ where: { id: stopId }, select: { manifestId: true, destHubId: true } });
@@ -1292,6 +1327,10 @@ router.patch('/:id/start', authenticate, authorize('LINK'), async (req: AuthRequ
         const id = req.params.id as string;
         const kmSaida = typeof req.body?.kmSaida === 'number' ? req.body.kmSaida : undefined;
 
+        const link = await prisma.link.findFirst({ where: { userId: req.user!.id }, select: { id: true } });
+        const assigned = link && await prisma.manifest.findFirst({ where: { id, linkId: link.id }, select: { id: true } });
+        if (!assigned) throw new AppError('Manifest not found', 404);
+
         await startManifest(id, { kmSaida });
 
         res.json({
@@ -1488,7 +1527,7 @@ router.post('/:id/emit-ciot', authenticate, authorize('ADMIN', 'HUB'), async (re
         }
         const body = emitCiotSchema.parse(req.body);
 
-        const manifest = await prisma.manifest.findUnique({ where: { id }, include: { link: { include: linkVehicleInclude }, driver: true, fiscalEmitter: { select: { environment: true } } } });
+        const manifest = await prisma.manifest.findUnique({ where: { id }, include: { link: { include: linkVehicleInclude }, driver: true, fiscalEmitter: { select: { efreteEnvironment: true } } } });
         if (!manifest) throw new AppError('Manifest not found', 404);
         if (req.user!.roles.includes('HUB') && req.user!.hubId && manifest.hubId !== req.user!.hubId) {
             throw new AppError('Not authorized', 403);
@@ -1554,7 +1593,7 @@ router.post('/:id/emit-ciot', authenticate, authorize('ADMIN', 'HUB'), async (re
                     idOperacaoCliente: `CIOT-${id}-${suffix}`,
                     tipoViagem,
                     requestData: requestData as object,
-                    environment: manifest.fiscalEmitter?.environment ?? 'HOMOLOGACAO',
+                    environment: manifest.fiscalEmitter?.efreteEnvironment ?? 'HOMOLOGACAO',
                 },
             });
         }
@@ -1586,7 +1625,7 @@ router.post('/:id/cancel-ciot-trip', authenticate, authorize('ADMIN'), async (re
 
         const job = await prisma.ciotEmissionJob.findFirst({ where: { manifestId: id, phase: 'DONE' }, orderBy: { createdAt: 'desc' } });
 
-        await cancelarCiot(ciotDoc.number, justificativa);
+        await cancelarCiot(ciotDoc.number, justificativa, ciotDoc.environment ?? job?.environment ?? null);
         await prisma.manifestFiscalDocument.update({
             where: { id: ciotDoc.id },
             data: { status: 'CANCELLED', cancelledAt: new Date(), statusReason: justificativa },

@@ -27,6 +27,7 @@ const ROLE_LABEL: Record<VehicleUnitRoleValue, string> = { TRACTION: 'cavalo', T
 export const MAX_TRAILERS = 3;
 
 const optionalText = z.string().trim().max(120).nullable().optional();
+const vehicleUf = z.enum(['AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS', 'MT', 'PA', 'PB', 'PE', 'PI', 'PR', 'RJ', 'RN', 'RO', 'RR', 'RS', 'SC', 'SE', 'SP', 'TO']).nullable().optional();
 
 /**
  * Entrada de uma unidade. Campos omitidos NÃO alteram o cadastro existente; `null` limpa.
@@ -37,6 +38,9 @@ export const vehicleUnitInputSchema = z.object({
     chassi: z.string().nullable().optional().refine((v) => v == null || v === '' || isValidChassi(normalizeChassi(v)), 'Chassi deve ter 17 caracteres.'),
     renavam: z.string().nullable().optional().refine((v) => v == null || v === '' || isValidRenavam(digitsOnly(v)), 'RENAVAM deve ter de 9 a 11 dígitos.'),
     axles: z.number().int().min(1, 'Eixos deve ser no mínimo 1.').max(12).nullable().optional(),
+    tareKg: z.number().int().min(1).max(200000).nullable().optional(),
+    capacityKg: z.number().int().min(1).max(200000).nullable().optional(),
+    capacityM3: z.number().int().min(0).max(1000).nullable().optional(),
     rntrc: z.string().nullable().optional().refine((v) => v == null || v === '' || isValidRntrc(digitsOnly(v)), 'RNTRC deve ter 8 ou 9 dígitos.'),
     bodyType: z.enum(['NaoAplicavel', 'Aberta', 'FechadaOuBau', 'Granelera', 'PortaContainer', 'Sider']).nullable().optional(),
     wheelType: z.enum(['NaoAplicavel', 'Truck', 'Toco', 'Cavalo']).nullable().optional(),
@@ -46,6 +50,9 @@ export const vehicleUnitInputSchema = z.object({
     ownerPersonId: z.string().uuid().nullable().optional(),
     ownerDocument: z.string().nullable().optional(),
     ownerName: optionalText,
+    mdfeOwnerType: z.enum(['0', '1', '2']).nullable().optional(),
+    licensedState: vehicleUf,
+    ownerState: vehicleUf,
 });
 export type VehicleUnitInput = z.infer<typeof vehicleUnitInputSchema>;
 
@@ -64,6 +71,9 @@ function toUnitData(input: VehicleUnitInput): Prisma.VehicleUnitUncheckedUpdateI
     if (input.chassi !== undefined) data.chassi = input.chassi ? normalizeChassi(input.chassi) : null;
     if (input.renavam !== undefined) data.renavam = input.renavam ? digitsOnly(input.renavam) : null;
     if (input.axles !== undefined) data.axles = input.axles;
+    if (input.tareKg !== undefined) data.tareKg = input.tareKg;
+    if (input.capacityKg !== undefined) data.capacityKg = input.capacityKg;
+    if (input.capacityM3 !== undefined) data.capacityM3 = input.capacityM3;
     if (input.rntrc !== undefined) data.rntrc = input.rntrc ? digitsOnly(input.rntrc) : null;
     if (input.bodyType !== undefined) data.bodyType = input.bodyType;
     if (input.wheelType !== undefined) data.wheelType = input.wheelType;
@@ -73,6 +83,9 @@ function toUnitData(input: VehicleUnitInput): Prisma.VehicleUnitUncheckedUpdateI
     if (input.ownerPersonId !== undefined) data.ownerPersonId = input.ownerPersonId;
     if (input.ownerDocument !== undefined) data.ownerDocument = input.ownerDocument ? digitsOnly(input.ownerDocument) || null : null;
     if (input.ownerName !== undefined) data.ownerName = text(input.ownerName);
+    if (input.mdfeOwnerType !== undefined) data.mdfeOwnerType = input.mdfeOwnerType;
+    if (input.licensedState !== undefined) data.licensedState = input.licensedState?.toUpperCase() ?? null;
+    if (input.ownerState !== undefined) data.ownerState = input.ownerState?.toUpperCase() ?? null;
     return data;
 }
 

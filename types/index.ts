@@ -417,6 +417,9 @@ export interface VehicleUnit {
     chassi?: string | null;
     renavam?: string | null;
     axles?: number | null;
+    tareKg?: number | null;
+    capacityKg?: number | null;
+    capacityM3?: number | null;
     rntrc?: string | null;
     bodyType?: string | null;
     wheelType?: string | null;
@@ -426,6 +429,9 @@ export interface VehicleUnit {
     ownerPersonId?: string | null;
     ownerDocument?: string | null;
     ownerName?: string | null;
+    mdfeOwnerType?: '0' | '1' | '2' | null;
+    licensedState?: string | null;
+    ownerState?: string | null;
     ownerPerson?: { id: string; legalName: string; document: string } | null;
     /** Pendências reais da unidade (vazio = pronta para CIOT/MDF-e). Calculado pelo servidor. */
     missingFields?: Array<{ field: VehicleUnitField; label: string; reason: 'missing' | 'invalid' }>;
@@ -690,8 +696,23 @@ export interface ManifestReadinessIssue {
     message: string;
 }
 
+export interface DeliveryProgress {
+    legId: string;
+    orderId: string;
+    stopId: string | null;
+    destinationLabel?: string | null;
+    orderNumber: number;
+    nfNumber?: string | null;
+    expectedQuantity: number;
+    deliveredQuantity: number;
+    remainingQuantity: number;
+    complete: boolean;
+    attempts: Array<{ id: string; result: 'DELIVERED' | 'PARTIAL' | 'FAILED'; deliveredQuantity?: number | null; nextAction?: string | null; occurredAt: string }>;
+}
+
 export interface ManifestReadiness {
     canOffer: boolean;
+    canStart: boolean;
     currentStep: ManifestJourneyStep;
     steps: Record<ManifestJourneyStep, { state: ManifestStepState; issues: ManifestReadinessIssue[] }>;
     issues: ManifestReadinessIssue[];

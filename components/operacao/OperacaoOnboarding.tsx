@@ -36,7 +36,7 @@ const OperacaoOnboarding: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.post<{ success: boolean; data: { user: { id: string; email: string; role: string }; token: string; linkId?: string } }>('/auth/register', {
+      const res = await api.post<{ success: boolean; data: { user: { id: string; email: string; roles: Array<'ADMIN' | 'CLIENT' | 'LINK' | 'HUB'> }; token: string; linkId?: string } }>('/auth/register', {
         email: registerForm.email,
         password: registerForm.password,
         role: 'LINK' as const,

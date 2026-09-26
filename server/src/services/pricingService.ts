@@ -25,7 +25,7 @@ export async function getOrderFreightValue(orderId: string, tx: Prisma.Transacti
  */
 export async function getOfficialFreightTotal(orderId: string, tx: Prisma.TransactionClient = prisma): Promise<number | null> {
     const calc = await tx.orderFreightCalculation.findFirst({
-        where: { orderId },
+        where: { orderId, status: { in: ['CTE_AUTHORIZED', 'DCE_AUTHORIZED', 'MINUTA_EMITTED'] } },
         orderBy: { createdAt: 'desc' },
     });
     if (calc && calc.freightTotal > 0) {

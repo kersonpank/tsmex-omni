@@ -16,6 +16,7 @@ import type {
     ManifestFreightAgreement,
     TripPriceEstimate,
     ManifestReadiness,
+    DeliveryProgress,
     CreateManifestRequest,
     Hub,
     Link,
@@ -560,6 +561,23 @@ export const manifestsApi = {
         const response = await api.patch<ApiResponse<{ allStopsCompleted: boolean }>>(`/manifests/${manifestId}/stops/${stopId}/complete`);
         return response.data;
     },
+    deliveryProgress: async (manifestId: string) => {
+        const response = await api.get<ApiResponse<DeliveryProgress[]>>(`/manifests/${manifestId}/delivery-progress`);
+        return response.data;
+    },
+    recordDeliveryAttempt: async (manifestId: string, data: {
+        orderId: string;
+        result: 'DELIVERED' | 'PARTIAL' | 'FAILED';
+        deliveredQuantity?: number;
+        receiverName?: string;
+        evidenceStorageKey?: string;
+        exceptionReason?: string;
+        nextAction?: 'REATTEMPT' | 'RETURN_TO_HUB' | 'TRANSFER';
+        idempotencyKey: string;
+    }) => {
+        const response = await api.post<ApiResponse<unknown>>(`/manifests/${manifestId}/delivery-attempts`, data);
+        return response.data;
+    },
 
     assignLink: async (id: string, linkId: string) => {
         const response = await api.patch<ApiResponse<Manifest>>(`/manifests/${id}/assign`, { linkId });
@@ -627,7 +645,7 @@ export const manifestsApi = {
     },
 
     emitMdfe: async (id: string) => {
-        const response = await api.post<ApiResponse<Manifest>>(`/manifests/${id}/emit-mdfe`, {});
+        const response = await api.post<ApiResponse<unknown> & { pending?: boolean; message?: string }>(`/manifests/${id}/emit-mdfe`, {});
         return response.data;
     },
 
@@ -890,12 +908,18 @@ export type VehicleUnitInput = {
     chassi?: string | null;
     renavam?: string | null;
     axles?: number | null;
+    tareKg?: number | null;
+    capacityKg?: number | null;
+    capacityM3?: number | null;
     rntrc?: string | null;
     bodyType?: string | null;
     wheelType?: string | null;
     year?: number | null;
     ownerDocument?: string | null;
     ownerName?: string | null;
+    mdfeOwnerType?: '0' | '1' | '2' | null;
+    licensedState?: string | null;
+    ownerState?: string | null;
 };
 
 export const vehicleUnitsApi = {
@@ -1631,6 +1655,26 @@ export const hubCargoApi = {
 // ========== INVOICES API ==========
 
 export const invoicesApi = {
+    eligibleOrders: async () => {
+        const response = await api.get<ApiResponse<Array<{ id: string; nfNumber?: string | null; clientName?: string; accountId: string; amount: number }>>>('/invoices/eligible-orders');
+        return response.data;
+    },
+    createGroup: async (accountId: string, orderIds: string[], dueDate?: string) => {
+        const response = await api.post<ApiResponse<unknown>>('/invoices/group', { accountId, orderIds, dueDate });
+        return response.data;
+    },
+    receipts: async (id: string) => {
+        const response = await api.get<ApiResponse<{ receipts: Array<{ id: string; amount: string; receivedAt: string; reference?: string | null; reversedAt?: string | null; reversalReason?: string | null }>; received: number; balance: number }>>(`/invoices/${id}/receipts`);
+        return response.data;
+    },
+    addReceipt: async (id: string, data: { amount: number; reference?: string; evidenceStorageKey?: string; idempotencyKey: string }) => {
+        const response = await api.post<ApiResponse<unknown>>(`/invoices/${id}/receipts`, data);
+        return response.data;
+    },
+    reverseReceipt: async (id: string, receiptId: string, reason: string) => {
+        const response = await api.post<ApiResponse<unknown>>(`/invoices/${id}/receipts/${receiptId}/reverse`, { reason });
+        return response.data;
+    },
     list: async (params?: { status?: string; accountId?: string; limit?: number; offset?: number }) => {
         const response = await api.get<ApiResponse<any[]>>('/invoices', { params });
         return response.data;
@@ -1646,7 +1690,7 @@ export const invoicesApi = {
         demandId?: string;
         manifestId?: string;
         accountId: string;
-        subtotal: number;
+        subtotal?: number;
         taxes?: number;
         discounts?: number;
         dueDate?: string;
@@ -1687,6 +1731,30 @@ export const invoicesApi = {
         const response = await api.patch<ApiResponse<any>>(`/invoices/${id}`, data);
         return response.data;
     }
+};
+
+export interface PayableRow {
+    id: string;
+    beneficiaryType: 'LINK' | 'PARTNER' | 'HUB' | 'OTHER';
+    beneficiaryName: string;
+    description: string;
+    amount: string;
+    dueDate: string;
+    status: 'PENDING' | 'PAID' | 'CANCELLED';
+    paid: number;
+    balance: number;
+    manifestId?: string | null;
+}
+
+export const payablesApi = {
+    list: async () => (await api.get<ApiResponse<PayableRow[]>>('/payables')).data,
+    settlementCandidates: async () => (await api.get<ApiResponse<Array<{ id: string; origin: string; destination: string; link?: { name: string } | null; freightAgreement?: { saldoLiquido: number } | null }>>>('/payables/settlement-candidates')).data,
+    settlement: async (manifestId: string) => (await api.get<ApiResponse<unknown>>(`/payables/settlement/${manifestId}`)).data,
+    fromManifest: async (manifestId: string, dueDate: string) => (await api.post<ApiResponse<PayableRow>>(`/payables/from-manifest/${manifestId}`, { dueDate })).data,
+    create: async (data: { beneficiaryType: PayableRow['beneficiaryType']; beneficiaryName: string; beneficiaryDocument?: string; description: string; amount: number; dueDate: string }) => (await api.post<ApiResponse<PayableRow>>('/payables', data)).data,
+    payments: async (id: string) => (await api.get<ApiResponse<{ payable: PayableRow & { payments: Array<{ id: string; amount: string; paidAt: string; reference?: string | null; reversedAt?: string | null; reversalReason?: string | null }> }; paid: number; balance: number }>>(`/payables/${id}/payments`)).data,
+    addPayment: async (id: string, data: { amount: number; reference?: string; evidenceStorageKey?: string; idempotencyKey: string }) => (await api.post<ApiResponse<unknown>>(`/payables/${id}/payments`, data)).data,
+    reversePayment: async (id: string, paymentId: string, reason: string) => (await api.post<ApiResponse<unknown>>(`/payables/${id}/payments/${paymentId}/reverse`, { reason })).data,
 };
 
 // ========== PIPELINE API ==========
@@ -1823,4 +1891,3 @@ export const systemAlertsApi = {
 };
 
 export default api;
-

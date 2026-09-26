@@ -1,0 +1,46 @@
+name: Quality gate
+
+on:
+  workflow_call:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: tsmex_test
+          POSTGRES_PASSWORD: tsmex_test
+          POSTGRES_DB: tsmex_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tsmex_test -d tsmex_test"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+    env:
+      DATABASE_URL: postgresql://tsmex_test:tsmex_test@localhost:5432/tsmex_test
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: quality-gate-only
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm ci --prefix server
+      - run: npm run db:generate --prefix server
+      - run: npm run typecheck:web
+      - run: npm run typecheck:server
+      - run: npm test
+      - run: npx prisma migrate deploy
+        working-directory: server
+      - run: npm run test:server
+      - run: npm run build
+      - run: npm run build --prefix server

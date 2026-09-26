@@ -5,10 +5,13 @@ import { ufToCuf } from './acbrIbge.js';
 import { requireSelectedIbge } from '../selectedCity.js';
 import { acbrFetchJson } from './acbrHttp.js';
 import { cleanIe } from './acbrCteMapper.js';
-import { generateCMdf, isDefinitiveMdfeRejection, reserveNextMdfeNumber } from './mdfeNumbering.js';
+import { calculateMdfeCheckDigit, generateCMdf, isDefinitiveMdfeRejection, reserveNextMdfeNumber } from './mdfeNumbering.js';
 import { linkVehicleInclude } from '../vehicleUnitService.js';
 import { compositionIssues, describeUnitIssues, resolveComposition } from '../vehicleUnitRules.js';
 import { buildMdfeVehicles } from './acbrMdfeVehicles.js';
+import { XMLParser } from 'fast-xml-parser';
+import { uploadBase64Object } from '../../lib/objectStorage.js';
+import type { Prisma } from '@prisma/client';
 
 function digits(s: string): string {
     return s.replace(/\D/g, '');
@@ -127,6 +130,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
         include: {
             hub: { include: { person: true } },
             link: { include: linkVehicleInclude },
+            driver: true,
             fiscalEmitter: { include: { person: true } },
             tripStops: {
                 orderBy: { sequence: 'asc' },
@@ -169,8 +173,10 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
     const loadingState = manifest.originState;
     const loadingIbgeCode = manifest.originCityIbgeCode;
     const loadingCmun = await requireSelectedIbge(loadingCity, loadingState, loadingIbgeCode);
-    const ufIni = (loadingState ?? 'SP').slice(0, 2).toUpperCase();
+    if (!loadingState || !loadingCity) return { ok: false, error: 'Origem da viagem sem cidade e UF confirmadas para o MDF-e.' };
+    const ufIni = loadingState.slice(0, 2).toUpperCase();
     const cUF = ufToCuf(emit.state);
+    if (cUF === 35 && emit.state?.trim().toUpperCase() !== 'SP') return { ok: false, error: 'UF do emitente não reconhecida para o MDF-e.' };
     let apiEnv: AcbrFiscalEnvironment = manifest.fiscalEmitter?.environment ?? 'HOMOLOGACAO';
     let fiscalEmitterId: string | null = manifest.fiscalEmitter?.id ?? null;
     if (!manifest.fiscalEmitter && manifest.hubId) {
@@ -194,14 +200,32 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
     if (emitCnpj.length !== 14) {
         return { ok: false, error: 'Emitente MDF-e deve ser CNPJ (Hub).' };
     }
+    const emitIe = cleanIe(emit.stateRegistration);
+    const emitCep = digits(emit.cep ?? '');
+    if (!emitIe || !emit.address?.trim() || !emit.number?.trim() || !emit.neighborhood?.trim() || !emit.city?.trim() || !emit.state?.trim() || emitCep.length !== 8) {
+        return { ok: false, error: 'Complete IE, logradouro, número, bairro, cidade, UF e CEP reais do emitente antes de emitir MDF-e.' };
+    }
+    if (!manifest.driver || manifest.driver.linkId !== manifest.linkId || digits(manifest.driver.document).length !== 11 || !manifest.driver.name.trim()) {
+        return { ok: false, error: 'Defina um motorista válido vinculado ao transportador para o MDF-e.' };
+    }
+    if (!Number.isFinite(manifest.totalValue) || manifest.totalValue <= 0 || !Number.isFinite(manifest.totalWeight) || manifest.totalWeight <= 0) {
+        return { ok: false, error: 'Informe o valor total e o peso físico real da carga antes de emitir MDF-e.' };
+    }
 
     // Cavalo e reboques vêm das Unidades de Veículo: RENAVAM, RNTRC e proprietário por placa.
-    const { rntrc, veicTracao, veicReboque } = buildMdfeVehicles({
-        composition,
-        carrier: { document: manifest.link!.document, name: manifest.link!.name },
-        fallbackRntrc: manifest.link!.rntrc ?? manifest.hub.rntrc,
-        uf: ufIni,
-    });
+    let vehicles: ReturnType<typeof buildMdfeVehicles>;
+    try {
+        vehicles = buildMdfeVehicles({
+            composition,
+            carrier: { document: manifest.link!.document, name: manifest.link!.name },
+            emitterDocument: emit.document,
+            fallbackRntrc: manifest.link!.rntrc ?? manifest.hub.rntrc,
+        });
+    } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+    const { rntrc, veicReboque } = vehicles;
+    const veicTracao = { ...vehicles.veicTracao, condutor: [{ xNome: manifest.driver.name.trim().slice(0, 60), CPF: digits(manifest.driver.document) }] };
 
     // Uma entrada de infMunDescarga por parada/descarga real da viagem (Fatia B) — cada uma com
     // o município REAL de destino daquela parada (nunca o do emitente/origem) e só as chaves de
@@ -240,8 +264,16 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
     // gravados no documento (status SENT) ANTES de chamar o provedor — assim timeout/queda nunca
     // perde nem reutiliza numeração, e o retry concilia em vez de reemitir.
     const cMDF = generateCMdf();
-    const { nMDF, serie } = await reserveNextMdfeNumber(fiscalEmitterId);
-    const pendingDoc = await prisma.manifestFiscalDocument.create({
+    const issuedAt = new Date();
+    let reservation: { nMDF: number; serie: number; docId: string };
+    try {
+        reservation = await prisma.$transaction(async (tx) => {
+            const active = await tx.manifestFiscalDocument.findFirst({
+                where: { manifestId, documentType: 'MDFE', status: { in: ['SENT', 'READY', 'AUTHORIZED'] } }, select: { id: true },
+            });
+            if (active) return { nMDF: 0, serie: 0, docId: active.id };
+            const { nMDF, serie } = await reserveNextMdfeNumber(fiscalEmitterId, tx);
+            const pendingDoc = await tx.manifestFiscalDocument.create({
         data: {
             manifestId,
             fiscalEmitterId,
@@ -253,46 +285,58 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
             statusReason: 'Enviado ao provedor — aguardando autorização.',
             rawPayload: { referencia, cMDF, nMDF, serie },
         },
-    });
-    const docId = pendingDoc.id;
+            });
+            return { nMDF, serie, docId: pendingDoc.id };
+        });
+    } catch (error) {
+        if ((error as { code?: string })?.code === 'P2002') {
+            const existing = await prisma.manifestFiscalDocument.findFirst({ where: { manifestId, documentType: 'MDFE', status: { in: ['SENT', 'READY', 'AUTHORIZED'] } }, select: { id: true } });
+            return { ok: false, pending: true, docId: existing?.id, error: 'Já existe um MDF-e ativo para esta viagem. Consulte o mesmo documento; não reemita.' };
+        }
+        throw error;
+    }
+    if (reservation.nMDF === 0) return { ok: false, pending: true, docId: reservation.docId, error: 'Já existe um MDF-e ativo para esta viagem. Consulte o mesmo documento; não reemita.' };
+    const { nMDF, serie, docId } = reservation;
 
     const infMDFe: Record<string, unknown> = {
         versao: '3.00',
         ide: {
             cUF,
             tpAmb,
-            tpEmit: 2,
-            tpTransp: 1,
+            tpEmit: 1,
+            ...(manifest.link.carrierType && manifest.link.carrierType !== 'FROTA'
+                ? { tpTransp: { ETC: 1, TAC: 2, CTC: 3 }[manifest.link.carrierType] }
+                : {}),
             mod: 58,
             serie,
             nMDF,
             cMDF,
-            cDV: 0,
+            cDV: calculateMdfeCheckDigit({ cUF, cnpj: emitCnpj, series: serie, number: nMDF, cMDF, issuedAt }),
             modal: 1,
-            dhEmi: new Date().toISOString(),
+            dhEmi: issuedAt.toISOString(),
             tpEmis: 1,
             procEmi: 0,
             verProc: 'TSM-EX-OMNI',
             UFIni: ufIni,
             UFFim: ufFim,
-            infMunCarrega: [{ cMunCarrega: loadingCmun, xMunCarrega: (loadingCity ?? 'CARREGA').slice(0, 60) }],
+            infMunCarrega: [{ cMunCarrega: loadingCmun, xMunCarrega: loadingCity.slice(0, 60) }],
             ...(percursoUfs.length ? { infPercurso: percursoUfs.map((UFPer) => ({ UFPer })) } : {}),
             dhIniViagem: new Date().toISOString(),
         },
         emit: {
             CNPJ: emitCnpj,
-            IE: cleanIe(emit.stateRegistration) ?? 'ISENTO',
+            IE: emitIe,
             xNome: emit.legalName,
             xFant: manifest.hub.name?.slice(0, 60),
             enderEmit: {
-                xLgr: (emit.address ?? 'LOG').slice(0, 60),
-                nro: (emit.number ?? 'S/N').slice(0, 60),
-                xBairro: (emit.neighborhood ?? 'BAIRRO').slice(0, 60),
+                xLgr: emit.address.slice(0, 60),
+                nro: emit.number.slice(0, 60),
+                xBairro: emit.neighborhood.slice(0, 60),
                 cMun: emitCmun,
-                xMun: (emit.city ?? 'MUN').slice(0, 60),
-                CEP: digits(emit.cep ?? '01310100').padStart(8, '0').slice(0, 8),
-                UF: ufIni,
-                fone: digits(manifest.hub.phone ?? '1133330000').slice(0, 12),
+                xMun: emit.city.slice(0, 60),
+                CEP: emitCep,
+                UF: emit.state.slice(0, 2).toUpperCase(),
+                ...(digits(manifest.hub.phone ?? '') ? { fone: digits(manifest.hub.phone ?? '').slice(0, 12) } : {}),
             },
         },
         infModal: {
@@ -306,10 +350,11 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
         infDoc: {
             infMunDescarga,
         },
-        tot: { qCTe: allChaves.length, qNFe: 0, qMDFe: 0, vCarga: 0, cUnid: '01', qCarga: manifest.totalWeight || 1 },
+        tot: { qCTe: allChaves.length, qNFe: 0, qMDFe: 0, vCarga: manifest.totalValue, cUnid: '01', qCarga: manifest.totalWeight },
     };
 
     const body = { infMDFe, ambiente, referencia };
+    await prisma.manifestFiscalDocument.update({ where: { id: docId }, data: { rawPayload: body as unknown as Prisma.InputJsonValue } });
 
     // Resultado desconhecido (timeout/rede/5xx): o MDF-e PODE existir no provedor. Mantém o documento
     // em SENT (bloqueia reemissão) e devolve `pending` — a conciliação consulta pelo id, nunca reemite.
@@ -324,7 +369,11 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
             apiEnvironment: apiEnv,
         });
         id = String(created.id ?? '');
-        if (!id) return pending('MDF-e: provedor respondeu sem id — verifique no provedor antes de reemitir.', created);
+        if (!id) {
+            const reason = 'MDF-e: provedor respondeu sem id — verifique no provedor antes de reemitir.';
+            await prisma.manifestFiscalDocument.update({ where: { id: docId }, data: { statusReason: reason, rawResponse: created as object } });
+            return pending(reason, created);
+        }
         // Guarda o id do provedor já agora: é o que permite conciliar depois de timeout/queda.
         await prisma.manifestFiscalDocument.update({ where: { id: docId }, data: { pdfUrl: `mdfe:${id}`, rawResponse: created as object } });
     } catch (e) {
@@ -363,7 +412,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
 }
 
 type MdfeStatusOutcome =
-    | { state: 'authorized'; chave: string; protocol?: string }
+    | { state: 'authorized'; chave: string; protocol: string }
     | { state: 'rejected'; reason: string }
     | { state: 'processing' };
 
@@ -372,14 +421,29 @@ export function interpretMdfeStatus(doc: Record<string, unknown>): MdfeStatusOut
     const st = String(doc.status ?? '').toLowerCase();
     const auth = (doc.autorizacao ?? {}) as Record<string, unknown>;
     const authSt = String(auth.status ?? '').toLowerCase();
-    const chave = String(auth.chave_acesso ?? doc.chave ?? '').replace(/\D/g, '').slice(0, 44);
-    if (authSt.includes('autorizado') || st === 'autorizado' || chave.length === 44) {
-        return { state: 'authorized', chave, protocol: auth.numero_protocolo ? String(auth.numero_protocolo) : undefined };
+    const chave = String(auth.chave_acesso ?? doc.chave ?? '').replace(/\D/g, '');
+    const protocol = String(auth.numero_protocolo ?? auth.protocolo ?? doc.protocolo ?? '').replace(/\D/g, '');
+    if ((authSt.includes('autorizado') || st === 'autorizado') && chave.length === 44 && protocol.length > 0) {
+        return { state: 'authorized', chave, protocol };
     }
     if (st.includes('rejeit') || st.includes('erro')) {
         return { state: 'rejected', reason: String(auth.motivo_status ?? doc.motivo_status ?? 'MDF-e rejeitado') };
     }
     return { state: 'processing' };
+}
+
+export function xmlConfirmsMdfeAuthorization(xml: string, chave: string, protocol: string): boolean {
+    try {
+        const parsed = new XMLParser({ ignoreAttributes: false, removeNSPrefix: true, parseTagValue: false }).parse(xml) as Record<string, unknown>;
+        const root = (parsed.mdfeProc ?? parsed.procMDFe ?? parsed) as Record<string, unknown>;
+        const prot = (root.protMDFe ?? parsed.protMDFe) as Record<string, unknown> | undefined;
+        const inf = prot?.infProt as Record<string, unknown> | undefined;
+        return String(inf?.cStat ?? '') === '100'
+            && String(inf?.chMDFe ?? '').replace(/\D/g, '') === chave
+            && String(inf?.nProt ?? '').replace(/\D/g, '') === protocol;
+    } catch {
+        return false;
+    }
 }
 
 async function finalizeAuthorized(
@@ -397,14 +461,35 @@ async function finalizeAuthorized(
         });
         if (xmlRes.ok) xml = await xmlRes.text();
     } catch {
-        /* XML é opcional: a autorização fiscal já está confirmada */
+        // Documento segue SENT até que o XML oficial seja conferido e guardado.
+    }
+    const pending = async (reason: string): Promise<MdfeEmitResult> => {
+        await prisma.manifestFiscalDocument.update({ where: { id: docId }, data: { statusReason: reason, rawResponse: doc as object } });
+        return { ok: false, pending: true, docId, apiId, error: reason, raw: doc };
+    };
+    if (!xml) return pending('MDF-e com resposta de autorização, mas XML indisponível. Concilie o mesmo documento; não reemita.');
+    if (!xmlConfirmsMdfeAuthorization(xml, outcome.chave, outcome.protocol)) {
+        return pending('XML do MDF-e não confirma a mesma chave, protocolo e autorização do provedor. Conciliação necessária.');
+    }
+    let xmlUrl: string;
+    try {
+        const stored = await uploadBase64Object({
+            base64: Buffer.from(xml, 'utf8').toString('base64'),
+            fileName: `${outcome.chave}.xml`,
+            mimeType: 'application/xml',
+            keyPrefix: `fiscal/mdfe/${docId}`,
+        });
+        xmlUrl = stored.storageKey;
+    } catch {
+        return pending('XML autorizado confirmado, mas falhou o armazenamento. Reprocesse a conciliação; não reemita.');
     }
     await prisma.manifestFiscalDocument.update({
         where: { id: docId },
         data: {
             status: 'AUTHORIZED',
-            accessKey: outcome.chave || null,
-            protocol: outcome.protocol ?? null,
+            accessKey: outcome.chave,
+            protocol: outcome.protocol,
+            xmlUrl,
             pdfUrl: `mdfe:${apiId}`,
             statusReason: null,
             rawResponse: doc as object,
@@ -430,6 +515,7 @@ async function finalizeRejected(docId: string, doc: Record<string, unknown>, rea
 export async function reconcileMdfeDocument(docId: string): Promise<MdfeEmitResult> {
     const doc = await prisma.manifestFiscalDocument.findUnique({ where: { id: docId } });
     if (!doc || doc.documentType !== 'MDFE') return { ok: false, error: 'Documento MDF-e não encontrado.' };
+    if (doc.environment !== 'PRODUCAO' && doc.environment !== 'HOMOLOGACAO') return { ok: false, pending: true, docId, error: 'Ambiente original do MDF-e desconhecido; confira no provedor antes de conciliar.' };
     const apiId = doc.pdfUrl?.startsWith('mdfe:') ? doc.pdfUrl.slice('mdfe:'.length) : null;
     if (!apiId) {
         return { ok: false, pending: true, docId, error: `MDF-e enviado sem confirmação do provedor: confira no painel ACBr (nº ${doc.number ?? '?'}) antes de reemitir.` };
@@ -471,6 +557,7 @@ export async function encerrarMdfeViaAcbr(manifestId: string): Promise<MdfeEncer
     if (!doc) {
         return { ok: false, error: 'Nenhum MDF-e autorizado encontrado para este manifesto.' };
     }
+    if (doc.environment !== 'PRODUCAO' && doc.environment !== 'HOMOLOGACAO') return { ok: false, error: 'Ambiente original do MDF-e desconhecido; confira no provedor antes de encerrar.' };
     const apiId = doc.pdfUrl?.startsWith('mdfe:') ? doc.pdfUrl.slice('mdfe:'.length) : null;
     if (!apiId) {
         return { ok: false, error: 'MDF-e autorizado sem id interno da ACBr registrado — não é possível encerrar via API.' };
@@ -484,11 +571,7 @@ export async function encerrarMdfeViaAcbr(manifestId: string): Promise<MdfeEncer
         return { ok: false, error: 'Sem cidade/UF de destino para registrar o encerramento do MDF-e.' };
     }
 
-    const manifest = await prisma.manifest.findUnique({
-        where: { id: manifestId },
-        include: { fiscalEmitter: true },
-    });
-    const apiEnv: AcbrFiscalEnvironment = manifest?.fiscalEmitter?.environment ?? 'HOMOLOGACAO';
+    const apiEnv: AcbrFiscalEnvironment = doc.environment === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO';
 
     try {
         const cMun = await requireSelectedIbge(city, state, lastGroup?.destHub?.cityIbgeCode ?? lastGroup?.destCityIbgeCode ?? null);

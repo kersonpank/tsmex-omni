@@ -18,6 +18,7 @@ import { accountsRouter } from './routes/accounts.js';
 import { locationsRouter } from './routes/locations.js';
 import { ordersRouter } from './routes/orders.js';
 import { invoicesRouter } from './routes/invoices.js';
+import { payablesRouter } from './routes/payables.js';
 import { pipelineRouter } from './routes/pipeline.js';
 import { personsRouter } from './routes/persons.js';
 import { usersRouter } from './routes/users.js';
@@ -33,6 +34,7 @@ import { intakeDemandsRouter } from './routes/intakeDemands.js';
 import { hubCargoRouter } from './routes/hubCargo.js';
 import { systemAlertsRouter } from './routes/systemAlerts.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { getApiHealth } from './services/health.js';
 
 dotenv.config();
 
@@ -67,6 +69,10 @@ app.use(morgan('dev'));
 app.get('/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+app.get('/api/health', async (_req, res) => {
+    const health = await getApiHealth();
+    res.status(health.status === 'ok' ? 200 : 503).json(health);
+});
 
 // Routes
 app.use('/api/auth', authRouter);
@@ -92,6 +98,7 @@ app.use('/api/accounts', accountsRouter);
 app.use('/api/locations', locationsRouter);
 app.use('/api/orders', ordersRouter);
 app.use('/api/invoices', invoicesRouter);
+app.use('/api/payables', payablesRouter);
 app.use('/api/pipeline', pipelineRouter);
 app.use('/api/persons', personsRouter);
 app.use('/api/users', usersRouter);

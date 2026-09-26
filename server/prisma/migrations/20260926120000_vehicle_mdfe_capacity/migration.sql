@@ -1,0 +1,4 @@
+ALTER TABLE "VehicleUnit"
+  ADD COLUMN "tareKg" INTEGER,
+  ADD COLUMN "capacityKg" INTEGER,
+  ADD COLUMN "capacityM3" INTEGER;

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { authorizedCteLegFixture, authorizedMdfeFixture, departureReadyManifest } from '../test/departureReadyFixture.js';
 import {
     addOrderToManifest,
     assertOperationalTripType,
@@ -20,6 +21,8 @@ const prismaSnapshot = {
     orderFindFirst: prisma.order.findFirst.bind(prisma.order),
     orderLegFindUnique: (prisma as any).orderLeg?.findUnique?.bind((prisma as any).orderLeg),
     orderLegFindFirst: (prisma as any).orderLeg?.findFirst?.bind((prisma as any).orderLeg),
+    orderLegFindMany: prisma.orderLeg.findMany.bind(prisma.orderLeg),
+    fiscalDocFindMany: prisma.manifestFiscalDocument.findMany.bind(prisma.manifestFiscalDocument),
     transaction: prisma.$transaction.bind(prisma),
     linkUpdate: prisma.link.update.bind(prisma.link),
 };
@@ -37,6 +40,8 @@ function restorePrismaMocks() {
     if (prismaSnapshot.orderLegFindFirst) {
         (prisma as any).orderLeg.findFirst = prismaSnapshot.orderLegFindFirst;
     }
+    (prisma as any).orderLeg.findMany = prismaSnapshot.orderLegFindMany;
+    prisma.manifestFiscalDocument.findMany = prismaSnapshot.fiscalDocFindMany;
     prisma.$transaction = prismaSnapshot.transaction;
     prisma.link.update = prismaSnapshot.linkUpdate;
 }
@@ -96,6 +101,7 @@ describe('manifestLifecycle', () => {
 
     function mockTx() {
         return {
+            fiscalClosureTask: { upsert: async () => ({ id: 'closure-task' }) },
             manifest: {
                 findUnique: async (args: any) => {
                     return {
@@ -371,10 +377,12 @@ describe('manifestLifecycle', () => {
             ]
         };
 
-        prisma.manifest.findUnique = (async () => manifestWithLegs) as unknown as typeof prisma.manifest.findUnique;
+        prisma.manifest.findUnique = (async () => departureReadyManifest(manifestWithLegs)) as unknown as typeof prisma.manifest.findUnique;
         (prisma as any).orderLeg = {
             findFirst: async () => null,
+            findMany: async () => [authorizedCteLegFixture('o1')],
         };
+        prisma.manifestFiscalDocument.findMany = (async () => [authorizedMdfeFixture]) as unknown as typeof prisma.manifestFiscalDocument.findMany;
 
         prisma.$transaction = (async (fn: unknown) => {
             if (typeof fn !== 'function') throw new Error('batch not mocked');

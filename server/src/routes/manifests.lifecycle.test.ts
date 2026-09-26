@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import type { ManifestStatus } from '@prisma/client';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import prisma from '../lib/prisma.js';
+import { authorizedCteLegFixture, authorizedMdfeFixture, departureReadyManifest } from '../test/departureReadyFixture.js';
 import {
     addOrderToManifest,
     completeManifest,
@@ -86,6 +87,8 @@ describe('manifests lifecycle TRANSFER E2E (mocked)', () => {
         orderFindMany: prisma.order.findMany.bind(prisma.order),
         orderLegFindUnique: (prisma as any).orderLeg?.findUnique?.bind((prisma as any).orderLeg),
         orderLegFindFirst: (prisma as any).orderLeg?.findFirst?.bind((prisma as any).orderLeg),
+        orderLegFindMany: prisma.orderLeg.findMany.bind(prisma.orderLeg),
+        fiscalDocFindMany: prisma.manifestFiscalDocument.findMany.bind(prisma.manifestFiscalDocument),
         manifestStopFindMany: prisma.manifestStop.findMany.bind(prisma.manifestStop),
         transaction: prisma.$transaction.bind(prisma),
         linkUpdate: prisma.link.update.bind(prisma.link),
@@ -93,6 +96,7 @@ describe('manifests lifecycle TRANSFER E2E (mocked)', () => {
 
     function buildTx() {
         return {
+            fiscalClosureTask: { upsert: async () => ({ id: 'closure-task' }) },
             demand: {
                 update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
                     const d = store.demands.get(where.id);
@@ -220,7 +224,9 @@ describe('manifests lifecycle TRANSFER E2E (mocked)', () => {
         (prisma as any).orderLeg = {
             findUnique: async () => null,
             findFirst: async () => null,
+            findMany: async () => [...store.orderLegs.values()].map((leg) => authorizedCteLegFixture(leg.orderId)),
         };
+        prisma.manifestFiscalDocument.findMany = (async (args: any) => args.select ? [authorizedMdfeFixture] : []) as unknown as typeof prisma.manifestFiscalDocument.findMany;
 
         // Manifesto deste teste não usa ManifestStop (Fatia B) — mantém completeManifest no
         // caminho legado (0 paradas), preservando o comportamento original do teste.
@@ -259,6 +265,8 @@ describe('manifests lifecycle TRANSFER E2E (mocked)', () => {
         if (original.orderLegFindFirst) {
             (prisma as any).orderLeg.findFirst = original.orderLegFindFirst;
         }
+        (prisma as any).orderLeg.findMany = original.orderLegFindMany;
+        prisma.manifestFiscalDocument.findMany = original.fiscalDocFindMany;
         prisma.manifestStop.findMany = original.manifestStopFindMany;
     }
 
@@ -297,8 +305,7 @@ describe('manifests lifecycle TRANSFER E2E (mocked)', () => {
         // 5–6: iniciar
         store.manifest.status = 'ACCEPTED';
         prisma.manifest.findUnique = (async () => ({
-            ...store.manifest,
-            vehicleType,
+            ...departureReadyManifest({ ...store.manifest, vehicleType }),
             destHub: { id: hubImpMa, code: 'IMP-MA' },
         })) as unknown as typeof prisma.manifest.findUnique;
 

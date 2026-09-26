@@ -15,6 +15,9 @@ export interface VehicleUnitLike {
     chassi?: string | null;
     renavam?: string | null;
     axles?: number | null;
+    tareKg?: number | null;
+    capacityKg?: number | null;
+    capacityM3?: number | null;
     rntrc?: string | null;
     bodyType?: string | null;
     wheelType?: string | null;
@@ -24,6 +27,9 @@ export interface VehicleUnitLike {
     ownerPersonId?: string | null;
     ownerDocument?: string | null;
     ownerName?: string | null;
+    mdfeOwnerType?: string | null;
+    licensedState?: string | null;
+    ownerState?: string | null;
 }
 
 export type VehicleUnitField = 'plate' | 'chassi' | 'renavam' | 'axles' | 'rntrc';

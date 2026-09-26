@@ -8,18 +8,20 @@ import { encerrarMdfeViaAcbr } from './acbr/acbrMdfeEmit.js';
  * a conclusão da viagem. Falha em qualquer documento gera um SystemAlert de pendência manual
  * e segue para o próximo; nunca marca CLOSED sem confirmação real do provider.
  */
-export async function closeFiscalDocumentsForCompletedManifest(manifestId: string): Promise<void> {
+export async function closeFiscalDocumentsForCompletedManifest(manifestId: string): Promise<string[]> {
     const docs = await prisma.manifestFiscalDocument.findMany({
         where: { manifestId, status: 'AUTHORIZED', documentType: { in: ['CIOT', 'MDFE'] } },
     });
 
+    const pendingDocumentIds: string[] = [];
     for (const doc of docs) {
         try {
             if (doc.documentType === 'CIOT') {
                 if (!doc.number) {
                     throw new Error('CIOT autorizado sem número (codigoIdentificacaoOperacao) — não é possível encerrar.');
                 }
-                await encerrarCiot(doc.number);
+                const previousJob = doc.environment ? null : await prisma.ciotEmissionJob.findFirst({ where: { manifestId, phase: 'DONE' }, orderBy: { createdAt: 'desc' }, select: { environment: true } });
+                await encerrarCiot(doc.number, doc.environment ?? previousJob?.environment ?? null);
             } else {
                 const result = await encerrarMdfeViaAcbr(manifestId);
                 if (!result.ok) {
@@ -32,6 +34,7 @@ export async function closeFiscalDocumentsForCompletedManifest(manifestId: strin
                 data: { status: 'CLOSED', closedAt: new Date() },
             });
         } catch (e) {
+            pendingDocumentIds.push(doc.id);
             const message = e instanceof Error ? e.message : String(e);
             console.error(
                 JSON.stringify({
@@ -54,4 +57,5 @@ export async function closeFiscalDocumentsForCompletedManifest(manifestId: strin
             });
         }
     }
+    return pendingDocumentIds;
 }

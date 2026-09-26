@@ -2,6 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { ManifestStatus } from '@prisma/client';
 import prisma from '../lib/prisma.js';
+import { assertClientPricingAccess, pricingVisibilityWhere, visibleClientIdsForHub } from '../services/pricingVisibility.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 
@@ -16,7 +17,10 @@ const updateClientSchema = z.object({
 // GET /api/clients - List all clients (Admin and HUB for entrada no hub dropdown)
 router.get('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+        const hubOnly = req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN');
+        const visibleIds = hubOnly && req.user!.hubId ? await visibleClientIdsForHub(req.user!.hubId) : [];
         const clients = await prisma.client.findMany({
+            where: hubOnly ? { id: { in: visibleIds } } : undefined,
             include: {
                 user: {
                     select: { email: true, active: true }
@@ -41,16 +45,8 @@ router.get('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest
 router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const id = req.params.id as string;
-
-        // Clients can only view their own profile
-        if (req.user!.roles.includes('CLIENT')) {
-            const client = await prisma.client.findFirst({
-                where: { userId: req.user!.id }
-            });
-            if (!client || client.id !== id) {
-                throw new AppError('Not authorized', 403);
-            }
-        }
+        await assertClientPricingAccess(req.user!, id);
+        const visibility = await pricingVisibilityWhere(req.user!);
 
         const client = await prisma.client.findUnique({
             where: { id: id },
@@ -59,7 +55,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
                     select: { email: true, active: true }
                 },
                 pricingTables: {
-                    where: { active: true },
+                    where: { active: true, AND: [visibility] },
                     include: { route: true }
                 },
             }
@@ -209,9 +205,12 @@ router.get('/:id/demands', authenticate, async (req: AuthRequest, res: Response,
 router.get('/:id/pricing', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const id = req.params.id as string;
+        await assertClientPricingAccess(req.user!, id);
+        const visibility = await pricingVisibilityWhere(req.user!);
 
         const pricingTables = await prisma.pricingTable.findMany({
             where: {
+                AND: [visibility],
                 clientId: id,
                 active: true,
             },

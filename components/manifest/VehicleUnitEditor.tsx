@@ -39,6 +39,7 @@ const WHEEL_OPTIONS: Array<[string, string]> = [
   ['Toco', 'Toco'],
   ['NaoAplicavel', 'Não aplicável'],
 ];
+const UF_OPTIONS = 'AC AL AM AP BA CE DF ES GO MA MG MS MT PA PB PE PI PR RJ RN RO RR RS SC SE SP TO'.split(' ');
 
 const VehicleUnitEditor: React.FC<Props> = ({ title, draft, onChange, onRemove, fieldClass, defaultRntrc }) => {
   const listId = useId();
@@ -168,7 +169,7 @@ const VehicleUnitEditor: React.FC<Props> = ({ title, draft, onChange, onRemove, 
               issues.length ? 'bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-100' : 'bg-emerald-100 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100'
             }`}
           >
-            {issues.length ? `Falta: ${describeIssues(issues)}` : 'Pronta para CIOT/MDF-e'}
+            {issues.length ? `Falta: ${describeIssues(issues)}` : 'Cadastro básico completo'}
           </span>
           {selected && issues.length === 0 && (
             <button type="button" onClick={() => setEditing((v) => !v)} className="admin-focus min-h-9 rounded-lg px-2 text-xs font-bold text-brand-700 hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-brand-950/30">
@@ -196,6 +197,25 @@ const VehicleUnitEditor: React.FC<Props> = ({ title, draft, onChange, onRemove, 
           <div>
             <label htmlFor={fid('rntrc')} className="mb-2 block text-sm font-bold">RNTRC*</label>
             <input id={fid('rntrc')} inputMode="numeric" value={draft.rntrc} onChange={(e) => set({ rntrc: e.target.value.replace(/\D/g, '') })} maxLength={9} placeholder="8 ou 9 dígitos" className={fieldClass} />
+          </div>
+          <div>
+            <label htmlFor={fid('tara')} className="mb-2 block text-sm font-bold">Tara real (kg) para MDF-e</label>
+            <input id={fid('tara')} type="number" min={1} inputMode="numeric" value={draft.tareKg} onChange={(e) => set({ tareKg: e.target.value })} className={fieldClass} />
+          </div>
+          <div>
+            <label htmlFor={fid('capacity-kg')} className="mb-2 block text-sm font-bold">Capacidade real (kg) para MDF-e</label>
+            <input id={fid('capacity-kg')} type="number" min={1} inputMode="numeric" value={draft.capacityKg} onChange={(e) => set({ capacityKg: e.target.value })} className={fieldClass} />
+          </div>
+          <div>
+            <label htmlFor={fid('capacity-m3')} className="mb-2 block text-sm font-bold">Capacidade volumétrica (m³), se conhecida</label>
+            <input id={fid('capacity-m3')} type="number" min={0} inputMode="numeric" value={draft.capacityM3} onChange={(e) => set({ capacityM3: e.target.value })} className={fieldClass} />
+          </div>
+          <div>
+            <label htmlFor={fid('licensed-state')} className="mb-2 block text-sm font-bold">UF de licenciamento para MDF-e</label>
+            <select id={fid('licensed-state')} value={draft.licensedState} onChange={(e) => set({ licensedState: e.target.value })} className={fieldClass}>
+              <option value="">Selecione a UF real</option>
+              {UF_OPTIONS.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
+            </select>
           </div>
           <div>
             <label htmlFor={fid('body')} className="mb-2 block text-sm font-bold">Tipo de carroceria</label>
@@ -227,6 +247,22 @@ const VehicleUnitEditor: React.FC<Props> = ({ title, draft, onChange, onRemove, 
               <div>
                 <label htmlFor={fid('owner-doc')} className="mb-2 block text-sm font-bold">CPF / CNPJ</label>
                 <input id={fid('owner-doc')} inputMode="numeric" value={draft.ownerDocument} onChange={(e) => set({ ownerDocument: e.target.value })} className={fieldClass} />
+              </div>
+              <div className="sm:col-span-2">
+                <label htmlFor={fid('owner-mdfe-type')} className="mb-2 block text-sm font-bold">Vínculo do proprietário no MDF-e</label>
+                <select id={fid('owner-mdfe-type')} value={draft.mdfeOwnerType} onChange={(e) => set({ mdfeOwnerType: e.target.value })} className={fieldClass}>
+                  <option value="">Selecione quando o veículo não pertence ao emitente</option>
+                  <option value="0">TAC agregado</option>
+                  <option value="1">TAC independente</option>
+                  <option value="2">Outros</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor={fid('owner-state')} className="mb-2 block text-sm font-bold">UF do proprietário no MDF-e</label>
+                <select id={fid('owner-state')} value={draft.ownerState} onChange={(e) => set({ ownerState: e.target.value })} className={fieldClass}>
+                  <option value="">Selecione a UF real</option>
+                  {UF_OPTIONS.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
+                </select>
               </div>
             </div>
           </details>

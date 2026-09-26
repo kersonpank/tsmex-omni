@@ -417,6 +417,9 @@ model VehicleUnit {
   chassi    String? // 17 caracteres
   renavam   String?
   axles     Int? // crítico para o piso mínimo ANTT
+  tareKg    Int? // tara real em kg, exigida para MDF-e
+  capacityKg Int? // capacidade real em kg, exigida para MDF-e
+  capacityM3 Int? // capacidade volumétrica em m³, quando conhecida
   rntrc     String? // registro ANTT do transportador dono desta unidade
   bodyType  String? // TipoCarroceria eFrete
   wheelType String? // TipoRodado eFrete
@@ -429,6 +432,9 @@ model VehicleUnit {
   ownerPerson    Person? @relation(fields: [ownerPersonId], references: [id], onDelete: SetNull)
   ownerDocument  String?
   ownerName      String?
+  mdfeOwnerType  String? // 0 TAC agregado, 1 TAC independente, 2 outros; declarado pelo cadastro
+  licensedState String? // UF real de licenciamento para MDF-e
+  ownerState String? // UF real do proprietário quando diferente do emitente
 
   active Boolean @default(true)
 
@@ -866,6 +872,9 @@ model Manifest {
 
   // Fiscal travel documents (MDF-e, CIOT and future trip-level docs)
   fiscalDocuments  ManifestFiscalDocument[]
+  fiscalClosureTask FiscalClosureTask?
+  deliveryAttempts DeliveryAttempt[]
+  payables Payable[]
   ciotEmissionJobs CiotEmissionJob[]
 }
 
@@ -1031,6 +1040,27 @@ model ManifestFiscalDocument {
   @@index([manifestId])
   @@index([fiscalEmitterId])
   @@index([documentType, status])
+}
+
+enum FiscalClosureTaskStatus {
+  PENDING
+  PROCESSING
+  DONE
+  RECONCILIATION_REQUIRED
+}
+
+model FiscalClosureTask {
+  id         String                  @id @default(uuid())
+  manifestId String                  @unique
+  manifest   Manifest                @relation(fields: [manifestId], references: [id], onDelete: Cascade)
+  status     FiscalClosureTaskStatus @default(PENDING)
+  reason     String?                 @db.Text
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime                @default(now())
+  updatedAt  DateTime                @updatedAt
+
+  @@index([status, updatedAt])
 }
 
 // ========================================
@@ -1593,6 +1623,7 @@ model Order {
 
   // Pernas de transporte (multi-perna)
   legs OrderLeg[]
+  deliveryAttempts DeliveryAttempt[]
 
   // Histórico completo (todos os eventos desde Opportunity até entrega)
   history     OrderHistory[]
@@ -1600,6 +1631,7 @@ model Order {
 
   // Faturamento
   invoices Invoice[]
+  invoiceItems InvoiceItem[]
 
   // Notas fiscais do pedido (múltiplas NFs por pedido)
   invoicesRel OrderInvoice[]
@@ -1835,6 +1867,8 @@ model Invoice {
 
   // Número da fatura
   invoiceNumber String @unique // Ex: "FAT-2026-001"
+  receipts InvoiceReceipt[]
+  items InvoiceItem[]
 
   // Relacionamentos (pode faturar por Order, Demand ou Manifest)
   orderId String?
@@ -1851,10 +1885,10 @@ model Invoice {
   account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   // Valores
-  subtotal  Float // Valor do frete
-  taxes     Float @default(0) // Impostos
-  discounts Float @default(0) // Descontos
-  total     Float // Total a pagar
+  subtotal  Decimal @db.Decimal(14, 2) // Valor do frete
+  taxes     Decimal @default(0) @db.Decimal(14, 2) // Impostos
+  discounts Decimal @default(0) @db.Decimal(14, 2) // Descontos
+  total     Decimal @db.Decimal(14, 2) // Total a pagar
 
   // Status
   status InvoiceStatus @default(PENDING)
@@ -1879,6 +1913,91 @@ model Invoice {
   @@index([manifestId])
   @@index([status])
   @@index([invoiceNumber])
+}
+
+model InvoiceItem {
+  id          String   @id @default(uuid())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  orderId     String
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  description String
+  amount      Decimal  @db.Decimal(14, 2)
+  createdAt   DateTime @default(now())
+
+  @@unique([invoiceId, orderId])
+  @@index([orderId])
+}
+
+model InvoiceReceipt {
+  id               String   @id @default(uuid())
+  invoiceId        String
+  invoice          Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  amount           Decimal  @db.Decimal(14, 2)
+  receivedAt       DateTime
+  reference        String?
+  evidenceStorageKey String?
+  idempotencyKey   String   @unique
+  createdByUserId  String
+  reversedAt       DateTime?
+  reversedByUserId String?
+  reversalReason   String?
+  createdAt        DateTime @default(now())
+
+  @@index([invoiceId, receivedAt])
+}
+
+enum PayableBeneficiaryType {
+  LINK
+  PARTNER
+  HUB
+  OTHER
+}
+
+enum PayableStatus {
+  PENDING
+  PAID
+  CANCELLED
+}
+
+model Payable {
+  id                  String                 @id @default(uuid())
+  beneficiaryType     PayableBeneficiaryType
+  beneficiaryName     String
+  beneficiaryDocument String?
+  sourceType          String
+  sourceId            String?
+  manifestId          String?
+  manifest            Manifest?              @relation(fields: [manifestId], references: [id], onDelete: Restrict)
+  description         String
+  amount              Decimal                @db.Decimal(14, 2)
+  dueDate             DateTime
+  status              PayableStatus          @default(PENDING)
+  payments            PayablePayment[]
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  @@unique([sourceType, sourceId])
+  @@index([status, dueDate])
+  @@index([manifestId])
+}
+
+model PayablePayment {
+  id                 String   @id @default(uuid())
+  payableId          String
+  payable            Payable  @relation(fields: [payableId], references: [id], onDelete: Restrict)
+  amount             Decimal  @db.Decimal(14, 2)
+  paidAt             DateTime
+  reference          String?
+  evidenceStorageKey String?
+  idempotencyKey     String   @unique
+  createdByUserId    String
+  reversedAt         DateTime?
+  reversedByUserId   String?
+  reversalReason     String?
+  createdAt          DateTime @default(now())
+
+  @@index([payableId, paidAt])
 }
 
 enum InvoiceStatus {
@@ -1940,6 +2059,7 @@ model OrderLeg {
   // implícita (comportamento anterior à Fatia B, preservado sem migração de dado).
   stopId        String?
   stop          ManifestStop? @relation(fields: [stopId], references: [id], onDelete: SetNull)
+  deliveryAttempts DeliveryAttempt[]
   startedAt     DateTime?
   completedAt   DateTime?
   allocatedCost Float?
@@ -1971,12 +2091,53 @@ model ManifestStop {
   startedAt        DateTime?
   completedAt      DateTime?
   legs             OrderLeg[]
+  deliveryAttempts DeliveryAttempt[]
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
 
   @@unique([manifestId, sequence])
   @@index([manifestId])
   @@index([destHubId])
+}
+
+enum DeliveryAttemptResult {
+  DELIVERED
+  PARTIAL
+  FAILED
+}
+
+enum DeliveryNextAction {
+  REATTEMPT
+  RETURN_TO_HUB
+  TRANSFER
+}
+
+model DeliveryAttempt {
+  id                 String                @id @default(uuid())
+  manifestId         String
+  manifest           Manifest              @relation(fields: [manifestId], references: [id], onDelete: Cascade)
+  orderId            String
+  order              Order                 @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  legId              String
+  leg                OrderLeg              @relation(fields: [legId], references: [id], onDelete: Cascade)
+  stopId             String?
+  stop               ManifestStop?         @relation(fields: [stopId], references: [id], onDelete: SetNull)
+  result             DeliveryAttemptResult
+  expectedQuantity   Int?
+  deliveredQuantity  Int?
+  receiverName       String?
+  occurredAt         DateTime
+  recordedByUserId   String
+  performedByUserId  String?
+  evidenceStorageKey String?
+  exceptionReason    String?               @db.Text
+  nextAction         DeliveryNextAction?
+  idempotencyKey     String                @unique
+  createdAt          DateTime              @default(now())
+
+  @@index([legId, occurredAt])
+  @@index([orderId, occurredAt])
+  @@index([manifestId, stopId])
 }
 
 enum ManifestStopPurpose {

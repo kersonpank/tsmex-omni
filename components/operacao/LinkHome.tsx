@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '../../store/authStore';
-import { manifestsApi } from '../../lib/api';
-import type { Manifest } from '../../types/index';
+import { manifestsApi, uploadApi } from '../../lib/api';
+import type { DeliveryProgress, Manifest } from '../../types/index';
 import BottomNav, { type BottomNavItem } from './BottomNav';
 
 type Tab = 'ofertas' | 'viagens' | 'historico';
@@ -59,6 +59,7 @@ interface ManifestCardProps {
   onReject: (id: string) => void;
   onUpdateStatus: (id: string, status: 'IN_PROGRESS' | 'COMPLETED') => void;
   onCompleteStop: (manifestId: string, stopId: string) => void;
+  onDelivery: (manifestId: string) => void;
 }
 
 const ManifestCard: React.FC<ManifestCardProps> = ({
@@ -69,6 +70,7 @@ const ManifestCard: React.FC<ManifestCardProps> = ({
   onReject,
   onUpdateStatus,
   onCompleteStop,
+  onDelivery,
 }) => {
   const busy = actionLoading === m.id;
   const orderCount = m.demands?.length ?? 0;
@@ -170,6 +172,12 @@ const ManifestCard: React.FC<ManifestCardProps> = ({
         </button>
       )}
 
+      {tab === 'viagens' && m.status === 'IN_PROGRESS' && m.tripType !== 'TRANSFER' && (
+        <button type="button" onClick={() => onDelivery(m.id)} className="mb-2 w-full rounded-xl border border-brand-500 px-3 py-2.5 text-sm font-semibold text-brand-700 dark:text-brand-300">
+          Registrar entrega por pedido
+        </button>
+      )}
+
       {tab === 'viagens' && m.status === 'IN_PROGRESS' && (m.tripStops?.length ?? 0) > 0 && (
         <div className="space-y-2">
           <span className="text-xs font-semibold text-tower-500 uppercase">Paradas da viagem</span>
@@ -219,6 +227,17 @@ const LinkHome: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [deliveryManifestId, setDeliveryManifestId] = useState<string | null>(null);
+  const [deliveryProgress, setDeliveryProgress] = useState<DeliveryProgress[]>([]);
+  const [deliveryOrderId, setDeliveryOrderId] = useState('');
+  const [deliveryResult, setDeliveryResult] = useState<'DELIVERED' | 'PARTIAL' | 'FAILED'>('DELIVERED');
+  const [deliveredQuantity, setDeliveredQuantity] = useState('');
+  const [receiverName, setReceiverName] = useState('');
+  const [deliveryReason, setDeliveryReason] = useState('');
+  const [nextAction, setNextAction] = useState<'REATTEMPT' | 'RETURN_TO_HUB' | 'TRANSFER'>('REATTEMPT');
+  const [deliveryFile, setDeliveryFile] = useState<File | null>(null);
+  const [savingDelivery, setSavingDelivery] = useState(false);
+  const deliveryKey = useRef<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -247,61 +266,94 @@ const LinkHome: React.FC = () => {
       await manifestsApi.accept(id);
       await load();
     } catch (e: any) {
-      alert(e.response?.data?.error || e.message);
+      setError(e.response?.data?.error || e.message);
     } finally {
       setActionLoading(null);
     }
   };
 
   const handleReject = async (id: string) => {
-    const reason = window.prompt('Motivo da recusa (opcional):') ?? '';
     setActionLoading(id);
     try {
-      await manifestsApi.reject(id, reason);
+      await manifestsApi.reject(id, '');
       await load();
     } catch (e: any) {
-      alert(e.response?.data?.error || e.message);
+      setError(e.response?.data?.error || e.message);
     } finally {
       setActionLoading(null);
     }
   };
 
   const handleUpdateStatus = async (id: string, newStatus: 'IN_PROGRESS' | 'COMPLETED') => {
-    if (newStatus === 'COMPLETED') {
-      const confirmed = window.confirm('Confirmar conclusão da entrega?');
-      if (!confirmed) return;
-    }
     setActionLoading(id);
     try {
       if (newStatus === 'IN_PROGRESS') {
-        const kmStr = window.prompt('Km de saída (opcional):');
-        const kmSaida = kmStr && !Number.isNaN(Number(kmStr)) ? Number(kmStr) : undefined;
-        await manifestsApi.start(id, { kmSaida });
+        await manifestsApi.start(id, {});
       } else {
-        const kmStr = window.prompt('Km de chegada (opcional):');
-        const kmChegada = kmStr && !Number.isNaN(Number(kmStr)) ? Number(kmStr) : undefined;
-        await manifestsApi.complete(id, { kmChegada });
+        await manifestsApi.complete(id, {});
       }
       await load();
     } catch (e: any) {
-      alert(e.response?.data?.error || e.message);
+      setError(e.response?.data?.error || e.message);
     } finally {
       setActionLoading(null);
     }
   };
 
   const handleCompleteStop = async (manifestId: string, stopId: string) => {
-    const confirmed = window.confirm('Confirmar conclusão desta parada?');
-    if (!confirmed) return;
     setActionLoading(manifestId);
     try {
       await manifestsApi.completeStop(manifestId, stopId);
       await load();
     } catch (e: any) {
-      alert(e.response?.data?.error || e.message);
+      setError(e.response?.data?.error || e.message);
     } finally {
       setActionLoading(null);
     }
+  };
+
+  const openDelivery = async (manifestId: string) => {
+    setError(null);
+    setDeliveryManifestId(manifestId);
+    try {
+      const progress = (await manifestsApi.deliveryProgress(manifestId)).data;
+      setDeliveryProgress(progress);
+      setDeliveryOrderId(progress.find((item) => !item.complete)?.orderId ?? '');
+    } catch (e: any) { setError(e.response?.data?.error || e.message || 'Erro ao carregar entregas'); }
+  };
+
+  const submitDelivery = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!deliveryManifestId || !deliveryOrderId || savingDelivery) return;
+    setSavingDelivery(true);
+    setError(null);
+    try {
+      let evidenceStorageKey: string | undefined;
+      if (deliveryFile) {
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+          reader.onerror = () => reject(new Error('Não foi possível ler o comprovante.'));
+          reader.readAsDataURL(deliveryFile);
+        });
+        evidenceStorageKey = (await uploadApi.upload(base64, deliveryFile.name, deliveryFile.type || 'application/pdf')).data.storageKey;
+      }
+      deliveryKey.current ??= crypto.randomUUID();
+      await manifestsApi.recordDeliveryAttempt(deliveryManifestId, {
+        orderId: deliveryOrderId, result: deliveryResult,
+        ...(deliveryResult === 'FAILED' ? { deliveredQuantity: 0 } : deliveredQuantity.trim() ? { deliveredQuantity: Number(deliveredQuantity) } : {}),
+        receiverName: receiverName.trim() || undefined,
+        exceptionReason: deliveryReason.trim() || undefined,
+        evidenceStorageKey,
+        ...(deliveryResult !== 'DELIVERED' ? { nextAction } : {}),
+        idempotencyKey: deliveryKey.current,
+      });
+      deliveryKey.current = null;
+      setDeliveredQuantity(''); setReceiverName(''); setDeliveryReason(''); setDeliveryFile(null);
+      await openDelivery(deliveryManifestId);
+      await load();
+    } catch (e: any) { setError(e.response?.data?.error || e.message || 'Erro ao registrar entrega'); }
+    finally { setSavingDelivery(false); }
   };
 
   const navItems: BottomNavItem[] = [
@@ -391,10 +443,55 @@ const LinkHome: React.FC = () => {
                   onReject={handleReject}
                   onUpdateStatus={handleUpdateStatus}
                   onCompleteStop={handleCompleteStop}
+                  onDelivery={openDelivery}
                 />
               ))
             )}
           </div>
+        )}
+        {deliveryManifestId && (
+          <section className="mt-4 rounded-2xl border border-brand-200 bg-white p-4 dark:border-brand-800 dark:bg-tower-800" aria-label="Registrar entrega por pedido">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-base font-bold">Entregas desta viagem</h2>
+              <button type="button" onClick={() => setDeliveryManifestId(null)} className="rounded-lg border border-tower-300 px-3 py-1.5 text-sm">Fechar</button>
+            </div>
+            <ul className="my-3 space-y-1 text-sm">
+              {deliveryProgress.map((item) => <li key={item.legId} className="flex justify-between gap-2 rounded-lg bg-tower-50 px-2 py-1.5 dark:bg-tower-900">
+                <span>Pedido {item.orderNumber} {item.nfNumber ? `· NF ${item.nfNumber}` : ''}</span>
+                <span>{item.complete ? 'Entregue' : `${item.remainingQuantity} volume(s) pendente(s)`}</span>
+              </li>)}
+            </ul>
+            {deliveryProgress.some((item) => !item.complete) && <form onSubmit={submitDelivery} className="space-y-3">
+              <label className="block text-sm">Pedido
+                <select required value={deliveryOrderId} onChange={(e) => { setDeliveryOrderId(e.target.value); deliveryKey.current = null; }} className="mt-1 w-full rounded-lg border border-tower-300 p-2 dark:bg-tower-900">
+                  {deliveryProgress.filter((item) => !item.complete).map((item) => <option key={item.orderId} value={item.orderId}>Pedido {item.orderNumber} · saldo {item.remainingQuantity}</option>)}
+                </select>
+              </label>
+              <label className="block text-sm">Resultado
+                <select value={deliveryResult} onChange={(e) => setDeliveryResult(e.target.value as typeof deliveryResult)} className="mt-1 w-full rounded-lg border border-tower-300 p-2 dark:bg-tower-900">
+                  <option value="DELIVERED">Entrega completa</option><option value="PARTIAL">Entrega parcial</option><option value="FAILED">Sem entrega</option>
+                </select>
+              </label>
+              {deliveryResult !== 'FAILED' && <label className="block text-sm">Volumes entregues {deliveryResult === 'DELIVERED' ? '(vazio = saldo completo)' : ''}
+                <input type="number" min={1} required={deliveryResult === 'PARTIAL'} value={deliveredQuantity} onChange={(e) => setDeliveredQuantity(e.target.value)} className="mt-1 w-full rounded-lg border border-tower-300 p-2 dark:bg-tower-900" />
+              </label>}
+              {deliveryResult !== 'FAILED' && <label className="block text-sm">Nome de quem recebeu
+                <input required={deliveryResult === 'DELIVERED'} value={receiverName} onChange={(e) => setReceiverName(e.target.value)} className="mt-1 w-full rounded-lg border border-tower-300 p-2 dark:bg-tower-900" />
+              </label>}
+              {deliveryResult !== 'DELIVERED' && <label className="block text-sm">Próximo encaminhamento
+                <select value={nextAction} onChange={(e) => setNextAction(e.target.value as typeof nextAction)} className="mt-1 w-full rounded-lg border border-tower-300 p-2 dark:bg-tower-900">
+                  <option value="REATTEMPT">Nova tentativa</option><option value="RETURN_TO_HUB">Retornar ao hub</option><option value="TRANSFER">Transferir</option>
+                </select>
+              </label>}
+              <label className="block text-sm">Comprovante (foto ou PDF)
+                <input type="file" accept="image/*,application/pdf" capture="environment" onChange={(e) => setDeliveryFile(e.target.files?.[0] ?? null)} className="mt-1 block w-full text-sm" />
+              </label>
+              <label className="block text-sm">Justificativa {deliveryFile ? '(opcional)' : '(obrigatória sem comprovante)'}
+                <textarea value={deliveryReason} onChange={(e) => setDeliveryReason(e.target.value)} minLength={!deliveryFile ? 10 : undefined} required={!deliveryFile || deliveryResult === 'FAILED'} className="mt-1 w-full rounded-lg border border-tower-300 p-2 dark:bg-tower-900" rows={2} />
+              </label>
+              <button type="submit" disabled={savingDelivery} className="w-full rounded-xl bg-brand-600 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">{savingDelivery ? 'Registrando…' : 'Registrar resultado'}</button>
+            </form>}
+          </section>
         )}
       </main>
 

@@ -12,12 +12,18 @@ export interface UnitDraft {
   chassi: string;
   renavam: string;
   axles: string;
+  tareKg: string;
+  capacityKg: string;
+  capacityM3: string;
   rntrc: string;
   bodyType: string;
   wheelType: string;
   year: string;
   ownerDocument: string;
   ownerName: string;
+  mdfeOwnerType: string;
+  licensedState: string;
+  ownerState: string;
 }
 
 export const MAX_TRAILERS = 3;
@@ -31,6 +37,9 @@ export const emptyDraft = (role: VehicleUnitRole): UnitDraft => ({
   chassi: '',
   renavam: '',
   axles: '',
+  tareKg: '',
+  capacityKg: '',
+  capacityM3: '',
   rntrc: '',
   // Carroceria/rodado por papel: reboque não tem rodado próprio (corrige o "Carreta Baú" com rodado "Cavalo").
   bodyType: 'NaoAplicavel',
@@ -38,6 +47,9 @@ export const emptyDraft = (role: VehicleUnitRole): UnitDraft => ({
   year: '',
   ownerDocument: '',
   ownerName: '',
+  mdfeOwnerType: '',
+  licensedState: '',
+  ownerState: '',
 });
 
 export function draftFromUnit(unit: VehicleUnit): UnitDraft {
@@ -48,12 +60,18 @@ export function draftFromUnit(unit: VehicleUnit): UnitDraft {
     chassi: unit.chassi ?? '',
     renavam: unit.renavam ?? '',
     axles: unit.axles ? String(unit.axles) : '',
+    tareKg: unit.tareKg ? String(unit.tareKg) : '',
+    capacityKg: unit.capacityKg ? String(unit.capacityKg) : '',
+    capacityM3: unit.capacityM3 != null ? String(unit.capacityM3) : '',
     rntrc: unit.rntrc ?? '',
     bodyType: unit.bodyType ?? 'NaoAplicavel',
     wheelType: unit.wheelType ?? (unit.role === 'TRACTION' ? 'Cavalo' : 'NaoAplicavel'),
     year: unit.year ? String(unit.year) : '',
     ownerDocument: unit.ownerDocument ?? '',
     ownerName: unit.ownerName ?? unit.ownerPerson?.legalName ?? '',
+    mdfeOwnerType: unit.mdfeOwnerType ?? '',
+    licensedState: unit.licensedState ?? '',
+    ownerState: unit.ownerState ?? '',
   };
 }
 
@@ -75,6 +93,9 @@ export function draftsFromLink(link: Link | null | undefined): { traction: UnitD
         year: link.vehicleYear ? String(link.vehicleYear) : '',
         ownerDocument: link.vehicleOwnerDocument ?? '',
         ownerName: link.vehicleOwnerName ?? '',
+        mdfeOwnerType: '',
+        licensedState: '',
+        ownerState: '',
       };
 
   const slots: Array<[VehicleUnit | null | undefined, string | null | undefined]> = [
@@ -133,12 +154,18 @@ export function draftToInput(draft: UnitDraft): VehicleUnitInput {
     chassi: normalizePlate(draft.chassi) || null,
     renavam: digits(draft.renavam) || null,
     axles: draft.axles.trim() ? Number(draft.axles) : null,
+    tareKg: draft.tareKg.trim() ? Number(draft.tareKg) : null,
+    capacityKg: draft.capacityKg.trim() ? Number(draft.capacityKg) : null,
+    capacityM3: draft.capacityM3.trim() ? Number(draft.capacityM3) : null,
     rntrc: digits(draft.rntrc) || null,
     bodyType: draft.bodyType || null,
     wheelType: draft.wheelType || null,
     year: draft.year.trim() ? Number(draft.year) : null,
     ownerDocument: digits(draft.ownerDocument) || null,
     ownerName: draft.ownerName.trim() || null,
+    mdfeOwnerType: (draft.mdfeOwnerType || null) as VehicleUnitInput['mdfeOwnerType'],
+    licensedState: draft.licensedState.trim().toUpperCase() || null,
+    ownerState: draft.ownerState.trim().toUpperCase() || null,
   };
 }
 

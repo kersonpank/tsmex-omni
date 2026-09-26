@@ -1,6 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../lib/prisma.js';
+import { assertClientPricingAccess, pricingVisibilityWhere } from '../services/pricingVisibility.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 
@@ -170,9 +171,11 @@ router.delete('/routes/:id', authenticate, authorize('ADMIN'), async (req: AuthR
 router.get('/tables', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const { type, clientId, routeId, active } = req.query;
+        const visibility = await pricingVisibilityWhere(req.user!);
 
         const tables = await prisma.pricingTable.findMany({
             where: {
+                AND: [visibility],
                 ...(type ? { type: type as any } : {}),
                 ...(clientId ? { clientId: clientId as string } : {}),
                 ...(routeId ? { routeId: routeId as string } : {}),
@@ -206,9 +209,9 @@ router.get('/tables', authenticate, async (req: AuthRequest, res: Response, next
 router.get('/tables/:id', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const id = req.params.id as string;
-
-        const table = await prisma.pricingTable.findUnique({
-            where: { id: id },
+        const visibility = await pricingVisibilityWhere(req.user!);
+        const table = await prisma.pricingTable.findFirst({
+            where: { id, AND: [visibility] },
             include: {
                 client: true,
                 route: true,
@@ -352,6 +355,8 @@ interface PricingOutput {
 router.post('/calculate', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const { weight, volume, nfValue, units = 1, clientId, originCode, destCode } = req.body as PricingInput;
+        if (clientId) await assertClientPricingAccess(req.user!, clientId);
+        const visibility = await pricingVisibilityWhere(req.user!, { includeGeneralForCalculation: true });
 
         if (!weight || !volume || !nfValue) {
             throw new AppError('Weight, volume, and NF value are required', 400);
@@ -378,6 +383,7 @@ router.post('/calculate', authenticate, async (req: AuthRequest, res: Response, 
             if (route) {
                 table = await prisma.pricingTable.findFirst({
                     where: {
+                        AND: [visibility],
                         clientId,
                         routeId: route.id,
                         type: 'SPECIAL',
@@ -393,6 +399,7 @@ router.post('/calculate', authenticate, async (req: AuthRequest, res: Response, 
             // Try client-specific without route
             table = await prisma.pricingTable.findFirst({
                 where: {
+                    AND: [visibility],
                     clientId,
                     routeId: null,
                     type: 'SPECIAL',
@@ -416,8 +423,10 @@ router.post('/calculate', authenticate, async (req: AuthRequest, res: Response, 
             if (route) {
                 table = await prisma.pricingTable.findFirst({
                     where: {
+                        AND: [visibility],
                         routeId: route.id,
                         type: 'GENERAL',
+                        clientId: null,
                         active: true,
                     },
                     include: { minFreightRanges: true },
@@ -430,8 +439,10 @@ router.post('/calculate', authenticate, async (req: AuthRequest, res: Response, 
             // Try general without route (default)
             table = await prisma.pricingTable.findFirst({
                 where: {
+                    AND: [visibility],
                     routeId: null,
                     type: 'GENERAL',
+                    clientId: null,
                     active: true,
                 },
                 include: { minFreightRanges: true },

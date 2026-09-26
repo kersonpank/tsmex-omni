@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { AcbrHttpError } from './acbrHttp.js';
-import { generateCMdf, isDefinitiveMdfeRejection } from './mdfeNumbering.js';
+import { calculateMdfeCheckDigit, generateCMdf, isDefinitiveMdfeRejection } from './mdfeNumbering.js';
 
 describe('mdfeNumbering', () => {
+    it('calcula o dígito da chave do MDF-e pelo módulo 11 sobre 43 posições', () => {
+        assert.equal(calculateMdfeCheckDigit({ cUF: 35, cnpj: '11222333000181', series: 1, number: 1, cMDF: '12345678', issuedAt: new Date('2026-09-26T12:00:00Z') }), 1);
+    });
     it('cMDF tem 8 dígitos numéricos', () => {
         for (let i = 0; i < 200; i++) assert.match(generateCMdf(), /^[1-9]\d{7}$/);
     });

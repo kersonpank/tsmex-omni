@@ -40,7 +40,7 @@ describe('VehicleUnitEditor', () => {
     await waitFor(() => expect(vehicleUnitsApi.search).toHaveBeenCalledWith('REB', 'TRAILER'));
     fireEvent.click(await screen.findByRole('button', { name: /REB1A11/ }));
 
-    expect(screen.getByText('Pronta para CIOT/MDF-e')).toBeInTheDocument();
+    expect(screen.getByText('Cadastro básico completo')).toBeInTheDocument();
     expect(screen.queryByLabelText(/Chassi\*/)).not.toBeInTheDocument(); // dados recolhidos: nada a pedir
     expect(screen.getByTestId('draft')).toHaveTextContent('"unitId":"u-reb"');
     expect(screen.getByLabelText(/Placa\*/)).toHaveAttribute('readonly');

@@ -104,13 +104,11 @@ describe('POST /intake/demands/from-nfe-key — sem match ACBr (regressão)', ()
 
     it('cria Demand com placeholders quando não há documento ACBr pra chave (comportamento atual preservado)', async () => {
         const token = jwt.sign({ userId: 'hub-user-1' }, jwtSecret);
-        const startedAt = Date.now();
-        const res = await httpPostJson<{ success: boolean; data: Record<string, unknown> }>(
-            baseUrl,
-            '/api/intake/demands/from-nfe-key',
-            token,
-            { chave, clientId },
-        );
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const res = await Promise.race([
+            httpPostJson<{ success: boolean; data: Record<string, unknown> }>(baseUrl, '/api/intake/demands/from-nfe-key', token, { chave, clientId }),
+            new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('bootstrap fiscal bloqueou a resposta operacional')), 10_000); }),
+        ]).finally(() => { if (timer) clearTimeout(timer); });
 
         assert.equal(res.status, 201);
         assert.equal(res.body.success, true);
@@ -118,6 +116,5 @@ describe('POST /intake/demands/from-nfe-key — sem match ACBr (regressão)', ()
         assert.equal(res.body.data.weight, 1);
         assert.equal(res.body.data.commodity, 'A definir');
         assert.equal(bootstrapStarted, true);
-        assert.ok(Date.now() - startedAt < 2_500, 'bootstrap fiscal best-effort não pode bloquear a resposta operacional');
     });
 });

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { maskPhone } from '../../lib/formatters';
 import { api, uploadApi, linksApi } from '../../lib/api';
-import type { Link, LinkOnboarding } from '../../types';
+import type { Link, LinkOnboarding } from '../../types/index';
 
 type Step =
   | 'personal_vehicle'
@@ -150,6 +150,7 @@ const LinkOnboardingWizard: React.FC<LinkOnboardingWizardProps> = ({ linkId, onC
     contactsProfessional?: typeof contactsProfessional;
     vehiclePhotos?: Array<{ url: string }>;
     bankData?: Record<string, unknown>;
+    hasTrailer?: boolean;
   }) => {
     setSaving(true);
     setError(null);
@@ -456,7 +457,7 @@ const LinkOnboardingWizard: React.FC<LinkOnboardingWizardProps> = ({ linkId, onC
           <div className="bg-white dark:bg-tower-800 rounded-2xl shadow-lg p-8">
             <h1 className="text-xl font-bold text-tower-900 dark:text-tower-100 mb-2">Fotos do veículo</h1>
             <p className="text-tower-600 dark:text-tower-400 mb-6">Envie no mínimo 3 fotos do veículo (frontal, traseira, laterais). Obrigatório.</p>
-            <input type="file" accept="image/*" multiple onChange={(e) => Array.from(e.target.files || []).forEach((f, i) => addPendingFile(f, `vehiclePhotos_${i}`))} className="w-full text-sm mb-4" />
+            <input type="file" accept="image/*" multiple onChange={(e) => (Array.from(e.currentTarget.files ?? []) as File[]).forEach((f, i) => addPendingFile(f, `vehiclePhotos_${i}`))} className="w-full text-sm mb-4" />
             {pendingFiles.filter((f) => f.field.startsWith('vehiclePhotos')).length > 0 && (
               <p className="text-sm text-tower-600 mb-2">{pendingFiles.filter((f) => f.field.startsWith('vehiclePhotos')).length} foto(s) selecionada(s)</p>
             )}

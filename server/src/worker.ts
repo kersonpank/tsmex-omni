@@ -8,6 +8,8 @@ import { processCoordinatorJob } from './services/queues/distribuicaoNfeCoordina
 import { processDistribuicaoNfeSyncJob } from './services/queues/distribuicaoNfeSyncProcessor.js';
 import { CIOT_EMISSION_QUEUE_NAME } from './services/queues/ciotEmissionQueue.js';
 import { processCiotEmissionJob, handleCiotJobExhausted } from './services/queues/ciotEmissionProcessor.js';
+import { WORKER_HEARTBEAT_KEY } from './services/health.js';
+import { processPendingFiscalClosures } from './services/queues/fiscalClosureProcessor.js';
 
 dotenv.config();
 
@@ -105,6 +107,23 @@ const ciotWorker = new Worker(CIOT_EMISSION_QUEUE_NAME, (job) => processCiotEmis
     concurrency: 3,
 });
 
+const heartbeatRedis = createRedisConnection();
+async function heartbeat() {
+    try {
+        await heartbeatRedis.set(WORKER_HEARTBEAT_KEY, String(Date.now()), 'EX', 30);
+    } catch (error) {
+        console.error('[worker] heartbeat failed', error instanceof Error ? error.message : String(error));
+    }
+}
+void Promise.all([worker.waitUntilReady(), distribuicaoNfeWorker.waitUntilReady(), ciotWorker.waitUntilReady()])
+    .then(() => {
+        void heartbeat();
+        setInterval(() => { void heartbeat(); }, 10_000).unref();
+        void processPendingFiscalClosures();
+        setInterval(() => { void processPendingFiscalClosures().catch((error) => console.error('[worker] fiscal closure failed', error)); }, 30_000).unref();
+    })
+    .catch((error) => console.error('[worker] startup failed', error));
+
 ciotWorker.on('failed', (job, err) => {
     console.error(JSON.stringify({ level: 'error', source: 'ciotEmissionWorker', jobId: job?.id, error: err.message }));
 
@@ -144,6 +163,6 @@ void (async () => {
 })();
 
 process.on('SIGTERM', async () => {
-    await Promise.all([worker.close(), distribuicaoNfeWorker.close(), ciotWorker.close()]);
+    await Promise.all([worker.close(), distribuicaoNfeWorker.close(), ciotWorker.close(), heartbeatRedis.quit()]);
     process.exit(0);
 });

@@ -11,7 +11,8 @@ import {
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { getManifestMargin, allocateLegCosts } from './pricingService.js';
-import { closeFiscalDocumentsForCompletedManifest } from './manifestFiscalClosureService.js';
+import { getManifestReadiness } from './manifestReadinessService.js';
+import { assertDeliveryConfirmed } from './deliveryAttempts.js';
 import {
     getManifestOrderEligibility,
     HUB_CARGO_ACTIVE_MANIFEST_STATUSES,
@@ -131,14 +132,27 @@ export async function addOrderToManifest(
         throw new AppError('Cannot modify manifest in current status', 400);
     }
 
+    let stopPurpose: 'TRANSFER' | 'DELIVERY' | null = null;
+    let stopHubId: string | null = null;
     if (stopId) {
         const stop = await prisma.manifestStop.findUnique({ where: { id: stopId } });
         if (!stop || stop.manifestId !== manifestId) {
             throw new AppError('Parada não encontrada para este manifesto', 404);
         }
+        if (stop.purpose !== 'TRANSFER' && stop.purpose !== 'DELIVERY') {
+            throw new AppError('Para vincular carga à parada, defina a finalidade como transferência ou entrega.', 400);
+        }
+        if (stop.purpose === 'TRANSFER' && !stop.destHubId) {
+            throw new AppError('Parada de transferência sem hub de descarga.', 400);
+        }
+        stopPurpose = stop.purpose;
+        stopHubId = stop.destHubId;
     }
 
     const tripType = assertOperationalTripType(manifest.tripType);
+    if (tripType === 'TRANSFER_DELIVERY' && !stopId) {
+        throw new AppError('Viagem mista exige escolher uma parada de transferência ou entrega para cada pedido.', 400);
+    }
 
     const order = await prisma.order.findUnique({
         where: { id: orderId },
@@ -222,10 +236,10 @@ export async function addOrderToManifest(
                 orderId,
                 manifestId,
                 sequence,
-                legType: manifest.tripType === 'DELIVERY' || manifest.tripType === 'TRANSFER_DELIVERY' ? 'ENTREGA' : 'TRANSFERENCIA',
+                legType: stopPurpose === 'DELIVERY' || (!stopPurpose && tripType === 'DELIVERY') ? 'ENTREGA' : 'TRANSFERENCIA',
                 executedBy: manifest.linkId ? 'LINK' : 'HUB',
                 originHubId: manifest.hubId,
-                destHubId: manifest.destHubId,
+                destHubId: stopPurpose === 'TRANSFER' ? stopHubId : stopPurpose === 'DELIVERY' ? null : manifest.destHubId,
                 stopId: stopId ?? null,
             }
         });
@@ -474,8 +488,12 @@ export async function startManifest(manifestId: string, options?: { kmSaida?: nu
         throw new AppError('Manifest not found or not in accepted status', 400);
     }
 
+    const readiness = await getManifestReadiness(manifestId);
+    if (!readiness.canStart) {
+        throw new AppError(`Saída bloqueada: ${readiness.issues.filter((item) => item.severity === 'blocking').map((item) => item.message).join(' ')}`, 422);
+    }
+
     const tripType = assertOperationalTripType(manifest.tripType);
-    const statuses = startStatuses(tripType);
 
     // Verify invariant: none of the orders should have another leg IN_PROGRESS
     for (const leg of manifest.legs) {
@@ -515,6 +533,7 @@ export async function startManifest(manifestId: string, options?: { kmSaida?: nu
         });
 
         for (const leg of manifest.legs) {
+            const statuses = startStatuses(leg.legType === 'ENTREGA' ? 'DELIVERY' : leg.legType === 'TRANSFERENCIA' ? 'TRANSFER' : tripType);
             await tx.order.update({
                 where: { id: leg.orderId },
                 data: { status: statuses.orderStatus },
@@ -564,6 +583,9 @@ export async function completeManifest(
     const tripType = assertOperationalTripType(manifest.tripType);
     const now = new Date();
 
+    if (tripType === 'TRANSFER_DELIVERY') throw new AppError('Viagem mista sem paradas de descarga definidas; regularize os trechos antes de concluir.', 422);
+    if (tripType === 'DELIVERY') await assertDeliveryConfirmed(manifest.legs.map((leg) => leg.id));
+
     if (tripType === 'TRANSFER') {
         if (!manifest.destHubId) {
             throw new AppError('destHubId é obrigatório para concluir viagem TRANSFER', 400);
@@ -592,7 +614,7 @@ export async function completeManifest(
                     data: {
                         status: 'AT_HUB',
                         currentHubId: manifest.destHubId,
-                        enteredAtHubAt: leg.order.enteredAtHubAt ?? now,
+                        enteredAtHubAt: now,
                     },
                 });
                 await tx.orderHistory.create({
@@ -607,9 +629,8 @@ export async function completeManifest(
 
             // Final cost allocation update
             await allocateLegCosts(manifestId, tx);
+            await tx.fiscalClosureTask.upsert({ where: { manifestId }, create: { manifestId }, update: { status: 'PENDING', reason: null } });
         });
-
-        scheduleFiscalClosure(manifestId);
         return;
     }
 
@@ -649,6 +670,7 @@ export async function completeManifest(
 
         // Final cost allocation update
         await allocateLegCosts(manifestId, tx);
+        await tx.fiscalClosureTask.upsert({ where: { manifestId }, create: { manifestId }, update: { status: 'PENDING', reason: null } });
     });
 
     if (manifest.linkId && manifest.legs.length > 0) {
@@ -658,7 +680,6 @@ export async function completeManifest(
         });
     }
 
-    scheduleFiscalClosure(manifestId);
 }
 
 /**
@@ -666,23 +687,6 @@ export async function completeManifest(
  * concluídas. Separado de completeManifestStop para não acoplar o fechamento da viagem ao
  * fechamento de uma parada específica (Fatia E vai plugar o encerramento fiscal aqui).
  */
-// Encerramento fiscal (CIOT/MDF-e) roda depois da viagem virar COMPLETED, sem travar quem
-// chamou completeManifest/completeManifestStop esperando 2 chamadas de API externa
-// (eFrete/ACBr). closeFiscalDocumentsForCompletedManifest nunca lança — falha vira
-// SystemAlert, nunca reverte a conclusão da viagem. Se isso precisar sobreviver a um restart
-// do processo no meio da chamada, mover para fila BullMQ como CT-e/CIOT emission já fazem.
-function scheduleFiscalClosure(manifestId: string) {
-    void closeFiscalDocumentsForCompletedManifest(manifestId).catch((e) => {
-        console.error(JSON.stringify({
-            level: 'error',
-            source: 'manifestLifecycle',
-            message: 'closeFiscalDocumentsForCompletedManifest lançou inesperadamente (não deveria)',
-            manifestId,
-            error: e instanceof Error ? e.message : String(e),
-        }));
-    });
-}
-
 async function finalizeManifestCompletion(manifestId: string, kmChegada?: number) {
     await prisma.$transaction(async (tx) => {
         await tx.manifest.update({
@@ -694,9 +698,8 @@ async function finalizeManifestCompletion(manifestId: string, kmChegada?: number
             },
         });
         await allocateLegCosts(manifestId, tx);
+        await tx.fiscalClosureTask.upsert({ where: { manifestId }, create: { manifestId }, update: { status: 'PENDING', reason: null } });
     });
-
-    scheduleFiscalClosure(manifestId);
 }
 
 /**
@@ -735,9 +738,15 @@ export async function completeManifestStop(
     const tripType = assertOperationalTripType(manifest.tripType);
     const now = new Date();
 
-    if (tripType === 'TRANSFER' && !stop.destHubId) {
+    const isTransfer = stop.purpose === 'TRANSFER';
+    const isDelivery = stop.purpose === 'DELIVERY';
+    if (stop.legs.length > 0 && !isTransfer && !isDelivery) {
+        throw new AppError('Defina a finalidade da descarga como transferência ou entrega.', 400);
+    }
+    if (isTransfer && !stop.destHubId) {
         throw new AppError('Parada de transferência sem hub de destino definido.', 400);
     }
+    if (isDelivery) await assertDeliveryConfirmed(stop.legs.map((leg) => leg.id));
 
     await prisma.$transaction(async (tx) => {
         await tx.manifestStop.update({
@@ -751,13 +760,13 @@ export async function completeManifestStop(
         });
 
         for (const leg of stop.legs) {
-            if (tripType === 'TRANSFER') {
+            if (isTransfer) {
                 await tx.order.update({
                     where: { id: leg.orderId },
                     data: {
                         status: 'AT_HUB',
                         currentHubId: stop.destHubId,
-                        enteredAtHubAt: leg.order.enteredAtHubAt ?? now,
+                        enteredAtHubAt: now,
                     },
                 });
                 await tx.orderHistory.create({
@@ -787,7 +796,7 @@ export async function completeManifestStop(
         await allocateLegCosts(manifestId, tx);
     });
 
-    if (tripType === 'DELIVERY' && manifest.linkId && stop.legs.length > 0) {
+    if (isDelivery && manifest.linkId && stop.legs.length > 0) {
         await prisma.link.update({
             where: { id: manifest.linkId },
             data: { deliveryCount: { increment: stop.legs.length } },
