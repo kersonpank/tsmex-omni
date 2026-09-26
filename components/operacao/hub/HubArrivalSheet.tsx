@@ -1,13 +1,64 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import ReactDOM from 'react-dom';
-import { intakeDemandsApi, nfeApi, personsApi } from '../../../lib/api';
+import { intakeDemandsApi, locationsApi, nfeApi, personsApi } from '../../../lib/api';
 import { PersonFormModal } from '../../ui/PersonFormModal';
 import type { ApiResponse, Demand, HubCargoItem, Person } from '../../../types/index';
 
 interface HubArrivalSheetProps {
   item: HubCargoItem;
+  hubId?: string | null;
   onClose: () => void;
   onConfirmed: (orderId: string) => void;
+}
+
+type ArrivalNfeData = {
+  cnpjEmitente?: string;
+  emitenteRazaoSocial?: string | null;
+  emitenteTradeName?: string | null;
+  emitenteMunicipio?: string | null;
+  emitenteCep?: string | null;
+  emitenteLogradouro?: string | null;
+  emitenteNumero?: string | null;
+  emitenteBairro?: string | null;
+  emitenteIe?: string | null;
+  uf?: string | null;
+  destinatario?: {
+    cnpj?: string;
+    razaoSocial?: string | null;
+    ie?: string | null;
+    municipio?: string | null;
+    uf?: string | null;
+    cep?: string | null;
+    logradouro?: string | null;
+    numero?: string | null;
+    bairro?: string | null;
+    indIEDest?: string | null;
+  } | null;
+};
+
+const text = (value: unknown): string | undefined => typeof value === 'string' && value.trim() ? value.trim() : undefined;
+
+function nfeDataAlreadyStored(demand: Demand): ArrivalNfeData | null {
+  const raw = demand.rawInputData?.nfeXmlData;
+  if (!raw || typeof raw !== 'object') return null;
+  const cargo = raw as Record<string, unknown>;
+  const emitente = cargo.emitente as Record<string, unknown> | undefined;
+  const destinatario = cargo.destinatario as Record<string, unknown> | undefined;
+  if (!destinatario?.cnpj) return null;
+  return {
+    cnpjEmitente: text(emitente?.cnpj),
+    emitenteRazaoSocial: text(emitente?.razaoSocial) ?? null,
+    emitenteMunicipio: text(emitente?.municipio) ?? null,
+    emitenteIe: text(emitente?.ie) ?? null,
+    uf: text(emitente?.uf) ?? null,
+    destinatario: destinatario ? {
+      cnpj: text(destinatario.cnpj), razaoSocial: text(destinatario.razaoSocial) ?? null,
+      ie: text(destinatario.ie) ?? null, municipio: text(destinatario.municipio) ?? null,
+      uf: text(destinatario.uf) ?? null, cep: text(destinatario.cep) ?? null,
+      logradouro: text(destinatario.logradouro) ?? null, numero: text(destinatario.numero) ?? null,
+      bairro: text(destinatario.bairro) ?? null, indIEDest: text(destinatario.indIEDest) ?? null,
+    } : null,
+  };
 }
 
 function responseRows(body: ApiResponse<Person[]> | { data: Person[] }): Person[] {
@@ -16,6 +67,7 @@ function responseRows(body: ApiResponse<Person[]> | { data: Person[] }): Person[
 
 const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
   item,
+  hubId,
   onClose,
   onConfirmed,
 }) => {
@@ -25,6 +77,8 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
   const [remetentePersonId, setRemetentePersonId] = useState<string | null>(null);
   const [remetentePerson, setRemetentePerson] = useState<Person | null>(null);
   const [loadingSuggestion, setLoadingSuggestion] = useState(true);
+  const [suggestionNotice, setSuggestionNotice] = useState<string | null>(null);
+  const [suggestionAttempt, setSuggestionAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editingRemetente, setEditingRemetente] = useState(false);
@@ -35,13 +89,37 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
     const suggestFromNfe = async () => {
       if (!item.demandId) return;
       setLoadingSuggestion(true);
+      setSuggestionNotice(null);
       try {
         const demandResponse = await intakeDemandsApi.getById(item.demandId);
         const demand = demandResponse.data as Demand | undefined;
         const key = demand?.documentKey?.replace(/\D/g, '') ?? '';
-        if (key.length !== 44) return;
-        const lookup = await nfeApi.lookup(key);
-        const data = lookup.data.data;
+        if (!demand) throw new Error('Não foi possível localizar a pré-entrada. Atualize a lista e tente novamente.');
+        // A demanda já guarda o XML quando a Distribuição NF-e o recebeu. Reutilizá-lo evita
+        // uma segunda consulta ao provedor e mantém a entrada utilizável se a consulta externa
+        // estiver temporariamente indisponível.
+        const stored = nfeDataAlreadyStored(demand);
+        const data: ArrivalNfeData = stored ?? (key.length === 44
+          ? (await nfeApi.lookup(key, hubId ?? undefined)).data.data
+          : (() => { throw new Error('A pré-entrada não tem uma chave NF-e válida para buscar os dados.'); })());
+
+        const resolveCityIbgeCode = async (city?: string | null, state?: string | null) => {
+          if (!city || !state) return undefined;
+          const result = await locationsApi.search({ q: city, state });
+          const normalized = city.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+          const match = (result.data ?? []).find((candidate: any) =>
+            String(candidate.name ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim() === normalized
+            && candidate.state?.code === state,
+          );
+          return match?.ibgeCode as string | undefined;
+        };
+
+        const addressWithSelectedCity = async (city?: string | null, state?: string | null) => {
+          try {
+            const cityIbgeCode = await resolveCityIbgeCode(city, state);
+            return cityIbgeCode && city && state ? { city, state, cityIbgeCode } : {};
+          } catch { return {}; }
+        };
 
         // Remetente e destinatário não dependem um do outro — resolvidos em paralelo (cada um
         // com try/catch próprio, best-effort) em vez de sequenciais, pra cortar o delay do modal.
@@ -63,13 +141,13 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
                 setRemetentePerson(match);
               }
             } else if (data.emitenteRazaoSocial) {
+              const selectedCity = await addressWithSelectedCity(data.emitenteMunicipio, data.uf);
               const createRes = await personsApi.create({
                 documentType: 'CNPJ',
                 document: data.cnpjEmitente,
                 legalName: data.emitenteRazaoSocial,
                 ...(data.emitenteTradeName ? { tradeName: data.emitenteTradeName } : {}),
-                ...(data.emitenteMunicipio ? { city: data.emitenteMunicipio } : {}),
-                ...(data.uf ? { state: data.uf } : {}),
+                ...selectedCity,
                 ...(data.emitenteCep ? { cep: data.emitenteCep } : {}),
                 ...(data.emitenteLogradouro ? { address: data.emitenteLogradouro } : {}),
                 ...(data.emitenteNumero ? { number: data.emitenteNumero } : {}),
@@ -83,7 +161,7 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
               }
             }
           } catch {
-            // silencioso — backend ainda tem o fallback via demand.client?.personId
+            if (!cancelled) setSuggestionNotice('Não foi possível completar o remetente automaticamente. Você ainda pode revisar o pedido depois da entrada.');
           }
         };
 
@@ -103,12 +181,12 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
                 setQuery(`${exact.legalName} (${exact.document})`);
               }
             } else if (data.destinatario?.razaoSocial) {
+              const selectedCity = await addressWithSelectedCity(data.destinatario.municipio, data.destinatario.uf);
               const createRes = await personsApi.create({
                 documentType: 'CNPJ',
                 document: destinatarioDoc,
                 legalName: data.destinatario.razaoSocial,
-                ...(data.destinatario.municipio ? { city: data.destinatario.municipio } : {}),
-                ...(data.destinatario.uf ? { state: data.destinatario.uf } : {}),
+                ...selectedCity,
                 ...(data.destinatario.cep ? { cep: data.destinatario.cep } : {}),
                 ...(data.destinatario.logradouro ? { address: data.destinatario.logradouro } : {}),
                 ...(data.destinatario.numero ? { number: data.destinatario.numero } : {}),
@@ -129,13 +207,13 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
               }
             }
           } catch {
-            // silencioso — busca manual continua disponível
+            if (!cancelled) setSuggestionNotice('Não foi possível completar o destinatário automaticamente. Busque e selecione a pessoa abaixo.');
           }
         };
 
         await Promise.all([resolveRemetente(), resolveDestinatario()]);
-      } catch {
-        // Sugestão é best-effort. A busca manual continua disponível.
+      } catch (cause) {
+        if (!cancelled) setSuggestionNotice(cause instanceof Error ? cause.message : 'Não foi possível buscar os dados da NF-e. Tente novamente.');
       } finally {
         if (!cancelled) setLoadingSuggestion(false);
       }
@@ -144,7 +222,7 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [item.demandId]);
+  }, [item.demandId, hubId, suggestionAttempt]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -258,6 +336,10 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
           <p className="mt-1 text-xs text-tower-500">
             {loadingSuggestion ? 'Buscando o destinatário informado na NF-e...' : 'Confirme a pessoa que receberá esta carga.'}
           </p>
+          {suggestionNotice && <div role="alert" className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
+            <span>{suggestionNotice}</span>
+            <button type="button" onClick={() => setSuggestionAttempt((value) => value + 1)} className="shrink-0 font-bold text-brand-700">Tentar novamente</button>
+          </div>}
           <input
             id="arrival-recipient"
             value={query}

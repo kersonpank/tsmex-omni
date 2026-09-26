@@ -5,13 +5,14 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import HubArrivalSheet from './HubArrivalSheet';
 import type { HubCargoItem } from '../../../types/index';
 
-const { intakeDemandsApi, nfeApi, personsApi } = vi.hoisted(() => ({
+const { intakeDemandsApi, locationsApi, nfeApi, personsApi } = vi.hoisted(() => ({
   intakeDemandsApi: { getById: vi.fn(), confirmArrival: vi.fn() },
+  locationsApi: { search: vi.fn() },
   nfeApi: { lookup: vi.fn() },
   personsApi: { search: vi.fn(), create: vi.fn() },
 }));
 
-vi.mock('../../../lib/api', () => ({ intakeDemandsApi, nfeApi, personsApi }));
+vi.mock('../../../lib/api', () => ({ intakeDemandsApi, locationsApi, nfeApi, personsApi }));
 
 const ITEM = {
   id: 'item-1',
@@ -53,6 +54,7 @@ function mockLookupSuccess() {
         emitenteNumero: EMITENTE.numero,
         emitenteBairro: EMITENTE.bairro,
         emitenteIe: EMITENTE.ie,
+        uf: 'SP',
         destinatario: { cnpj: DESTINATARIO_MATCH.document, razaoSocial: DESTINATARIO_MATCH.legalName, ie: null },
       },
     },
@@ -62,6 +64,20 @@ function mockLookupSuccess() {
 describe('HubArrivalSheet — resolução automática do remetente (item 1 do bug de entrada)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    locationsApi.search.mockResolvedValue({ data: [{ name: 'Diadema', ibgeCode: '3513801', state: { code: 'SP' } }] });
+  });
+
+  it('reaproveita o XML salvo na demanda sem depender da nova consulta da NF-e', async () => {
+    intakeDemandsApi.getById.mockResolvedValue({ data: {
+      documentKey: '3'.repeat(44), rawInputData: { nfeXmlData: {
+        emitente: { cnpj: EMITENTE.cnpj, razaoSocial: EMITENTE.razaoSocial, municipio: 'Diadema', uf: 'SP' },
+        destinatario: { cnpj: DESTINATARIO_MATCH.document, razaoSocial: DESTINATARIO_MATCH.legalName, municipio: 'Diadema', uf: 'SP' },
+      } },
+    } });
+    personsApi.search.mockImplementation(async (q: string) => q === DESTINATARIO_MATCH.document ? { data: [DESTINATARIO_MATCH] } : { data: [{ id: 'sender', document: EMITENTE.cnpj }] });
+    render(<HubArrivalSheet item={ITEM} hubId="hub-1" onClose={vi.fn()} onConfirmed={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('Destinatário confirmado pelo cadastro.')).toBeInTheDocument());
+    expect(nfeApi.lookup).not.toHaveBeenCalled();
   });
 
   it('resolve o remetente pelo emitente da NF-e (Person já cadastrada) e envia remetentePersonId ao confirmar', async () => {
@@ -89,6 +105,17 @@ describe('HubArrivalSheet — resolução automática do remetente (item 1 do bu
     expect(payload.destinatarioPersonId).toBe(DESTINATARIO_MATCH.id);
     expect(payload.remetentePersonId).toBe(remetenteMatch.id);
     expect(onConfirmed).toHaveBeenCalledWith('order-1');
+  });
+
+  it('consulta a NF-e de contingência no contexto do Hub', async () => {
+    mockLookupSuccess();
+    personsApi.search.mockImplementation(async (q: string) => q === DESTINATARIO_MATCH.document
+      ? { data: [DESTINATARIO_MATCH] }
+      : { data: [{ id: 'person-remetente-1', document: EMITENTE.cnpj }] });
+
+    render(<HubArrivalSheet item={ITEM} hubId="hub-1" onClose={vi.fn()} onConfirmed={vi.fn()} />);
+
+    await waitFor(() => expect(nfeApi.lookup).toHaveBeenCalledWith('3'.repeat(44), 'hub-1'));
   });
 
   it('cria a Person do remetente quando o CNPJ do emitente não está cadastrado, espelhando o EntradaTab', async () => {
