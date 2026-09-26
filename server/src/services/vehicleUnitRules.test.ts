@@ -6,6 +6,7 @@ import {
     legacyColumnsFromComposition,
     normalizePlate,
     resolveComposition,
+    resolveManifestComposition,
     tractionRntrc,
     unitFieldIssues,
     type VehicleUnitLike,
@@ -17,6 +18,28 @@ const completeTraction: VehicleUnitLike = {
 const completeTrailer: VehicleUnitLike = {
     id: 'u-r', plate: 'REB1A11', role: 'TRAILER', chassi: '9BWZZZ377VT004999', renavam: '98765432109', axles: 3, rntrc: '123456789',
 };
+
+describe('composição própria e retrato fiscal da viagem', () => {
+    it('usa as unidades da viagem mesmo quando o transportador sugeriu outra placa', () => {
+        const composition = resolveManifestComposition({
+            vehicleAssignments: [{ slot: 0, vehicleUnit: completeTraction }, { slot: 1, vehicleUnit: completeTrailer }],
+            link: { vehiclePlate: 'OLD1A11' },
+        });
+        assert.deepEqual(composition.units.map((unit) => unit.plate), ['ABC1D23', 'REB1A11']);
+    });
+    it('mantém as placas ofertadas após alteração da unidade mestre', () => {
+        const offered = resolveComposition({ tractionUnit: completeTraction, trailer1Unit: completeTrailer });
+        const composition = resolveManifestComposition({
+            compositionSnapshot: JSON.parse(JSON.stringify(offered)),
+            vehicleAssignments: [{ slot: 0, vehicleUnit: { ...completeTraction, plate: 'NEW1A11' } }],
+        });
+        assert.deepEqual(composition.units.map((unit) => unit.plate), ['ABC1D23', 'REB1A11']);
+    });
+    it('viagem antiga sem confirmação não herda automaticamente a composição atual do transportador', () => {
+        const composition = resolveManifestComposition({ vehicleAssignments: [], link: { tractionUnit: completeTraction } });
+        assert.equal(composition.traction, null);
+    });
+});
 
 describe('normalizePlate', () => {
     it('remove separadores e coloca em maiúsculas', () => {
@@ -84,7 +107,7 @@ describe('compositionIssues', () => {
         assert.equal(issues.length, 1);
         assert.equal(issues[0].unit, 'TRAILER');
         assert.equal(issues[0].plate, 'REB1A11');
-        assert.equal(describeUnitIssues(issues[0]), 'Chassi, RENAVAM, Número de eixos, RNTRC');
+        assert.equal(describeUnitIssues(issues[0]), 'Chassi, RENAVAM, Número de eixos, RNTRC do responsável');
     });
 
     it('sem cavalo pede a placa principal', () => {
@@ -115,5 +138,42 @@ describe('legacyColumnsFromComposition', () => {
     it('não apaga o RNTRC legado do Link quando a unidade não tem RNTRC', () => {
         const columns = legacyColumnsFromComposition({ ...completeTraction, rntrc: null }, []);
         assert.equal('rntrc' in columns, false);
+    });
+});
+
+describe('retrato da composição com responsável RNTRC (viagem ofertada não puxa cadastro novo)', () => {
+    const holder = { id: 'p-etc', document: '11444777000161', legalName: 'ETC Agregadora', state: 'MA', rntrc: '11111111' };
+    const owner = { id: 'p-dono', document: '55444333000110', legalName: 'Dono do CRLV', state: 'RJ', rntrc: null };
+    const unit = { ...completeTraction, rntrc: 'legado-ignorado', ownerPerson: owner, rntrcHolderPerson: holder };
+
+    it('unidade do banco resolve owner/rntrcHolder e o RNTRC efetivo é o do responsável', () => {
+        const composition = resolveManifestComposition({ vehicleAssignments: [{ slot: 0, vehicleUnit: unit }] });
+        assert.equal(composition.traction!.rntrc, '11111111');
+        assert.deepEqual(composition.traction!.rntrcHolder, { personId: 'p-etc', document: '11444777000161', name: 'ETC Agregadora', state: 'MA', rntrc: '11111111' });
+        assert.equal(composition.traction!.owner!.personId, 'p-dono');
+        assert.equal(composition.traction!.ownerDocument, '55444333000110');
+        assert.equal('ownerPerson' in composition.traction!, false, 'relações cruas não vão para o retrato');
+    });
+
+    it('depois da oferta, mudar o RNTRC da pessoa não altera a viagem; só a próxima viagem pega o novo', () => {
+        const offered = JSON.parse(JSON.stringify(resolveManifestComposition({ vehicleAssignments: [{ slot: 0, vehicleUnit: unit }] })));
+        holder.rntrc = '99999999'; // RNTRC realocado/corrigido no cadastro
+        const changedAssignments = [{ slot: 0, vehicleUnit: { ...unit, rntrcHolderPerson: { ...holder } } }];
+        const emitted = resolveManifestComposition({ compositionSnapshot: offered, vehicleAssignments: changedAssignments });
+        assert.equal(tractionRntrc(emitted, '55555555'), '11111111');
+        assert.equal(emitted.traction!.rntrcHolder!.rntrc, '11111111');
+        const nextTrip = resolveManifestComposition({ vehicleAssignments: changedAssignments });
+        assert.equal(tractionRntrc(nextTrip), '99999999');
+    });
+
+    it('retrato antigo (só com rntrc em texto) continua válido, com o fallback legado', () => {
+        const legacySnapshot = { traction: { ...completeTraction, source: 'UNIT', rntrc: '' }, trailers: [] };
+        assert.equal(tractionRntrc(resolveManifestComposition({ compositionSnapshot: legacySnapshot }), '44444444'), '44444444');
+    });
+
+    it('responsável definido sem RNTRC gera pendência mesmo com RNTRC legado na unidade', () => {
+        const composition = resolveManifestComposition({ vehicleAssignments: [{ slot: 0, vehicleUnit: { ...unit, rntrcHolderPerson: { ...holder, rntrc: null } } }] });
+        assert.deepEqual(compositionIssues(composition)[0].fields.map((f) => f.field), ['rntrc']);
+        assert.equal(tractionRntrc(composition, '55555555'), null, 'não cai no RNTRC do Link');
     });
 });

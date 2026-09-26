@@ -507,7 +507,7 @@ export const nfeManualInvoicesApi = {
 // ========== MANIFESTS API ==========
 
 export const manifestsApi = {
-    list: async (params?: { status?: string; linkId?: string }) => {
+    list: async (params?: { status?: string; linkId?: string; includeArchived?: boolean }) => {
         const response = await api.get<PaginatedResponse<Manifest>>('/manifests', { params });
         return response.data;
     },
@@ -524,6 +524,11 @@ export const manifestsApi = {
 
     updateSetup: async (id: string, data: Partial<CreateManifestRequest> & { hubId?: string | null; destHubId?: string | null }) => {
         const response = await api.patch<ApiResponse<Manifest>>(`/manifests/${id}/setup`, data);
+        return response.data;
+    },
+
+    setVehicles: async (id: string, data: { traction: VehicleUnitInput; trailers: VehicleUnitInput[] }) => {
+        const response = await api.put<ApiResponse<Manifest['vehicleAssignments']>>(`/manifests/${id}/vehicles`, data);
         return response.data;
     },
 
@@ -601,6 +606,31 @@ export const manifestsApi = {
 
     withdrawOffer: async (id: string) => {
         const response = await api.post<ApiResponse<Manifest>>(`/manifests/${id}/withdraw-offer`, {});
+        return response.data;
+    },
+
+    reopen: async (id: string, reason: string) => {
+        const response = await api.post<ApiResponse<Manifest>>(`/manifests/${id}/reopen`, { reason });
+        return response.data;
+    },
+
+    cancel: async (id: string, reason: string) => {
+        const response = await api.post<ApiResponse<Manifest>>(`/manifests/${id}/cancel`, { reason });
+        return response.data;
+    },
+
+    deleteEmpty: async (id: string) => {
+        const response = await api.delete<ApiResponse<unknown>>(`/manifests/${id}`);
+        return response.data;
+    },
+
+    requestCorrection: async (id: string, data: { reason: string; kind: 'ROUTE' | 'STOP' | 'VEHICLE' | 'DRIVER'; after: Record<string, string | number | boolean | null> }) => {
+        const response = await api.post<ApiResponse<unknown>>(`/manifests/${id}/corrections`, data);
+        return response.data;
+    },
+
+    resolveCorrection: async (id: string, correctionId: string, data: { outcome: 'APPLIED' | 'REJECTED' | 'SUCCESSOR'; note: string }) => {
+        const response = await api.post<ApiResponse<{ successorManifestId?: string | null }> & { message?: string }>(`/manifests/${id}/corrections/${correctionId}/resolve`, data);
         return response.data;
     },
 
@@ -777,7 +807,7 @@ export const linksApi = {
         return response.data;
     },
 
-    approve: async (id: string, data?: { vehicleTypeId: string }) => {
+    approve: async (id: string, data?: { vehicleTypeId?: string }) => {
         const response = await api.patch<ApiResponse<Link>>(`/links/${id}/approve`, data || {});
         return response.data;
     },
@@ -823,6 +853,11 @@ export const linksApi = {
         return response.data;
     },
 
+    getDriver: async (linkId: string, driverId: string) => {
+        const response = await api.get<ApiResponse<Driver>>(`/links/${linkId}/drivers/${driverId}`);
+        return response.data;
+    },
+
     createDriver: async (linkId: string, data: {
         name: string;
         document: string;
@@ -830,6 +865,21 @@ export const linksApi = {
         birthDate?: string;
         cnhNumber?: string;
         cnhExpiry?: string;
+        cnhRegistry?: string;
+        cnhState?: string;
+        cnhIssuedAt?: string;
+        cnhFirstIssuedAt?: string;
+        cnhCategory?: string;
+        toxicologyExpiry?: string;
+        blockedReason?: string | null;
+        birthCity?: string;
+        birthState?: string;
+        identityNumber?: string;
+        maritalStatus?: string;
+        pis?: string;
+        notes?: string;
+        contacts?: Array<{ name: string; phone?: string; email?: string; relation?: string }>;
+        paymentAccount?: { bankCode?: string; accountType?: string; agency?: string; account?: string; pixKey?: string };
         updatePersonAddress?: boolean;
         address?: {
             cep: string;
@@ -846,12 +896,27 @@ export const linksApi = {
         return response.data;
     },
 
+    uploadDriverPhoto: async (linkId: string, driverId: string, data: { base64: string; fileName: string; mimeType: string }) => {
+        const response = await api.post<ApiResponse<{ photoUrl: string }>>(`/links/${linkId}/drivers/${driverId}/photo`, data);
+        return response.data;
+    },
+
+    associateDriver: async (linkId: string, driverId: string) => {
+        const response = await api.post<ApiResponse<unknown>>(`/links/${linkId}/drivers/${driverId}/associate`, {});
+        return response.data;
+    },
+
+    invite: async (linkId: string) => {
+        const response = await api.post<ApiResponse<{ token: string; expiresInDays: number }>>(`/links/${linkId}/invite`, {});
+        return response.data;
+    },
+
     create: async (data: {
         document: string;
         name: string;
         phone: string;
-        vehiclePlate: string;
-        vehicleTypeId: string;
+        vehiclePlate?: string;
+        vehicleTypeId?: string;
         homeBase?: string;
     }) => {
         const response = await api.post<ApiResponse<Link>>('/links', data);
@@ -884,6 +949,21 @@ export const linksApi = {
         birthDate: string;
         cnhNumber: string;
         cnhExpiry: string;
+        cnhRegistry: string;
+        cnhState: string;
+        cnhIssuedAt: string;
+        cnhFirstIssuedAt: string;
+        cnhCategory: string;
+        toxicologyExpiry: string;
+        blockedReason: string | null;
+        birthCity: string;
+        birthState: string;
+        identityNumber: string;
+        maritalStatus: string;
+        pis: string;
+        notes: string;
+        contacts: Array<{ name: string; phone?: string; email?: string; relation?: string }>;
+        paymentAccount: { bankCode?: string; accountType?: string; agency?: string; account?: string; pixKey?: string };
         updatePersonAddress: boolean;
         address: {
             cep: string;
@@ -917,6 +997,10 @@ export type VehicleUnitInput = {
     year?: number | null;
     ownerDocument?: string | null;
     ownerName?: string | null;
+    rntrcHolderSameAsOwner?: boolean;
+    rntrcHolderPersonId?: string | null;
+    rntrcHolderDocument?: string | null;
+    rntrcHolderName?: string | null;
     mdfeOwnerType?: '0' | '1' | '2' | null;
     licensedState?: string | null;
     ownerState?: string | null;

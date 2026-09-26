@@ -9,6 +9,23 @@ export interface DriverFiscalFormState {
   birthDate: string;
   cnhNumber: string;
   cnhExpiry: string;
+  cnhRegistry: string;
+  cnhState: string;
+  cnhIssuedAt: string;
+  cnhFirstIssuedAt: string;
+  cnhCategory: string;
+  toxicologyExpiry: string;
+  blockedReason: string;
+  birthCity: string;
+  birthState: string;
+  identityNumber: string;
+  maritalStatus: string;
+  pis: string;
+  notes: string;
+  /** Pré-visualização: URL assinada da foto salva ou object URL do arquivo aguardando o primeiro salvamento. */
+  photoUrl: string;
+  contacts: Array<{ name: string; phone: string; email: string; relation: string }>;
+  paymentAccount: { bankCode: string; accountType: string; agency: string; account: string; pixKey: string };
   cep: string;
   address: string;
   number: string;
@@ -33,6 +50,8 @@ interface Props {
   saving?: boolean;
   error?: string | null;
   fieldClass: string;
+  onPhotoSelect?: (file: File) => void;
+  photoUploading?: boolean;
 }
 
 const DriverFiscalSheet: React.FC<Props> = ({
@@ -47,6 +66,8 @@ const DriverFiscalSheet: React.FC<Props> = ({
   saving,
   error,
   fieldClass,
+  onPhotoSelect,
+  photoUploading,
 }) => {
   const addressReadOnly = personAlreadyHasAddress && !updatePersonAddress;
 
@@ -64,7 +85,7 @@ const DriverFiscalSheet: React.FC<Props> = ({
           {editingDriverId ? 'Editar motorista' : 'Cadastrar motorista'}
         </h2>
         <p className="mt-2 text-sm leading-6 text-tower-600 dark:text-tower-300">
-          Estes dados pertencem ao mesmo responsável selecionado e serão reutilizados no CIOT e MDF-e.
+          O CPF identifica uma pessoa única. A mesma ficha pode ser associada a diferentes transportadores sem trocar o destinatário da oferta.
         </p>
 
         {/* Identity fields */}
@@ -82,18 +103,58 @@ const DriverFiscalSheet: React.FC<Props> = ({
             <input inputMode="tel" value={driverFiscalForm.phone} onChange={(e) => setDriverFiscalForm((f) => ({ ...f, phone: e.target.value }))} className={fieldClass} />
           </div>
           <div>
-            <label className="mb-2 block text-sm font-bold">Data de nascimento*</label>
+            <label className="mb-2 block text-sm font-bold">Data de nascimento <span className="font-normal text-tower-500">(necessária para CIOT)</span></label>
             <input type="date" value={driverFiscalForm.birthDate} onChange={(e) => setDriverFiscalForm((f) => ({ ...f, birthDate: e.target.value }))} className={fieldClass} />
           </div>
           <div>
-            <label className="mb-2 block text-sm font-bold">CNH*</label>
+            <label className="mb-2 block text-sm font-bold">CNH <span className="font-normal text-tower-500">(necessária para CIOT)</span></label>
             <input value={driverFiscalForm.cnhNumber} onChange={(e) => setDriverFiscalForm((f) => ({ ...f, cnhNumber: e.target.value }))} className={fieldClass} />
           </div>
           <div>
-            <label className="mb-2 block text-sm font-bold">Validade da CNH*</label>
+            <label className="mb-2 block text-sm font-bold">Validade da CNH</label>
             <input type="date" value={driverFiscalForm.cnhExpiry} onChange={(e) => setDriverFiscalForm((f) => ({ ...f, cnhExpiry: e.target.value }))} className={fieldClass} />
           </div>
         </div>
+
+        <details className="mt-5 rounded-xl border border-tower-200 p-4 dark:border-tower-700">
+          <summary className="cursor-pointer font-bold">Identidade e contatos</summary>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            {([['birthCity', 'Naturalidade'], ['birthState', 'UF naturalidade'], ['identityNumber', 'Identidade / RG'], ['maritalStatus', 'Estado civil'], ['pis', 'PIS']] as const).map(([key, label]) =>
+              <label key={key} className="text-sm font-semibold">{label}<input value={driverFiscalForm[key]} onChange={(e) => setDriverFiscalForm((f) => ({ ...f, [key]: e.target.value }))} className={`mt-2 ${fieldClass}`} /></label>)}
+            <label className="text-sm font-semibold">Foto do motorista
+              <div className="mt-2 flex items-center gap-3">
+                {driverFiscalForm.photoUrl && <img src={driverFiscalForm.photoUrl} alt="Foto do motorista" className="h-14 w-14 rounded-full object-cover" />}
+                <input type="file" accept="image/jpeg,image/png,image/webp" disabled={photoUploading} onChange={(e) => { const file = e.target.files?.[0]; if (file) onPhotoSelect?.(file); e.target.value = ''; }} className="block w-full text-sm" />
+              </div>
+              {photoUploading && <span className="block text-xs text-tower-500">Enviando foto…</span>}
+              {!editingDriverId && driverFiscalForm.photoUrl && <span className="block text-xs text-tower-500">A foto será enviada ao salvar o motorista.</span>}
+            </label>
+          </div>
+          <label className="mt-4 block text-sm font-semibold">Observações<textarea value={driverFiscalForm.notes} onChange={(e) => setDriverFiscalForm((f) => ({ ...f, notes: e.target.value }))} className={`mt-2 ${fieldClass}`} rows={3} /></label>
+          <div className="mt-4">
+            <div className="flex items-center justify-between"><strong className="text-sm">Contatos adicionais</strong><button type="button" onClick={() => setDriverFiscalForm((f) => ({ ...f, contacts: [...f.contacts, { name: '', phone: '', email: '', relation: '' }] }))} className="text-sm font-semibold text-brand-700">Adicionar contato</button></div>
+            {driverFiscalForm.contacts.map((contact, index) => <div key={index} className="mt-3 grid gap-2 rounded-lg border border-tower-200 p-3 sm:grid-cols-2">
+              {(['name', 'phone', 'email', 'relation'] as const).map((key) => <label key={key} className="text-xs font-semibold">{{ name: 'Nome', phone: 'Telefone', email: 'Email', relation: 'Vínculo' }[key]}<input value={contact[key]} onChange={(e) => setDriverFiscalForm((f) => ({ ...f, contacts: f.contacts.map((item, i) => i === index ? { ...item, [key]: e.target.value } : item) }))} className={`mt-1 ${fieldClass}`} /></label>)}
+              <button type="button" onClick={() => setDriverFiscalForm((f) => ({ ...f, contacts: f.contacts.filter((_, i) => i !== index) }))} className="text-left text-sm text-red-700">Remover contato</button>
+            </div>)}
+          </div>
+        </details>
+
+        <details className="mt-4 rounded-xl border border-tower-200 p-4 dark:border-tower-700">
+          <summary className="cursor-pointer font-bold">Habilitação e aptidão</summary>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            {([['cnhRegistry', 'Registro CNH'], ['cnhState', 'UF CNH'], ['cnhCategory', 'Categoria']] as const).map(([key, label]) => <label key={key} className="text-sm font-semibold">{label}<input value={driverFiscalForm[key]} onChange={(e) => setDriverFiscalForm((f) => ({ ...f, [key]: e.target.value }))} className={`mt-2 ${fieldClass}`} /></label>)}
+            {([['cnhIssuedAt', 'Emissão CNH'], ['cnhFirstIssuedAt', 'Primeira habilitação'], ['toxicologyExpiry', 'Validade exame toxicológico']] as const).map(([key, label]) => <label key={key} className="text-sm font-semibold">{label}<input type="date" value={driverFiscalForm[key]} onChange={(e) => setDriverFiscalForm((f) => ({ ...f, [key]: e.target.value }))} className={`mt-2 ${fieldClass}`} /></label>)}
+          </div>
+          <label className="mt-4 block text-sm font-semibold">Motivo de bloqueio<input value={driverFiscalForm.blockedReason} onChange={(e) => setDriverFiscalForm((f) => ({ ...f, blockedReason: e.target.value }))} placeholder="Deixe vazio quando apto" className={`mt-2 ${fieldClass}`} /></label>
+        </details>
+
+        <details className="mt-4 rounded-xl border border-tower-200 p-4 dark:border-tower-700">
+          <summary className="cursor-pointer font-bold">Pagamento</summary>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            {([['bankCode', 'Banco'], ['accountType', 'Tipo de conta'], ['agency', 'Agência'], ['account', 'Conta'], ['pixKey', 'Chave PIX']] as const).map(([key, label]) => <label key={key} className="text-sm font-semibold">{label}<input value={driverFiscalForm.paymentAccount[key]} onChange={(e) => setDriverFiscalForm((f) => ({ ...f, paymentAccount: { ...f.paymentAccount, [key]: e.target.value } }))} className={`mt-2 ${fieldClass}`} /></label>)}
+          </div>
+        </details>
 
         {/* Address section */}
         <div className="mt-5 rounded-xl border border-tower-200 p-4 dark:border-tower-700">

@@ -1,19 +1,18 @@
 // components/manifest/LinkQuickCreateModal.tsx
 import React from 'react';
-import type { VehicleType } from '../../types/index';
 
 export interface LinkQuickCreateFormState {
   document: string;
   name: string;
   phone: string;
-  vehiclePlate: string;
-  vehicleTypeId: string;
 }
 
 interface Props {
   form: LinkQuickCreateFormState;
   setForm: React.Dispatch<React.SetStateAction<LinkQuickCreateFormState>>;
-  vehicleTypes: VehicleType[];
+  onLookupCnpj: () => void;
+  lookupLoading?: boolean;
+  lookupSource?: string | null;
   saving: boolean;
   onClose: () => void;
   onSave: () => void;
@@ -21,9 +20,9 @@ interface Props {
   fieldClass: string;
 }
 
-const LinkQuickCreateModal: React.FC<Props> = ({ form, setForm, vehicleTypes, saving, onClose, onSave, error, fieldClass }) => (
+const LinkQuickCreateModal: React.FC<Props> = ({ form, setForm, onLookupCnpj, lookupLoading, lookupSource, saving, onClose, onSave, error, fieldClass }) => (
   <div className="fixed inset-0 z-50 flex items-end justify-center">
-    <button type="button" onClick={onClose} className="absolute inset-0 bg-tower-950/55" aria-label="Fechar cadastro de motorista" />
+    <button type="button" onClick={onClose} className="absolute inset-0 bg-tower-950/55" aria-label="Fechar cadastro de transportador" />
     <section
       role="dialog"
       aria-modal="true"
@@ -31,14 +30,14 @@ const LinkQuickCreateModal: React.FC<Props> = ({ form, setForm, vehicleTypes, sa
       className="mobile-enter relative max-h-[92dvh] w-full overflow-y-auto rounded-t-3xl bg-[var(--app-surface)] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl md:max-w-lg md:rounded-2xl md:p-6"
     >
       <div className="mx-auto mb-5 h-1.5 w-12 rounded-full bg-tower-300 md:hidden" />
-      <h2 id="link-quick-create-title" className="text-xl font-bold text-tower-950 dark:text-tower-50">Cadastrar novo motorista</h2>
+      <h2 id="link-quick-create-title" className="text-xl font-bold text-tower-950 dark:text-tower-50">Cadastrar transportador</h2>
       <p className="mt-2 text-sm leading-6 text-tower-600 dark:text-tower-300">
-        Cadastro direto — o Link já nasce aprovado. Depois de salvar, complete veículo e motorista sem sair da viagem.
+        Identifique a empresa pelo CNPJ. O motorista e os veículos serão escolhidos separadamente nesta viagem.
       </p>
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
         <div className="sm:col-span-2">
-          <label className="mb-2 block text-sm font-bold">CPF ou CNPJ*</label>
+          <label className="mb-2 block text-sm font-bold">CNPJ*</label>
           <input
             inputMode="numeric"
             value={form.document}
@@ -46,6 +45,8 @@ const LinkQuickCreateModal: React.FC<Props> = ({ form, setForm, vehicleTypes, sa
             placeholder="Somente números"
             className={fieldClass}
           />
+          {form.document.replace(/\D/g, '').length === 14 && <button type="button" onClick={onLookupCnpj} disabled={lookupLoading} className="admin-focus mt-2 rounded-lg px-3 py-2 text-sm font-semibold text-brand-700 disabled:opacity-50">{lookupLoading ? 'Consultando…' : 'Consultar CNPJ'}</button>}
+          {lookupSource && <p className="mt-1 text-xs text-tower-500">Fonte: {lookupSource}</p>}
         </div>
         <div className="sm:col-span-2">
           <label className="mb-2 block text-sm font-bold">Nome / razão social*</label>
@@ -54,27 +55,6 @@ const LinkQuickCreateModal: React.FC<Props> = ({ form, setForm, vehicleTypes, sa
         <div>
           <label className="mb-2 block text-sm font-bold">Telefone*</label>
           <input inputMode="tel" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} className={fieldClass} />
-        </div>
-        <div>
-          <label className="mb-2 block text-sm font-bold">
-            Placa principal* <span className="font-normal text-tower-500">(7 chars)</span>
-          </label>
-          <input
-            value={form.vehiclePlate}
-            onChange={(e) => setForm((f) => ({ ...f, vehiclePlate: e.target.value.toUpperCase() }))}
-            maxLength={8}
-            placeholder="ABC1D23"
-            className={`${fieldClass} font-mono uppercase`}
-          />
-        </div>
-        <div className="sm:col-span-2">
-          <label className="mb-2 block text-sm font-bold">Tipo de veículo*</label>
-          <select value={form.vehicleTypeId} onChange={(e) => setForm((f) => ({ ...f, vehicleTypeId: e.target.value }))} className={fieldClass}>
-            <option value="">Selecione</option>
-            {vehicleTypes.filter((t) => t.active).map((t) => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
-          </select>
         </div>
       </div>
 

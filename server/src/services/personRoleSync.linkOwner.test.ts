@@ -7,6 +7,7 @@
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, describe, it } from 'node:test';
 import prisma from '../lib/prisma.js';
+import { cepIbgeLookup } from './selectedCity.js';
 import { AppError } from '../middleware/errorHandler.js';
 
 const CNPJ_NEW = '11222333000181'; // no Person yet
@@ -191,6 +192,7 @@ describe('upsertPersonForLinkOwner', () => {
 
 const originalSelectedCity = prisma.city.findUnique;
 const originalSelectedCep = prisma.cEP.findUnique;
+const originalCepLookup = cepIbgeLookup.lookup;
 // Canonical municipality/CEP boundary used by every address write.
 before(() => {
     prisma.city.findUnique = (async ({ where }: any) => {
@@ -199,5 +201,6 @@ before(() => {
         return null;
     }) as any;
     prisma.cEP.findUnique = (async () => null) as any;
+    cepIbgeLookup.lookup = async () => null;
 });
-after(() => { prisma.city.findUnique = originalSelectedCity; prisma.cEP.findUnique = originalSelectedCep; });
+after(() => { prisma.city.findUnique = originalSelectedCity; prisma.cEP.findUnique = originalSelectedCep; cepIbgeLookup.lookup = originalCepLookup; });

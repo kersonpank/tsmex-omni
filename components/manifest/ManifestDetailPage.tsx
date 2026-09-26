@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import { manifestsApi, hubsApi, linksApi, fiscalEmittersApi, vehicleTypesApi, cnpjApi } from '../../lib/api';
-import type { Manifest, ResolvedOrderSummary, Hub, Link, FiscalEmitter, Driver, CiotTipoViagemSuggestion, CiotEmissionJob, ManifestJourneyStep, ManifestReadiness, VehicleType, ManifestTripType, TripPriceEstimate } from '../../types/index';
+import type { Manifest, ResolvedOrderSummary, Hub, Link, FiscalEmitter, Driver, CiotTipoViagemSuggestion, CiotEmissionJob, ManifestJourneyStep, ManifestPlanningAction, ManifestReadiness, VehicleType, ManifestTripType, TripPriceEstimate } from '../../types/index';
 import EmptyState from '../ui/EmptyState';
 import ErrorPanel from '../ui/ErrorPanel';
 import LoadingPanel from '../ui/LoadingPanel';
@@ -18,7 +18,8 @@ import TripResponsiblePanel from './TripResponsiblePanel';
 import DriverFiscalSheet from './DriverFiscalSheet';
 import type { DriverFiscalFormState } from './DriverFiscalSheet';
 import VehicleFiscalSheet, { type CompositionFormState } from './VehicleFiscalSheet';
-import { compositionDraftIssues, describeIssues, draftsFromLink, draftToInput, emptyDraft } from './vehicleUnitDraft';
+import { compositionDraftIssues, draftsFromLink, draftsFromManifest, draftToInput, emptyDraft, normalizePlate } from './vehicleUnitDraft';
+import { isValidCPF, isValidCNPJ } from '../../lib/formatters';
 import LinkOwnerPersonSheet from './LinkOwnerPersonSheet';
 import type { OwnerPersonFormState } from './LinkOwnerPersonSheet';
 import LinkQuickCreateModal from './LinkQuickCreateModal';
@@ -189,6 +190,17 @@ const ManifestDetailPage: React.FC = () => {
   });
   const [savingRoute, setSavingRoute] = useState(false);
   const [showAddStop, setShowAddStop] = useState(false);
+  const [editingStopId, setEditingStopId] = useState<string | null>(null);
+  const [managementAction, setManagementAction] = useState<'reopen' | 'cancel' | 'delete' | null>(null);
+  const [showCorrectionForm, setShowCorrectionForm] = useState(false);
+  const [correctionKind, setCorrectionKind] = useState<'ROUTE' | 'STOP' | 'VEHICLE' | 'DRIVER'>('ROUTE');
+  const [correctionStopId, setCorrectionStopId] = useState('');
+  const [correctionDescription, setCorrectionDescription] = useState('');
+  const [correctionReason, setCorrectionReason] = useState('');
+  const [correctionCity, setCorrectionCity] = useState({ city: '', state: '', ibgeCode: '' });
+  const [correctionBusy, setCorrectionBusy] = useState(false);
+  const [managementReason, setManagementReason] = useState('');
+  const [managementBusy, setManagementBusy] = useState(false);
   const [newStopForm, setNewStopForm] = useState({ destHubId: '', destinationLabel: '', destCity: '', destState: '', destCityIbgeCode: '', purpose: 'PASSAGE' });
   const [showCapaForm, setShowCapaForm] = useState(false);
   const [capaForm, setCapaForm] = useState({ fiscalEmitterId: '', plannedDepartureAt: '', plannedArrivalAt: '', notes: '', seloLacre: '', liberacao: '' });
@@ -204,8 +216,12 @@ const ManifestDetailPage: React.FC = () => {
   const [editingDriverId, setEditingDriverId] = useState<string | null>(null);
   const [driverFiscalForm, setDriverFiscalForm] = useState<DriverFiscalFormState>({
     name: '', document: '', phone: '', birthDate: '', cnhNumber: '', cnhExpiry: '',
+    cnhRegistry: '', cnhState: '', cnhIssuedAt: '', cnhFirstIssuedAt: '', cnhCategory: '', toxicologyExpiry: '', blockedReason: '',
+    birthCity: '', birthState: '', identityNumber: '', maritalStatus: '', pis: '', notes: '', photoUrl: '', contacts: [],
+    paymentAccount: { bankCode: '', accountType: '', agency: '', account: '', pixKey: '' },
     cep: '', address: '', number: '', complement: '', neighborhood: '', city: '', state: '', cityIbgeCode: '',
   });
+  const [photoUploading, setPhotoUploading] = useState(false);
   const [driverPersonAlreadyHasAddress, setDriverPersonAlreadyHasAddress] = useState(false);
   const [updatePersonAddress, setUpdatePersonAddress] = useState(false);
   const [showVehicleSheet, setShowVehicleSheet] = useState(false);
@@ -227,6 +243,8 @@ const ManifestDetailPage: React.FC = () => {
   });
   const [showLinkQuickCreate, setShowLinkQuickCreate] = useState(false);
   const [savingLinkQuickCreate, setSavingLinkQuickCreate] = useState(false);
+  const [linkLookupLoading, setLinkLookupLoading] = useState(false);
+  const [linkLookupSource, setLinkLookupSource] = useState<string | null>(null);
   const [linkQuickCreateForm, setLinkQuickCreateForm] = useState<LinkQuickCreateFormState>({
     document: '', name: '', phone: '', vehiclePlate: '', vehicleTypeId: '',
   });
@@ -478,16 +496,22 @@ const ManifestDetailPage: React.FC = () => {
     }
     setError(null);
     try {
-      await manifestsApi.createStop(id, {
+      const payload = {
         destHubId: newStopForm.destHubId || undefined,
         destinationLabel: newStopForm.destinationLabel.trim() || undefined,
         destCity: newStopForm.destCity.trim() || undefined,
         destState: newStopForm.destState.trim().toUpperCase() || undefined,
         destCityIbgeCode: newStopForm.destCityIbgeCode || undefined,
         purpose: newStopForm.purpose,
-      });
-      flashSuccess('Ponto de percurso adicionado.');
+      };
+      if (editingStopId) {
+        await manifestsApi.updateStop(id, editingStopId, { ...payload, destHubId: newStopForm.destHubId || null, destinationLabel: newStopForm.destinationLabel.trim() || null });
+      } else {
+        await manifestsApi.createStop(id, payload);
+      }
+      flashSuccess(editingStopId ? 'Ponto de percurso atualizado.' : 'Ponto de percurso adicionado.');
       setShowAddStop(false);
+      setEditingStopId(null);
       setNewStopForm({ destHubId: '', destinationLabel: '', destCity: '', destState: '', destCityIbgeCode: '', purpose: 'PASSAGE' });
       await load();
     } catch (e: any) {
@@ -788,11 +812,12 @@ const ManifestDetailPage: React.FC = () => {
     }
   };
 
-  const openDriverFiscalSheet = (driver?: Driver | null) => {
+  const openDriverFiscalSheet = async (driver?: Driver | null) => {
     if (!manifest?.link) return;
     const currentDriver = driver === undefined ? manifest.driver ?? null : driver;
-    setDriverLinkId(currentDriver?.linkId ?? manifest.link.id);
+    setDriverLinkId(manifest.link.id);
     setEditingDriverId(currentDriver?.id ?? null);
+    setPendingDriverPhoto(null);
     const hasPersonAddress = !!(currentDriver?.person?.cep && currentDriver.person.cityIbgeCode);
     setDriverPersonAlreadyHasAddress(hasPersonAddress);
     setUpdatePersonAddress(false);
@@ -803,6 +828,15 @@ const ManifestDetailPage: React.FC = () => {
       birthDate: currentDriver?.birthDate?.slice(0, 10) ?? '',
       cnhNumber: currentDriver?.cnhNumber ?? '',
       cnhExpiry: currentDriver?.cnhExpiry?.slice(0, 10) ?? '',
+      cnhRegistry: currentDriver?.cnhRegistry ?? '', cnhState: currentDriver?.cnhState ?? '',
+      cnhIssuedAt: currentDriver?.cnhIssuedAt?.slice(0, 10) ?? '', cnhFirstIssuedAt: currentDriver?.cnhFirstIssuedAt?.slice(0, 10) ?? '',
+      cnhCategory: currentDriver?.cnhCategory ?? '', toxicologyExpiry: currentDriver?.toxicologyExpiry?.slice(0, 10) ?? '', blockedReason: currentDriver?.blockedReason ?? '',
+      birthCity: currentDriver?.person?.individualProfile?.birthCity ?? '', birthState: currentDriver?.person?.individualProfile?.birthState ?? '',
+      identityNumber: currentDriver?.person?.individualProfile?.identityNumber ?? '', maritalStatus: currentDriver?.person?.individualProfile?.maritalStatus ?? '',
+      pis: currentDriver?.person?.individualProfile?.pis ?? '', notes: currentDriver?.person?.individualProfile?.notes ?? '',
+      photoUrl: '',
+      contacts: currentDriver?.person?.contacts?.map((c) => ({ name: c.name, phone: c.phone ?? '', email: c.email ?? '', relation: c.relation ?? '' })) ?? [],
+      paymentAccount: { bankCode: currentDriver?.person?.paymentAccounts?.[0]?.bankCode ?? '', accountType: currentDriver?.person?.paymentAccounts?.[0]?.accountType ?? '', agency: currentDriver?.person?.paymentAccounts?.[0]?.agency ?? '', account: currentDriver?.person?.paymentAccounts?.[0]?.account ?? '', pixKey: currentDriver?.person?.paymentAccounts?.[0]?.pixKey ?? '' },
       cep: currentDriver?.person?.cep ?? '',
       address: currentDriver?.person?.address ?? '',
       number: currentDriver?.person?.number ?? '',
@@ -813,7 +847,50 @@ const ManifestDetailPage: React.FC = () => {
       cityIbgeCode: currentDriver?.person?.cityIbgeCode ?? '',
     });
     setError(null);
+    if (currentDriver?.id) {
+      try {
+        const detail = await linksApi.getDriver(manifest.link.id, currentDriver.id);
+        const full = detail.data;
+        setDriverFiscalForm((form) => ({ ...form,
+          cnhRegistry: full.cnhRegistry ?? '', cnhState: full.cnhState ?? '', cnhIssuedAt: full.cnhIssuedAt?.slice(0, 10) ?? '',
+          cnhFirstIssuedAt: full.cnhFirstIssuedAt?.slice(0, 10) ?? '', cnhCategory: full.cnhCategory ?? '',
+          toxicologyExpiry: full.toxicologyExpiry?.slice(0, 10) ?? '', blockedReason: full.blockedReason ?? '',
+          birthCity: full.person?.individualProfile?.birthCity ?? '', birthState: full.person?.individualProfile?.birthState ?? '',
+          identityNumber: full.person?.individualProfile?.identityNumber ?? '', maritalStatus: full.person?.individualProfile?.maritalStatus ?? '',
+          pis: full.person?.individualProfile?.pis ?? '', notes: full.person?.individualProfile?.notes ?? '', photoUrl: full.photoUrl ?? '',
+          contacts: full.person?.contacts?.map((c) => ({ name: c.name, phone: c.phone ?? '', email: c.email ?? '', relation: c.relation ?? '' })) ?? [],
+          paymentAccount: { bankCode: full.person?.paymentAccounts?.[0]?.bankCode ?? '', accountType: full.person?.paymentAccounts?.[0]?.accountType ?? '', agency: full.person?.paymentAccounts?.[0]?.agency ?? '', account: full.person?.paymentAccounts?.[0]?.account ?? '', pixKey: full.person?.paymentAccounts?.[0]?.pixKey ?? '' },
+        }));
+      } catch (e: any) { setError(e.response?.data?.error || 'Não foi possível carregar a ficha completa do motorista.'); return; }
+    }
     setShowDriverFiscalSheet(true);
+  };
+
+  // Motorista novo ainda não tem id: a foto fica aguardando e sobe logo após o primeiro salvamento.
+  const [pendingDriverPhoto, setPendingDriverPhoto] = useState<File | null>(null);
+
+  const sendDriverPhoto = async (linkId: string, driverId: string, file: File) => {
+    setPhotoUploading(true);
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1] ?? ''); reader.onerror = reject; reader.readAsDataURL(file);
+      });
+      const uploaded = await linksApi.uploadDriverPhoto(linkId, driverId, { base64, fileName: file.name, mimeType: file.type });
+      setDriverFiscalForm((form) => ({ ...form, photoUrl: uploaded.data.photoUrl }));
+      setPendingDriverPhoto(null);
+      return true;
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Não foi possível enviar a foto.');
+      return false;
+    } finally { setPhotoUploading(false); }
+  };
+
+  const uploadDriverPhoto = async (file: File) => {
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) { setError('A foto deve ser JPG, PNG ou WEBP.'); return; }
+    if (file.size > 5 * 1024 * 1024) { setError('A foto deve ter no máximo 5 MB.'); return; }
+    if (driverLinkId && editingDriverId) { await sendDriverPhoto(driverLinkId, editingDriverId, file); return; }
+    setPendingDriverPhoto(file);
+    setDriverFiscalForm((form) => ({ ...form, photoUrl: URL.createObjectURL(file) }));
   };
 
   const [savingDriver, setSavingDriver] = useState(false);
@@ -824,22 +901,13 @@ const ManifestDetailPage: React.FC = () => {
       setError('Informe nome, CPF e telefone do motorista.');
       return;
     }
-    if (!driverFiscalForm.birthDate) {
-      setError('Informe a data de nascimento do motorista.');
+    if (!isValidCPF(driverFiscalForm.document)) {
+      setError('Informe um CPF válido.');
       return;
     }
-    if (!driverFiscalForm.cnhNumber.trim()) {
-      setError('Informe o número da CNH do motorista.');
-      return;
-    }
-    if (
-      !driverFiscalForm.cep ||
-      !driverFiscalForm.address ||
-      !driverFiscalForm.number ||
-      !driverFiscalForm.neighborhood ||
-      !driverFiscalForm.city ||
-      !driverFiscalForm.state || !driverFiscalForm.cityIbgeCode
-    ) {
+    const anyAddress = [driverFiscalForm.cep, driverFiscalForm.address, driverFiscalForm.number, driverFiscalForm.neighborhood, driverFiscalForm.city, driverFiscalForm.state, driverFiscalForm.cityIbgeCode].some(Boolean);
+    const completeAddress = !!(driverFiscalForm.cep && driverFiscalForm.address && driverFiscalForm.number && driverFiscalForm.neighborhood && driverFiscalForm.city && driverFiscalForm.state && driverFiscalForm.cityIbgeCode);
+    if (anyAddress && !completeAddress && !(driverPersonAlreadyHasAddress && !updatePersonAddress)) {
       setError('Informe o endereço completo: CEP, logradouro, número, bairro, cidade e UF confirmadas pelo CEP ou pela busca são obrigatórios.');
       return;
     }
@@ -855,6 +923,17 @@ const ManifestDetailPage: React.FC = () => {
       state: driverFiscalForm.state,
       cityIbgeCode: driverFiscalForm.cityIbgeCode || undefined,
     };
+    const profilePayload = {
+      cnhRegistry: driverFiscalForm.cnhRegistry || undefined, cnhState: driverFiscalForm.cnhState || undefined,
+      cnhIssuedAt: driverFiscalForm.cnhIssuedAt || undefined, cnhFirstIssuedAt: driverFiscalForm.cnhFirstIssuedAt || undefined,
+      cnhCategory: driverFiscalForm.cnhCategory || undefined, toxicologyExpiry: driverFiscalForm.toxicologyExpiry || undefined,
+      blockedReason: driverFiscalForm.blockedReason.trim() || null,
+      birthCity: driverFiscalForm.birthCity || undefined, birthState: driverFiscalForm.birthState || undefined,
+      identityNumber: driverFiscalForm.identityNumber || undefined, maritalStatus: driverFiscalForm.maritalStatus || undefined,
+      pis: driverFiscalForm.pis || undefined, notes: driverFiscalForm.notes || undefined,
+      contacts: driverFiscalForm.contacts.filter((contact) => contact.name.trim()).map((contact) => ({ name: contact.name.trim(), phone: contact.phone || undefined, email: contact.email || undefined, relation: contact.relation || undefined })),
+      paymentAccount: driverFiscalForm.paymentAccount,
+    };
     try {
       let driverId = editingDriverId;
       let saved: Awaited<ReturnType<typeof linksApi.createDriver>>;
@@ -866,7 +945,8 @@ const ManifestDetailPage: React.FC = () => {
           birthDate: driverFiscalForm.birthDate || undefined,
           cnhNumber: driverFiscalForm.cnhNumber || undefined,
           cnhExpiry: driverFiscalForm.cnhExpiry || undefined,
-          ...(driverPersonAlreadyHasAddress && !updatePersonAddress ? {} : { address: addressPayload }),
+          ...profilePayload,
+          ...(driverPersonAlreadyHasAddress && !updatePersonAddress || !completeAddress ? {} : { address: addressPayload }),
           updatePersonAddress,
         });
       } else {
@@ -877,12 +957,14 @@ const ManifestDetailPage: React.FC = () => {
           birthDate: driverFiscalForm.birthDate || undefined,
           cnhNumber: driverFiscalForm.cnhNumber || undefined,
           cnhExpiry: driverFiscalForm.cnhExpiry || undefined,
-          ...(driverPersonAlreadyHasAddress && !updatePersonAddress ? {} : { address: addressPayload }),
+          ...profilePayload,
+          ...(driverPersonAlreadyHasAddress && !updatePersonAddress || !completeAddress ? {} : { address: addressPayload }),
           updatePersonAddress,
         });
         driverId = saved.data?.id ?? null;
         if (driverId) setEditingDriverId(driverId);
       }
+      if (driverId && pendingDriverPhoto && !await sendDriverPhoto(driverLinkId, driverId, pendingDriverPhoto)) return;
       if (saved.notOverwritten?.some(field => field in addressPayload)) {
         setDriverFiscalForm(form => ({ ...form, ...fiscalAddressFromPerson(saved.data?.person) }));
         setDriverPersonAlreadyHasAddress(true);
@@ -891,7 +973,7 @@ const ManifestDetailPage: React.FC = () => {
         return;
       }
       if (!driverId) throw new Error('Os dados foram salvos, mas não foi possível vinculá-los à viagem.');
-      await manifestsApi.setResponsible(id, driverLinkId, driverId);
+      await manifestsApi.setResponsible(id, manifest?.linkId ?? driverLinkId, driverId);
       setShowDriverFiscalSheet(false);
       setShowDriverForm(false);
       flashSuccess('Dados fiscais do motorista atualizados.');
@@ -901,10 +983,11 @@ const ManifestDetailPage: React.FC = () => {
     } finally { setSavingDriver(false); }
   };
 
-  const openVehicleSheet = (link = manifest?.link) => {
+  const openVehicleSheet = () => {
+    const link = manifest?.link;
     if (!link) return;
     setVehicleLinkId(link.id);
-    const drafts = draftsFromLink(link);
+    const drafts = manifest?.vehicleAssignments?.length ? draftsFromManifest(manifest) : draftsFromLink(link);
     setVehicleForm({
       vehicleTypeId: link.vehicleTypeId ?? manifest?.vehicleTypeId ?? '',
       carrierType: link.carrierType ?? 'TAC',
@@ -921,28 +1004,22 @@ const ManifestDetailPage: React.FC = () => {
       setError('Selecione o tipo do veículo.');
       return;
     }
-    // Cada unidade (cavalo e reboques) precisa estar completa: chassi, RENAVAM, eixos e RNTRC.
-    const pending = compositionDraftIssues(vehicleForm.traction, vehicleForm.trailers);
-    if (pending.length) {
-      const first = pending[0];
-      setError(`${first.label}${first.plate ? ` ${first.plate}` : ''}: complete ${describeIssues(first.issues)}.`);
+    if ([vehicleForm.traction, ...vehicleForm.trailers].some((unit) => normalizePlate(unit.plate).length !== 7)) {
+      setError('Informe uma placa válida para o cavalo e cada implemento selecionado.');
       return;
     }
+    const pending = compositionDraftIssues(vehicleForm.traction, vehicleForm.trailers);
     setSavingVehicle(true);
     setError(null);
     try {
-      // Unidades primeiro (cadastro mestre reutilizável); depois só o que é do Link/viagem.
-      await linksApi.setComposition(vehicleLinkId, {
+      // Unidades reutilizáveis escolhidas para esta viagem.
+      await manifestsApi.setVehicles(id, {
         traction: draftToInput(vehicleForm.traction),
         trailers: vehicleForm.trailers.map(draftToInput),
       });
       await linksApi.updateFiscal(vehicleLinkId, {
-        vehicleTypeId: vehicleForm.vehicleTypeId,
         carrierType: vehicleForm.carrierType as Link['carrierType'],
       });
-      if (vehicleLinkId !== manifest.linkId) {
-        await manifestsApi.setResponsible(id, vehicleLinkId);
-      }
       if (vehicleForm.vehicleTypeId !== manifest.vehicleTypeId) {
         await manifestsApi.updateSetup(id, {
           vehicleTypeId: vehicleForm.vehicleTypeId,
@@ -953,7 +1030,7 @@ const ManifestDetailPage: React.FC = () => {
       }
       setShowVehicleSheet(false);
       setVehicleSearch('');
-      flashSuccess('Composição veicular salva e pronta para CIOT/MDF-e.');
+      flashSuccess(pending.length ? 'Composição salva. Complete os dados pendentes antes de ofertar e emitir documentos.' : 'Composição veicular salva e pronta para CIOT/MDF-e.');
       await load();
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Não foi possível salvar a composição veicular.');
@@ -1061,30 +1138,36 @@ const ManifestDetailPage: React.FC = () => {
   };
 
   const openLinkQuickCreate = () => {
-    setLinkQuickCreateForm({ document: '', name: '', phone: '', vehiclePlate: '', vehicleTypeId: manifest?.vehicleTypeId ?? '' });
+    setLinkQuickCreateForm({ document: '', name: '', phone: '' });
+    setLinkLookupSource(null);
     setError(null);
     setShowLinkQuickCreate(true);
+  };
+
+  const lookupTransporterCnpj = async () => {
+    const document = linkQuickCreateForm.document.replace(/\D/g, '');
+    if (!isValidCNPJ(document)) { setError('Informe um CNPJ válido antes de consultar.'); return; }
+    setLinkLookupLoading(true);
+    setError(null);
+    try {
+      const response = await cnpjApi.consult(document);
+      const data = (response as any)?.data ?? response;
+      setLinkQuickCreateForm((form) => ({ ...form, name: data.legalName || form.name, phone: data.phone || form.phone }));
+      setLinkLookupSource(data.source === 'sintegra' ? 'SintegraWS' : data.source === 'receitaws' ? 'ReceitaWS' : 'consulta cadastral');
+    } catch (e: any) { setError(e.response?.data?.error || e.message || 'Consulta de CNPJ indisponível. Confira e preencha os dados manualmente.'); }
+    finally { setLinkLookupLoading(false); }
   };
 
   const handleSaveLinkQuickCreate = async () => {
     if (!id) return;
     const f = linkQuickCreateForm;
     const doc = f.document.replace(/\D/g, '');
-    if (doc.length !== 11 && doc.length !== 14) {
-      setError('Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido.');
+    if (!isValidCNPJ(doc)) {
+      setError('Informe um CNPJ válido para o transportador. O motorista será cadastrado pelo CPF na próxima etapa.');
       return;
     }
     if (!f.name.trim() || !f.phone.trim()) {
-      setError('Informe nome e telefone do motorista.');
-      return;
-    }
-    const plate = f.vehiclePlate.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-    if (plate.length !== 7) {
-      setError('Informe a placa principal com 7 caracteres.');
-      return;
-    }
-    if (!f.vehicleTypeId) {
-      setError('Selecione o tipo de veículo.');
+      setError('Informe razão social e telefone do transportador.');
       return;
     }
     setSavingLinkQuickCreate(true);
@@ -1094,34 +1177,52 @@ const ManifestDetailPage: React.FC = () => {
         document: doc,
         name: f.name.trim(),
         phone: f.phone.trim(),
-        vehiclePlate: plate,
-        vehicleTypeId: f.vehicleTypeId,
       });
       const newLinkId = (created as any)?.data?.id ?? (created as any)?.id;
-      if (!newLinkId) throw new Error('Motorista cadastrado, mas não foi possível selecioná-lo automaticamente.');
+      if (!newLinkId) throw new Error('Transportador cadastrado, mas não foi possível selecioná-lo.');
       await manifestsApi.setResponsible(id, newLinkId);
       setShowLinkQuickCreate(false);
       setShowAssignForm(false);
-      flashSuccess('Motorista cadastrado, aprovado e selecionado. Complete veículo e dados fiscais abaixo.');
+      flashSuccess('Transportador cadastrado e selecionado. Aguarde aprovação e convite para receber ofertas.');
       await load();
-      const newLinkRes = await linksApi.getById(newLinkId);
-      const newLink = (newLinkRes as any)?.data as Link | undefined;
-      if (newLink) openVehicleSheet(newLink);
     } catch (e: any) {
-      setError(e.response?.data?.error || e.message || 'Não foi possível cadastrar o motorista.');
+      setError(e.response?.data?.error || e.message || 'Não foi possível cadastrar o transportador.');
     } finally {
       setSavingLinkQuickCreate(false);
     }
   };
 
   const handleSelectDriver = (driver: Driver) => {
-    void manifestsApi.setResponsible(id!, driver.linkId, driver.id)
+    if (!manifest?.linkId) return;
+    void linksApi.associateDriver(manifest.linkId, driver.id)
+      .then(() => manifestsApi.setResponsible(id!, manifest.linkId!, driver.id))
       .then(async () => {
         setShowDriverForm(false);
-        flashSuccess('Motorista e responsável vinculados.');
+        flashSuccess('Motorista vinculado ao transportador desta viagem.');
         await load();
       })
       .catch((e: any) => setError(e.response?.data?.error || e.message));
+  };
+
+  const submitCorrection = async () => {
+    if (!id || correctionBusy) return;
+    if (correctionReason.trim().length < 8 || !correctionDescription.trim()) { setError('Descreva a mudança e o motivo (ao menos 8 caracteres).'); return; }
+    if (correctionKind === 'STOP' && !correctionStopId) { setError('Selecione a parada a corrigir.'); return; }
+    if ((correctionKind === 'ROUTE' || correctionKind === 'STOP') && !correctionCity.ibgeCode) { setError('Selecione a cidade pela busca para registrar o código IBGE.'); return; }
+    setCorrectionBusy(true);
+    setError(null);
+    try {
+      await manifestsApi.requestCorrection(id, { kind: correctionKind, reason: correctionReason.trim(), after: {
+        description: correctionDescription.trim(),
+        ...(correctionKind === 'STOP' ? { stopId: correctionStopId } : {}),
+        ...(correctionCity.ibgeCode ? { city: correctionCity.city, state: correctionCity.state, cityIbgeCode: correctionCity.ibgeCode } : {}),
+      } });
+      setShowCorrectionForm(false);
+      setCorrectionReason(''); setCorrectionDescription(''); setCorrectionCity({ city: '', state: '', ibgeCode: '' });
+      flashSuccess('Correção registrada para análise fiscal. A viagem e os documentos permanecem preservados.');
+      await load();
+    } catch (e: any) { setError(e.response?.data?.error || e.message || 'Não foi possível registrar a correção.'); }
+    finally { setCorrectionBusy(false); }
   };
 
   const handleOffer = async () => {
@@ -1147,6 +1248,61 @@ const ManifestDetailPage: React.FC = () => {
       await load();
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Não foi possível retirar a oferta.');
+    }
+  };
+
+  const handleManagementAction = async () => {
+    if (!id || !managementAction) return;
+    if (managementAction !== 'delete' && managementReason.trim().length < 8) {
+      setError('Explique o motivo em pelo menos 8 caracteres.');
+      return;
+    }
+    setManagementBusy(true);
+    setError(null);
+    try {
+      if (managementAction === 'delete') {
+        await manifestsApi.deleteEmpty(id);
+        navigate(backPath);
+        return;
+      }
+      if (managementAction === 'reopen') await manifestsApi.reopen(id, managementReason.trim());
+      else await manifestsApi.cancel(id, managementReason.trim());
+      const wasCancelled = managementAction === 'cancel';
+      setManagementAction(null);
+      setManagementReason('');
+      flashSuccess(wasCancelled ? 'Viagem cancelada com histórico preservado.' : 'Planejamento reaberto. Uma nova oferta será necessária.');
+      await load();
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Não foi possível concluir esta ação.');
+    } finally {
+      setManagementBusy(false);
+    }
+  };
+
+  // Ações de gestão: a prontidão do servidor decide (e explica); sem ela, vale a regra local.
+  const planningActions = readiness?.planningActions;
+  const canDo = (action: ManifestPlanningAction, fallback: boolean) => planningActions ? planningActions[action].allowed : fallback;
+  const blockedReasons = planningActions
+    ? (['cancel', 'reopen', 'delete'] as const).filter((key) => !planningActions[key].allowed && (key !== 'reopen' || manifest?.status === 'ACCEPTED') && (key !== 'delete' || manifest?.status === 'DRAFT')).map((key) => planningActions[key].reason!).filter(Boolean)
+    : [];
+
+  const [resolvingCorrectionId, setResolvingCorrectionId] = useState<string | null>(null);
+  const [resolveOutcome, setResolveOutcome] = useState<'APPLIED' | 'REJECTED' | 'SUCCESSOR'>('APPLIED');
+  const [resolveNote, setResolveNote] = useState('');
+  const resolveCorrection = async (correctionId: string) => {
+    if (!id) return;
+    if (resolveNote.trim().length < 8) { setError('Descreva a conclusão em pelo menos 8 caracteres.'); return; }
+    setCorrectionBusy(true);
+    setError(null);
+    try {
+      const res = await manifestsApi.resolveCorrection(id, correctionId, { outcome: resolveOutcome, note: resolveNote.trim() });
+      setResolvingCorrectionId(null);
+      flashSuccess(res.message || 'Correção concluída.');
+      await load();
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Não foi possível concluir a correção.');
+    } finally {
+      setCorrectionBusy(false);
     }
   };
 
@@ -1203,6 +1359,51 @@ const ManifestDetailPage: React.FC = () => {
           <span>·</span>
           <span>{manifest.vehicleType?.name}</span>
         </div>
+        {(manifest.status === 'DRAFT' || manifest.status === 'PENDING_ACCEPT' || manifest.status === 'ACCEPTED') && (!isHubOnly || manifest.hubId === user?.hubId) && (
+          <div className="mb-5">
+            <div className="flex flex-wrap gap-2">
+              {canDo('reopen', manifest.status === 'ACCEPTED') && <button type="button" onClick={() => setManagementAction('reopen')} className="admin-focus min-h-11 rounded-xl border border-amber-300 px-4 text-sm font-semibold text-amber-900 dark:text-amber-200">Reabrir planejamento</button>}
+              {canDo('delete', manifest.status === 'DRAFT' && manifest.creationAuditComplete && !manifest.firstOfferedAt && !manifest.demands?.length && !manifest.fiscalDocuments?.length && !manifest.freightAgreement) && <button type="button" onClick={() => setManagementAction('delete')} className="admin-focus min-h-11 rounded-xl border border-tower-300 px-4 text-sm font-semibold text-tower-700 dark:text-tower-200">Excluir rascunho vazio</button>}
+              {canDo('cancel', true) && <button type="button" onClick={() => setManagementAction('cancel')} className="admin-focus min-h-11 rounded-xl border border-red-300 px-4 text-sm font-semibold text-red-700 dark:text-red-300">Cancelar viagem</button>}
+            </div>
+            {blockedReasons.length > 0 && <ul className="mt-2 space-y-1 text-xs text-tower-500">{blockedReasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>}
+          </div>
+        )}
+        {manifest.status === 'IN_PROGRESS' && (!isHubOnly || manifest.hubId === user?.hubId) && (
+          <div className="mb-5">
+            <button type="button" onClick={() => setShowCorrectionForm((open) => !open)} className="admin-focus min-h-11 rounded-xl border border-amber-300 px-4 text-sm font-semibold text-amber-900 dark:text-amber-200">Solicitar correção da viagem</button>
+            {showCorrectionForm && <div className="mt-3 space-y-3 rounded-xl border border-amber-300 p-4">
+              <p className="text-sm text-tower-600 dark:text-tower-300">A solicitação preserva os dados autorizados. A alteração só será aplicada após avaliação fiscal e, se necessário, regularização no provedor.</p>
+              <label className="block text-sm font-semibold">Parte da viagem<select value={correctionKind} onChange={(e) => setCorrectionKind(e.target.value as typeof correctionKind)} className={`mt-2 ${fieldClass}`}><option value="ROUTE">Rota principal</option><option value="STOP">Parada</option><option value="VEHICLE">Veículo</option><option value="DRIVER">Motorista</option></select></label>
+              {correctionKind === 'STOP' && <label className="block text-sm font-semibold">Parada<select value={correctionStopId} onChange={(e) => setCorrectionStopId(e.target.value)} className={`mt-2 ${fieldClass}`}><option value="">Selecione</option>{manifest.tripStops?.map((stop) => <option key={stop.id} value={stop.id}>{stop.sequence}. {stop.destinationLabel || stop.destCity || stop.destHub?.name}</option>)}</select></label>}
+              {(correctionKind === 'ROUTE' || correctionKind === 'STOP') && <label className="block text-sm font-semibold">Cidade proposta<CityAutocomplete value={correctionCity.city ? `${correctionCity.city}, ${correctionCity.state}` : ''} selectedIbgeCode={correctionCity.ibgeCode} onChange={(value) => setCorrectionCity({ city: value, state: '', ibgeCode: '' })} onSelect={(city, state, ibgeCode) => setCorrectionCity({ city, state, ibgeCode: ibgeCode ?? '' })} className={fieldClass} /></label>}
+              <label className="block text-sm font-semibold">Mudança proposta<textarea value={correctionDescription} onChange={(e) => setCorrectionDescription(e.target.value)} className={`mt-2 ${fieldClass}`} rows={2} /></label>
+              <label className="block text-sm font-semibold">Motivo<textarea value={correctionReason} onChange={(e) => setCorrectionReason(e.target.value)} className={`mt-2 ${fieldClass}`} rows={2} /></label>
+              <button type="button" disabled={correctionBusy} onClick={() => void submitCorrection()} className="min-h-11 rounded-xl bg-brand-600 px-4 text-sm font-bold text-white disabled:opacity-50">{correctionBusy ? 'Registrando…' : 'Registrar para análise'}</button>
+            </div>}
+          </div>
+        )}
+        {!!manifest.corrections?.length && <details className="mb-5 rounded-xl border border-tower-300 p-4 dark:border-tower-600"><summary className="cursor-pointer text-sm font-semibold">Histórico de correções ({manifest.corrections.length})</summary><ul className="mt-3 space-y-2 text-sm">{manifest.corrections.map((correction) => <li key={correction.id} className="rounded-lg bg-tower-50 p-3 dark:bg-tower-800"><strong>{correction.kind}</strong> · {correction.status === 'PENDING_FISCAL' ? 'Pendente de avaliação fiscal' : correction.status === 'APPLIED' ? 'Concluída' : 'Descartada'}<p>{correction.reason}</p>
+                {correction.successorManifestId && <button type="button" onClick={() => navigate(`/manifests/${correction.successorManifestId}`)} className="mt-1 text-sm font-semibold text-brand-700 underline dark:text-brand-300">Abrir viagem sucessora</button>}
+                {correction.status === 'PENDING_FISCAL' && (!isHubOnly || manifest.hubId === user?.hubId) && (resolvingCorrectionId === correction.id ? (
+                  <div className="mt-3 space-y-2">
+                    <label className="block text-sm font-semibold">Como foi resolvida<select value={resolveOutcome} onChange={(e) => setResolveOutcome(e.target.value as typeof resolveOutcome)} className={`mt-2 ${fieldClass}`}>
+                      <option value="APPLIED">Documentos regularizados no provedor</option>
+                      <option value="SUCCESSOR">Não cabe nesta viagem: abrir viagem sucessora</option>
+                      <option value="REJECTED">Descartar correção</option>
+                    </select></label>
+                    <label className="block text-sm font-semibold">Registro da conclusão<textarea value={resolveNote} onChange={(e) => setResolveNote(e.target.value)} rows={2} className={`mt-2 ${fieldClass}`} placeholder="Ex.: MDF-e 123 encerrado e novo MDF-e 124 autorizado" /></label>
+                    <div className="flex gap-2"><button type="button" disabled={correctionBusy} onClick={() => void resolveCorrection(correction.id)} className="min-h-11 rounded-xl bg-brand-600 px-4 text-sm font-bold text-white disabled:opacity-50">{correctionBusy ? 'Registrando…' : 'Concluir correção'}</button><button type="button" onClick={() => setResolvingCorrectionId(null)} className="min-h-11 rounded-xl px-4 text-sm font-semibold">Voltar</button></div>
+                  </div>
+                ) : <button type="button" onClick={() => { setResolvingCorrectionId(correction.id); setResolveOutcome('APPLIED'); setResolveNote(''); }} className="mt-2 text-sm font-semibold text-brand-700 underline dark:text-brand-300">Concluir após resposta fiscal</button>)}
+              </li>)}</ul></details>}
+        {managementAction && (
+          <div role="dialog" aria-modal="true" aria-label={managementAction === 'delete' ? 'Excluir rascunho' : 'Alterar situação da viagem'} className="mb-5 rounded-xl border border-tower-300 bg-[var(--app-surface)] p-4 dark:border-tower-600">
+            <p className="text-sm font-semibold">{managementAction === 'delete' ? 'Excluir definitivamente este rascunho vazio?' : managementAction === 'reopen' ? 'Reabrir esta viagem exige uma nova oferta e aceite.' : 'O cancelamento devolve pedidos não iniciados à fila e preserva o histórico.'}</p>
+            {managementAction !== 'delete' && <label className="mt-3 block text-sm">Motivo obrigatório<textarea value={managementReason} onChange={(e) => setManagementReason(e.target.value)} className="admin-focus mt-2 min-h-24 w-full rounded-xl border border-tower-300 bg-[var(--app-surface)] p-3 dark:border-tower-600" /></label>}
+            <div className="mt-3 flex gap-2"><button type="button" disabled={managementBusy} onClick={() => void handleManagementAction()} className="admin-focus min-h-11 rounded-xl bg-brand-600 px-4 text-sm font-bold text-white disabled:opacity-50">{managementBusy ? 'Processando…' : 'Confirmar'}</button><button type="button" onClick={() => { setManagementAction(null); setManagementReason(''); }} className="admin-focus min-h-11 rounded-xl px-4 text-sm font-semibold">Voltar</button></div>
+          </div>
+        )}
         {error && <div className="mb-5"><InlineNotice variant="error" message={error} onDismiss={() => setError(null)} /></div>}
         {success && <div className="mb-5"><InlineNotice variant="success" message={success} onDismiss={() => setSuccess(null)} /></div>}
 
@@ -1431,6 +1632,7 @@ const ManifestDetailPage: React.FC = () => {
                   <strong className="mt-1 block text-sm text-tower-900 dark:text-tower-50">{s.destHub ? `${s.destHub.name} (${s.destHub.code})` : (s.destinationLabel || [s.destCity, s.destState].filter(Boolean).join(', ') || 'Ponto de percurso')}</strong>
                   {canEditPlanning && (
                     <span className="mt-2 flex flex-wrap gap-1">
+                      <button type="button" onClick={() => { setEditingStopId(s.id); setNewStopForm({ destHubId: s.destHubId ?? '', destinationLabel: s.destinationLabel ?? '', destCity: s.destCity ?? '', destState: s.destState ?? '', destCityIbgeCode: s.destCityIbgeCode ?? '', purpose: s.purpose }); setShowAddStop(true); }} className="admin-focus min-h-10 rounded-lg px-3 text-xs font-bold text-brand-700 hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-brand-950/30">Editar cidade/parada</button>
                       <button type="button" onClick={() => moveStop(s.id, -1)} disabled={index === 0} className="admin-focus min-h-10 rounded-lg px-3 text-xs font-bold text-tower-600 hover:bg-tower-100 disabled:opacity-30 dark:text-tower-300 dark:hover:bg-tower-800">Subir</button>
                       <button type="button" onClick={() => moveStop(s.id, 1)} disabled={index === manifest.tripStops!.length - 1} className="admin-focus min-h-10 rounded-lg px-3 text-xs font-bold text-tower-600 hover:bg-tower-100 disabled:opacity-30 dark:text-tower-300 dark:hover:bg-tower-800">Descer</button>
                       <button type="button" onClick={() => handleDeleteStop(s.id)} className="admin-focus min-h-10 rounded-lg px-3 text-xs font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30">Remover</button>
@@ -1449,7 +1651,7 @@ const ManifestDetailPage: React.FC = () => {
           )}
         </div>
         {canEditOrders && !showAddStop && (
-          <button type="button" onClick={() => setShowAddStop(true)} className="px-3 py-1.5 text-sm bg-tower-100 dark:bg-tower-800 text-tower-700 dark:text-tower-300 rounded-lg hover:bg-tower-200 dark:hover:bg-tower-700">
+          <button type="button" onClick={() => { setEditingStopId(null); setNewStopForm({ destHubId: '', destinationLabel: '', destCity: '', destState: '', destCityIbgeCode: '', purpose: 'PASSAGE' }); setShowAddStop(true); }} className="px-3 py-1.5 text-sm bg-tower-100 dark:bg-tower-800 text-tower-700 dark:text-tower-300 rounded-lg hover:bg-tower-200 dark:hover:bg-tower-700">
             + Adicionar ponto
           </button>
         )}
@@ -1490,8 +1692,8 @@ const ManifestDetailPage: React.FC = () => {
               <input value={newStopForm.destinationLabel} onChange={(e) => setNewStopForm((f) => ({ ...f, destinationLabel: e.target.value }))} className={fieldClass} placeholder="Ex: Posto fiscal ou filial" />
             </div>
             <div className="flex gap-2 sm:col-span-2">
-              <button type="button" onClick={handleAddStop} className="admin-focus min-h-12 rounded-xl bg-brand-600 px-5 text-sm font-bold text-white hover:bg-brand-700">Adicionar ponto</button>
-              <button type="button" onClick={() => setShowAddStop(false)} className="admin-focus min-h-12 rounded-xl px-4 text-sm font-semibold text-tower-600 hover:bg-tower-100 dark:text-tower-300 dark:hover:bg-tower-800">Cancelar</button>
+              <button type="button" onClick={handleAddStop} className="admin-focus min-h-12 rounded-xl bg-brand-600 px-5 text-sm font-bold text-white hover:bg-brand-700">{editingStopId ? 'Salvar ponto' : 'Adicionar ponto'}</button>
+              <button type="button" onClick={() => { setShowAddStop(false); setEditingStopId(null); }} className="admin-focus min-h-12 rounded-xl px-4 text-sm font-semibold text-tower-600 hover:bg-tower-100 dark:text-tower-300 dark:hover:bg-tower-800">Cancelar</button>
             </div>
           </div>
         )}
@@ -1862,6 +2064,8 @@ const ManifestDetailPage: React.FC = () => {
           editingDriverId={editingDriverId}
           driverFiscalForm={driverFiscalForm}
           setDriverFiscalForm={setDriverFiscalForm}
+          onPhotoSelect={(file) => void uploadDriverPhoto(file)}
+          photoUploading={photoUploading}
           personAlreadyHasAddress={driverPersonAlreadyHasAddress}
           updatePersonAddress={updatePersonAddress}
           setUpdatePersonAddress={setUpdatePersonAddress}
@@ -1895,7 +2099,9 @@ const ManifestDetailPage: React.FC = () => {
           error={error}
           form={linkQuickCreateForm}
           setForm={setLinkQuickCreateForm}
-          vehicleTypes={vehicleTypes}
+          onLookupCnpj={() => void lookupTransporterCnpj()}
+          lookupLoading={linkLookupLoading}
+          lookupSource={linkLookupSource}
           saving={savingLinkQuickCreate}
           onClose={() => setShowLinkQuickCreate(false)}
           onSave={() => void handleSaveLinkQuickCreate()}

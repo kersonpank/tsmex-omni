@@ -38,4 +38,13 @@ describe('CEP fiscal address', () => {
     expect(screen.getByLabelText('Cidade*')).not.toBeDisabled();
     expect(screen.getByRole('alert')).toHaveTextContent('CEP indisponível');
   });
+  it('texto livre "São Paulo - SP" sem escolher sugestão não gera IBGE nem UF', async () => {
+    vi.mocked(locationsApi.search).mockResolvedValue({ success: true, data: [] } as any);
+    render(<Form />);
+    fireEvent.change(screen.getByLabelText('Cidade*'), { target: { value: 'São Paulo - SP' } });
+    fireEvent.blur(screen.getByLabelText('Cidade*'));
+    const saved = JSON.parse(screen.getByTestId('address').textContent ?? '{}');
+    expect(saved.cityIbgeCode).toBe('');
+    expect(saved.state).toBe('');
+  });
 });

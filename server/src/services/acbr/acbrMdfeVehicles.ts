@@ -50,12 +50,24 @@ export function buildMdfeVehicles(input: {
     const traction = composition.traction;
     if (!traction) throw new Error('Composição sem cavalo: impossível montar o MDF-e.');
 
-    const tractionRntrc = mdfeRntrc(traction.rntrc || input.fallbackRntrc);
-    if (!/^\d{8}$/.test(tractionRntrc) || /^0+$/.test(tractionRntrc)) throw new Error('RNTRC real de 8 dígitos do cavalo não cadastrado.');
-    const tractionOwnerDoc = digitsOnly(traction.ownerDocument || carrier.document);
+    // Unidade com responsável RNTRC resolvido: o RNTRC e o grupo `prop` são DELE, sem herdar de outra unidade.
+    // Sem `rntrcHolder` (snapshot anterior ao modelo por pessoa) mantém o comportamento legado.
+    const holderAware = (unit: ResolvedVehicleUnit) => unit.rntrcHolder !== undefined;
+    const tractionRntrc = mdfeRntrc(holderAware(traction) ? traction.rntrc : traction.rntrc || input.fallbackRntrc);
+    if (!/^\d{8}$/.test(tractionRntrc) || /^0+$/.test(tractionRntrc)) throw new Error('RNTRC real de 8 dígitos do responsável RNTRC do cavalo não cadastrado.');
     const emitterDoc = digitsOnly(input.emitterDocument);
-    if (traction.ownerDocument && !traction.ownerName?.trim()) throw new Error(`Informe o nome do proprietário de ${traction.plate}.`);
-    const tractionProp = tractionOwnerDoc === emitterDoc ? null : buildProp(tractionOwnerDoc, traction.ownerName || carrier.name, tractionRntrc, ownerUf(traction), traction.mdfeOwnerType);
+    const holderProp = (unit: ResolvedVehicleUnit, rntrc: string) => {
+        const holder = unit.rntrcHolder!;
+        if (holder.document === emitterDoc) return null;
+        const uf = holder.state ?? unit.ownerState ?? null;
+        if (!uf || !/^[A-Z]{2}$/.test(uf)) throw new Error(`Informe a UF do responsável RNTRC de ${unit.plate}.`);
+        return buildProp(holder.document, holder.name, rntrc, uf, unit.mdfeOwnerType);
+    };
+    const tractionOwnerDoc = digitsOnly(traction.ownerDocument || carrier.document);
+    if (!holderAware(traction) && traction.ownerDocument && !traction.ownerName?.trim()) throw new Error(`Informe o nome do proprietário de ${traction.plate}.`);
+    const tractionProp = holderAware(traction)
+        ? holderProp(traction, tractionRntrc)
+        : tractionOwnerDoc === emitterDoc ? null : buildProp(tractionOwnerDoc, traction.ownerName || carrier.name, tractionRntrc, ownerUf(traction), traction.mdfeOwnerType);
     const tractionWheel = traction.wheelType ? wheelCodes[traction.wheelType] : null;
     if (!tractionWheel) throw new Error(`Informe o tipo de rodado real para ${traction.plate}.`);
     const renavam = (unit: ResolvedVehicleUnit) => {
@@ -82,13 +94,20 @@ export function buildMdfeVehicles(input: {
     };
 
     const veicReboque = composition.trailers.map((unit, i) => {
-        const rntrc = mdfeRntrc(unit.rntrc || traction.rntrc || input.fallbackRntrc) || tractionRntrc;
-        if (!/^\d{8}$/.test(rntrc) || /^0+$/.test(rntrc)) throw new Error(`RNTRC real de 8 dígitos não cadastrado para ${unit.plate}.`);
-        const ownerDoc = digitsOnly(unit.ownerDocument || tractionOwnerDoc);
-        if (unit.ownerDocument && !unit.ownerName?.trim()) throw new Error(`Informe o nome do proprietário de ${unit.plate}.`);
-        const prop = ownerDoc === emitterDoc ? null : unit.ownerDocument
-            ? buildProp(ownerDoc, unit.ownerName!, rntrc, ownerUf(unit), unit.mdfeOwnerType)
-            : tractionProp ? { ...tractionProp, RNTRC: rntrc } : null;
+        const rntrc = holderAware(unit)
+            ? mdfeRntrc(unit.rntrc)
+            : mdfeRntrc(unit.rntrc || traction.rntrc || input.fallbackRntrc) || tractionRntrc;
+        if (!/^\d{8}$/.test(rntrc) || /^0+$/.test(rntrc)) throw new Error(`RNTRC real de 8 dígitos do responsável RNTRC não cadastrado para ${unit.plate}.`);
+        let prop;
+        if (holderAware(unit)) {
+            prop = holderProp(unit, rntrc);
+        } else {
+            const ownerDoc = digitsOnly(unit.ownerDocument || tractionOwnerDoc);
+            if (unit.ownerDocument && !unit.ownerName?.trim()) throw new Error(`Informe o nome do proprietário de ${unit.plate}.`);
+            prop = ownerDoc === emitterDoc ? null : unit.ownerDocument
+                ? buildProp(ownerDoc, unit.ownerName!, rntrc, ownerUf(unit), unit.mdfeOwnerType)
+                : tractionProp ? { ...tractionProp, RNTRC: rntrc } : null;
+        }
         return { cInt: String(i + 2), placa: mdfePlate(unit), RENAVAM: renavam(unit), ...capacity(unit), ...(prop ? { prop } : {}), tpCar: bodyCode(unit), UF: licensedUf(unit) };
     });
 

@@ -35,9 +35,6 @@ function parseInputForCreate(inputValue: string): { document: string; documentTy
   if (allDigits.length === 11) {
     document = allDigits;
     documentType = 'CPF';
-  } else if (allDigits.length >= 12 && allDigits.length <= 13) {
-    document = allDigits.padStart(14, '0');
-    documentType = 'CNPJ';
   } else if (allDigits.length >= 14) {
     document = allDigits.slice(0, 14);
     documentType = 'CNPJ';

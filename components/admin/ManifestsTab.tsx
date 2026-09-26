@@ -24,12 +24,13 @@ const ManifestsTab: React.FC = () => {
   const [gestaoFilterOpen, setGestaoFilterOpen] = useState(false);
   const [filterStatus, setFilterStatus] = useState('');
   const [filterQ, setFilterQ] = useState('');
+  const [showHistory, setShowHistory] = useState(false);
 
   const load = async () => {
     setLoading(true);
     setError(null);
     try {
-      const manRes = await manifestsApi.list({});
+      const manRes = await manifestsApi.list({ includeArchived: showHistory });
       setManifests(Array.isArray((manRes as any)?.data) ? (manRes as any).data : []);
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Erro ao carregar viagens');
@@ -38,7 +39,7 @@ const ManifestsTab: React.FC = () => {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { void load(); }, [showHistory]);
 
   const filteredManifests = useMemo(() => {
     let list = manifests;
@@ -91,6 +92,7 @@ const ManifestsTab: React.FC = () => {
       {gestaoFilterOpen && (
         <div className="mb-4 rounded-xl border border-tower-200 bg-white p-4 dark:border-tower-600 dark:bg-tower-800">
           <div className="flex flex-wrap gap-4">
+            <label className="flex items-center gap-2 text-sm text-tower-700 dark:text-tower-200"><input type="checkbox" checked={showHistory} onChange={(e) => setShowHistory(e.target.checked)} /> Mostrar viagens canceladas/arquivadas</label>
             <div>
               <label className="mb-1 block text-xs font-semibold text-tower-600 dark:text-tower-400" htmlFor="man-st">
                 Status

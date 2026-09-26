@@ -1,5 +1,5 @@
-import { linkVehicleInclude } from '../vehicleUnitService.js';
-import { resolveComposition, tractionRntrc } from '../vehicleUnitRules.js';
+import { linkVehicleInclude, manifestVehicleAssignmentsInclude } from '../vehicleUnitService.js';
+import { resolveManifestComposition, tractionRntrc } from '../vehicleUnitRules.js';
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { requireSelectedIbge } from '../selectedCity.js';
@@ -42,6 +42,7 @@ export async function buildCiotEmissionInputForJob(
     const manifest = await db.manifest.findUniqueOrThrow({
         where: { id: job.manifestId },
         include: {
+            vehicleAssignments: manifestVehicleAssignmentsInclude,
             hub: { include: { person: true } },
             destHub: { include: { person: true } },
             link: { include: { person: true, ...linkVehicleInclude } },
@@ -52,7 +53,7 @@ export async function buildCiotEmissionInputForJob(
 
     if (!manifest.hub?.person) throw new AppError('Manifesto sem Hub com pessoa (CNPJ) para resolver o Contratante do CIOT.', 400);
     if (!manifest.link) throw new AppError('Manifesto sem Link (transportador) atribuído.', 400);
-    const composition = resolveComposition(manifest.link);
+    const composition = resolveManifestComposition(manifest);
     const contratadoRntrc = tractionRntrc(composition, manifest.link.rntrc);
     if (!contratadoRntrc || !manifest.link.carrierType) throw new AppError('Cavalo sem RNTRC (ou Link sem tipo de transportador) — obrigatório para CIOT.', 400);
     if (!manifest.driver) throw new AppError('Manifesto sem motorista definido ("Definir Motorista") — obrigatório para CIOT.', 400);

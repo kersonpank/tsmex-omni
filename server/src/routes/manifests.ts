@@ -18,10 +18,12 @@ import { getObjectDownloadUrl } from '../lib/objectStorage.js';
 import { enqueueCiotEmissionJob } from '../services/queues/ciotEmissionQueue.js';
 import type { StoredCiotRequestData } from '../services/queues/ciotEmissionJobInput.js';
 import { getManifestReadiness } from '../services/manifestReadinessService.js';
+import { manifestVehiclesSchema, setManifestVehicles, publishManifestOffer } from '../services/manifestVehicleService.js';
+import { cancelManifest, deleteEmptyManifest, getPlanningActions, reopenAcceptedManifest, requestManifestCorrection, resolveManifestCorrection } from '../services/manifestPlanningChanges.js';
 import { listManifestDeliveryProgress, recordDeliveryAttempt } from '../services/deliveryAttempts.js';
 import { manifestScope, resourceGuard, uuidParam } from '../middleware/resourceAccess.js';
-import { linkVehicleInclude } from '../services/vehicleUnitService.js';
-import { compositionIssues, describeUnitIssues, resolveComposition, tractionRntrc } from '../services/vehicleUnitRules.js';
+import { linkVehicleInclude, manifestVehicleAssignmentsInclude } from '../services/vehicleUnitService.js';
+import { compositionIssues, describeUnitIssues, resolveManifestComposition, tractionRntrc } from '../services/vehicleUnitRules.js';
 import {
     addOrderToManifest,
     assertOperationalTripType,
@@ -188,7 +190,7 @@ const emitCiotSchema = z.object({
 // GET /api/manifests - List manifests
 router.get('/', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const { status, linkId, hubId } = req.query;
+        const { status, linkId, hubId, includeArchived } = req.query;
 
         manifestScope(req.user!); // CLIENT (sem HUB/LINK/ADMIN) → 403
         const andConditions: Prisma.ManifestWhereInput[] = [];
@@ -215,6 +217,7 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
         }
 
         if (status) andConditions.push({ status: status as any });
+        if (includeArchived !== 'true' && status !== 'CANCELLED') andConditions.push({ archivedAt: null });
 
         const manifests = await prisma.manifest.findMany({
             where: andConditions.length > 0 ? { AND: andConditions } : {},
@@ -235,6 +238,9 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
                     select: { name: true, code: true }
                 },
                 fiscalDocuments: { orderBy: { createdAt: 'desc' } },
+                vehicleAssignments: manifestVehicleAssignmentsInclude,
+                cancelledLegs: { orderBy: { createdAt: 'asc' }, include: { order: { select: { id: true, status: true, nfNumber: true } } } },
+                corrections: { orderBy: { createdAt: 'desc' } },
                 freightAgreement: true,
                 tripStops: {
                     orderBy: { sequence: 'asc' },
@@ -312,7 +318,10 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
                 destHub: true,
                 fiscalEmitter: true,
                 fiscalDocuments: { orderBy: { createdAt: 'desc' } },
+                vehicleAssignments: manifestVehicleAssignmentsInclude,
+                cancelledLegs: { orderBy: { createdAt: 'asc' }, include: { order: { select: { id: true, status: true, nfNumber: true } } } },
                 freightAgreement: true,
+                corrections: { orderBy: { createdAt: 'desc' } },
                 tripStops: {
                     orderBy: { sequence: 'asc' },
                     include: { destHub: { select: { id: true, name: true, code: true } } },
@@ -1054,27 +1063,24 @@ router.patch('/:id/assignment', authenticate, async (req: AuthRequest, res: Resp
             return res.json({ success: true, data: cleared, message: 'Responsável removido.' });
         }
 
-        const link = await prisma.link.findUnique({
-            where: { id: data.linkId },
-            include: {
-                drivers: {
-                    where: { active: true },
-                    orderBy: { createdAt: 'asc' },
-                },
-            },
-        });
-        if (!link || !link.active || link.approvalStatus !== 'APPROVED') {
-            throw new AppError('Responsável não encontrado, inativo ou ainda não aprovado.', 404);
+        const link = await prisma.link.findUnique({ where: { id: data.linkId } });
+        if (!link || link.approvalStatus === 'REJECTED') {
+            throw new AppError('Transportador não encontrado ou recusado.', 404);
         }
+
+        const linkDrivers = await prisma.driver.findMany({
+            where: { active: true, OR: [{ linkId: link.id }, { carriers: { some: { linkId: link.id, active: true } } }] },
+            orderBy: { createdAt: 'asc' },
+        });
 
         let driverId: string | null = null;
         if (data.driverId) {
-            const selectedDriver = link.drivers.find((driver) => driver.id === data.driverId);
+            const selectedDriver = linkDrivers.find((driver) => driver.id === data.driverId);
             if (!selectedDriver) throw new AppError('Os dados fiscais selecionados não pertencem a este responsável.', 400);
             driverId = selectedDriver.id;
-        } else if (link.drivers.length === 1) {
-            driverId = link.drivers[0].id;
-        } else if (manifest.driverId && link.drivers.some((driver) => driver.id === manifest.driverId)) {
+        } else if (linkDrivers.length === 1) {
+            driverId = linkDrivers[0].id;
+        } else if (manifest.driverId && linkDrivers.some((driver) => driver.id === manifest.driverId)) {
             driverId = manifest.driverId;
         }
 
@@ -1110,10 +1116,22 @@ router.get('/:id/readiness', authenticate, async (req: AuthRequest, res: Respons
             if (!link || manifest.linkId !== link.id) throw new AppError('Not authorized', 403);
         }
         const readiness = await getManifestReadiness(id);
-        res.json({ success: true, data: readiness });
+        // Quem planeja (ADMIN/HUB) recebe também quais ações de edição/cancelamento cabem agora e por quê.
+        const planningActions = req.user!.roles.includes('ADMIN') || req.user!.roles.includes('HUB') ? await getPlanningActions(id) : undefined;
+        res.json({ success: true, data: { ...readiness, ...(planningActions ? { planningActions } : {}) } });
     } catch (error) {
         next(error);
     }
+});
+
+// POST /api/manifests/:id/offer — transição explícita após a revisão.
+router.put('/:id/vehicles', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        await assertManifestPlanningAccess(req);
+        const data = manifestVehiclesSchema.parse(req.body);
+        const assigned = await setManifestVehicles(req.params.id as string, data);
+        res.json({ success: true, data: assigned, message: 'Composição da viagem salva. As unidades podem ser reutilizadas em outras viagens.' });
+    } catch (error) { next(error); }
 });
 
 // POST /api/manifests/:id/offer — transição explícita após a revisão.
@@ -1139,11 +1157,7 @@ router.post('/:id/offer', authenticate, async (req: AuthRequest, res: Response, 
             });
         }
 
-        const updated = await prisma.manifest.update({
-            where: { id },
-            data: { status: 'PENDING_ACCEPT', offeredAt: new Date(), rejectedAt: null, rejectionReason: null },
-            include: { link: true, driver: true, vehicleType: true },
-        });
+        const updated = await publishManifestOffer(id);
         res.json({ success: true, data: updated, message: 'Oferta enviada ao responsável.' });
     } catch (error) {
         next(error);
@@ -1162,12 +1176,75 @@ router.post('/:id/withdraw-offer', authenticate, async (req: AuthRequest, res: R
             throw new AppError('Not authorized to modify this manifest', 403);
         }
         if (manifest.status !== 'PENDING_ACCEPT') throw new AppError('A viagem não possui uma oferta pendente.', 409);
-        const updated = await prisma.manifest.update({
-            where: { id },
-            data: { status: 'DRAFT', offeredAt: null },
+        const withdrawn = await prisma.manifest.updateMany({
+            where: { id, status: 'PENDING_ACCEPT' },
+            data: { status: 'DRAFT', offeredAt: null, compositionSnapshot: Prisma.DbNull },
         });
+        if (withdrawn.count !== 1) throw new AppError('A oferta já foi aceita ou retirada. Atualize a página.', 409);
+        const updated = await prisma.manifest.findUniqueOrThrow({ where: { id } });
         res.json({ success: true, data: updated, message: 'Oferta retirada. O planejamento foi reaberto.' });
     } catch (error) {
+        next(error);
+    }
+});
+
+const reasonSchema = z.object({ reason: z.string().trim().min(8, 'Explique o motivo em pelo menos 8 caracteres.').max(2000) });
+
+async function assertManifestPlanningAccess(req: AuthRequest) {
+    if (req.user!.roles.includes('ADMIN')) return;
+    const manifest = await prisma.manifest.findUnique({ where: { id: req.params.id as string }, select: { hubId: true } });
+    if (!manifest || manifest.hubId !== req.user!.hubId) throw new AppError('Esta viagem não pertence à sua unidade de origem.', 403);
+}
+
+router.post('/:id/reopen', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        await assertManifestPlanningAccess(req);
+        const { reason } = reasonSchema.parse(req.body);
+        const data = await reopenAcceptedManifest(req.params.id as string, req.user!.id, reason);
+        res.json({ success: true, data, message: 'Planejamento reaberto. Envie uma nova oferta após corrigir a viagem.' });
+    } catch (error) { next(error); }
+});
+
+router.post('/:id/cancel', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        await assertManifestPlanningAccess(req);
+        const { reason } = reasonSchema.parse(req.body);
+        const data = await cancelManifest(req.params.id as string, req.user!.id, reason);
+        res.json({ success: true, data, message: 'Viagem cancelada e retirada da lista operacional.' });
+    } catch (error) { next(error); }
+});
+
+router.delete('/:id', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        await assertManifestPlanningAccess(req);
+        await deleteEmptyManifest(req.params.id as string);
+        res.json({ success: true, message: 'Rascunho vazio excluído.' });
+    } catch (error) { next(error); }
+});
+
+router.post('/:id/corrections', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        await assertManifestPlanningAccess(req);
+        const input = reasonSchema.extend({ kind: z.enum(['ROUTE', 'STOP', 'VEHICLE', 'DRIVER']), after: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])) }).parse(req.body);
+        const data = await requestManifestCorrection({ manifestId: req.params.id as string, actorUserId: req.user!.id, ...input });
+        res.status(202).json({ success: true, data, message: 'Correção registrada para análise fiscal. Os documentos e a rota não foram alterados.' });
+    } catch (error) { next(error); }
+});
+
+// POST /api/manifests/:id/corrections/:correctionId/resolve — conclui a correção após a resposta dos provedores.
+router.post('/:id/corrections/:correctionId/resolve', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        await assertManifestPlanningAccess(req);
+        const input = z.object({
+            outcome: z.enum(['APPLIED', 'REJECTED', 'SUCCESSOR']),
+            note: z.string().trim().min(8, 'Descreva a conclusão em pelo menos 8 caracteres.').max(2000),
+        }).parse(req.body);
+        const data = await resolveManifestCorrection({ manifestId: req.params.id as string, correctionId: req.params.correctionId as string, actorUserId: req.user!.id, ...input });
+        const message = input.outcome === 'SUCCESSOR' ? 'Viagem sucessora aberta em rascunho, vinculada à original.'
+            : input.outcome === 'APPLIED' ? 'Correção concluída com os documentos regularizados.' : 'Correção descartada.';
+        res.json({ success: true, data, message });
+    } catch (error) {
+        if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
         next(error);
     }
 });
@@ -1201,27 +1278,12 @@ router.patch('/:id/assign', authenticate, async (req: AuthRequest, res: Response
             throw new AppError('Link not found or not approved', 404);
         }
 
-        const manifest = await prisma.manifest.update({
-            where: { id: id },
-            data: {
-                linkId,
-                status: 'PENDING_ACCEPT',
-                offeredAt: new Date(),
-            },
-            include: {
-                link: true,
-                vehicleType: true,
-                legs: {
-                    include: {
-                        order: {
-                            include: {
-                                demand: true
-                            }
-                        }
-                    }
-                },
-            }
-        });
+        const current = await prisma.manifest.findUnique({ where: { id } });
+        if (!current || current.status !== 'DRAFT') throw new AppError('Somente uma viagem em rascunho pode ser ofertada.', 409);
+        await prisma.manifest.update({ where: { id }, data: { linkId } });
+        const readiness = await getManifestReadiness(id);
+        if (!readiness.canOffer) throw new AppError('Resolva as pendências antes de ofertar a viagem.', 422);
+        const manifest = await publishManifestOffer(id);
 
         // TODO: Send WhatsApp notification to link
 
@@ -1391,6 +1453,7 @@ router.post('/:id/emit-mdfe', authenticate, authorize('ADMIN', 'HUB'), async (re
         if (req.user!.roles.includes('HUB') && req.user!.hubId && manifest.hubId !== req.user!.hubId) {
             throw new AppError('Not authorized', 403);
         }
+        if (manifest.status !== 'ACCEPTED') throw new AppError('Aceite a oferta antes de emitir o MDF-e desta viagem.', 409);
 
         const blocking = () => prisma.manifestFiscalDocument.findFirst({
             where: { manifestId: id, documentType: 'MDFE', status: { in: ['AUTHORIZED', 'SENT', 'READY'] } },
@@ -1459,9 +1522,10 @@ router.patch('/:id/driver', authenticate, authorize('ADMIN', 'HUB'), async (req:
             throw new AppError('Not authorized', 403);
         }
         if (!manifest.linkId) throw new AppError('Defina o Link (transportador) antes de definir o motorista.', 400);
+        if (manifest.status !== 'DRAFT') throw new AppError('Reabra o planejamento ou registre uma correção antes de trocar o motorista.', 409);
 
-        const driver = await prisma.driver.findUnique({ where: { id: driverId } });
-        if (!driver || driver.linkId !== manifest.linkId) {
+        const driver = await prisma.driver.findUnique({ where: { id: driverId }, include: { carriers: { where: { active: true }, select: { linkId: true } } } });
+        if (!driver || (driver.linkId !== manifest.linkId && !driver.carriers.some((carrier) => carrier.linkId === manifest.linkId))) {
             throw new AppError('Motorista não encontrado ou não pertence ao Link deste manifesto.', 404);
         }
 
@@ -1527,16 +1591,17 @@ router.post('/:id/emit-ciot', authenticate, authorize('ADMIN', 'HUB'), async (re
         }
         const body = emitCiotSchema.parse(req.body);
 
-        const manifest = await prisma.manifest.findUnique({ where: { id }, include: { link: { include: linkVehicleInclude }, driver: true, fiscalEmitter: { select: { efreteEnvironment: true } } } });
+        const manifest = await prisma.manifest.findUnique({ where: { id }, include: { link: { include: linkVehicleInclude }, driver: true, fiscalEmitter: { select: { efreteEnvironment: true } }, vehicleAssignments: manifestVehicleAssignmentsInclude } });
         if (!manifest) throw new AppError('Manifest not found', 404);
         if (req.user!.roles.includes('HUB') && req.user!.hubId && manifest.hubId !== req.user!.hubId) {
             throw new AppError('Not authorized', 403);
         }
+        if (manifest.status !== 'ACCEPTED') throw new AppError('Aceite a oferta antes de emitir o CIOT desta viagem.', 409);
 
         // Preflight — falhar cedo com mensagem clara em vez de deixar o job travar depois na eFrete.
         if (!manifest.driverId || !manifest.driver) throw new AppError('Defina o motorista da viagem antes de emitir o CIOT ("Definir Motorista").', 400);
         if (!manifest.link) throw new AppError('Manifesto sem Link (transportador) atribuído.', 400);
-        const composition = resolveComposition(manifest.link);
+        const composition = resolveManifestComposition(manifest);
         const contratadoRntrc = tractionRntrc(composition, manifest.link.rntrc);
         if (!contratadoRntrc || !manifest.link.carrierType) throw new AppError('Cadastre o RNTRC do cavalo e o tipo de transportador (TAC/ETC/CTC/FROTA) do Link antes de emitir o CIOT.', 400);
         const unitIssues = compositionIssues(composition);
@@ -1546,7 +1611,9 @@ router.post('/:id/emit-ciot', authenticate, authorize('ADMIN', 'HUB'), async (re
         if (!manifest.driver.cnhNumber || !manifest.driver.birthDate) throw new AppError('Motorista sem CNH/data de nascimento cadastrados.', 400);
 
         const readiness = await getManifestReadiness(id);
-        if (!readiness.canOffer) throw new AppError('A viagem ainda possui pendências para emissão do CIOT.', 400);
+        if (readiness.issues.some((issue) => issue.step !== 'fiscal' && issue.severity === 'blocking')) {
+            throw new AppError('A viagem ainda possui pendências operacionais para emissão do CIOT.', 400);
+        }
 
         const activeDoc = await prisma.manifestFiscalDocument.findFirst({ where: { manifestId: id, documentType: 'CIOT', status: 'AUTHORIZED' } });
         if (activeDoc) throw new AppError('Já existe um CIOT autorizado para este manifesto. Cancele antes de reemitir.', 409);

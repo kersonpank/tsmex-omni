@@ -1,6 +1,6 @@
 // components/manifest/VehicleFiscalSheet.tsx
 // Composição veicular por unidades: cada placa (cavalo e até 3 reboques) é uma Unidade de Veículo
-// reutilizável, buscada primeiro no cadastro mestre. Chassi, RENAVAM, eixos e RNTRC são obrigatórios por unidade.
+// reutilizável, buscada primeiro no cadastro mestre. Chassi, RENAVAM, eixos e responsável RNTRC (com o RNTRC dele) são obrigatórios por unidade.
 import React from 'react';
 import type { VehicleType } from '../../types/index';
 import VehicleUnitEditor from './VehicleUnitEditor';
@@ -84,7 +84,7 @@ const VehicleFiscalSheet: React.FC<Props> = ({ form, setForm, vehicleTypes, savi
         <h2 id="vehicle-title" className="text-xl font-bold text-tower-950 dark:text-tower-50">Composição veicular</h2>
         <p className="mt-2 text-sm leading-6 text-tower-600 dark:text-tower-300">
           Busque a placa no cadastro: a unidade já cadastrada é reaproveitada, sem digitar de novo. Cada unidade (cavalo e reboques)
-          precisa de chassi, RENAVAM, eixos e RNTRC para o CIOT e o MDF-e.
+          precisará de chassi, RENAVAM, eixos e responsável RNTRC antes da oferta e da emissão fiscal. Você pode salvar o cadastro com pendências.
         </p>
 
         <div className="mt-6 grid gap-4 sm:grid-cols-2">

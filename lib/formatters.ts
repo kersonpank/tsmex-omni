@@ -40,6 +40,28 @@ export function isCNPJ(v: string): boolean {
   return digitsOnly(v).length === 14;
 }
 
+export function isValidCPF(v: string): boolean {
+  const d = digitsOnly(v);
+  if (!/^\d{11}$/.test(d) || /^(\d)\1{10}$/.test(d)) return false;
+  for (const size of [9, 10]) {
+    const sum = [...d.slice(0, size)].reduce((total, digit, index) => total + Number(digit) * (size + 1 - index), 0);
+    const check = (sum * 10) % 11;
+    if (Number(d[size]) !== (check === 10 ? 0 : check)) return false;
+  }
+  return true;
+}
+
+export function isValidCNPJ(v: string): boolean {
+  const d = digitsOnly(v);
+  if (!/^\d{14}$/.test(d) || /^(\d)\1{13}$/.test(d)) return false;
+  for (const weights of [[5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2], [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]]) {
+    const sum = weights.reduce((total, weight, index) => total + Number(d[index]) * weight, 0);
+    const check = sum % 11 < 2 ? 0 : 11 - sum % 11;
+    if (Number(d[weights.length]) !== check) return false;
+  }
+  return true;
+}
+
 /** Formata telefone: (11) 99999-9999 celular, (11) 9999-9999 fixo */
 export function maskPhone(v: string): string {
   const d = digitsOnly(v).slice(0, 11);

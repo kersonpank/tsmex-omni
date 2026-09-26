@@ -14,6 +14,7 @@ import jwt from 'jsonwebtoken';
 import express from 'express';
 import prisma from '../lib/prisma.js';
 import { errorHandler } from '../middleware/errorHandler.js';
+import { cepIbgeLookup } from '../services/selectedCity.js';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -45,10 +46,10 @@ async function httpPostJson<T = unknown>(
 const LINK_A_ID = 'link-a';
 const LINK_B_ID = 'link-b';
 
-const CPF_NEW = '12345678901';        // no Person, no Driver
-const CPF_EXISTING_CLIENT = '99988877766'; // Person exists with full address (client)
-const CPF_EXISTING_NO_CEP = '55544433322'; // Person exists but cep is null
-const CPF_OTHER_LINK = '11122233344';  // Driver on LINK_B
+const CPF_NEW = '52998224725';        // no Person, no Driver
+const CPF_EXISTING_CLIENT = '11144477735'; // Person exists with full address (client)
+const CPF_EXISTING_NO_CEP = '39053344705'; // Person exists but cep is null
+const CPF_OTHER_LINK = '16899535009';  // Driver on LINK_B
 
 const BASE_ADDRESS = {
     cep: '01310-100',
@@ -146,6 +147,9 @@ describe('POST /api/links/:id/drivers — Person upsert', () => {
         personUpdate:     prisma.person.update,
         cityFindFirst:    (prisma as any).city?.findFirst,
         cityFindMany:     (prisma as any).city?.findMany,
+        transaction: prisma.$transaction,
+        driverCarrierUpsert: prisma.driverCarrier.upsert,
+        manifestFindFirst: prisma.manifest.findFirst,
     };
 
     before(async () => {
@@ -189,7 +193,8 @@ describe('POST /api/links/:id/drivers — Person upsert', () => {
         }) as unknown as typeof prisma.driver.create;
 
         prisma.driver.update = (async (args: any) => {
-            return { id: args.where.id ?? 'driver-updated', ...args.data };
+            const existing = Object.values(drivers).find((driver) => driver.id === args.where.id);
+            return { ...(existing ?? {}), id: args.where.id ?? 'driver-updated', ...args.data };
         }) as unknown as typeof prisma.driver.update;
 
         // ── person lookups ───────────────────────────────────────────────────
@@ -212,6 +217,17 @@ describe('POST /api/links/:id/drivers — Person upsert', () => {
             updatedPerson = { ...(existing ?? {}), ...args.data };
             return updatedPerson;
         }) as unknown as typeof prisma.person.update;
+
+        prisma.driverCarrier.upsert = (async (args: any) => ({ ...args.create, active: true })) as unknown as typeof prisma.driverCarrier.upsert;
+        prisma.manifest.findFirst = (async (args: any) => args.where?.linkId === LINK_A_ID && args.where?.hubId === 'hub-test' ? { id: 'manifest-hub' } : null) as unknown as typeof prisma.manifest.findFirst;
+        prisma.$transaction = (async (fn: any) => fn({
+            person: prisma.person,
+            driver: prisma.driver,
+            driverCarrier: { create: async (args: any) => args.data, upsert: prisma.driverCarrier.upsert },
+            personIndividualProfile: { upsert: async () => ({}) },
+            personContact: { deleteMany: async () => ({ count: 0 }), createMany: async () => ({ count: 0 }) },
+            personPaymentAccount: { findFirst: async () => null, create: async () => ({}) },
+        })) as unknown as typeof prisma.$transaction;
 
         // ── city (IBGE lookup) — not needed when cityIbgeCode is explicit ────
         // Mock to avoid DB calls even if code path reaches here unexpectedly
@@ -249,6 +265,9 @@ describe('POST /api/links/:id/drivers — Person upsert', () => {
         prisma.person.findUnique = original.personFindUnique;
         prisma.person.create     = original.personCreate;
         prisma.person.update     = original.personUpdate;
+        prisma.$transaction = original.transaction;
+        prisma.driverCarrier.upsert = original.driverCarrierUpsert;
+        prisma.manifest.findFirst = original.manifestFindFirst;
         if ((prisma as any).city) {
             (prisma as any).city.findFirst = original.cityFindFirst;
             (prisma as any).city.findMany  = original.cityFindMany;
@@ -289,7 +308,7 @@ describe('POST /api/links/:id/drivers — Person upsert', () => {
 
     // ── Test 2 ───────────────────────────────────────────────────────────────
 
-    it('POST same CPF already Driver on another Link → 409', async () => {
+    it('POST same CPF already Driver on another Link reuses the driver and creates association', async () => {
         const token = jwt.sign({ userId: 'admin-1' }, jwtSecret);
 
         const res = await httpPostJson<any>(
@@ -299,13 +318,9 @@ describe('POST /api/links/:id/drivers — Person upsert', () => {
             { ...BASE_DRIVER_PAYLOAD, document: CPF_OTHER_LINK },
         );
 
-        assert.equal(res.status, 409, `Expected 409, got ${res.status}: ${JSON.stringify(res.body)}`);
-        // Error message must name the owning link
-        const msg: string = res.body?.error ?? res.body?.message ?? '';
-        assert.ok(
-            msg.includes('Transportadora B'),
-            `Expected message to contain "Transportadora B", got: "${msg}"`,
-        );
+        assert.equal(res.status, 200, `Expected 200, got ${res.status}: ${JSON.stringify(res.body)}`);
+        assert.equal(res.body.data.id, 'driver-other-link');
+        assert.equal(res.body.data.linkId, LINK_B_ID);
     });
 
     // ── Test 3 ───────────────────────────────────────────────────────────────
@@ -431,17 +446,84 @@ describe('POST /api/links/:id/drivers — Person upsert', () => {
         assert.match(response.body.error, /não correspondem/);
     });
 
+    // ── Aceite do bug de cidade do motorista ────────────────────────────────
+    // A cidade gravada é exatamente a selecionada na busca; nada é resolvido por
+    // concatenação "Cidade - UF" nem pelo texto digitado.
+
+    it('aceite: endereço real salva cidade, UF e IBGE idênticos aos selecionados', async () => {
+        createdPerson = null;
+        const res = await httpPostJson<any>(baseUrl, `/api/links/${LINK_A_ID}/drivers`, jwt.sign({ userId: 'admin-1' }, jwtSecret), {
+            ...BASE_DRIVER_PAYLOAD, document: CPF_NEW,
+            address: { ...BASE_ADDRESS, cep: '01310-100', city: 'São Paulo', state: 'SP', cityIbgeCode: '3550308' },
+        });
+        assert.equal(res.status, 201, JSON.stringify(res.body));
+        const saved = createdPerson as any;
+        assert.deepEqual([saved.city, saved.state, saved.cityIbgeCode, saved.cep], ['São Paulo', 'SP', '3550308', '01310100']);
+    });
+
+    it('aceite: "São Paulo - SP" digitado sem seleção é rejeitado', async () => {
+        const res = await httpPostJson<any>(baseUrl, `/api/links/${LINK_A_ID}/drivers`, jwt.sign({ userId: 'admin-1' }, jwtSecret), {
+            ...BASE_DRIVER_PAYLOAD, address: { ...BASE_ADDRESS, city: 'São Paulo - SP', cityIbgeCode: undefined },
+        });
+        assert.equal(res.status, 400);
+    });
+
+    it('aceite: IBGE de São Paulo do Potengi com nome São Paulo é rejeitado', async () => {
+        const res = await httpPostJson<any>(baseUrl, `/api/links/${LINK_A_ID}/drivers`, jwt.sign({ userId: 'admin-1' }, jwtSecret), {
+            ...BASE_DRIVER_PAYLOAD, address: { ...BASE_ADDRESS, city: 'São Paulo', state: 'SP', cityIbgeCode: '2412609' },
+        });
+        assert.equal(res.status, 400);
+        assert.match(res.body.error, /não correspondem/);
+    });
+
+    it('aceite: São Paulo do Potengi selecionada com CEP da Av. Paulista (fora do cache) é rejeitada', async () => {
+        createdPerson = null;
+        const res = await httpPostJson<any>(baseUrl, `/api/links/${LINK_A_ID}/drivers`, jwt.sign({ userId: 'admin-1' }, jwtSecret), {
+            ...BASE_DRIVER_PAYLOAD, document: CPF_NEW,
+            address: { ...BASE_ADDRESS, cep: '01310-100', city: 'São Paulo do Potengi', state: 'RN', cityIbgeCode: '2412609' },
+        });
+        assert.equal(res.status, 400);
+        assert.match(res.body.error, /não corresponde ao CEP/);
+        assert.equal(createdPerson, null, 'nenhuma pessoa deve ser gravada com cidade divergente do CEP');
+    });
+
+    // ── Foto do motorista ───────────────────────────────────────────────────
+
+    it('foto: motorista de outro transportador → 404; formato inválido → 400', async () => {
+        const originalFindFirst = prisma.driver.findFirst;
+        prisma.driver.findFirst = (async (args: any) => (args.where.id === 'driver-a' ? { id: 'driver-a', personId: 'person-a' } : null)) as any;
+        try {
+            const token = jwt.sign({ userId: 'admin-1' }, jwtSecret);
+            const photo = { base64: 'aGVsbG8=', fileName: 'foto.jpg', mimeType: 'image/jpeg' };
+            const missing = await httpPostJson<any>(baseUrl, `/api/links/${LINK_A_ID}/drivers/driver-outro/photo`, token, photo);
+            assert.equal(missing.status, 404);
+            const invalid = await httpPostJson<any>(baseUrl, `/api/links/${LINK_A_ID}/drivers/driver-a/photo`, token, { ...photo, mimeType: 'application/pdf' });
+            assert.equal(invalid.status, 400);
+            assert.match(invalid.body.error, /JPG, PNG ou WEBP/);
+        } finally {
+            prisma.driver.findFirst = originalFindFirst;
+        }
+    });
+
 });
 
 const originalSelectedCity = prisma.city.findUnique;
 const originalSelectedCep = prisma.cEP.findUnique;
+const originalCepLookup = cepIbgeLookup.lookup;
+// CEPs fora do cache, como o ViaCEP responderia (sem rede no teste).
+const CEP_IBGE: Record<string, string> = { '01310100': '3550308', '04538133': '3550308', '13010111': '3509502' };
 // Canonical municipality/CEP boundary used by every address write.
 before(() => {
     prisma.city.findUnique = (async ({ where }: any) => {
         if (where.ibgeCode === '3550308') return { name: 'São Paulo', ibgeCode: '3550308', state: { code: 'SP' } };
         if (where.ibgeCode === '3509502') return { name: 'Campinas', ibgeCode: '3509502', state: { code: 'SP' } };
+        if (where.ibgeCode === '2412609') return { name: 'São Paulo do Potengi', ibgeCode: '2412609', state: { code: 'RN' } };
         return null;
     }) as any;
     prisma.cEP.findUnique = (async () => null) as any;
+    cepIbgeLookup.lookup = async (cep: string) => CEP_IBGE[cep] ?? null;
 });
-after(() => { prisma.city.findUnique = originalSelectedCity; prisma.cEP.findUnique = originalSelectedCep; });
+after(() => {
+    prisma.city.findUnique = originalSelectedCity; prisma.cEP.findUnique = originalSelectedCep;
+    cepIbgeLookup.lookup = originalCepLookup;
+});

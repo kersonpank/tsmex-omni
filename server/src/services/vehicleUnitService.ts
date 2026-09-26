@@ -12,15 +12,33 @@ import {
     normalizeChassi,
     normalizePlate,
     unitFieldIssues,
+    unitRntrc,
     type VehicleUnitRoleValue,
 } from './vehicleUnitRules.js';
+import { isValidCnpj, isValidCpf } from './documentValidation.js';
+
+const partySelect = {
+    select: {
+        id: true, document: true, legalName: true, state: true, rntrc: true,
+        cep: true, address: true, number: true, neighborhood: true, city: true, cityIbgeCode: true,
+    },
+} as const;
+
+/** Pessoas da unidade (proprietário do CRLV e responsável RNTRC) — toda leitura que resolve composição inclui. */
+export const vehicleUnitPartiesInclude = { ownerPerson: partySelect, rntrcHolderPerson: partySelect } as const;
 
 /** Include do Prisma para ler a composição de um Link (unidades do cavalo e dos reboques). */
 export const linkVehicleInclude = {
-    tractionUnit: true,
-    trailer1Unit: true,
-    trailer2Unit: true,
-    trailer3Unit: true,
+    tractionUnit: { include: vehicleUnitPartiesInclude },
+    trailer1Unit: { include: vehicleUnitPartiesInclude },
+    trailer2Unit: { include: vehicleUnitPartiesInclude },
+    trailer3Unit: { include: vehicleUnitPartiesInclude },
+} as const;
+
+/** Include das unidades escolhidas para a viagem, na ordem dos slots. */
+export const manifestVehicleAssignmentsInclude = {
+    orderBy: { slot: 'asc' },
+    include: { vehicleUnit: { include: vehicleUnitPartiesInclude } },
 } as const;
 
 const ROLE_LABEL: Record<VehicleUnitRoleValue, string> = { TRACTION: 'cavalo', TRAILER: 'reboque' };
@@ -50,6 +68,11 @@ export const vehicleUnitInputSchema = z.object({
     ownerPersonId: z.string().uuid().nullable().optional(),
     ownerDocument: z.string().nullable().optional(),
     ownerName: optionalText,
+    // Responsável RNTRC (quem responde na ANTT por esta unidade). `rntrc` acima é o número DELE.
+    rntrcHolderSameAsOwner: z.boolean().optional(),
+    rntrcHolderPersonId: z.string().uuid().nullable().optional(),
+    rntrcHolderDocument: z.string().nullable().optional(),
+    rntrcHolderName: optionalText,
     mdfeOwnerType: z.enum(['0', '1', '2']).nullable().optional(),
     licensedState: vehicleUf,
     ownerState: vehicleUf,
@@ -74,7 +97,6 @@ function toUnitData(input: VehicleUnitInput): Prisma.VehicleUnitUncheckedUpdateI
     if (input.tareKg !== undefined) data.tareKg = input.tareKg;
     if (input.capacityKg !== undefined) data.capacityKg = input.capacityKg;
     if (input.capacityM3 !== undefined) data.capacityM3 = input.capacityM3;
-    if (input.rntrc !== undefined) data.rntrc = input.rntrc ? digitsOnly(input.rntrc) : null;
     if (input.bodyType !== undefined) data.bodyType = input.bodyType;
     if (input.wheelType !== undefined) data.wheelType = input.wheelType;
     if (input.brand !== undefined) data.brand = text(input.brand);
@@ -90,7 +112,7 @@ function toUnitData(input: VehicleUnitInput): Prisma.VehicleUnitUncheckedUpdateI
 }
 
 /** Cria ou atualiza a unidade pela placa (identidade global). Papel diferente do cadastrado = conflito. */
-export async function upsertVehicleUnit(db: Db, role: VehicleUnitRoleValue, input: VehicleUnitInput) {
+export async function upsertVehicleUnit(db: Db, role: VehicleUnitRoleValue, input: VehicleUnitInput, context: UnitPartyContext = {}) {
     const plate = normalizePlate(input.plate);
     if (!isValidPlate(plate)) throw new AppError(`Placa ${input.plate} inválida: use 7 caracteres alfanuméricos.`, 400);
 
@@ -100,16 +122,73 @@ export async function upsertVehicleUnit(db: Db, role: VehicleUnitRoleValue, inpu
     }
 
     const data = toUnitData(input);
-    // Dono informado só por documento: vincula à Person quando ela já existe.
-    if (data.ownerDocument && input.ownerPersonId === undefined) {
-        const person = await db.person.findUnique({ where: { document: data.ownerDocument as string }, select: { id: true } });
-        if (person) data.ownerPersonId = person.id;
-    }
+    await applyUnitParties(db, input, data, existing, context);
 
+    const include = vehicleUnitPartiesInclude;
     if (existing) {
-        return Object.keys(data).length ? db.vehicleUnit.update({ where: { id: existing.id }, data }) : existing;
+        return Object.keys(data).length
+            ? db.vehicleUnit.update({ where: { id: existing.id }, data, include })
+            : db.vehicleUnit.findUniqueOrThrow({ where: { id: existing.id }, include });
     }
-    return db.vehicleUnit.create({ data: { ...(data as Prisma.VehicleUnitUncheckedCreateInput), plate, role } });
+    return db.vehicleUnit.create({ data: { ...(data as Prisma.VehicleUnitUncheckedCreateInput), plate, role }, include });
+}
+
+/** Contexto da gravação: o transportador (Link) é o responsável RNTRC quando a unidade não tem outro. */
+export interface UnitPartyContext {
+    defaultHolderPersonId?: string | null;
+}
+
+/** Pessoa pelo documento; cria o cadastro mínimo (documento + nome) quando ainda não existe. */
+async function findOrCreateParty(db: Db, rawDocument: string, name: string | null | undefined, label: string) {
+    const document = digitsOnly(rawDocument);
+    const valid = document.length === 11 ? isValidCpf(document) : document.length === 14 ? isValidCnpj(document) : false;
+    if (!valid) throw new AppError(`${label}: CPF ou CNPJ inválido.`, 400);
+    const person = await db.person.findUnique({ where: { document }, select: { id: true } });
+    if (person) return person.id;
+    if (!name?.trim()) throw new AppError(`${label}: informe o nome para cadastrar ${document.length === 11 ? 'o CPF' : 'o CNPJ'}.`, 400);
+    const created = await db.person.create({
+        data: { document, documentType: document.length === 11 ? 'CPF' : 'CNPJ', legalName: name.trim() },
+        select: { id: true },
+    });
+    return created.id;
+}
+
+/**
+ * Proprietário (CRLV) e responsável RNTRC da unidade, ambos como Person. O responsável é, por padrão,
+ * o proprietário (definido uma vez; depois só muda quando informado). O número do RNTRC é gravado na
+ * pessoa responsável — nunca sobrescreve um RNTRC diferente já cadastrado nela.
+ */
+async function applyUnitParties(
+    db: Db,
+    input: VehicleUnitInput,
+    data: Prisma.VehicleUnitUncheckedUpdateInput,
+    existing: { ownerPersonId: string | null; rntrcHolderPersonId: string | null } | null,
+    context: UnitPartyContext = {},
+) {
+    if (input.ownerPersonId === undefined && data.ownerDocument) {
+        data.ownerPersonId = await findOrCreateParty(db, data.ownerDocument as string, input.ownerName, 'Proprietário');
+    }
+    const ownerPersonId = (data.ownerPersonId !== undefined ? data.ownerPersonId : existing?.ownerPersonId) as string | null | undefined;
+
+    let holderId: string | null | undefined;
+    if (input.rntrcHolderSameAsOwner) holderId = ownerPersonId ?? null;
+    else if (input.rntrcHolderPersonId !== undefined) holderId = input.rntrcHolderPersonId;
+    else if (input.rntrcHolderDocument) holderId = await findOrCreateParty(db, input.rntrcHolderDocument, input.rntrcHolderName, 'Responsável RNTRC');
+    else if (!existing?.rntrcHolderPersonId && ownerPersonId) holderId = ownerPersonId; // padrão = proprietário
+    else if (!existing?.rntrcHolderPersonId && context.defaultHolderPersonId) holderId = context.defaultHolderPersonId; // sem proprietário: o transportador
+    if (holderId !== undefined) data.rntrcHolderPersonId = holderId;
+
+    const rntrc = input.rntrc ? digitsOnly(input.rntrc) : '';
+    if (!rntrc) return;
+    const effectiveHolderId = holderId !== undefined ? holderId : existing?.rntrcHolderPersonId ?? null;
+    if (!effectiveHolderId) throw new AppError('Informe o proprietário ou o responsável RNTRC antes de cadastrar o RNTRC.', 422);
+    const holder = await db.person.findUnique({ where: { id: effectiveHolderId }, select: { legalName: true, rntrc: true } });
+    if (!holder) throw new AppError('Responsável RNTRC não encontrado.', 404);
+    if (!holder.rntrc) {
+        await db.person.update({ where: { id: effectiveHolderId }, data: { rntrc } });
+    } else if (digitsOnly(holder.rntrc) !== rntrc) {
+        throw new AppError(`${holder.legalName} já tem o RNTRC ${holder.rntrc}. Se ${rntrc} é de outra pessoa, escolha-a como responsável RNTRC; se o cadastro está errado, corrija na ficha da pessoa.`, 409);
+    }
 }
 
 /**
@@ -124,12 +203,13 @@ export async function setLinkComposition(linkId: string, input: LinkCompositionI
     if (new Set(trailerPlates).size !== trailerPlates.length) throw new AppError('Há placas de reboque repetidas na composição.', 400);
 
     return prisma.$transaction(async (tx) => {
-        const link = await tx.link.findUnique({ where: { id: linkId }, select: { id: true } });
+        const link = await tx.link.findUnique({ where: { id: linkId }, select: { id: true, personId: true } });
         if (!link) throw new AppError('Link not found', 404);
 
-        const traction = await upsertVehicleUnit(tx, 'TRACTION', input.traction);
+        const context = { defaultHolderPersonId: link.personId };
+        const traction = await upsertVehicleUnit(tx, 'TRACTION', input.traction, context);
         const trailers = [];
-        for (const trailer of input.trailers) trailers.push(await upsertVehicleUnit(tx, 'TRAILER', trailer));
+        for (const trailer of input.trailers) trailers.push(await upsertVehicleUnit(tx, 'TRAILER', trailer, context));
 
         return tx.link.update({
             where: { id: linkId },
@@ -162,29 +242,26 @@ export async function searchVehicleUnits({ q, role, limit = 8 }: VehicleUnitSear
         },
         orderBy: { plate: 'asc' },
         take: Math.min(Math.max(limit, 1), 25),
-        include: { ownerPerson: { select: { id: true, legalName: true, document: true } } },
+        include: vehicleUnitPartiesInclude,
     });
-    return units.map((unit) => ({ ...unit, missingFields: unitFieldIssues(unit) }));
+    return units.map((unit) => ({ ...unit, rntrc: unitRntrc(unit), missingFields: unitFieldIssues(unit) }));
 }
 
 export async function getVehicleUnit(id: string) {
-    const unit = await prisma.vehicleUnit.findUnique({
-        where: { id },
-        include: { ownerPerson: { select: { id: true, legalName: true, document: true } } },
-    });
+    const unit = await prisma.vehicleUnit.findUnique({ where: { id }, include: vehicleUnitPartiesInclude });
     if (!unit) throw new AppError('Unidade de veículo não encontrada.', 404);
-    return { ...unit, missingFields: unitFieldIssues(unit) };
+    return { ...unit, rntrc: unitRntrc(unit), missingFields: unitFieldIssues(unit) };
 }
 
 /** Atualiza dados da unidade (a placa é a identidade e não muda; para outra placa, cadastre outra unidade). */
 export async function updateVehicleUnit(id: string, input: Omit<VehicleUnitInput, 'plate'>) {
-    const data = toUnitData({ plate: 'X', ...input });
-    if (!Object.keys(data).length) return getVehicleUnit(id);
-    try {
-        await prisma.vehicleUnit.update({ where: { id }, data });
-    } catch (error: any) {
-        if (error?.code === 'P2025') throw new AppError('Unidade de veículo não encontrada.', 404);
-        throw error;
-    }
+    await prisma.$transaction(async (tx) => {
+        const existing = await tx.vehicleUnit.findUnique({ where: { id }, select: { ownerPersonId: true, rntrcHolderPersonId: true } });
+        if (!existing) throw new AppError('Unidade de veículo não encontrada.', 404);
+        const unitInput = { plate: 'X', ...input };
+        const data = toUnitData(unitInput);
+        await applyUnitParties(tx, unitInput, data, existing);
+        if (Object.keys(data).length) await tx.vehicleUnit.update({ where: { id }, data });
+    });
     return getVehicleUnit(id);
 }

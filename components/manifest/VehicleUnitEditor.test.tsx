@@ -55,7 +55,7 @@ describe('VehicleUnitEditor', () => {
     type('REB2');
     await flush();
     fireEvent.click(await screen.findByRole('button', { name: /REB2B22/ }));
-    expect(screen.getByText('Falta: Chassi, RENAVAM, RNTRC')).toBeInTheDocument();
+    expect(screen.getByText('Falta: Chassi, RENAVAM, RNTRC do responsável')).toBeInTheDocument();
     expect(screen.getByLabelText(/Chassi\*/)).toBeInTheDocument();
     expect(screen.getByText(/valem para todas as viagens que usam esta placa/)).toBeInTheDocument();
   });
@@ -110,7 +110,7 @@ describe('VehicleUnitEditor', () => {
     expect(screen.getByTestId('draft')).not.toHaveTextContent('u-reb');
     type('NEW1A11');
     await flush();
-    expect(await screen.findByLabelText(/RNTRC\*/)).toHaveValue('555555555');
+    expect(await screen.findByLabelText(/RNTRC do responsável\*/)).toHaveValue('555555555');
   });
 
   it('reboque não oferece "Tipo de rodado" (só o cavalo)', async () => {
@@ -121,5 +121,13 @@ describe('VehicleUnitEditor', () => {
     await screen.findByLabelText(/Chassi\*/);
     expect(screen.queryByLabelText('Tipo de rodado')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Tipo de carroceria')).toBeInTheDocument();
+  });
+
+  it('responsável RNTRC "Outra pessoa" pede o documento e segue no payload; padrão acompanha o proprietário', async () => {
+    render(<Harness initial={{ ...emptyDraft('TRAILER'), plate: 'REB9Z99', chassi: '9BWZZZ377VT004999', renavam: '98765432109', axles: '3', rntrc: '12345678' }} />);
+    fireEvent.click(await screen.findByRole('radio', { name: 'Outra pessoa' }));
+    expect(screen.getByTestId('draft')).toHaveTextContent('"issues":["rntrc"]');
+    fireEvent.change(screen.getByLabelText('CPF / CNPJ do responsável'), { target: { value: '529.982.247-25' } });
+    expect(screen.getByTestId('draft')).toHaveTextContent('"issues":[]');
   });
 });

@@ -1,37 +1,34 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import bcrypt from 'bcryptjs';
-import { randomUUID } from 'node:crypto';
+import type { Prisma } from '@prisma/client';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { upsertPersonForDriver, upsertPersonForLinkOwner } from '../services/personRoleSync.js';
 import { linkCompositionSchema, linkVehicleInclude, setLinkComposition } from '../services/vehicleUnitService.js';
 import { normalizePlate, resolveComposition } from '../services/vehicleUnitRules.js';
+import { isValidCpf, isValidCnpj, documentDigits } from '../services/documentValidation.js';
+import { signLinkInvite } from '../services/linkInvite.js';
+import { getObjectDownloadUrl, uploadBase64Object } from '../lib/objectStorage.js';
 
 const router = Router();
 
-// POST /api/links - Admin/HUB direct creation (used by the manifest wizard's "+ Cadastrar
-// novo motorista" shortcut). Nasce já APPROVED/active — quem está criando (admin ou o
-// operador do hub) está validando o documento ali mesmo, mesmo padrão de authorize já usado
-// em /:id/fiscal, /:id/drivers e /:id/owner-person. Autocadastro do motorista
-// (LinkOnboardingWizard) continua passando por aprovação manual separada; essa rota não
-// substitui aquele fluxo.
+// Cadastro comercial de transportador: nasce pendente e sem usuário de aplicativo.
 const createLinkSchema = z.object({
     document: z.string().min(11),
     name: z.string().min(1),
     phone: z.string().min(8),
-    vehiclePlate: z.string().min(7).max(8),
-    vehicleTypeId: z.string().uuid(),
+    vehiclePlate: z.string().min(7).max(8).optional(),
+    vehicleTypeId: z.string().uuid().optional(),
     homeBase: z.string().optional(),
 });
 router.post('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const body = createLinkSchema.parse(req.body);
 
-        const normalizedDoc = body.document.replace(/\D/g, '');
-        if (normalizedDoc.length !== 11 && normalizedDoc.length !== 14) {
-            throw new AppError('Document must be CPF (11 digits) or CNPJ (14 digits)', 400);
+        const normalizedDoc = documentDigits(body.document);
+        if (!(normalizedDoc.length === 11 ? isValidCpf(normalizedDoc) : normalizedDoc.length === 14 && isValidCnpj(normalizedDoc))) {
+            throw new AppError('Informe um CPF ou CNPJ válido.', 400);
         }
 
         const existingLink = await prisma.link.findUnique({ where: { document: normalizedDoc } });
@@ -39,31 +36,25 @@ router.post('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthReques
             throw new AppError('Já existe um Link cadastrado com este CPF/CNPJ.', 409);
         }
 
-        const vehicleType = await prisma.vehicleType.findFirst({
-            where: { id: body.vehicleTypeId, active: true },
-            select: { id: true },
-        });
-        if (!vehicleType) {
-            throw new AppError('Tipo de veículo não encontrado ou inativo.', 400);
+        if (body.vehicleTypeId) {
+            const vehicleType = await prisma.vehicleType.findFirst({ where: { id: body.vehicleTypeId, active: true }, select: { id: true } });
+            if (!vehicleType) throw new AppError('Tipo de veículo não encontrado ou inativo.', 400);
         }
 
-        const normalizedPlate = body.vehiclePlate.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-        if (normalizedPlate.length !== 7) {
+        const normalizedPlate = body.vehiclePlate ? normalizePlate(body.vehiclePlate) : null;
+        if (normalizedPlate && normalizedPlate.length !== 7) {
             throw new AppError('Placa deve ter 7 caracteres alfanuméricos.', 400);
         }
 
-        // Link.userId é obrigatório (1:1 com User) — criamos uma conta placeholder;
-        // o motorista define login de verdade quando completar o próprio onboarding.
-        const placeholderEmail = `link-${randomUUID()}@tsmex.internal`;
-        const hashedPassword = await bcrypt.hash(randomUUID(), 10);
-
         const link = await prisma.$transaction(async (tx) => {
-            const user = await tx.user.create({
-                data: { email: placeholderEmail, password: hashedPassword, roles: ['LINK'], active: true },
+            const person = await tx.person.upsert({
+                where: { document: normalizedDoc },
+                create: { document: normalizedDoc, documentType: normalizedDoc.length === 11 ? 'CPF' : 'CNPJ', legalName: body.name.trim() },
+                update: {},
             });
             return tx.link.create({
                 data: {
-                    userId: user.id,
+                    personId: person.id,
                     name: body.name,
                     document: normalizedDoc,
                     phone: body.phone,
@@ -71,14 +62,14 @@ router.post('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthReques
                     vehicleTypeId: body.vehicleTypeId,
                     homeBase: body.homeBase || 'A completar',
                     coverageStates: [],
-                    approvalStatus: 'APPROVED',
-                    active: true,
+                    approvalStatus: 'PENDING',
+                    active: false,
                 },
                 include: { vehicleType: true },
             });
         });
 
-        res.status(201).json({ success: true, data: link, message: 'Link cadastrado e aprovado.' });
+        res.status(201).json({ success: true, data: link, message: 'Transportador cadastrado. Falta aprovação e convite de acesso antes da oferta.' });
     } catch (error) {
         if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
         next(error);
@@ -189,7 +180,6 @@ router.get('/drivers/search', authenticate, authorize('ADMIN', 'HUB'), async (re
         const drivers = await prisma.driver.findMany({
             where: {
                 active: true,
-                link: { active: true, approvalStatus: 'APPROVED' },
                 ...(query
                     ? {
                           OR: [
@@ -203,6 +193,7 @@ router.get('/drivers/search', authenticate, authorize('ADMIN', 'HUB'), async (re
                 link: {
                     include: { vehicleType: true },
                 },
+                carriers: { where: { active: true }, select: { linkId: true } },
             },
             orderBy: { name: 'asc' },
             take: 50,
@@ -214,6 +205,16 @@ router.get('/drivers/search', authenticate, authorize('ADMIN', 'HUB'), async (re
 });
 
 // GET /api/links/:id
+router.post('/:id/invite', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const link = await prisma.link.findUnique({ where: { id: req.params.id as string }, select: { id: true, userId: true, approvalStatus: true } });
+        if (!link) throw new AppError('Transportador não encontrado.', 404);
+        if (link.approvalStatus !== 'APPROVED') throw new AppError('Aprove o cadastro comercial antes de convidar o transportador.', 409);
+        if (link.userId) throw new AppError('O transportador já possui acesso ao aplicativo.', 409);
+        res.json({ success: true, data: { token: signLinkInvite(link.id), expiresInDays: 7 } });
+    } catch (error) { next(error); }
+});
+
 router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const id = req.params.id as string;
@@ -407,15 +408,9 @@ router.patch('/:id/approve', authenticate, authorize('ADMIN'), async (req: AuthR
         }
 
         const finalVehicleTypeId = vehicleTypeId ?? existing.vehicleTypeId;
-        if (!finalVehicleTypeId) {
-            throw new AppError('vehicleTypeId is required when approving a link that has no vehicle type assigned', 400);
-        }
-
-        const vt = await prisma.vehicleType.findFirst({
-            where: { id: finalVehicleTypeId, active: true },
-        });
-        if (!vt) {
-            throw new AppError('Vehicle type not found or inactive', 400);
+        if (finalVehicleTypeId) {
+            const vt = await prisma.vehicleType.findFirst({ where: { id: finalVehicleTypeId, active: true } });
+            if (!vt) throw new AppError('Vehicle type not found or inactive', 400);
         }
 
         const link = await prisma.link.update({
@@ -423,7 +418,7 @@ router.patch('/:id/approve', authenticate, authorize('ADMIN'), async (req: AuthR
             data: {
                 approvalStatus: 'APPROVED',
                 active: true,
-                vehicleTypeId: finalVehicleTypeId,
+                vehicleTypeId: finalVehicleTypeId ?? null,
             },
             include: {
                 vehicleType: true,
@@ -573,7 +568,7 @@ router.get('/:id/drivers', authenticate, authorize('ADMIN', 'HUB'), async (req: 
         const link = await prisma.link.findUnique({ where: { id } });
         if (!link) throw new AppError('Link not found', 404);
 
-        const drivers = await prisma.driver.findMany({ where: { linkId: id, active: true }, orderBy: { createdAt: 'asc' } });
+        const drivers = await prisma.driver.findMany({ where: { active: true, OR: [{ linkId: id }, { carriers: { some: { linkId: id, active: true } } }] }, orderBy: { createdAt: 'asc' } });
         res.json({ success: true, data: drivers });
     } catch (error) {
         next(error);
@@ -593,91 +588,133 @@ const addressSchema = z.object({
 
 const driverSchema = z.object({
     name: z.string().min(1),
-    document: z.string().min(11),
+    document: z.string().refine(isValidCpf, 'Informe um CPF válido para o motorista.'),
     phone: z.string().min(10, 'Informe o telefone do motorista com DDD (pelo menos 10 dígitos).'),
     birthDate: z.string().optional(),
     cnhNumber: z.string().optional(),
     cnhExpiry: z.string().optional(),
+    cnhRegistry: z.string().optional(),
+    cnhState: z.string().length(2).optional(),
+    cnhIssuedAt: z.string().optional(),
+    cnhFirstIssuedAt: z.string().optional(),
+    cnhCategory: z.string().max(5).optional(),
+    toxicologyExpiry: z.string().optional(),
+    blockedReason: z.string().max(2000).nullable().optional(),
+    birthCity: z.string().optional(),
+    birthState: z.string().length(2).optional(),
+    identityNumber: z.string().optional(),
+    maritalStatus: z.string().optional(),
+    pis: z.string().optional(),
+    notes: z.string().optional(),
+    contacts: z.array(z.object({ name: z.string().min(1), phone: z.string().optional(), email: z.string().email().optional(), relation: z.string().optional() })).optional(),
+    paymentAccount: z.object({ bankCode: z.string().optional(), accountType: z.string().optional(), agency: z.string().optional(), account: z.string().optional(), pixKey: z.string().optional() }).optional(),
     address: addressSchema.optional(),
     updatePersonAddress: z.boolean().optional(),
 });
 
+async function assertHubDriverLinkAccess(req: AuthRequest, linkId: string) {
+    if (req.user!.roles.includes('ADMIN')) return;
+    if (!req.user!.hubId) throw new AppError('Acesso à ficha do motorista não autorizado.', 404);
+    const assigned = await prisma.manifest.findFirst({
+        where: { linkId, hubId: req.user!.hubId }, select: { id: true },
+    });
+    if (!assigned) throw new AppError('Acesso à ficha do motorista não autorizado.', 404);
+}
+
+router.get('/:id/drivers/:driverId', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const { id, driverId } = req.params as { id: string; driverId: string };
+        await assertHubDriverLinkAccess(req, id);
+        const driver = await prisma.driver.findFirst({
+            where: { id: driverId, OR: [{ linkId: id }, { carriers: { some: { linkId: id, active: true } } }] },
+            include: { person: { include: { individualProfile: true, contacts: true, paymentAccounts: { where: { isPrimary: true } } } }, carriers: { where: { active: true } } },
+        });
+        if (!driver) throw new AppError('Motorista não encontrado para este transportador.', 404);
+        const photoKey = driver.person?.individualProfile?.photoStorageKey;
+        const photoUrl = photoKey ? await getObjectDownloadUrl(photoKey).catch(() => null) : null;
+        res.json({ success: true, data: { ...driver, photoUrl } });
+    } catch (error) { next(error); }
+});
+
+async function saveDriverDetails(tx: Prisma.TransactionClient, personId: string, driverId: string, body: Partial<z.infer<typeof driverSchema>>) {
+    const individual = {
+        birthCity: body.birthCity, birthState: body.birthState, identityNumber: body.identityNumber,
+        maritalStatus: body.maritalStatus, pis: body.pis, notes: body.notes,
+    };
+    if (Object.values(individual).some((value) => value !== undefined)) {
+        await tx.personIndividualProfile.upsert({ where: { personId }, create: { personId, ...individual }, update: individual });
+    }
+    if (body.contacts) {
+        await tx.personContact.deleteMany({ where: { personId } });
+        if (body.contacts.length) await tx.personContact.createMany({ data: body.contacts.map((contact) => ({ ...contact, personId })) });
+    }
+    if (body.paymentAccount) {
+        const current = await tx.personPaymentAccount.findFirst({ where: { personId, isPrimary: true } });
+        if (current) await tx.personPaymentAccount.update({ where: { id: current.id }, data: body.paymentAccount });
+        else await tx.personPaymentAccount.create({ data: { personId, ...body.paymentAccount, isPrimary: true } });
+    }
+    const driverFields = {
+        cnhRegistry: body.cnhRegistry, cnhState: body.cnhState, cnhCategory: body.cnhCategory,
+        cnhIssuedAt: body.cnhIssuedAt ? new Date(body.cnhIssuedAt) : undefined,
+        cnhFirstIssuedAt: body.cnhFirstIssuedAt ? new Date(body.cnhFirstIssuedAt) : undefined,
+        toxicologyExpiry: body.toxicologyExpiry ? new Date(body.toxicologyExpiry) : undefined,
+        blockedReason: body.blockedReason,
+    };
+    if (Object.values(driverFields).some((value) => value !== undefined)) {
+        await tx.driver.update({ where: { id: driverId }, data: driverFields });
+    }
+}
+
 router.post('/:id/drivers', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const id = req.params.id as string;
+        await assertHubDriverLinkAccess(req, id);
         const link = await prisma.link.findUnique({ where: { id } });
         if (!link) throw new AppError('Link not found', 404);
 
         const body = driverSchema.parse(req.body);
-        const normalizedDoc = body.document.replace(/\D/g, '');
+        const normalizedDoc = documentDigits(body.document);
 
         // Check if this CPF is already a Driver anywhere
         const existingDriver = await prisma.driver.findUnique({ where: { document: normalizedDoc } });
 
         if (existingDriver) {
-            if (existingDriver.linkId !== id) {
-                // CPF belongs to a driver on another Link — 409
-                const ownerLink = await prisma.link.findUnique({
-                    where: { id: existingDriver.linkId },
-                    select: { name: true },
+            // Reuse the canonical CPF across carriers; never reassign the legacy owner link.
+            const result = await prisma.$transaction(async (tx) => {
+                const personResult = await upsertPersonForDriver(normalizedDoc, body.name, body.address, body.updatePersonAddress, tx);
+                const driver = await tx.driver.update({
+                    where: { id: existingDriver.id },
+                    data: { name: personResult.notOverwritten.includes('legalName') ? existingDriver.name : body.name,
+                        phone: body.phone, ...(body.birthDate ? { birthDate: new Date(body.birthDate) } : {}),
+                        ...(body.cnhNumber !== undefined ? { cnhNumber: body.cnhNumber } : {}),
+                        ...(body.cnhExpiry ? { cnhExpiry: new Date(body.cnhExpiry) } : {}),
+                        ...(body.blockedReason !== undefined && body.blockedReason !== existingDriver.blockedReason ? { active: !Boolean(body.blockedReason) } : {}),
+                        personId: personResult.person.id },
+                    include: { person: true },
                 });
-                throw new AppError(
-                    `CPF já cadastrado como motorista do Link "${ownerLink?.name ?? existingDriver.linkId}".`,
-                    409,
-                );
-            }
-
-            // Same link — update the existing driver record
-            const { person, personAlreadyExists, notOverwritten } = await upsertPersonForDriver(
-                normalizedDoc,
-                body.name,
-                body.address,
-                body.updatePersonAddress,
-            );
-
-            const driver = await prisma.driver.update({
-                where: { id: existingDriver.id },
-                data: {
-                    name: body.name,
-                    phone: body.phone,
-                    ...(body.birthDate ? { birthDate: new Date(body.birthDate) } : {}),
-                    ...(body.cnhNumber !== undefined ? { cnhNumber: body.cnhNumber } : {}),
-                    ...(body.cnhExpiry ? { cnhExpiry: new Date(body.cnhExpiry) } : {}),
-                    personId: person.id,
-                },
-                include: { person: true },
+                await tx.driverCarrier.upsert({ where: { driverId_linkId: { driverId: driver.id, linkId: id } }, create: { driverId: driver.id, linkId: id }, update: { active: true } });
+                await saveDriverDetails(tx, personResult.person.id, driver.id, body);
+                return { driver, ...personResult };
             });
-
-            return res.json({ success: true, data: driver, personAlreadyExists, notOverwritten });
+            return res.json({ success: true, data: result.driver, personAlreadyExists: result.personAlreadyExists, notOverwritten: result.notOverwritten, message: 'Motorista reutilizado e associado ao transportador selecionado.' });
         }
 
         // New driver — address is required to create Person
-        if (!body.address) {
-            throw new AppError('Endereço é obrigatório para cadastrar um motorista.', 400);
-        }
-
-        const { person, personAlreadyExists, notOverwritten } = await upsertPersonForDriver(
-            normalizedDoc,
-            body.name,
-            body.address,
-            body.updatePersonAddress,
-        );
-
-        const driver = await prisma.driver.create({
-            data: {
-                linkId: id,
-                name: body.name,
-                document: normalizedDoc,
-                phone: body.phone,
-                birthDate: body.birthDate ? new Date(body.birthDate) : undefined,
-                cnhNumber: body.cnhNumber,
-                cnhExpiry: body.cnhExpiry ? new Date(body.cnhExpiry) : undefined,
-                personId: person.id,
-            },
-            include: { person: true },
+        const result = await prisma.$transaction(async (tx) => {
+            const personResult = await upsertPersonForDriver(normalizedDoc, body.name, body.address, body.updatePersonAddress, tx);
+            const driver = await tx.driver.create({
+                data: { linkId: id, name: body.name, document: normalizedDoc, phone: body.phone,
+                    active: !Boolean(body.blockedReason),
+                    birthDate: body.birthDate ? new Date(body.birthDate) : undefined,
+                    cnhNumber: body.cnhNumber, cnhExpiry: body.cnhExpiry ? new Date(body.cnhExpiry) : undefined,
+                    personId: personResult.person.id }, include: { person: true },
+            });
+            await tx.driverCarrier.create({ data: { driverId: driver.id, linkId: id } });
+            await saveDriverDetails(tx, personResult.person.id, driver.id, body);
+            return { driver, ...personResult };
         });
 
-        return res.status(201).json({ success: true, data: driver, personAlreadyExists, notOverwritten });
+        return res.status(201).json({ success: true, data: result.driver, personAlreadyExists: result.personAlreadyExists, notOverwritten: result.notOverwritten });
     } catch (error) {
         if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
         next(error);
@@ -687,49 +724,91 @@ router.post('/:id/drivers', authenticate, authorize('ADMIN', 'HUB'), async (req:
 router.patch('/:id/drivers/:driverId', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const { id, driverId } = req.params as { id: string; driverId: string };
+        await assertHubDriverLinkAccess(req, id);
         const existing = await prisma.driver.findUnique({ where: { id: driverId } });
-        if (!existing || existing.linkId !== id) throw new AppError('Driver not found for this link', 404);
+        if (!existing || (existing.linkId !== id && !await prisma.driverCarrier.findUnique({ where: { driverId_linkId: { driverId, linkId: id } } }))) throw new AppError('Driver not found for this link', 404);
 
         const body = driverSchema.partial().parse(req.body);
+        if (body.document && documentDigits(body.document) !== existing.document) throw new AppError('O CPF identifica a pessoa. Corrija o cadastro da pessoa antes de alterar o documento.', 409);
 
-        let personId = existing.personId;
-        let personAlreadyExists: boolean | undefined;
-        let notOverwritten: string[] | undefined;
-
-        if (body.address || (body.name && !existing.personId)) {
-            const docToUse = body.document
-                ? body.document.replace(/\D/g, '')
-                : existing.document;
-            const nameToUse = body.name ?? existing.name;
-            const result = await upsertPersonForDriver(docToUse, nameToUse, body.address, body.updatePersonAddress);
-            personId = result.person.id;
-            personAlreadyExists = result.personAlreadyExists;
-            notOverwritten = result.notOverwritten;
-        }
-
-        const driver = await prisma.driver.update({
-            where: { id: driverId },
-            data: {
-                ...(body.name !== undefined ? { name: body.name } : {}),
-                ...(body.document !== undefined ? { document: body.document.replace(/\D/g, '') } : {}),
-                ...(body.phone !== undefined ? { phone: body.phone } : {}),
-                ...(body.birthDate !== undefined ? { birthDate: new Date(body.birthDate) } : {}),
-                ...(body.cnhNumber !== undefined ? { cnhNumber: body.cnhNumber } : {}),
-                ...(body.cnhExpiry !== undefined ? { cnhExpiry: new Date(body.cnhExpiry) } : {}),
-                ...(personId !== existing.personId ? { personId } : {}),
-            },
-            include: { person: true },
+        const result = await prisma.$transaction(async (tx) => {
+            const personResult = body.address || (body.name && !existing.personId)
+                ? await upsertPersonForDriver(existing.document, body.name ?? existing.name, body.address, body.updatePersonAddress, tx)
+                : null;
+            const personId = personResult?.person.id ?? existing.personId;
+            const driver = await tx.driver.update({
+                where: { id: driverId },
+                data: {
+                    ...(body.name !== undefined ? { name: body.name } : {}),
+                    ...(body.phone !== undefined ? { phone: body.phone } : {}),
+                    ...(body.birthDate !== undefined ? { birthDate: new Date(body.birthDate) } : {}),
+                    ...(body.cnhNumber !== undefined ? { cnhNumber: body.cnhNumber } : {}),
+                    ...(body.cnhExpiry !== undefined ? { cnhExpiry: new Date(body.cnhExpiry) } : {}),
+                    ...(body.blockedReason !== undefined && body.blockedReason !== existing.blockedReason ? { active: !Boolean(body.blockedReason) } : {}),
+                    ...(personId !== existing.personId ? { personId } : {}),
+                },
+                include: { person: true },
+            });
+            if (personId) await saveDriverDetails(tx, personId, driverId, body);
+            return { driver, personResult };
         });
 
         res.json({
             success: true,
-            data: driver,
-            ...(personAlreadyExists !== undefined ? { personAlreadyExists, notOverwritten } : {}),
+            data: result.driver,
+            ...(result.personResult ? { personAlreadyExists: result.personResult.personAlreadyExists, notOverwritten: result.personResult.notOverwritten } : {}),
         });
     } catch (error) {
         if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
         next(error);
     }
+});
+
+// A foto é enviada por esta rota (nunca como storageKey livre no corpo da ficha), para que só
+// objetos gravados aqui, no prefixo do próprio motorista, possam ser vinculados ao cadastro.
+const driverPhotoSchema = z.object({
+    base64: z.string().min(1, 'Envie a imagem da foto.').max(7_000_000, 'A foto deve ter no máximo 5 MB.'),
+    fileName: z.string().min(1).max(200),
+    mimeType: z.string().regex(/^image\/(jpeg|png|webp)$/, 'A foto deve ser JPG, PNG ou WEBP.'),
+});
+
+router.post('/:id/drivers/:driverId/photo', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const { id, driverId } = req.params as { id: string; driverId: string };
+        await assertHubDriverLinkAccess(req, id);
+        const driver = await prisma.driver.findFirst({
+            where: { id: driverId, OR: [{ linkId: id }, { carriers: { some: { linkId: id, active: true } } }] },
+            select: { id: true, personId: true },
+        });
+        if (!driver) throw new AppError('Motorista não encontrado para este transportador.', 404);
+        if (!driver.personId) throw new AppError('Salve os dados pessoais do motorista antes de enviar a foto.', 409);
+
+        const body = driverPhotoSchema.parse(req.body);
+        const uploaded = await uploadBase64Object({ base64: body.base64, fileName: body.fileName, mimeType: body.mimeType, keyPrefix: `drivers/${driver.id}/photo` });
+        await prisma.personIndividualProfile.upsert({
+            where: { personId: driver.personId },
+            create: { personId: driver.personId, photoStorageKey: uploaded.storageKey },
+            update: { photoStorageKey: uploaded.storageKey },
+        });
+        res.status(201).json({ success: true, data: { photoUrl: uploaded.signedUrl } });
+    } catch (error) {
+        if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
+        next(error);
+    }
+});
+
+router.post('/:id/drivers/:driverId/associate', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const { id, driverId } = req.params as { id: string; driverId: string };
+        await assertHubDriverLinkAccess(req, id);
+        const [link, driver] = await Promise.all([
+            prisma.link.findUnique({ where: { id }, select: { id: true } }),
+            prisma.driver.findUnique({ where: { id: driverId }, select: { id: true, active: true } }),
+        ]);
+        if (!link || !driver?.active) throw new AppError('Transportador ou motorista não encontrado.', 404);
+        const association = await prisma.driverCarrier.upsert({ where: { driverId_linkId: { driverId, linkId: id } }, create: { driverId, linkId: id }, update: { active: true } });
+        res.json({ success: true, data: association, message: 'Motorista vinculado ao transportador para esta viagem.' });
+    } catch (error) { next(error); }
 });
 
 // PATCH /api/links/:id/owner-person - Vincula/cria a Person do próprio Link (endereço + IE do proprietário),

@@ -91,6 +91,13 @@ describe('manifestReadinessService', () => {
         assert.equal(r.canOffer, true);
     });
 
+    it('não oferece viagem antiga sem composição confirmada, mesmo com placa no transportador', async () => {
+        mockWith(undefined, undefined, { vehicleAssignments: [], compositionSnapshot: null });
+        const readiness = await getManifestReadiness('manifest-1');
+        assert.equal(readiness.canOffer, false);
+        assert.ok(readiness.issues.some((item) => item.code === 'VEHICLE_PLATE_PENDING'));
+    });
+
     // --- Driver address ---
 
     it('driver person null → DRIVER_ADDRESS_PENDING blocking, canOffer false', async () => {

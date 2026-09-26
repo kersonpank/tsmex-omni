@@ -6,8 +6,8 @@ import { requireSelectedIbge } from '../selectedCity.js';
 import { acbrFetchJson } from './acbrHttp.js';
 import { cleanIe } from './acbrCteMapper.js';
 import { calculateMdfeCheckDigit, generateCMdf, isDefinitiveMdfeRejection, reserveNextMdfeNumber } from './mdfeNumbering.js';
-import { linkVehicleInclude } from '../vehicleUnitService.js';
-import { compositionIssues, describeUnitIssues, resolveComposition } from '../vehicleUnitRules.js';
+import { linkVehicleInclude, manifestVehicleAssignmentsInclude } from '../vehicleUnitService.js';
+import { compositionIssues, describeUnitIssues, resolveManifestComposition } from '../vehicleUnitRules.js';
 import { buildMdfeVehicles } from './acbrMdfeVehicles.js';
 import { XMLParser } from 'fast-xml-parser';
 import { uploadBase64Object } from '../../lib/objectStorage.js';
@@ -130,7 +130,8 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
         include: {
             hub: { include: { person: true } },
             link: { include: linkVehicleInclude },
-            driver: true,
+            vehicleAssignments: manifestVehicleAssignmentsInclude,
+            driver: { include: { carriers: { where: { active: true }, select: { linkId: true } } } },
             fiscalEmitter: { include: { person: true } },
             tripStops: {
                 orderBy: { sequence: 'asc' },
@@ -141,7 +142,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
     if (!manifest?.hub?.person) {
         return { ok: false, error: 'Manifesto sem Hub com pessoa (CNPJ) para emitir MDF-e.' };
     }
-    const composition = manifest.link ? resolveComposition(manifest.link) : null;
+    const composition = manifest.link ? resolveManifestComposition(manifest) : null;
     if (!manifest.link || !composition?.traction) {
         return { ok: false, error: 'Manifesto sem Link com placa do veículo (obrigatório para MDF-e rodoviário).' };
     }
@@ -205,7 +206,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
     if (!emitIe || !emit.address?.trim() || !emit.number?.trim() || !emit.neighborhood?.trim() || !emit.city?.trim() || !emit.state?.trim() || emitCep.length !== 8) {
         return { ok: false, error: 'Complete IE, logradouro, número, bairro, cidade, UF e CEP reais do emitente antes de emitir MDF-e.' };
     }
-    if (!manifest.driver || manifest.driver.linkId !== manifest.linkId || digits(manifest.driver.document).length !== 11 || !manifest.driver.name.trim()) {
+    if (!manifest.driver || (manifest.driver.linkId !== manifest.linkId && !manifest.driver.carriers.some((carrier) => carrier.linkId === manifest.linkId)) || digits(manifest.driver.document).length !== 11 || !manifest.driver.name.trim()) {
         return { ok: false, error: 'Defina um motorista válido vinculado ao transportador para o MDF-e.' };
     }
     if (!Number.isFinite(manifest.totalValue) || manifest.totalValue <= 0 || !Number.isFinite(manifest.totalWeight) || manifest.totalWeight <= 0) {

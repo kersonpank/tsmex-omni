@@ -194,10 +194,37 @@ const VehicleUnitEditor: React.FC<Props> = ({ title, draft, onChange, onRemove, 
             <label htmlFor={fid('axles')} className="mb-2 block text-sm font-bold">Número de eixos*</label>
             <input id={fid('axles')} type="number" min={1} inputMode="numeric" value={draft.axles} onChange={(e) => set({ axles: e.target.value })} placeholder="Ex: 3" className={fieldClass} />
           </div>
-          <div>
-            <label htmlFor={fid('rntrc')} className="mb-2 block text-sm font-bold">RNTRC*</label>
-            <input id={fid('rntrc')} inputMode="numeric" value={draft.rntrc} onChange={(e) => set({ rntrc: e.target.value.replace(/\D/g, '') })} maxLength={9} placeholder="8 ou 9 dígitos" className={fieldClass} />
-          </div>
+          <fieldset className="rounded-xl border border-tower-200 p-3 sm:col-span-2 dark:border-tower-700">
+            <legend className="px-1 text-sm font-bold">Responsável RNTRC*</legend>
+            <p className="mb-3 text-xs text-tower-500">Quem responde na ANTT por esta placa no CIOT e no MDF-e. Pode ser diferente do proprietário do CRLV (frota agregada).</p>
+            <div role="radiogroup" aria-label="Responsável RNTRC" className="mb-3 flex flex-wrap gap-2">
+              {([['OWNER', draft.ownerDocument ? 'Mesmo do proprietário' : 'Transportador / proprietário'], ['OTHER', 'Outra pessoa']] as const).map(([mode, label]) => (
+                <button key={mode} type="button" role="radio" aria-checked={draft.rntrcHolderMode === mode}
+                  onClick={() => set(mode === 'OWNER' ? { rntrcHolderMode: 'OWNER', rntrcHolderDocument: '', rntrcHolderName: '' } : { rntrcHolderMode: 'OTHER' })}
+                  className={`admin-focus rounded-lg border px-3 py-2 text-sm font-semibold ${draft.rntrcHolderMode === mode ? 'border-brand-600 bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-200' : 'border-tower-300 text-tower-700 dark:border-tower-600 dark:text-tower-200'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {draft.rntrcHolderMode === 'OTHER' ? (
+                <>
+                  <div>
+                    <label htmlFor={fid('holder-doc')} className="mb-2 block text-sm font-bold">CPF / CNPJ do responsável</label>
+                    <input id={fid('holder-doc')} inputMode="numeric" value={draft.rntrcHolderDocument} onChange={(e) => set({ rntrcHolderDocument: e.target.value })} className={fieldClass} />
+                  </div>
+                  <div>
+                    <label htmlFor={fid('holder-name')} className="mb-2 block text-sm font-bold">Nome / razão social <span className="font-normal text-tower-500">(se ainda não cadastrado)</span></label>
+                    <input id={fid('holder-name')} value={draft.rntrcHolderName} onChange={(e) => set({ rntrcHolderName: e.target.value })} className={fieldClass} />
+                  </div>
+                </>
+              ) : null}
+              <div>
+                <label htmlFor={fid('rntrc')} className="mb-2 block text-sm font-bold">RNTRC do responsável*</label>
+                <input id={fid('rntrc')} inputMode="numeric" value={draft.rntrc} onChange={(e) => set({ rntrc: e.target.value.replace(/\D/g, '') })} maxLength={9} placeholder="8 ou 9 dígitos" className={fieldClass} />
+              </div>
+            </div>
+          </fieldset>
           <div>
             <label htmlFor={fid('tara')} className="mb-2 block text-sm font-bold">Tara real (kg) para MDF-e</label>
             <input id={fid('tara')} type="number" min={1} inputMode="numeric" value={draft.tareKg} onChange={(e) => set({ tareKg: e.target.value })} className={fieldClass} />
@@ -237,7 +264,7 @@ const VehicleUnitEditor: React.FC<Props> = ({ title, draft, onChange, onRemove, 
           </div>
           <details className="rounded-xl border border-tower-200 p-3 sm:col-span-2 dark:border-tower-700">
             <summary className="admin-focus cursor-pointer list-none rounded-lg text-sm font-bold text-brand-700 dark:text-brand-300">
-              + Proprietário desta unidade, se diferente do responsável
+              + Proprietário do CRLV, se diferente do transportador
             </summary>
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <div>
@@ -249,7 +276,7 @@ const VehicleUnitEditor: React.FC<Props> = ({ title, draft, onChange, onRemove, 
                 <input id={fid('owner-doc')} inputMode="numeric" value={draft.ownerDocument} onChange={(e) => set({ ownerDocument: e.target.value })} className={fieldClass} />
               </div>
               <div className="sm:col-span-2">
-                <label htmlFor={fid('owner-mdfe-type')} className="mb-2 block text-sm font-bold">Vínculo do proprietário no MDF-e</label>
+                <label htmlFor={fid('owner-mdfe-type')} className="mb-2 block text-sm font-bold">Vínculo do responsável RNTRC no MDF-e</label>
                 <select id={fid('owner-mdfe-type')} value={draft.mdfeOwnerType} onChange={(e) => set({ mdfeOwnerType: e.target.value })} className={fieldClass}>
                   <option value="">Selecione quando o veículo não pertence ao emitente</option>
                   <option value="0">TAC agregado</option>
@@ -258,7 +285,7 @@ const VehicleUnitEditor: React.FC<Props> = ({ title, draft, onChange, onRemove, 
                 </select>
               </div>
               <div>
-                <label htmlFor={fid('owner-state')} className="mb-2 block text-sm font-bold">UF do proprietário no MDF-e</label>
+                <label htmlFor={fid('owner-state')} className="mb-2 block text-sm font-bold">UF do responsável RNTRC, se não cadastrada na pessoa</label>
                 <select id={fid('owner-state')} value={draft.ownerState} onChange={(e) => set({ ownerState: e.target.value })} className={fieldClass}>
                   <option value="">Selecione a UF real</option>
                   {UF_OPTIONS.map((uf) => <option key={uf} value={uf}>{uf}</option>)}

@@ -1,8 +1,9 @@
 import type { ManifestStatus } from '@prisma/client';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { linkVehicleInclude } from './vehicleUnitService.js';
-import { compositionIssues, describeUnitIssues, resolveComposition, type VehicleUnitField } from './vehicleUnitRules.js';
+import type { PlanningActions } from './manifestPlanningChanges.js';
+import { linkVehicleInclude, manifestVehicleAssignmentsInclude } from './vehicleUnitService.js';
+import { compositionIssues, describeUnitIssues, resolveManifestComposition, tractionHolderDiffersFromCarrier, type VehicleUnitField } from './vehicleUnitRules.js';
 
 export type ManifestJourneyStep =
     | 'route'
@@ -30,6 +31,8 @@ export interface ManifestReadiness {
     currentStep: ManifestJourneyStep;
     steps: Record<ManifestJourneyStep, { state: ManifestStepState; issues: ManifestReadinessIssue[] }>;
     issues: ManifestReadinessIssue[];
+    /** Só para ADMIN/HUB (anexado pela rota): o que dá para fazer com a viagem agora e por quê. */
+    planningActions?: PlanningActions;
 }
 
 const planningSteps: ManifestJourneyStep[] = [
@@ -56,7 +59,7 @@ const TRACTION_FIELD_ISSUES: Record<VehicleUnitField, { code: string; message: s
     plate: { code: 'VEHICLE_PLATE_PENDING', message: 'Placa do cavalo obrigatória para emissão do CIOT.', field: 'vehiclePlate' },
     chassi: { code: 'VEHICLE_CHASSI_PENDING', message: 'Chassi do veículo obrigatório para emissão do CIOT.', field: 'vehicleChassi' },
     axles: { code: 'VEHICLE_AXLES_PENDING', message: 'Número de eixos obrigatório para cálculo de piso ANTT.', field: 'vehicleAxles' },
-    rntrc: { code: 'VEHICLE_RNTRC_PENDING', message: 'RNTRC do veículo obrigatório para emissão do CIOT.', field: 'rntrc' },
+    rntrc: { code: 'VEHICLE_RNTRC_PENDING', message: 'Defina o responsável RNTRC do cavalo e o RNTRC dele — obrigatório para CIOT e MDF-e.', field: 'rntrc' },
     renavam: { code: 'VEHICLE_RENAVAM_PENDING', message: 'RENAVAM do veículo obrigatório para emissão do CIOT e MDF-e.', field: 'vehicleRenavam' },
 };
 
@@ -68,10 +71,13 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
     const manifest = await prisma.manifest.findUnique({
         where: { id: manifestId },
         include: {
+            vehicleAssignments: manifestVehicleAssignmentsInclude,
             vehicleType: { select: { id: true, active: true } },
             link: {
                 select: {
                     id: true,
+                    userId: true,
+                    personId: true,
                     approvalStatus: true,
                     rntrc: true,
                     carrierType: true,
@@ -90,6 +96,7 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
                 select: {
                     id: true,
                     linkId: true,
+                    carriers: { where: { active: true }, select: { linkId: true } },
                     cnhNumber: true,
                     cnhExpiry: true,
                     birthDate: true,
@@ -168,9 +175,10 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
     } else if (manifest.link.approvalStatus !== 'APPROVED') {
         add(issue('responsible', 'LINK_NOT_APPROVED', 'O responsável selecionado ainda não está aprovado.', 'linkId'));
     } else {
+        if (manifest.link.userId === null) add(issue('responsible', 'LINK_ACCESS_PENDING', 'Convide o transportador para receber e aceitar a oferta no aplicativo.', 'linkId'));
         // Pendência só aparece quando a Unidade de Veículo realmente não tem o dado — cada unidade
         // (cavalo e reboques) carrega chassi, RENAVAM, eixos e RNTRC obrigatórios.
-        const composition = resolveComposition(manifest.link);
+        const composition = resolveManifestComposition(manifest);
         for (const unitIssue of compositionIssues(composition)) {
             if (unitIssue.unit === 'TRAILER') {
                 add(issue('responsible', 'TRAILER_UNIT_PENDING', `Reboque ${unitIssue.plate}: complete ${describeUnitIssues(unitIssue)}.`, `trailerUnit:${unitIssue.plate}`));
@@ -186,16 +194,29 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
                 add(issue('fiscal', 'MDFE_VEHICLE_CAPACITY_PENDING', `Informe tara e capacidade em kg reais para ${unit.plate}.`, `vehicleUnit:${unit.plate}`, manifest.status === 'ACCEPTED' ? 'blocking' : 'warning'));
             }
         }
-        const lp = manifest.link.person;
-        if (!lp?.neighborhood || !lp?.cep || !lp?.address || !lp?.number || !(lp?.city && lp?.state && lp?.cityIbgeCode)) {
-            add(issue('responsible', 'LINK_PERSON_ADDRESS_PENDING', 'Endereço do proprietário (Link) incompleto para Gravar Proprietário.', 'linkPersonAddress'));
+        const addressComplete = (p: { neighborhood?: string | null; cep?: string | null; address?: string | null; number?: string | null; city?: string | null; state?: string | null; cityIbgeCode?: string | null } | null | undefined) =>
+            Boolean(p?.neighborhood && p.cep && p.address && p.number && p.city && p.state && p.cityIbgeCode);
+        if (composition.traction?.rntrcHolder !== undefined) {
+            // eFrete grava como Proprietário cada responsável RNTRC da composição, com o endereço dele.
+            const holders = new Map((manifest.vehicleAssignments ?? []).flatMap((a) => (a.vehicleUnit.rntrcHolderPerson ? [[a.vehicleUnit.rntrcHolderPerson.id, a.vehicleUnit.rntrcHolderPerson] as const] : [])));
+            for (const holder of holders.values()) {
+                if (!addressComplete(holder)) add(issue('responsible', 'RNTRC_HOLDER_ADDRESS_PENDING', `Endereço de ${holder.legalName} (responsável RNTRC) incompleto para Gravar Proprietário na eFrete.`, `rntrcHolder:${holder.id}`));
+            }
+            if (tractionHolderDiffersFromCarrier(composition, manifest.link.personId)) {
+                add(issue('responsible', 'RNTRC_HOLDER_NOT_CARRIER', `O CIOT sairá no RNTRC de ${composition.traction!.rntrcHolder!.name}, responsável pelo cavalo, e não do transportador que recebe a oferta. Confirme que é frota agregada.`, 'rntrcHolder', 'warning'));
+            }
+        } else {
+            const lp = manifest.link.person;
+            if (!addressComplete(lp)) {
+                add(issue('responsible', 'LINK_PERSON_ADDRESS_PENDING', 'Endereço do proprietário (Link) incompleto para Gravar Proprietário.', 'linkPersonAddress'));
+            }
         }
     }
     if (!manifest.driverId || !manifest.driver) {
         add(issue('responsible', 'DRIVER_REQUIRED', 'Complete os dados fiscais do motorista responsável.', 'driverId'));
     } else if (manifest.driver.active === false) {
         add(issue('responsible', 'DRIVER_REQUIRED', 'O motorista está inativo. Selecione um motorista ativo.', 'driverId'));
-    } else if (manifest.driver.linkId !== manifest.linkId) {
+    } else if (manifest.driver.linkId !== manifest.linkId && !(manifest.driver.carriers ?? []).some((carrier) => carrier.linkId === manifest.linkId)) {
         add(issue('responsible', 'DRIVER_LINK_MISMATCH', 'Os dados fiscais não pertencem ao responsável selecionado.', 'driverId'));
     } else {
         if (!manifest.driver.cnhNumber) {

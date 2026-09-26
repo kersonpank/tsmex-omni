@@ -5,6 +5,7 @@ import { z } from 'zod';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
+import { verifyLinkInvite } from '../services/linkInvite.js';
 
 const router = Router();
 
@@ -323,6 +324,29 @@ const register = async (req: AuthRequest, res: Response, next: NextFunction) => 
 
 router.post('/register', register);
 router.post('/provision', authenticate, authorize('ADMIN'), register);
+
+router.post('/claim-link', async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const data = z.object({ token: z.string().min(1), email: z.string().trim().toLowerCase().email(), password: z.string().min(6) }).parse(req.body);
+        const linkId = verifyLinkInvite(data.token);
+        const existing = await prisma.user.findUnique({ where: { email: data.email }, include: { link: true } });
+        if (existing && (!await bcrypt.compare(data.password, existing.password) || existing.link)) {
+            throw new AppError('Esta conta já existe. Confirme a senha correta ou use outro email sem perfil Link.', 409);
+        }
+        const hashedPassword = existing ? undefined : await bcrypt.hash(data.password, 10);
+        const user = await prisma.$transaction(async (tx) => {
+            const link = await tx.link.findUnique({ where: { id: linkId }, select: { userId: true } });
+            if (!link || link.userId) throw new AppError('Convite já utilizado ou transportador não encontrado.', 409);
+            const claimedUser = existing
+                ? await tx.user.update({ where: { id: existing.id }, data: { roles: { set: [...new Set([...existing.roles, 'LINK' as const])] } } })
+                : await tx.user.create({ data: { email: data.email, password: hashedPassword!, roles: ['LINK'] } });
+            const claimed = await tx.link.updateMany({ where: { id: linkId, userId: null }, data: { userId: claimedUser.id } });
+            if (claimed.count !== 1) throw new AppError('Convite já utilizado.', 409);
+            return claimedUser;
+        });
+        res.status(201).json({ success: true, data: { user: { id: user.id, email: user.email, roles: user.roles }, token: generateToken(user.id), linkId } });
+    } catch (error) { next(error); }
+});
 
 // POST /api/auth/login
 router.post('/login', async (req, res: Response, next: NextFunction) => {

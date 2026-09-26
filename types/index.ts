@@ -432,14 +432,17 @@ export interface VehicleUnit {
     mdfeOwnerType?: '0' | '1' | '2' | null;
     licensedState?: string | null;
     ownerState?: string | null;
-    ownerPerson?: { id: string; legalName: string; document: string } | null;
+    ownerPerson?: { id: string; legalName: string; document: string; state?: string | null; rntrc?: string | null } | null;
+    /** Responsável RNTRC (quem responde na ANTT por esta unidade); o RNTRC efetivo é o dele. */
+    rntrcHolderPersonId?: string | null;
+    rntrcHolderPerson?: { id: string; legalName: string; document: string; state?: string | null; rntrc?: string | null } | null;
     /** Pendências reais da unidade (vazio = pronta para CIOT/MDF-e). Calculado pelo servidor. */
     missingFields?: Array<{ field: VehicleUnitField; label: string; reason: 'missing' | 'invalid' }>;
 }
 
 export interface Link {
     id: string;
-    userId: string;
+    userId: string | null;
     personId?: string;
     person?: Person;
     name: string;
@@ -448,7 +451,7 @@ export interface Link {
     email?: string;
     vehicleTypeId?: string;
     vehicleType?: VehicleType;
-    vehiclePlate: string;
+    vehiclePlate: string | null;
     vehicleYear?: number | null;
     trailerPlate?: string | null;
     trailer2Plate?: string | null;
@@ -483,16 +486,29 @@ export interface Link {
 
 export interface Driver {
     id: string;
-    linkId: string;
+    linkId: string | null;
     name: string;
     document: string;
     phone: string;
     birthDate?: string | null;
     cnhNumber?: string | null;
     cnhExpiry?: string | null;
+    cnhRegistry?: string | null;
+    cnhState?: string | null;
+    cnhIssuedAt?: string | null;
+    cnhFirstIssuedAt?: string | null;
+    cnhCategory?: string | null;
+    toxicologyExpiry?: string | null;
+    blockedReason?: string | null;
+    carriers?: Array<{ linkId: string; active: boolean }>;
+    /** URL assinada e temporária da foto (só no detalhe do motorista). */
+    photoUrl?: string | null;
     active: boolean;
     link?: Link;
     person?: {
+        individualProfile?: { birthCity?: string | null; birthState?: string | null; identityNumber?: string | null; maritalStatus?: string | null; pis?: string | null; notes?: string | null; photoStorageKey?: string | null } | null;
+        contacts?: Array<{ name: string; phone?: string | null; email?: string | null; relation?: string | null }>;
+        paymentAccounts?: Array<{ bankCode?: string | null; accountType?: string | null; agency?: string | null; account?: string | null; pixKey?: string | null }>;
         cep?: string | null;
         address?: string | null;
         number?: string | null;
@@ -637,6 +653,13 @@ export interface TripPriceEstimate {
 
 export interface Manifest {
     id: string;
+    vehicleAssignments?: Array<{ slot: number; vehicleUnit: VehicleUnit }>;
+    compositionSnapshot?: unknown;
+    firstOfferedAt?: string | null;
+    creationAuditComplete?: boolean;
+    archivedAt?: string | null;
+    corrections?: Array<{ id: string; kind: string; reason: string; after: Record<string, unknown>; status: 'PENDING_FISCAL' | 'APPLIED' | 'REJECTED'; fiscalImpact?: string | null; successorManifestId?: string | null; resolvedAt?: string | null; createdAt: string }>;
+    cancelledLegs?: Array<{ id: string; orderId: string; legData: Record<string, unknown>; createdAt: string }>;
     tripType?: ManifestTripType;
     destHubId?: string;
     destHub?: Hub;
@@ -716,7 +739,11 @@ export interface ManifestReadiness {
     currentStep: ManifestJourneyStep;
     steps: Record<ManifestJourneyStep, { state: ManifestStepState; issues: ManifestReadinessIssue[] }>;
     issues: ManifestReadinessIssue[];
+    /** Só para ADMIN/HUB: o que dá para fazer com a viagem agora e por quê. */
+    planningActions?: Record<ManifestPlanningAction, { allowed: boolean; reason?: string }>;
 }
+
+export type ManifestPlanningAction = 'editPlanning' | 'withdrawOffer' | 'reopen' | 'cancel' | 'delete' | 'requestCorrection';
 
 export interface OrderListItem {
     id: string;

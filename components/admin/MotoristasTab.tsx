@@ -76,10 +76,6 @@ const MotoristasTab: React.FC = () => {
 
   const handleApprove = async (id: string, link: Link) => {
     const vehicleTypeId = approveVehicleTypeId[id] ?? link.vehicleTypeId;
-    if (!vehicleTypeId) {
-      alert('Selecione o tipo de veículo antes de aprovar.');
-      return;
-    }
     setActionLoading(id);
     try {
       await linksApi.approve(id, { vehicleTypeId });
@@ -90,6 +86,18 @@ const MotoristasTab: React.FC = () => {
     } finally {
       setActionLoading(null);
     }
+  };
+
+  const handleInvite = async (link: Link) => {
+    setActionLoading(link.id);
+    try {
+      const response = await linksApi.invite(link.id);
+      const url = `${window.location.origin}/#/claim-link?token=${encodeURIComponent(response.data.token)}`;
+      await navigator.clipboard.writeText(url);
+      setError(null);
+      alert('Convite copiado. Envie o link ao transportador pelo canal combinado; ele expira em 7 dias.');
+    } catch (e: any) { setError(e.response?.data?.error || e.message || 'Não foi possível copiar o convite.'); }
+    finally { setActionLoading(null); }
   };
 
   const handleReject = async (id: string) => {
@@ -108,7 +116,7 @@ const MotoristasTab: React.FC = () => {
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
-        <h2 className="text-lg font-bold text-tower-700 dark:text-tower-200">Motoristas (Links)</h2>
+        <h2 className="text-lg font-bold text-tower-700 dark:text-tower-200">Transportadores</h2>
       </div>
       {gestaoFilterOpen && (
         <div className="mb-4 rounded-xl border border-tower-200 bg-white p-4 dark:border-tower-600 dark:bg-tower-800">
@@ -136,7 +144,7 @@ const MotoristasTab: React.FC = () => {
       {loading ? (
         <div className="py-12 text-center text-tower-500">Carregando...</div>
       ) : links.length === 0 ? (
-        <div className="bg-white border-2 border-dashed border-tower-200 rounded-xl p-12 text-center text-tower-500">Nenhum motorista cadastrado.</div>
+        <div className="bg-white border-2 border-dashed border-tower-200 rounded-xl p-12 text-center text-tower-500">Nenhum transportador cadastrado.</div>
       ) : filteredLinks.length === 0 ? (
         <div className="bg-white border-2 border-dashed border-tower-200 rounded-xl p-12 text-center text-tower-500">Nenhum motorista nesta visão.</div>
       ) : (
@@ -189,6 +197,9 @@ const MotoristasTab: React.FC = () => {
                         <button type="button" disabled={!!actionLoading} onClick={() => handleApprove(link.id, link)} className="text-brand-600 hover:text-brand-800 text-sm font-medium mr-3">Aprovar</button>
                         <button type="button" disabled={!!actionLoading} onClick={() => handleReject(link.id)} className="text-red-600 hover:text-red-800 text-sm font-medium">Recusar</button>
                       </>
+                    )}
+                    {link.approvalStatus === 'APPROVED' && !link.userId && (
+                      <button type="button" disabled={!!actionLoading} onClick={() => void handleInvite(link)} className="text-brand-600 hover:text-brand-800 text-sm font-medium">Copiar convite de acesso</button>
                     )}
                   </td>
                 </tr>

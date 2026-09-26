@@ -21,7 +21,10 @@ done
 
 MODE=${MIGRATE_MODE:-deploy}
 if [ "$MODE" = "deploy" ]; then
+  node --import tsx prisma/report-pre-migration.ts
   npx prisma migrate deploy
+  # Auditoria somente leitura do responsável RNTRC por unidade (não bloqueia o deploy).
+  node --import tsx prisma/report-rntrc-holders.ts || echo "Aviso: relatório RNTRC não pôde ser gerado."
 elif [ "$MODE" = "reset" ]; then
   # PERIGO: apaga TODOS os dados e recria o schema do zero.
   # Usar APENAS em staging/dev quando o DB esta sujo (ex: veio de db push sem historico).

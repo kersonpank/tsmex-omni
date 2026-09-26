@@ -1,8 +1,7 @@
 /**
  * POST /api/links — ADMIN-only direct Link creation (used by the manifest wizard's
- * "+ Cadastrar novo motorista" shortcut). Nasce já APPROVED/active — decisão confirmada:
- * é o próprio admin validando o documento ali, diferente do autocadastro (LinkOnboardingWizard),
- * que continua exigindo aprovação manual separada.
+ * "+ Cadastrar transportador" shortcut. Cadastro comercial e acesso ao aplicativo
+ * são separados: nasce pendente, sem usuário provisório.
  */
 
 import assert from 'node:assert/strict';
@@ -32,7 +31,7 @@ const VEHICLE_TYPE_ACTIVE = '11111111-1111-4111-8111-111111111111';
 const VEHICLE_TYPE_INACTIVE = '22222222-2222-4222-8222-222222222222';
 
 const CNPJ_NEW = '11222333000181';
-const CNPJ_TAKEN = '99888777000166';
+const CNPJ_TAKEN = '11444777000161';
 
 const existingLinks: Record<string, Record<string, unknown>> = {
     [CNPJ_TAKEN]: { id: 'link-existing', document: CNPJ_TAKEN },
@@ -102,12 +101,7 @@ describe('POST /api/links', () => {
 
         prisma.$transaction = (async (fn: any) => {
             const tx = {
-                user: {
-                    create: async (args: any) => {
-                        createdUser = { id: 'user-new', ...args.data };
-                        return createdUser;
-                    },
-                },
+                person: { upsert: async (args: any) => ({ id: 'person-new', ...args.create }) },
                 link: {
                     create: async (args: any) => {
                         createdLink = { id: 'link-new', ...args.data };
@@ -144,16 +138,16 @@ describe('POST /api/links', () => {
         createdLink = null;
     });
 
-    it('creates a Link already APPROVED and active (201)', async () => {
+    it('creates a pending transporter without provisional user (201)', async () => {
         const token = jwt.sign({ userId: 'admin-1' }, jwtSecret);
         const res = await httpPostJson<any>(baseUrl, '/api/links', token, BASE_PAYLOAD);
 
         assert.equal(res.status, 201, `Expected 201, got ${res.status}: ${JSON.stringify(res.body)}`);
-        assert.ok(createdUser, 'user.create should have been called');
-        assert.deepEqual((createdUser as any).roles, ['LINK']);
+        assert.equal(createdUser, null);
         assert.ok(createdLink, 'link.create should have been called');
-        assert.equal((createdLink as any).approvalStatus, 'APPROVED');
-        assert.equal((createdLink as any).active, true);
+        assert.equal((createdLink as any).approvalStatus, 'PENDING');
+        assert.equal((createdLink as any).active, false);
+        assert.equal((createdLink as any).userId, undefined);
         assert.equal((createdLink as any).document, CNPJ_NEW);
         assert.equal((createdLink as any).vehiclePlate, 'ABC1D23');
     });
@@ -179,13 +173,13 @@ describe('POST /api/links', () => {
         assert.equal(res.status, 400, `Expected 400, got ${res.status}: ${JSON.stringify(res.body)}`);
     });
 
-    it('HUB role is authorized and creates an APPROVED Link (201)', async () => {
+    it('HUB role can create a pending transporter (201)', async () => {
         const token = jwt.sign({ userId: 'hub-1' }, jwtSecret);
         const res = await httpPostJson<any>(baseUrl, '/api/links', token, BASE_PAYLOAD);
 
         assert.equal(res.status, 201, `Expected 201, got ${res.status}: ${JSON.stringify(res.body)}`);
-        assert.equal((createdLink as any).approvalStatus, 'APPROVED');
-        assert.equal((createdLink as any).active, true);
+        assert.equal((createdLink as any).approvalStatus, 'PENDING');
+        assert.equal((createdLink as any).active, false);
     });
 
     it('rejects callers without ADMIN or HUB (403)', async () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Link, VehicleUnit } from '../../types/index';
 import {
+  draftFromUnit,
   compositionDraftIssues,
   draftIssues,
   draftsFromLink,
@@ -76,5 +77,31 @@ describe('vehicle unit draft', () => {
   it('linkCompositionSummary marca só a unidade que realmente falta dado', () => {
     const summary = linkCompositionSummary(link({ tractionUnit: unit(), trailerPlate: 'REB1A11' }));
     expect(summary.map((s) => [s.plate, s.issues.length > 0])).toEqual([['ABC1D23', false], ['REB1A11', true]]);
+  });
+});
+
+describe('responsável RNTRC no rascunho da unidade', () => {
+  it('padrão com proprietário informado → "mesmo do proprietário"; sem proprietário → servidor decide (transportador)', () => {
+    const withOwner = draftToInput({ ...emptyDraft('TRACTION'), plate: 'ABC1D23', ownerDocument: '11.222.333/0001-81', rntrc: '12345678' });
+    expect(withOwner.rntrcHolderSameAsOwner).toBe(true);
+    expect(withOwner.rntrcHolderDocument).toBeUndefined();
+    const withoutOwner = draftToInput({ ...emptyDraft('TRACTION'), plate: 'ABC1D23', rntrc: '12345678' });
+    expect('rntrcHolderSameAsOwner' in withoutOwner).toBe(false);
+  });
+
+  it('"outra pessoa" envia documento e nome do responsável', () => {
+    const input = draftToInput({ ...emptyDraft('TRAILER'), plate: 'REB1A11', rntrcHolderMode: 'OTHER', rntrcHolderDocument: '529.982.247-25', rntrcHolderName: ' TAC ', rntrc: '22222222' });
+    expect(input).toMatchObject({ rntrcHolderDocument: '52998224725', rntrcHolderName: 'TAC', rntrc: '22222222' });
+  });
+
+  it('unidade salva: RNTRC vem da pessoa responsável e o modo reflete se ela difere do proprietário', () => {
+    const unit: VehicleUnit = { id: 'u', plate: 'REB1A11', role: 'TRAILER', rntrc: 'legado', ownerPersonId: 'p-dono', rntrcHolderPersonId: 'p-tac',
+      rntrcHolderPerson: { id: 'p-tac', legalName: 'TAC', document: '52998224725', rntrc: '22222222' } };
+    expect(draftFromUnit(unit)).toMatchObject({ rntrc: '22222222', rntrcHolderMode: 'OTHER', rntrcHolderDocument: '52998224725', rntrcHolderName: 'TAC' });
+  });
+
+  it('reboque novo herda o responsável do cavalo', () => {
+    const trailer = newTrailerDraft({ ...emptyDraft('TRACTION'), rntrc: '11111111', rntrcHolderMode: 'OTHER', rntrcHolderDocument: '52998224725', rntrcHolderName: 'ETC' });
+    expect(trailer).toMatchObject({ role: 'TRAILER', rntrc: '11111111', rntrcHolderMode: 'OTHER', rntrcHolderDocument: '52998224725' });
   });
 });

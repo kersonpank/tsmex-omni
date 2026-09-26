@@ -55,10 +55,6 @@ export const DocumentInput: React.FC<DocumentInputProps> = ({
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value;
     let d = digitsOnly(v).slice(0, maxLen);
-    // CNPJ: preencher com zeros à esquerda se 12 ou 13 dígitos
-    if (maxLen === 14 && d.length >= 12 && d.length <= 13) {
-      d = d.padStart(14, '0');
-    }
     onChange(d);
   };
 

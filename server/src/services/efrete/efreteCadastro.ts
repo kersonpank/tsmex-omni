@@ -43,18 +43,33 @@ export async function ensureMotoristaRegistrado(driver: Driver & { person: Perso
     );
 }
 
+/**
+ * Proprietário para a eFrete = responsável RNTRC da unidade (quem responde na ANTT), com o documento,
+ * nome e RNTRC do retrato da viagem e o endereço da pessoa.
+ */
+export interface EfreteProprietarioInput {
+    document: string;
+    name: string;
+    rntrc: string | null;
+    person: Person | null;
+}
+
+/** Proprietário legado: derivado do Link (viagens sem responsável RNTRC no retrato). */
+export function proprietarioFromLink(link: Link & { person: Person | null }): EfreteProprietarioInput {
+    return { document: link.vehicleOwnerDocument || link.document, name: link.vehicleOwnerName || link.name, rntrc: link.rntrc, person: link.person };
+}
+
 /** Gravar Proprietário — RNTRC validado pela ANTT no momento do registro. */
-export async function ensureProprietarioRegistrado(link: Link & { person: Person | null }, environment: EfreteEnvironment): Promise<void> {
-    if (!link.rntrc) throw new Error(`Link ${link.name}: RNTRC obrigatório para registro de Proprietário na eFrete.`);
-    const doc = digits(link.vehicleOwnerDocument || link.document);
+export async function ensureProprietarioRegistrado(proprietario: EfreteProprietarioInput, environment: EfreteEnvironment): Promise<void> {
+    if (!proprietario.rntrc) throw new Error(`${proprietario.name}: RNTRC obrigatório para registro de Proprietário na eFrete.`);
 
     await efreteAuthedPost<EfreteGravarResponse>(
         '/services/proprietarios/gravarV2',
         {
-            CNPJ: doc, // campo se chama CNPJ no manual, mas aceita CPF (11) ou CNPJ (14)
-            Endereco: await buildEndereco(link.person),
-            RNTRC: digits(link.rntrc).padStart(9, '0').slice(0, 9),
-            RazaoSocial: link.vehicleOwnerName || link.name,
+            CNPJ: digits(proprietario.document), // campo se chama CNPJ no manual, mas aceita CPF (11) ou CNPJ (14)
+            Endereco: await buildEndereco(proprietario.person),
+            RNTRC: digits(proprietario.rntrc).padStart(9, '0').slice(0, 9),
+            RazaoSocial: proprietario.name,
         },
         { versao: 3, environment },
     );

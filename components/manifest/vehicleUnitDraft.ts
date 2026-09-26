@@ -1,7 +1,7 @@
 // components/manifest/vehicleUnitDraft.ts
 // Rascunho de uma Unidade de Veículo no formulário de composição. Espelho de UX das regras do servidor
 // (server/src/services/vehicleUnitRules.ts) — o servidor continua sendo a autoridade.
-import type { Link, VehicleUnit, VehicleUnitRole } from '../../types/index';
+import type { Link, Manifest, VehicleUnit, VehicleUnitRole } from '../../types/index';
 import type { VehicleUnitInput } from '../../lib/api';
 
 export interface UnitDraft {
@@ -21,6 +21,10 @@ export interface UnitDraft {
   year: string;
   ownerDocument: string;
   ownerName: string;
+  /** Responsável RNTRC: o proprietário do CRLV (padrão) ou outra pessoa (frota agregada). `rntrc` é o número DELE. */
+  rntrcHolderMode: 'OWNER' | 'OTHER';
+  rntrcHolderDocument: string;
+  rntrcHolderName: string;
   mdfeOwnerType: string;
   licensedState: string;
   ownerState: string;
@@ -47,12 +51,17 @@ export const emptyDraft = (role: VehicleUnitRole): UnitDraft => ({
   year: '',
   ownerDocument: '',
   ownerName: '',
+  rntrcHolderMode: 'OWNER',
+  rntrcHolderDocument: '',
+  rntrcHolderName: '',
   mdfeOwnerType: '',
   licensedState: '',
   ownerState: '',
 });
 
 export function draftFromUnit(unit: VehicleUnit): UnitDraft {
+  const holder = unit.rntrcHolderPerson ?? null;
+  const holderIsOther = Boolean(unit.rntrcHolderPersonId && unit.rntrcHolderPersonId !== unit.ownerPersonId);
   return {
     unitId: unit.id,
     role: unit.role,
@@ -63,12 +72,16 @@ export function draftFromUnit(unit: VehicleUnit): UnitDraft {
     tareKg: unit.tareKg ? String(unit.tareKg) : '',
     capacityKg: unit.capacityKg ? String(unit.capacityKg) : '',
     capacityM3: unit.capacityM3 != null ? String(unit.capacityM3) : '',
-    rntrc: unit.rntrc ?? '',
+    // RNTRC efetivo = o da pessoa responsável; a coluna da unidade é legado.
+    rntrc: (unit.rntrcHolderPerson !== undefined ? holder?.rntrc : unit.rntrc) ?? '',
     bodyType: unit.bodyType ?? 'NaoAplicavel',
     wheelType: unit.wheelType ?? (unit.role === 'TRACTION' ? 'Cavalo' : 'NaoAplicavel'),
     year: unit.year ? String(unit.year) : '',
-    ownerDocument: unit.ownerDocument ?? '',
+    ownerDocument: unit.ownerDocument ?? unit.ownerPerson?.document ?? '',
     ownerName: unit.ownerName ?? unit.ownerPerson?.legalName ?? '',
+    rntrcHolderMode: holderIsOther ? 'OTHER' : 'OWNER',
+    rntrcHolderDocument: holderIsOther ? holder?.document ?? '' : '',
+    rntrcHolderName: holderIsOther ? holder?.legalName ?? '' : '',
     mdfeOwnerType: unit.mdfeOwnerType ?? '',
     licensedState: unit.licensedState ?? '',
     ownerState: unit.ownerState ?? '',
@@ -93,6 +106,9 @@ export function draftsFromLink(link: Link | null | undefined): { traction: UnitD
         year: link.vehicleYear ? String(link.vehicleYear) : '',
         ownerDocument: link.vehicleOwnerDocument ?? '',
         ownerName: link.vehicleOwnerName ?? '',
+        rntrcHolderMode: 'OWNER' as const,
+        rntrcHolderDocument: '',
+        rntrcHolderName: '',
         mdfeOwnerType: '',
         licensedState: '',
         ownerState: '',
@@ -110,13 +126,23 @@ export function draftsFromLink(link: Link | null | undefined): { traction: UnitD
   return { traction, trailers };
 }
 
+export function draftsFromManifest(manifest: Manifest): { traction: UnitDraft; trailers: UnitDraft[] } {
+  const assignments = manifest.vehicleAssignments ?? [];
+  if (!assignments.length) return { traction: emptyDraft('TRACTION'), trailers: [] };
+  const traction = assignments.find((item) => item.slot === 0)?.vehicleUnit;
+  return {
+    traction: traction ? draftFromUnit(traction) : emptyDraft('TRACTION'),
+    trailers: assignments.filter((item) => item.slot > 0).sort((a, b) => a.slot - b.slot).map((item) => draftFromUnit(item.vehicleUnit)),
+  };
+}
+
 export type DraftField = 'plate' | 'chassi' | 'renavam' | 'axles' | 'rntrc';
 export const DRAFT_FIELD_LABELS: Record<DraftField, string> = {
   plate: 'Placa',
   chassi: 'Chassi',
   renavam: 'RENAVAM',
   axles: 'Eixos',
-  rntrc: 'RNTRC',
+  rntrc: 'RNTRC do responsável',
 };
 
 /** Campos que ainda faltam (ou estão com formato inválido) — vazio = unidade pronta para CIOT/MDF-e. */
@@ -138,7 +164,8 @@ export function draftIssues(draft: UnitDraft): Array<{ field: DraftField; reason
   else if (!Number.isInteger(Number(draft.axles)) || Number(draft.axles) < 1) issues.push({ field: 'axles', reason: 'invalid' });
 
   const rntrc = digits(draft.rntrc);
-  if (!rntrc) issues.push({ field: 'rntrc', reason: 'missing' });
+  if (draft.rntrcHolderMode === 'OTHER' && ![11, 14].includes(digits(draft.rntrcHolderDocument).length)) issues.push({ field: 'rntrc', reason: 'invalid' });
+  else if (!rntrc) issues.push({ field: 'rntrc', reason: 'missing' });
   else if (rntrc.length < 8 || rntrc.length > 9) issues.push({ field: 'rntrc', reason: 'invalid' });
 
   return issues;
@@ -163,6 +190,10 @@ export function draftToInput(draft: UnitDraft): VehicleUnitInput {
     year: draft.year.trim() ? Number(draft.year) : null,
     ownerDocument: digits(draft.ownerDocument) || null,
     ownerName: draft.ownerName.trim() || null,
+    // Sem proprietário informado, o servidor usa o transportador como responsável padrão.
+    ...(draft.rntrcHolderMode === 'OTHER'
+      ? { rntrcHolderDocument: digits(draft.rntrcHolderDocument) || null, rntrcHolderName: draft.rntrcHolderName.trim() || null }
+      : digits(draft.ownerDocument) ? { rntrcHolderSameAsOwner: true } : {}),
     mdfeOwnerType: (draft.mdfeOwnerType || null) as VehicleUnitInput['mdfeOwnerType'],
     licensedState: draft.licensedState.trim().toUpperCase() || null,
     ownerState: draft.ownerState.trim().toUpperCase() || null,
@@ -187,7 +218,19 @@ export function linkCompositionSummary(link: Link | null | undefined) {
     .map((draft) => ({ role: draft.role, plate: normalizePlate(draft.plate), issues: draftIssues(draft) }));
 }
 
-/** Novo reboque nasce com o RNTRC do cavalo (mesmo transportador, na maioria dos casos). */
+export function manifestCompositionSummary(manifest: Manifest) {
+  const { traction, trailers } = draftsFromManifest(manifest);
+  return [traction, ...trailers].filter((draft) => normalizePlate(draft.plate))
+    .map((draft) => ({ role: draft.role, plate: normalizePlate(draft.plate), issues: draftIssues(draft) }));
+}
+
+/** Novo reboque nasce com o responsável RNTRC do cavalo (mesmo transportador, na maioria dos casos). Editável. */
 export function newTrailerDraft(traction: UnitDraft): UnitDraft {
-  return { ...emptyDraft('TRAILER'), rntrc: traction.rntrc };
+  return {
+    ...emptyDraft('TRAILER'),
+    rntrc: traction.rntrc,
+    rntrcHolderMode: traction.rntrcHolderMode,
+    rntrcHolderDocument: traction.rntrcHolderDocument,
+    rntrcHolderName: traction.rntrcHolderName,
+  };
 }

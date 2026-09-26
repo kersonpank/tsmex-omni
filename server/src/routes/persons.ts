@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { Prisma } from '@prisma/client';
 import prisma from '../lib/prisma.js';
+import { isValidCpf, isValidCnpj } from '../services/documentValidation.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { getParamId } from '../lib/routeUtils.js';
@@ -62,6 +63,8 @@ function validateDocument(documentType: 'CPF' | 'CNPJ', document: string): void 
     if (documentType === 'CNPJ' && digits.length !== 14) {
         throw new AppError('CNPJ deve ter 14 dígitos', 400);
     }
+    if (documentType === 'CPF' && !isValidCpf(digits)) throw new AppError('CPF inválido.', 400);
+    if (documentType === 'CNPJ' && !isValidCnpj(digits)) throw new AppError('CNPJ inválido.', 400);
 }
 
 const stateRegistrationSchema = z.string().optional().transform(v => {
@@ -98,6 +101,11 @@ const createPersonSchema = z.object({
 const updatePersonSchema = createPersonSchema.partial().extend({
     documentType: z.enum(['CPF', 'CNPJ']).optional(),
     document: z.string().min(1).transform(normalizeDocument).optional(),
+    // RNTRC do transportador (ANTT). Vale para viagens ofertadas depois da mudança; viagens já
+    // ofertadas/emitidas mantêm o RNTRC congelado no retrato da composição.
+    rntrc: z.string().nullable().optional()
+        .transform(v => (v == null ? v : v.replace(/\D/g, '') || null))
+        .refine(v => v == null || /^\d{8,9}$/.test(v), 'RNTRC deve ter 8 ou 9 dígitos.'),
 });
 
 // POST /api/persons/sync - Backfill Person for Client/Link without personId (Admin only)
@@ -474,6 +482,7 @@ router.patch('/:id', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRe
                 ...(body.country !== undefined && { country: body.country }),
                 ...(body.stateRegistration !== undefined && { stateRegistration: body.stateRegistration }),
                 ...(body.municipalRegistration !== undefined && { municipalRegistration: body.municipalRegistration }),
+                ...(body.rntrc !== undefined && { rntrc: body.rntrc }),
             },
         });
 

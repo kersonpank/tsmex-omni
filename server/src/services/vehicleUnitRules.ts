@@ -8,6 +8,24 @@
 
 export type VehicleUnitRoleValue = 'TRACTION' | 'TRAILER';
 
+/** Pessoa ligada à unidade (proprietário do CRLV ou responsável RNTRC), como carregada do banco. */
+export interface VehicleUnitPartySource {
+    id: string;
+    document: string;
+    legalName: string;
+    state?: string | null;
+    rntrc?: string | null;
+}
+
+/** Retrato da pessoa congelado na composição (oferta/emissão). */
+export interface VehicleUnitParty {
+    personId: string;
+    document: string;
+    name: string;
+    state: string | null;
+    rntrc: string | null;
+}
+
 export interface VehicleUnitLike {
     id?: string | null;
     plate: string;
@@ -30,6 +48,13 @@ export interface VehicleUnitLike {
     mdfeOwnerType?: string | null;
     licensedState?: string | null;
     ownerState?: string | null;
+    rntrcHolderPersonId?: string | null;
+    /** Relações do banco: presentes (mesmo null) quando a leitura inclui as pessoas da unidade. */
+    ownerPerson?: VehicleUnitPartySource | null;
+    rntrcHolderPerson?: VehicleUnitPartySource | null;
+    /** Já resolvidos (composição/snapshot). */
+    owner?: VehicleUnitParty | null;
+    rntrcHolder?: VehicleUnitParty | null;
 }
 
 export type VehicleUnitField = 'plate' | 'chassi' | 'renavam' | 'axles' | 'rntrc';
@@ -39,8 +64,26 @@ export const VEHICLE_UNIT_FIELD_LABELS: Record<VehicleUnitField, string> = {
     chassi: 'Chassi',
     renavam: 'RENAVAM',
     axles: 'Número de eixos',
-    rntrc: 'RNTRC',
+    rntrc: 'RNTRC do responsável',
 };
+
+const toParty = (person: VehicleUnitPartySource): VehicleUnitParty => ({
+    personId: person.id,
+    document: digitsOnly(person.document),
+    name: person.legalName,
+    state: person.state ?? null,
+    rntrc: digitsOnly(person.rntrc) || null,
+});
+
+/**
+ * RNTRC efetivo da unidade: o da pessoa responsável RNTRC. `VehicleUnit.rntrc` é legado e só vale
+ * quando as pessoas não foram carregadas (unidade montada fora do banco) ou num snapshot antigo.
+ */
+export function unitRntrc(unit: Pick<VehicleUnitLike, 'rntrc' | 'rntrcHolder' | 'rntrcHolderPerson'>): string | null {
+    if (unit.rntrcHolder !== undefined) return unit.rntrcHolder?.rntrc ?? null;
+    if (unit.rntrcHolderPerson !== undefined) return digitsOnly(unit.rntrcHolderPerson?.rntrc) || null;
+    return digitsOnly(unit.rntrc) || null;
+}
 
 export interface VehicleUnitFieldIssue {
     field: VehicleUnitField;
@@ -62,7 +105,7 @@ export const isValidRenavam = (renavam: string) => /^\d{9,11}$/.test(renavam);
 export const isValidRntrc = (rntrc: string) => /^\d{8,9}$/.test(rntrc);
 
 /** Campos obrigatórios da unidade para CIOT/MDF-e/e-Frete — vazio se a unidade está pronta. */
-export function unitFieldIssues(unit: Pick<VehicleUnitLike, 'plate' | 'chassi' | 'renavam' | 'axles' | 'rntrc'>): VehicleUnitFieldIssue[] {
+export function unitFieldIssues(unit: Pick<VehicleUnitLike, 'plate' | 'chassi' | 'renavam' | 'axles' | 'rntrc' | 'rntrcHolder' | 'rntrcHolderPerson'>): VehicleUnitFieldIssue[] {
     const issues: VehicleUnitFieldIssue[] = [];
     const push = (field: VehicleUnitField, reason: 'missing' | 'invalid') =>
         issues.push({ field, label: VEHICLE_UNIT_FIELD_LABELS[field], reason });
@@ -80,7 +123,7 @@ export function unitFieldIssues(unit: Pick<VehicleUnitLike, 'plate' | 'chassi' |
     if (unit.axles == null) push('axles', 'missing');
     else if (!Number.isInteger(unit.axles) || unit.axles < 1) push('axles', 'invalid');
 
-    const rntrc = digitsOnly(unit.rntrc);
+    const rntrc = digitsOnly(unitRntrc(unit));
     if (!rntrc) push('rntrc', 'missing');
     else if (!isValidRntrc(rntrc)) push('rntrc', 'invalid');
 
@@ -124,7 +167,28 @@ export interface LinkVehicleSource {
     trailer3Unit?: VehicleUnitLike | null;
 }
 
-const fromUnit = (unit: VehicleUnitLike): ResolvedVehicleUnit => ({ ...unit, plate: normalizePlate(unit.plate), source: 'UNIT' });
+/**
+ * Unidade do banco → unidade resolvida. Proprietário e responsável RNTRC viram retratos compactos
+ * (`owner`/`rntrcHolder`) e `rntrc` passa a ser o RNTRC do responsável — é isso que o snapshot congela.
+ */
+function fromUnit(unit: VehicleUnitLike): ResolvedVehicleUnit {
+    const { ownerPerson, rntrcHolderPerson, ...rest } = unit;
+    const owner = rest.owner !== undefined ? rest.owner : ownerPerson !== undefined ? (ownerPerson ? toParty(ownerPerson) : null) : undefined;
+    const rntrcHolder = rest.rntrcHolder !== undefined ? rest.rntrcHolder : rntrcHolderPerson !== undefined ? (rntrcHolderPerson ? toParty(rntrcHolderPerson) : null) : undefined;
+    return {
+        ...rest,
+        plate: normalizePlate(unit.plate),
+        rntrc: unitRntrc(unit),
+        ...(owner !== undefined ? {
+            owner,
+            ownerDocument: owner?.document ?? rest.ownerDocument ?? null,
+            ownerName: owner?.name ?? rest.ownerName ?? null,
+            ownerState: rest.ownerState ?? owner?.state ?? null,
+        } : {}),
+        ...(rntrcHolder !== undefined ? { rntrcHolder } : {}),
+        source: 'UNIT',
+    };
+}
 
 export function resolveComposition(link: LinkVehicleSource): VehicleComposition {
     let traction: ResolvedVehicleUnit | null = null;
@@ -167,6 +231,26 @@ export function resolveComposition(link: LinkVehicleSource): VehicleComposition 
     return { traction, trailers: dedupedTrailers, units: [...(traction ? [traction] : []), ...dedupedTrailers] };
 }
 
+export function resolveManifestComposition(manifest: {
+    compositionSnapshot?: unknown;
+    vehicleAssignments?: Array<{ slot: number; vehicleUnit: VehicleUnitLike }>;
+    link?: LinkVehicleSource | null;
+}): VehicleComposition {
+    const snapshot = manifest.compositionSnapshot as { traction?: ResolvedVehicleUnit; trailers?: ResolvedVehicleUnit[] } | null | undefined;
+    if (snapshot?.traction && Array.isArray(snapshot.trailers) && isValidPlate(normalizePlate(snapshot.traction.plate))) {
+        return { traction: snapshot.traction, trailers: snapshot.trailers, units: [snapshot.traction, ...snapshot.trailers] };
+    }
+    if (Array.isArray(manifest.vehicleAssignments)) {
+        const bySlot = new Map(manifest.vehicleAssignments.map((assignment) => [assignment.slot, assignment.vehicleUnit]));
+        return resolveComposition({
+            tractionUnit: bySlot.get(0), trailer1Unit: bySlot.get(1),
+            trailer2Unit: bySlot.get(2), trailer3Unit: bySlot.get(3),
+        });
+    }
+    // Only for older callers/tests that have not loaded assignments. Database reads must include them.
+    return resolveComposition(manifest.link ?? {});
+}
+
 export interface CompositionIssue {
     unit: 'TRACTION' | 'TRAILER';
     plate: string | null;
@@ -189,10 +273,24 @@ export function compositionIssues(composition: VehicleComposition): CompositionI
 export const describeUnitIssues = (issue: CompositionIssue) =>
     issue.fields.map((f) => (f.reason === 'invalid' ? `${f.label} inválido` : f.label)).join(', ');
 
-/** RNTRC efetivo da viagem: o do cavalo (unidade), com fallback ao RNTRC legado do Link. */
+/**
+ * RNTRC efetivo da viagem: o do responsável RNTRC do cavalo. O RNTRC legado do Link só completa
+ * composições/snapshots anteriores ao responsável por pessoa.
+ */
 export function tractionRntrc(composition: VehicleComposition, legacyLinkRntrc?: string | null): string | null {
-    const value = digitsOnly(composition.traction?.rntrc) || digitsOnly(legacyLinkRntrc);
+    const traction = composition.traction;
+    if (traction?.rntrcHolder !== undefined) return digitsOnly(traction.rntrc) || null;
+    const value = digitsOnly(traction?.rntrc) || digitsOnly(legacyLinkRntrc);
     return value || null;
+}
+
+/**
+ * Alerta (não bloqueio): o responsável RNTRC do cavalo não é o transportador que recebe a oferta.
+ * Frota agregada é legítima, mas o CIOT sai no RNTRC do responsável — precisa ser consciente.
+ */
+export function tractionHolderDiffersFromCarrier(composition: VehicleComposition, carrierPersonId: string | null | undefined): boolean {
+    const holder = composition.traction?.rntrcHolder;
+    return Boolean(holder && carrierPersonId && holder.personId !== carrierPersonId);
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -222,7 +320,7 @@ export function legacyColumnsFromComposition(traction: VehicleUnitLike, trailers
         vehicleChassi: traction.chassi ?? null,
         vehicleRenavam: traction.renavam ?? null,
         vehicleAxles: traction.axles ?? null,
-        ...(traction.rntrc ? { rntrc: traction.rntrc } : {}),
+        ...(unitRntrc(traction) ? { rntrc: unitRntrc(traction)! } : {}),
         vehicleBodyType: traction.bodyType ?? null,
         vehicleWheelType: traction.wheelType ?? null,
         vehicleYear: traction.year ?? null,

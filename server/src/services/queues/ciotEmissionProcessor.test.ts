@@ -38,9 +38,28 @@ describe('CIOT processor environment and idempotency', () => {
         await processCiotEmissionJob(job, deps);
         const plates = calls.filter(([kind]) => kind === 'veiculo').map(([, args]) => (args[0] as { plate: string }).plate);
         assert.deepEqual(plates, ['ABC1D23', 'REB1A11']);
-        const owner = calls.find(([kind]) => kind === 'proprietario')?.[1][0] as { rntrc: string; vehicleOwnerDocument: string };
+        const owner = calls.find(([kind]) => kind === 'proprietario')?.[1][0] as { rntrc: string; document: string };
         assert.equal(owner.rntrc, '987654321');
-        assert.equal(owner.vehicleOwnerDocument, '11222333000181');
+        assert.equal(owner.document, '11222333000181');
+    });
+
+    it('com retrato por responsável RNTRC, grava cada responsável com os dados congelados na oferta', async () => {
+        const { calls, deps, job } = setup('QUEUED', false);
+        const party = (personId: string, document: string, name: string, rntrc: string) => ({ personId, document, name, state: 'SP', rntrc });
+        const snapshot = {
+            traction: { source: 'UNIT', role: 'TRACTION', plate: 'ABC1D23', chassi: '9BWZZZ377VT004251', renavam: '12345678901', axles: 3, rntrc: '11111111',
+                owner: party('p-dono', '11222333000181', 'Dono CRLV', ''), rntrcHolder: party('p-etc', '52998224725', 'ETC Agregadora', '11111111') },
+            trailers: [{ source: 'UNIT', role: 'TRAILER', plate: 'REB1A11', chassi: '9BWZZZ377VT004999', renavam: '12345678902', axles: 3, rntrc: '22222222',
+                owner: party('p-dono', '11222333000181', 'Dono CRLV', ''), rntrcHolder: party('p-tac', '39053344705', 'TAC Agregado', '22222222') }],
+        };
+        deps.prisma.manifest.findUniqueOrThrow = async () => ({ link: { id: 'link', rntrc: '999999999' }, driver: { id: 'driver' }, compositionSnapshot: snapshot, vehicleAssignments: [] });
+        // O cadastro atual mudou depois da oferta: não pode vazar para a emissão.
+        deps.prisma.person = { findUnique: async ({ where }: any) => ({ id: where.id, rntrc: '99999999', city: 'São Paulo' }) };
+        await processCiotEmissionJob(job, deps);
+        const registered = calls.filter(([kind]) => kind === 'proprietario').map(([, args]) => args[0] as { document: string; rntrc: string; person: { id: string } });
+        assert.deepEqual(registered.map((r) => [r.document, r.rntrc, r.person.id]), [['52998224725', '11111111', 'p-etc'], ['39053344705', '22222222', 'p-tac']]);
+        const vehicles = calls.filter(([kind]) => kind === 'veiculo').map(([, args]) => args[0] as { plate: string; rntrc: string });
+        assert.deepEqual(vehicles.map((v) => [v.plate, v.rntrc]), [['ABC1D23', '11111111'], ['REB1A11', '22222222']]);
     });
 
     it('consults existing CIOT with environment and does not submit', async () => {

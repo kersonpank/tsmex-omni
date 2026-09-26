@@ -58,4 +58,35 @@ describe('buildMdfeVehicles', () => {
     it('não infere vínculo do proprietário a partir do CPF', () => {
         assert.throws(() => buildMdfeVehicles({ composition: resolveComposition({ tractionUnit: { ...traction, mdfeOwnerType: null } }), carrier, emitterDocument }), /vínculo do proprietário/);
     });
+
+    describe('responsável RNTRC por unidade', () => {
+        const person = (id: string, document: string, legalName: string, rntrc: string | null, state = 'SP') => ({ id, document, legalName, rntrc, state });
+        const dono = person('p-dono', '55444333000110', 'Dono do CRLV LTDA', null, 'RJ');
+
+        it('prop e RNTRC saem do responsável de cada unidade, não do proprietário do CRLV', () => {
+            const composition = resolveComposition({
+                tractionUnit: { ...traction, rntrc: null, ownerPerson: dono, rntrcHolderPerson: person('p-etc', '11444777000161', 'ETC Agregadora', '11111111', 'MA') },
+                trailer1Unit: { ...trailer, rntrc: null, mdfeOwnerType: '0', ownerPerson: dono, rntrcHolderPerson: person('p-tac', '52998224725', 'TAC Agregado', '22222222', 'PI') },
+            });
+            const v = buildMdfeVehicles({ composition, carrier, emitterDocument, fallbackRntrc: '99999999' });
+            assert.equal(v.rntrc, '11111111');
+            assert.deepEqual([(v.veicTracao.prop as any).CNPJ, v.veicTracao.prop!.RNTRC, v.veicTracao.prop!.UF], ['11444777000161', '11111111', 'MA']);
+            assert.deepEqual([(v.veicReboque[0].prop as any).CPF, v.veicReboque[0].prop!.RNTRC, v.veicReboque[0].prop!.UF], ['52998224725', '22222222', 'PI']);
+        });
+
+        it('responsável sem RNTRC bloqueia, sem herdar o RNTRC do cavalo nem do legado', () => {
+            const composition = resolveComposition({
+                tractionUnit: { ...traction, ownerPerson: dono, rntrcHolderPerson: person('p-etc', '11444777000161', 'ETC', '11111111') },
+                trailer1Unit: { ...trailer, rntrc: '12345678', ownerPerson: dono, rntrcHolderPerson: person('p-sem', '52998224725', 'Sem RNTRC', null) },
+            });
+            assert.throws(() => buildMdfeVehicles({ composition, carrier, emitterDocument, fallbackRntrc: '99999999' }), /responsável RNTRC não cadastrado para REB1A11/);
+        });
+
+        it('responsável que é o próprio emitente não gera grupo prop', () => {
+            const composition = resolveComposition({ tractionUnit: { ...traction, ownerPerson: dono, rntrcHolderPerson: person('p-emit', emitterDocument, 'Emitente', '33333333') } });
+            const v = buildMdfeVehicles({ composition, carrier, emitterDocument });
+            assert.equal('prop' in v.veicTracao, false);
+            assert.equal(v.rntrc, '33333333');
+        });
+    });
 });

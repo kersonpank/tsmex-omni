@@ -11,6 +11,7 @@
  */
 
 import prisma from '../lib/prisma.js';
+import type { Prisma } from '@prisma/client';
 import { validateSelectedAddress, normalizeCityName } from './selectedCity.js';
 import { AppError } from '../middleware/errorHandler.js';
 
@@ -40,6 +41,7 @@ interface UpsertPersonForRoleOptions {
     missingAddressErrorMessage: string;
     stateRegistration?: string;
     updatePersonAddress?: boolean;
+    allowAddresslessCreation?: boolean;
 }
 
 async function upsertPersonForRole(
@@ -47,31 +49,30 @@ async function upsertPersonForRole(
     legalName: string,
     address: DriverAddressInput | undefined,
     options: UpsertPersonForRoleOptions,
+    db: Prisma.TransactionClient | typeof prisma = prisma,
 ): Promise<UpsertPersonResult> {
     if (address) address = await validateSelectedAddress(address);
-    const existing = await prisma.person.findUnique({ where: { document: normalizedDocument } });
+    const existing = await db.person.findUnique({ where: { document: normalizedDocument } });
 
     if (!existing) {
-        if (!address) {
+        if (!address && !options.allowAddresslessCreation) {
             throw new AppError(options.missingAddressErrorMessage, 400);
         }
 
-        const ibgeCode = address.cityIbgeCode!;
-
-        const person = await prisma.person.create({
+        const person = await db.person.create({
             data: {
                 documentType: options.documentType,
                 document: normalizedDocument,
                 legalName,
                 stateRegistration: options.stateRegistration ?? null,
-                cep: address.cep,
-                address: address.address,
-                number: address.number,
-                complement: address.complement ?? null,
-                neighborhood: address.neighborhood,
-                city: address.city,
-                state: address.state,
-                cityIbgeCode: ibgeCode,
+                cep: address?.cep ?? null,
+                address: address?.address ?? null,
+                number: address?.number ?? null,
+                complement: address?.complement ?? null,
+                neighborhood: address?.neighborhood ?? null,
+                city: address?.city ?? null,
+                state: address?.state ?? null,
+                cityIbgeCode: address?.cityIbgeCode ?? null,
             },
         });
 
@@ -115,7 +116,7 @@ async function upsertPersonForRole(
 
     let person: typeof existing = existing;
     if (Object.keys(updateData).length > 0) {
-        person = await prisma.person.update({
+        person = await db.person.update({
             where: { id: existing.id },
             data: updateData,
         });
@@ -136,12 +137,14 @@ export async function upsertPersonForDriver(
     legalName: string,
     address: DriverAddressInput | undefined,
     updatePersonAddress = false,
+    db: Prisma.TransactionClient | typeof prisma = prisma,
 ): Promise<UpsertPersonResult> {
     return upsertPersonForRole(normalizedDocument, legalName, address, {
         documentType: 'CPF',
         updatePersonAddress,
+        allowAddresslessCreation: true,
         missingAddressErrorMessage: 'Endereço é obrigatório para cadastrar um motorista.',
-    });
+    }, db);
 }
 
 /**

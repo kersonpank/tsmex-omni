@@ -1,3 +1,4 @@
+import axios from 'axios';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 
@@ -23,13 +24,35 @@ export async function requireSelectedIbge(city: string | null | undefined, state
     return (await validateSelectedCity({ city, state, cityIbgeCode })).cityIbgeCode;
 }
 
-/** Existing CEP records can confirm a selection; a mismatch must never be persisted. */
+/**
+ * IBGE oficial de um CEP fora do cache, pelo ViaCEP (que já devolve o código IBGE).
+ * `null` = não foi possível confirmar agora (rede, CEP inexistente): quem chama decide.
+ * Objeto mutável para os testes substituírem a consulta externa.
+ */
+export const cepIbgeLookup = {
+    async lookup(cep: string): Promise<string | null> {
+        try {
+            const response = await axios.get(`https://viacep.com.br/ws/${cep}/json/`, { timeout: 5000 });
+            const ibge = response.data?.erro ? null : String(response.data?.ibge ?? '');
+            return ibge && /^\d{7}$/.test(ibge) ? ibge : null;
+        } catch {
+            return null;
+        }
+    },
+};
+
+/**
+ * O CEP confirma a seleção: com cache local ou consulta ao ViaCEP. Divergência nunca é gravada.
+ * Se o CEP não puder ser confirmado agora, vale só a seleção coerente (IBGE + nome + UF),
+ * nunca uma cidade inferida pelo nome.
+ */
 export async function validateSelectedAddress<T extends { city: string; state: string; cityIbgeCode?: string; cep: string }>(address: T): Promise<T> {
     const city = await validateSelectedCity(address);
     const cep = address.cep.replace(/\D/g, '');
     if (!/^\d{8}$/.test(cep)) throw new AppError('CEP deve conter 8 dígitos.', 400);
     const cached = await prisma.cEP.findUnique({ where: { cep }, include: { city: true } });
-    if (cached?.city && cached.city.ibgeCode !== city.cityIbgeCode) {
+    const cepIbge = cached?.city?.ibgeCode ?? await cepIbgeLookup.lookup(cep);
+    if (cepIbge && cepIbge !== city.cityIbgeCode) {
         throw new AppError('A cidade selecionada não corresponde ao CEP. Consulte o CEP novamente.', 400);
     }
     return { ...address, ...city, cep };

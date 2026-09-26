@@ -15,6 +15,7 @@ import WorkspacePicker from './components/WorkspacePicker';
 import RoleWorkspaceSwitcher from './components/RoleWorkspaceSwitcher';
 import OperacaoApp from './components/operacao/OperacaoApp';
 import OperacaoOnboarding from './components/operacao/OperacaoOnboarding';
+import ClaimLinkInvite from './components/operacao/ClaimLinkInvite';
 import HubCadastro from './components/HubCadastro';
 import ThemeToggle from './components/ui/ThemeToggle';
 import OrderDetailPage from './components/admin/OrderDetailPage';
@@ -61,7 +62,7 @@ const Navigation: React.FC = () => {
     setMobileOpen(false);
   }, [location.pathname]);
 
-  if (isLogin || location.pathname === '/link/cadastro' || location.pathname === '/hub/cadastro') return null;
+  if (isLogin || location.pathname === '/claim-link' || location.pathname === '/link/cadastro' || location.pathname === '/hub/cadastro') return null;
 
   const navLinks = (
     <>
@@ -273,6 +274,7 @@ const AppMain: React.FC = () => {
       <main className={`flex-grow ${mainPl}`}>
         <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/claim-link" element={<ClaimLinkInvite />} />
             <Route path="/onboarding" element={<CompanyOnboarding />} />
             <Route path="/app" element={<Navigate to="/gestao" replace />} />
             <Route path="/gestao" element={

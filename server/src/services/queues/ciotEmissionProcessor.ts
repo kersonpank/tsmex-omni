@@ -2,9 +2,9 @@ import type { Job } from 'bullmq';
 import { DelayedError } from 'bullmq';
 import prisma from '../../lib/prisma.js';
 import { EfreteApiError } from '../efrete/efreteHttp.js';
-import { linkVehicleInclude } from '../vehicleUnitService.js';
-import { resolveComposition, tractionRntrc } from '../vehicleUnitRules.js';
-import { ensureMotoristaRegistrado, ensureProprietarioRegistrado, ensureVeiculoRegistrado } from '../efrete/efreteCadastro.js';
+import { linkVehicleInclude, manifestVehicleAssignmentsInclude } from '../vehicleUnitService.js';
+import { resolveManifestComposition, tractionRntrc, type VehicleUnitParty } from '../vehicleUnitRules.js';
+import { ensureMotoristaRegistrado, ensureProprietarioRegistrado, ensureVeiculoRegistrado, proprietarioFromLink } from '../efrete/efreteCadastro.js';
 import { submitCiotToEfrete, consultarStatusCiot } from '../efrete/efreteCiotEmit.js';
 import { obterCiotPdf } from '../efrete/efreteCiotEmit.js';
 import { buildCiotPayload } from '../efrete/efreteCiotMapper.js';
@@ -26,6 +26,8 @@ export interface CiotEmissionProcessorDeps {
         ciotEmissionJob: Pick<typeof prisma.ciotEmissionJob, 'findUniqueOrThrow' | 'update'>;
         manifest: Pick<typeof prisma.manifest, 'findUniqueOrThrow'>;
         manifestFiscalDocument: Pick<typeof prisma.manifestFiscalDocument, 'create'> & Partial<Pick<typeof prisma.manifestFiscalDocument, 'findFirst' | 'update'>>;
+        /** Endereço do responsável RNTRC para o Gravar Proprietário. */
+        person?: Pick<typeof prisma.person, 'findUnique'>;
     };
     ensureMotoristaRegistrado: typeof ensureMotoristaRegistrado;
     ensureProprietarioRegistrado: typeof ensureProprietarioRegistrado;
@@ -42,6 +44,7 @@ export const defaultCiotEmissionProcessorDeps: CiotEmissionProcessorDeps = {
         ciotEmissionJob: prisma.ciotEmissionJob,
         manifest: prisma.manifest,
         manifestFiscalDocument: prisma.manifestFiscalDocument,
+        person: prisma.person,
     },
     ensureMotoristaRegistrado,
     ensureProprietarioRegistrado,
@@ -121,7 +124,7 @@ export async function processCiotEmissionJob(
 
         const manifest = await deps.prisma.manifest.findUniqueOrThrow({
             where: { id: ciotJob.manifestId },
-            include: { link: { include: { person: true, ...linkVehicleInclude } }, driver: { include: { person: true } } },
+            include: { link: { include: { person: true, ...linkVehicleInclude } }, driver: { include: { person: true } }, vehicleAssignments: manifestVehicleAssignmentsInclude },
         });
         if (!manifest.link) throw new Error(`Manifesto ${ciotJob.manifestId} sem Link atribuído — estado inconsistente.`);
         if (!manifest.driver) throw new Error(`Manifesto ${ciotJob.manifestId} sem Driver atribuído — estado inconsistente.`);
@@ -129,15 +132,24 @@ export async function processCiotEmissionJob(
         // Fase 1: cadastros (idempotentes na própria eFrete — sempre antes de emitir operação).
         if (ciotJob.phase === 'QUEUED') {
             await deps.ensureMotoristaRegistrado(manifest.driver, environment);
-            // RNTRC e dono vêm do cavalo (Unidade de Veículo); Link.rntrc/vehicleOwner* são só legado.
-            const composition = resolveComposition(manifest.link);
+            // Proprietário na eFrete = responsável RNTRC de cada unidade, lido do retrato da viagem
+            // (nunca do cadastro atual). Retrato antigo sem responsável: legado do Link/cavalo.
+            const composition = resolveManifestComposition(manifest);
             if (!composition.traction) throw new Error(`Manifesto ${ciotJob.manifestId} sem cavalo na composição veicular — estado inconsistente.`);
-            await deps.ensureProprietarioRegistrado({
-                ...manifest.link,
-                rntrc: tractionRntrc(composition, manifest.link.rntrc),
-                vehicleOwnerDocument: composition.traction.ownerDocument ?? manifest.link.vehicleOwnerDocument,
-                vehicleOwnerName: composition.traction.ownerName ?? manifest.link.vehicleOwnerName,
-            }, environment);
+            const holders = new Map<string, VehicleUnitParty>();
+            for (const unit of composition.units) if (unit.rntrcHolder) holders.set(unit.rntrcHolder.personId, unit.rntrcHolder);
+            if (composition.traction.rntrcHolder === undefined) {
+                await deps.ensureProprietarioRegistrado({
+                    ...proprietarioFromLink(manifest.link),
+                    rntrc: tractionRntrc(composition, manifest.link.rntrc),
+                    ...(composition.traction.ownerDocument ? { document: composition.traction.ownerDocument } : {}),
+                    ...(composition.traction.ownerName ? { name: composition.traction.ownerName } : {}),
+                }, environment);
+            }
+            for (const holder of holders.values()) {
+                const person = (await deps.prisma.person?.findUnique({ where: { id: holder.personId } })) ?? null;
+                await deps.ensureProprietarioRegistrado({ document: holder.document, name: holder.name, rntrc: holder.rntrc, person }, environment);
+            }
             // Cada placa da composição (cavalo e reboques) precisa estar gravada na e-Frete antes do CIOT.
             for (const unit of composition.units) await deps.ensureVeiculoRegistrado(unit, environment);
             await deps.prisma.ciotEmissionJob.update({ where: { id: ciotEmissionJobId }, data: { phase: 'CADASTROS_ENSURING' } });

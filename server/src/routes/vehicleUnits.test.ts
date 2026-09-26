@@ -17,7 +17,8 @@ const users: Record<string, { id: string; roles: string[] }> = {
     'link-user': { id: 'link-user', roles: ['LINK'] },
 };
 
-const FULL = { chassi: '9BWZZZ377VT004251', renavam: '12345678901', axles: 3, rntrc: '123456789' };
+// Unidade completa: o RNTRC é do responsável RNTRC (padrão = proprietário), gravado na pessoa.
+const FULL = { chassi: '9BWZZZ377VT004251', renavam: '12345678901', axles: 3, rntrc: '123456789', ownerDocument: '11222333000181', ownerName: 'Dono' };
 
 describe('Vehicle units API', () => {
     const jwtSecret = `it-secret-vehicle-units-${Date.now()}`;
@@ -25,11 +26,15 @@ describe('Vehicle units API', () => {
     let server: ReturnType<express.Express['listen']> | null = null;
     let units: Row[] = [];
     let links: Record<string, Row> = {};
+    let persons: Row[] = [];
     let seq = 0;
 
     const original = {
         userFindUnique: prisma.user.findUnique,
         unitFindUnique: prisma.vehicleUnit.findUnique,
+        unitFindUniqueOrThrow: prisma.vehicleUnit.findUniqueOrThrow,
+        personCreate: prisma.person.create,
+        personUpdate: prisma.person.update,
         unitFindMany: prisma.vehicleUnit.findMany,
         unitCreate: prisma.vehicleUnit.create,
         unitUpdate: prisma.vehicleUnit.update,
@@ -66,25 +71,42 @@ describe('Vehicle units API', () => {
             return { id: u.id, email: `${u.id}@t.io`, roles: u.roles, active: true, hubId: u.roles.includes('HUB') ? 'hub-test' : null, permissions: [], admin: null, client: null, link: null };
         }) as any;
 
-        prisma.vehicleUnit.findUnique = (async (args: any) =>
-            units.find((u) => (args.where.plate ? u.plate === args.where.plate : u.id === args.where.id)) ?? null) as any;
+        const person = (id: string | null) => persons.find((p) => p.id === id) ?? null;
+        // Relações só quando a leitura pede `include` (como o Prisma).
+        const withParties = (row: Row | null, args: any) => (row && args?.include
+            ? { ...row, ownerPerson: person(row.ownerPersonId), rntrcHolderPerson: person(row.rntrcHolderPersonId) }
+            : row);
+        const findUnit = (args: any) => units.find((u) => (args.where.plate ? u.plate === args.where.plate : u.id === args.where.id)) ?? null;
+        prisma.vehicleUnit.findUnique = (async (args: any) => withParties(findUnit(args), args)) as any;
+        prisma.vehicleUnit.findUniqueOrThrow = (async (args: any) => {
+            const row = findUnit(args);
+            if (!row) throw Object.assign(new Error('not found'), { code: 'P2025' });
+            return withParties(row, args);
+        }) as any;
         prisma.vehicleUnit.findMany = (async (args: any) =>
             units.filter((u) =>
                 (!args.where?.role || u.role === args.where.role) &&
                 (!args.where?.plate?.contains || u.plate.includes(args.where.plate.contains)),
-            ).sort((a, b) => a.plate.localeCompare(b.plate)).slice(0, args.take ?? 50)) as any;
-        prisma.vehicleUnit.create = (async ({ data }: any) => {
-            const row = { id: `unit-${++seq}`, active: true, chassi: null, renavam: null, axles: null, rntrc: null, bodyType: null, wheelType: null, year: null, ownerPersonId: null, ownerDocument: null, ownerName: null, ...data };
+            ).sort((a, b) => a.plate.localeCompare(b.plate)).slice(0, args.take ?? 50).map((u) => withParties(u, args))) as any;
+        prisma.vehicleUnit.create = (async (args: any) => {
+            const row = { id: `unit-${++seq}`, active: true, chassi: null, renavam: null, axles: null, rntrc: null, bodyType: null, wheelType: null, year: null, ownerPersonId: null, ownerDocument: null, ownerName: null, rntrcHolderPersonId: null, ...args.data };
             units.push(row);
-            return row;
+            return withParties(row, args);
         }) as any;
-        prisma.vehicleUnit.update = (async ({ where, data }: any) => {
-            const row = units.find((u) => u.id === where.id);
+        prisma.vehicleUnit.update = (async (args: any) => {
+            const row = units.find((u) => u.id === args.where.id);
             if (!row) throw Object.assign(new Error('not found'), { code: 'P2025' });
-            Object.assign(row, data);
+            Object.assign(row, args.data);
+            return withParties(row, args);
+        }) as any;
+        prisma.person.findUnique = (async (args: any) =>
+            persons.find((p) => (args.where.document ? p.document === args.where.document : p.id === args.where.id)) ?? null) as any;
+        prisma.person.create = (async ({ data }: any) => {
+            const row = { id: `person-${persons.length + 1}`, rntrc: null, state: null, ...data };
+            persons.push(row);
             return row;
         }) as any;
-        prisma.person.findUnique = (async (args: any) => (args.where.document === '11222333000181' ? { id: 'person-dono' } : null)) as any;
+        prisma.person.update = (async ({ where, data }: any) => Object.assign(person(where.id)!, data)) as any;
         prisma.vehicleType.findFirst = (async () => ({ id: 'vt-1' })) as any;
         prisma.link.findUnique = (async (args: any) => (links[args.where.id] ? withUnits(links[args.where.id]) : null)) as any;
         prisma.link.update = (async ({ where, data }: any) => {
@@ -110,13 +132,20 @@ describe('Vehicle units API', () => {
     beforeEach(() => {
         units = [];
         seq = 0;
-        links = { 'link-1': { id: 'link-1', name: 'Transportador', vehiclePlate: 'A completar', tractionUnitId: null, trailer1UnitId: null, trailer2UnitId: null, trailer3UnitId: null } };
+        persons = [
+            { id: 'person-dono', document: '11222333000181', legalName: 'Dono', state: 'SP', rntrc: null },
+            { id: 'person-link', document: '52998224725', legalName: 'Transportador', state: 'MA', rntrc: null },
+        ];
+        links = { 'link-1': { id: 'link-1', name: 'Transportador', personId: 'person-link', vehiclePlate: 'A completar', tractionUnitId: null, trailer1UnitId: null, trailer2UnitId: null, trailer3UnitId: null } };
     });
 
     after(async () => {
         if (server) await new Promise<void>((resolve, reject) => server!.close((err) => (err ? reject(err) : resolve())));
         prisma.user.findUnique = original.userFindUnique;
         prisma.vehicleUnit.findUnique = original.unitFindUnique;
+        prisma.vehicleUnit.findUniqueOrThrow = original.unitFindUniqueOrThrow;
+        prisma.person.create = original.personCreate;
+        prisma.person.update = original.personUpdate;
         prisma.vehicleUnit.findMany = original.unitFindMany;
         prisma.vehicleUnit.create = original.unitCreate;
         prisma.vehicleUnit.update = original.unitUpdate;
@@ -237,13 +266,21 @@ describe('Vehicle units API', () => {
         });
         assert.equal(first.status, 200, JSON.stringify(first.body));
         const traction = units.find((u) => u.role === 'TRACTION')!;
-        assert.equal(traction.rntrc, '11111111');
+        // Sem proprietário, o responsável RNTRC é o próprio transportador; o número fica na pessoa dele.
+        assert.equal(traction.rntrcHolderPersonId, 'person-link');
+        assert.equal(persons.find((p) => p.id === 'person-link')!.rntrc, '11111111');
+        assert.equal(traction.rntrc, null, 'VehicleUnit.rntrc é legado e não é mais gravado');
+        assert.equal(links['link-1'].rntrc, '11111111');
         assert.equal(units.find((u) => u.role === 'TRAILER')!.plate, 'REB1A11');
 
+        // RNTRC diferente para a mesma pessoa não sobrescreve em silêncio: corrige-se na ficha da pessoa.
         const second = await call('PATCH', '/api/links/link-1/fiscal', 'admin-1', { rntrc: '222222222' });
-        assert.equal(second.status, 200);
-        assert.equal(traction.rntrc, '222222222');
+        assert.equal(second.status, 409);
+        assert.equal(persons.find((p) => p.id === 'person-link')!.rntrc, '11111111');
         assert.equal(traction.chassi, FULL.chassi);
+
+        const other = await call('PATCH', '/api/links/link-1/fiscal', 'admin-1', { vehicleAxles: 5 });
+        assert.equal(other.status, 200);
         assert.equal(links['link-1'].trailerPlate, 'REB1A11', 'reboque preservado quando o patch não o menciona');
     });
 
@@ -253,6 +290,54 @@ describe('Vehicle units API', () => {
         assert.equal(res.status, 200);
         assert.equal(links['link-1'].trailer1UnitId, null);
         assert.equal(links['link-1'].trailerPlate, null);
+    });
+
+    // ── Responsável RNTRC × proprietário ────────────────────────────────────
+
+    it('responsável RNTRC padrão = proprietário, e o RNTRC fica na pessoa', async () => {
+        const res = await call('POST', '/api/vehicle-units', 'admin-1', { role: 'TRACTION', plate: 'ABC1D23', ...FULL });
+        assert.equal(res.status, 201, JSON.stringify(res.body));
+        assert.equal(res.body.data.ownerPersonId, 'person-dono');
+        assert.equal(res.body.data.rntrcHolderPersonId, 'person-dono');
+        assert.equal(res.body.data.rntrc, FULL.rntrc);
+        assert.equal(persons.find((p) => p.id === 'person-dono')!.rntrc, FULL.rntrc);
+        assert.deepEqual(res.body.data.missingFields, []);
+    });
+
+    it('cavalo e reboque com responsáveis RNTRC diferentes entre si e do proprietário do CRLV', async () => {
+        const res = await call('PUT', '/api/links/link-1/composition', 'admin-1', {
+            traction: { plate: 'ABC1D23', ...FULL, rntrcHolderDocument: '529.982.247-25', rntrc: '87654321' },
+            trailers: [{ plate: 'REB1A11', ...FULL, chassi: '9BWZZZ377VT004999', rntrcHolderDocument: '39053344705', rntrcHolderName: 'Agregado', rntrc: '11223344' }],
+        });
+        assert.equal(res.status, 200, JSON.stringify(res.body));
+        const traction = units.find((u) => u.plate === 'ABC1D23')!;
+        const trailer = units.find((u) => u.plate === 'REB1A11')!;
+        assert.equal(traction.ownerPersonId, 'person-dono');
+        assert.equal(traction.rntrcHolderPersonId, 'person-link');
+        assert.equal(trailer.ownerPersonId, 'person-dono');
+        const agregado = persons.find((p) => p.document === '39053344705')!;
+        assert.equal(trailer.rntrcHolderPersonId, agregado.id);
+        assert.equal(agregado.rntrc, '11223344');
+        assert.equal(persons.find((p) => p.id === 'person-link')!.rntrc, '87654321');
+        assert.equal(persons.find((p) => p.id === 'person-dono')!.rntrc, null, 'o proprietário do CRLV não recebe RNTRC alheio');
+        assert.equal(links['link-1'].rntrc, '87654321', 'espelho legado do Link = RNTRC do responsável do cavalo');
+    });
+
+    it('responsável editável depois, e "mesmo do proprietário" realinha', async () => {
+        const created = await call('POST', '/api/vehicle-units', 'admin-1', { role: 'TRAILER', plate: 'REB1A11', ...FULL });
+        const id = created.body.data.id;
+        const moved = await call('PATCH', `/api/vehicle-units/${id}`, 'admin-1', { rntrcHolderPersonId: null });
+        assert.equal(moved.status, 200);
+        assert.equal(moved.body.data.rntrcHolderPersonId, null);
+        assert.deepEqual(moved.body.data.missingFields.map((f: any) => f.field), ['rntrc']);
+        const back = await call('PATCH', `/api/vehicle-units/${id}`, 'admin-1', { rntrcHolderSameAsOwner: true });
+        assert.equal(back.body.data.rntrcHolderPersonId, 'person-dono');
+        assert.deepEqual(back.body.data.missingFields, []);
+    });
+
+    it('RNTRC sem proprietário nem responsável (fora de um transportador) → 422', async () => {
+        const res = await call('POST', '/api/vehicle-units', 'admin-1', { role: 'TRAILER', plate: 'REB1A11', rntrc: '12345678' });
+        assert.equal(res.status, 422);
     });
 
     it('PATCH /fiscal só com carrierType não mexe nas unidades', async () => {

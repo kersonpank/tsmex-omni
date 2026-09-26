@@ -10,7 +10,7 @@ import {
     upsertVehicleUnit,
     vehicleUnitInputSchema,
 } from '../services/vehicleUnitService.js';
-import { unitFieldIssues } from '../services/vehicleUnitRules.js';
+import { unitFieldIssues, unitRntrc } from '../services/vehicleUnitRules.js';
 
 const router = Router();
 
@@ -45,7 +45,7 @@ router.post('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthReques
     try {
         const { role, ...input } = vehicleUnitInputSchema.extend({ role: roleSchema }).parse(req.body);
         const unit = await prisma.$transaction((tx) => upsertVehicleUnit(tx, role, input));
-        res.status(201).json({ success: true, data: { ...unit, missingFields: unitFieldIssues(unit) } });
+        res.status(201).json({ success: true, data: { ...unit, rntrc: unitRntrc(unit), missingFields: unitFieldIssues(unit) } });
     } catch (error) {
         zodMessage(error, next);
     }

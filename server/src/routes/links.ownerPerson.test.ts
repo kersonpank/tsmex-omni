@@ -11,6 +11,7 @@ import { after, before, beforeEach, describe, it } from 'node:test';
 import jwt from 'jsonwebtoken';
 import express from 'express';
 import prisma from '../lib/prisma.js';
+import { cepIbgeLookup } from '../services/selectedCity.js';
 import { errorHandler } from '../middleware/errorHandler.js';
 
 type ApiResponse<T = unknown> = { status: number; body: T };
@@ -202,6 +203,7 @@ describe('PATCH /api/links/:id/owner-person', () => {
 
 const originalSelectedCity = prisma.city.findUnique;
 const originalSelectedCep = prisma.cEP.findUnique;
+const originalCepLookup = cepIbgeLookup.lookup;
 // Canonical municipality/CEP boundary used by every address write.
 before(() => {
     prisma.city.findUnique = (async ({ where }: any) => {
@@ -210,5 +212,6 @@ before(() => {
         return null;
     }) as any;
     prisma.cEP.findUnique = (async () => null) as any;
+    cepIbgeLookup.lookup = async () => null;
 });
-after(() => { prisma.city.findUnique = originalSelectedCity; prisma.cEP.findUnique = originalSelectedCep; });
+after(() => { prisma.city.findUnique = originalSelectedCity; prisma.cEP.findUnique = originalSelectedCep; cepIbgeLookup.lookup = originalCepLookup; });
