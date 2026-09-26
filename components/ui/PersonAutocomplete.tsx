@@ -14,6 +14,7 @@ interface PersonAutocompleteProps {
   required?: boolean;
   /** Se true, mostra botão para adicionar como Cliente após criar (para pagador) */
   showAddClientHint?: boolean;
+  stateRegistrationSuggestion?: { document: string; value: string; source: string };
 }
 
 function formatDoc(doc: string, type: PersonDocumentType): string {
@@ -54,6 +55,7 @@ export const PersonAutocomplete: React.FC<PersonAutocompleteProps> = ({
   className = '',
   required = false,
   showAddClientHint = false,
+  stateRegistrationSuggestion,
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [suggestions, setSuggestions] = useState<Person[]>([]);
@@ -146,23 +148,16 @@ export const PersonAutocomplete: React.FC<PersonAutocompleteProps> = ({
           value={inputValue}
           onChange={handleInputChange}
           onFocus={() => {
+            if (value) return;
             if (suggestions.length > 0) setShowDropdown(true);
             else if (inputValue.trim().length >= 2) search(inputValue);
           }}
           placeholder={placeholder}
           required={required && !value}
-          className={`w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 ${value ? 'pr-24' : 'pr-16'} bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 ${className}`}
+          className={`w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 ${value ? 'pr-16' : 'pr-16'} bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100 placeholder-tower-400 dark:placeholder-tower-500 ${className}`}
         />
         {value && (
           <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setShowEditModal(true)}
-              className="text-tower-400 dark:text-tower-400 hover:text-brand-600 dark:hover:text-brand-300 text-sm"
-              title="Editar dados desta pessoa"
-            >
-              Editar
-            </button>
             <button
               type="button"
               onClick={handleClear}
@@ -173,7 +168,10 @@ export const PersonAutocomplete: React.FC<PersonAutocompleteProps> = ({
           </div>
         )}
       </div>
-      {showDropdown && (
+      {value && <button type="button" onClick={() => setShowEditModal(true)} className="mt-2 min-h-10 rounded-lg border border-brand-300 px-3 text-sm font-bold text-brand-700 dark:border-brand-700 dark:text-brand-300">
+        Editar pessoa selecionada{stateRegistrationSuggestion?.document === value.document && !value.stateRegistration ? ' · completar IE da NF-e' : ''}
+      </button>}
+      {showDropdown && !value && (
         <div className="absolute z-50 mt-1 w-full bg-white dark:bg-tower-800 border border-tower-200 dark:border-tower-700 rounded-lg shadow-lg max-h-60 overflow-y-auto">
           {loading ? (
             <div className="p-3 text-tower-500 dark:text-tower-400 text-sm">Buscando...</div>
@@ -210,7 +208,7 @@ export const PersonAutocomplete: React.FC<PersonAutocompleteProps> = ({
                   </div>
                 </button>
               ))}
-              <div className="border-t border-tower-100 dark:border-tower-700 p-2">
+              {!value && <div className="border-t border-tower-100 dark:border-tower-700 p-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -222,7 +220,7 @@ export const PersonAutocomplete: React.FC<PersonAutocompleteProps> = ({
                 >
                   + Cadastrar nova pessoa
                 </button>
-              </div>
+              </div>}
             </>
           )}
         </div>
@@ -260,11 +258,13 @@ export const PersonAutocomplete: React.FC<PersonAutocompleteProps> = ({
               complement: value.complement ?? '',
               neighborhood: value.neighborhood ?? '',
               city: value.city ?? '',
+              cityIbgeCode: value.cityIbgeCode ?? '',
               state: value.state ?? '',
               country: value.country ?? 'BRASIL',
               stateRegistration: value.stateRegistration ?? '',
               municipalRegistration: value.municipalRegistration ?? '',
             }}
+            stateRegistrationSuggestion={stateRegistrationSuggestion?.document === value.document ? { value: stateRegistrationSuggestion.value, source: stateRegistrationSuggestion.source } : undefined}
             onClose={() => setShowEditModal(false)}
             onSuccess={handleEditSuccess}
           />,

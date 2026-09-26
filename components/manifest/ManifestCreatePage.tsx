@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { hubsApi, manifestsApi, vehicleTypesApi } from '../../lib/api';
+import { hubsApi, manifestsApi, ordersApi, vehicleTypesApi } from '../../lib/api';
 import { formatApiError } from '../../lib/api';
 import { useAuthStore } from '../../store/authStore';
 import type { Hub, ManifestTripType, VehicleType } from '../../types/index';
@@ -48,6 +48,7 @@ const ManifestCreatePage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<'hubId' | 'origin' | 'destHubId' | 'destination' | 'vehicleTypeId', string>>>({});
   const [form, setForm] = useState({
     tripType: 'TRANSFER' as OperationalTripType,
     startsWithCollection: false,
@@ -90,6 +91,24 @@ const ManifestCreatePage: React.FC = () => {
     return () => { active = false; };
   }, []);
 
+  useEffect(() => {
+    const orderIds = (searchParams.get('orders') ?? '').split(',').filter(Boolean);
+    if (!orderIds.length) return;
+    let active = true;
+    void Promise.allSettled(orderIds.map((orderId) => ordersApi.getById(orderId))).then((results) => {
+      if (!active || results.some((result) => result.status !== 'fulfilled')) return;
+      const destinations = results.map((result) => {
+        const order = (result as PromiseFulfilledResult<Awaited<ReturnType<typeof ordersApi.getById>>>).value.data;
+        return { label: order?.fimPrestacao?.trim(), code: order?.fimIbgeCode?.trim() };
+      });
+      if (!destinations[0]?.label || !destinations[0]?.code || destinations.some((item) => item.label !== destinations[0].label || item.code !== destinations[0].code)) return;
+      const matched = destinations[0].label.match(/^(.+),\s*([A-Z]{2})$/i);
+      if (!matched) return;
+      setForm((current) => current.destination ? current : ({ ...current, destination: destinations[0].label!, destinationCity: matched[1].trim(), destinationState: matched[2].toUpperCase(), destinationCityIbgeCode: destinations[0].code! }));
+    });
+    return () => { active = false; };
+  }, [searchParams]);
+
   const selectedVehicle = useMemo(
     () => vehicleTypes.find((vehicle) => vehicle.id === form.vehicleTypeId),
     [vehicleTypes, form.vehicleTypeId],
@@ -124,15 +143,20 @@ const ManifestCreatePage: React.FC = () => {
   };
 
   const createJourney = async () => {
-    if (!form.vehicleTypeId || !form.origin.trim() || !form.destination.trim()) {
-      setError('Informe origem, destino principal e tipo de veículo.');
+    const errors: typeof fieldErrors = {};
+    if (!form.hubId) errors.hubId = 'Selecione a unidade responsável.';
+    if (!form.origin.trim()) errors.origin = 'Informe a origem da viagem.';
+    else if (!form.originCityIbgeCode) errors.origin = 'Confirme a cidade de origem. O cadastro do Hub pode estar sem código IBGE.';
+    if ((form.tripType === 'TRANSFER' || form.tripType === 'TRANSFER_DELIVERY') && !form.destHubId) errors.destHubId = form.tripType === 'TRANSFER' ? 'Selecione a unidade de destino.' : 'Selecione a unidade de transferência.';
+    if (!form.destination.trim()) errors.destination = 'Informe o destino final da viagem.';
+    else if (!form.destinationCityIbgeCode) errors.destination = 'Selecione uma cidade válida para confirmar o código IBGE do destino.';
+    if (!form.vehicleTypeId) errors.vehicleTypeId = 'Selecione o tipo de veículo.';
+    setFieldErrors(errors);
+    if (Object.keys(errors).length) {
+      const fields: Record<string, string> = { hubId: 'responsible-hub', destHubId: 'destination-hub', vehicleTypeId: 'vehicle-type', origin: 'journey-origin', destination: 'journey-destination' };
+      document.getElementById(fields[Object.keys(errors)[0]])?.focus();
       return;
     }
-    if ((form.tripType === 'TRANSFER' || form.tripType === 'TRANSFER_DELIVERY') && !form.destHubId) {
-      setError(form.tripType === 'TRANSFER' ? 'Selecione a unidade de destino.' : 'Selecione a unidade de transferência.');
-      return;
-    }
-    if (!form.originCityIbgeCode || !form.destinationCityIbgeCode) { setError('Selecione origem e destino nas sugestões de cidades antes de salvar.'); return; }
     setSaving(true);
     setError(null);
     try {
@@ -255,6 +279,7 @@ const ManifestCreatePage: React.FC = () => {
               {hubs.map((hub) => <option key={hub.id} value={hub.id}>{hub.name} ({hub.code})</option>)}
             </select>
             {isHubWorkspace && <p className="mt-2 text-xs text-tower-500">A unidade responsável segue o seu workspace; a origem abaixo continua editável.</p>}
+            {fieldErrors.hubId && <p role="alert" className="mt-1 text-xs text-red-700">{fieldErrors.hubId}</p>}
           </div>
 
           <div>
@@ -270,6 +295,7 @@ const ManifestCreatePage: React.FC = () => {
               required
               className={inputClass}
             />
+            {fieldErrors.origin && <p role="alert" className="mt-1 text-xs text-red-700">{fieldErrors.origin}</p>}
           </div>
 
           {(form.tripType === 'TRANSFER' || form.tripType === 'TRANSFER_DELIVERY') && (
@@ -281,11 +307,12 @@ const ManifestCreatePage: React.FC = () => {
                 <option value="">Selecione</option>
                 {hubs.filter((hub) => hub.id !== form.hubId).map((hub) => <option key={hub.id} value={hub.id}>{hub.name} ({hub.code})</option>)}
               </select>
+              {fieldErrors.destHubId && <p role="alert" className="mt-1 text-xs text-red-700">{fieldErrors.destHubId}</p>}
             </div>
           )}
 
           <div className={form.tripType === 'DELIVERY' ? 'sm:col-span-1' : 'sm:col-span-2'}>
-            <label htmlFor="journey-destination" className="mb-2 block text-sm font-bold text-tower-800 dark:text-tower-100">Destino principal</label>
+            <label htmlFor="journey-destination" className="mb-2 block text-sm font-bold text-tower-800 dark:text-tower-100">{form.tripType === 'TRANSFER_DELIVERY' ? 'Destino final da viagem' : 'Destino principal'}</label>
             <CityAutocomplete
               id="journey-destination"
               selectedIbgeCode={form.destinationCityIbgeCode}
@@ -295,7 +322,8 @@ const ManifestCreatePage: React.FC = () => {
               required
               className={inputClass}
             />
-            <p className="mt-2 text-xs text-tower-500">Informe manualmente. Os pedidos serão adicionados na próxima etapa.</p>
+            {fieldErrors.destination && <p role="alert" className="mt-1 text-xs text-red-700">{fieldErrors.destination}</p>}
+            <p className="mt-2 text-xs text-tower-500">{form.tripType === 'TRANSFER_DELIVERY' ? 'O Hub de transferência é uma parada intermediária. Informe onde esta viagem termina.' : 'Se os pedidos selecionados tiverem um destino comum, ele aparece aqui como sugestão.'}</p>
           </div>
 
           <div className="sm:col-span-2">
@@ -304,6 +332,7 @@ const ManifestCreatePage: React.FC = () => {
               <option value="">Selecione o veículo</option>
               {vehicleTypes.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.name} ({vehicle.code})</option>)}
             </select>
+            {fieldErrors.vehicleTypeId && <p role="alert" className="mt-1 text-xs text-red-700">{fieldErrors.vehicleTypeId}</p>}
             {selectedVehicle && (
               <p className="mt-2 text-xs text-tower-500">
                 Capacidade: {selectedVehicle.maxWeight.toLocaleString('pt-BR')} kg · {selectedVehicle.maxVolume.toLocaleString('pt-BR')} m³ · R$ {selectedVehicle.maxValue.toLocaleString('pt-BR')}

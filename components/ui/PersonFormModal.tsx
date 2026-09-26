@@ -48,6 +48,7 @@ export interface PersonFormModalProps {
   onSuccess: (person: Person) => void;
   /** Mostra aviso pra adicionar como Cliente depois de salvar (fluxo de pagador CIF/FOB). */
   showAddClientHint?: boolean;
+  stateRegistrationSuggestion?: { value: string; source: string };
 }
 
 /**
@@ -64,8 +65,9 @@ export function PersonFormModal({
   onClose,
   onSuccess,
   showAddClientHint = false,
+  stateRegistrationSuggestion,
 }: PersonFormModalProps) {
-  const [form, setForm] = useState({ ...defaultPersonForm, ...initialValues });
+  const [form, setForm] = useState({ ...defaultPersonForm, ...initialValues, stateRegistration: initialValues.stateRegistration || stateRegistrationSuggestion?.value || '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
@@ -122,6 +124,13 @@ export function PersonFormModal({
           {title || (mode === 'create' ? 'Cadastrar nova pessoa' : 'Editar Pessoa')}
         </h3>
         {error && <p className="text-red-600 dark:text-red-400 text-sm mb-4">{error}</p>}
+        {stateRegistrationSuggestion && <div className="mb-4 rounded-lg border border-brand-200 bg-brand-50 p-3 text-sm text-brand-950 dark:border-brand-700 dark:bg-brand-950/40 dark:text-brand-100">
+          <p>IE {stateRegistrationSuggestion.value} encontrada em {stateRegistrationSuggestion.source}.</p>
+          {initialValues.stateRegistration && initialValues.stateRegistration !== stateRegistrationSuggestion.value && <>
+            <p className="mt-1 font-semibold">O cadastro atual contém IE {initialValues.stateRegistration}. Confira a divergência antes de substituir.</p>
+            <button type="button" onClick={() => setForm((current) => ({ ...current, stateRegistration: stateRegistrationSuggestion.value }))} className="mt-2 rounded-lg border border-brand-400 px-3 py-2 font-bold">Usar IE da NF-e</button>
+          </>}
+        </div>}
         {isEmitter && (
           <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 rounded-lg p-3 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2 mb-4">
             <span className="text-sm">⚠️</span>
@@ -160,12 +169,15 @@ export function PersonFormModal({
                 ...f,
                 legalName: data.legalName || f.legalName,
                 tradeName: data.tradeName || f.tradeName,
-                address: data.address ? [data.address.street, data.address.number, data.address.complement, data.address.neighborhood].filter(Boolean).join(', ') : f.address,
+                address: data.address?.street || f.address,
+                number: data.address?.number || f.number,
+                complement: data.address?.complement || f.complement,
+                neighborhood: data.address?.neighborhood || f.neighborhood,
                 city: data.address?.city || f.city,
                 state: data.address?.state || f.state,
                 cityIbgeCode: data.address?.cityIbgeCode || '',
                 cep: data.address?.zipCode || f.cep,
-                stateRegistration: data.stateRegistration || f.stateRegistration,
+                stateRegistration: f.stateRegistration || data.stateRegistration || '',
               }));
             } : undefined}
             onImportError={(msg) => { setImportError(msg); setImportInfo(null); }}

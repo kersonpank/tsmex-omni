@@ -684,6 +684,11 @@ export const manifestsApi = {
         return response.data;
     },
 
+    setDrivers: async (id: string, driverIds: string[]) => {
+        const response = await api.put<ApiResponse<Manifest>>(`/manifests/${id}/drivers`, { driverIds });
+        return response.data;
+    },
+
     ciotSuggestion: async (id: string) => {
         const response = await api.get<ApiResponse<CiotTipoViagemSuggestion>>(`/manifests/${id}/ciot-suggestion`);
         return response.data;
@@ -918,6 +923,7 @@ export const linksApi = {
         vehiclePlate?: string;
         vehicleTypeId?: string;
         homeBase?: string;
+        carrierType?: 'ETC' | 'CTC' | 'FROTA';
     }) => {
         const response = await api.post<ApiResponse<Link>>('/links', data);
         return response.data;

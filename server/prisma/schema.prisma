@@ -439,6 +439,9 @@ model Link {
   // Status
   approvalStatus LinkApprovalStatus @default(PENDING)
   active         Boolean            @default(false)
+  createdByHubId String?
+  approvedByUserId String?
+  approvedAt DateTime?
 
   // WhatsApp (Evolution API)
   whatsappPhone String?
@@ -452,6 +455,7 @@ model Link {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@index([createdByHubId])
 }
 
 enum VehicleUnitRole {
@@ -546,6 +550,7 @@ model Driver {
   active Boolean @default(true)
 
   manifests Manifest[] @relation("ManifestDriver")
+  manifestAssignments ManifestDriverAssignment[]
   carriers DriverCarrier[]
 
   createdAt DateTime @default(now())
@@ -882,6 +887,7 @@ model Manifest {
   // Motorista da viagem (passo "Definir Motorista", separado do Link/transportador contratado)
   driverId String?
   driver   Driver? @relation("ManifestDriver", fields: [driverId], references: [id], onDelete: SetNull)
+  driverAssignments ManifestDriverAssignment[]
   vehicleAssignments ManifestVehicleAssignment[]
   compositionSnapshot Json?
   corrections ManifestCorrection[]
@@ -980,6 +986,20 @@ enum ManifestStatus {
   IN_PROGRESS // In execution
   COMPLETED // Completed
   CANCELLED // Cancelled
+}
+
+model ManifestDriverAssignment {
+  manifestId String
+  manifest Manifest @relation(fields: [manifestId], references: [id], onDelete: Cascade)
+  driverId String
+  driver Driver @relation(fields: [driverId], references: [id], onDelete: Restrict)
+  sequence Int
+  isPrimary Boolean @default(false)
+  createdAt DateTime @default(now())
+
+  @@id([manifestId, driverId])
+  @@unique([manifestId, sequence])
+  @@index([driverId])
 }
 
 model ManifestVehicleAssignment {

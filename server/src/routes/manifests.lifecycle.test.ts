@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import type { ManifestStatus } from '@prisma/client';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import prisma from '../lib/prisma.js';
-import { authorizedCteLegFixture, authorizedMdfeFixture, departureReadyManifest } from '../test/departureReadyFixture.js';
+import { authorizedCteLegFixture, authorizedMdfeFixture, authorizedCiotFixture, departureReadyManifest } from '../test/departureReadyFixture.js';
 import {
     addOrderToManifest,
     completeManifest,
@@ -226,7 +226,7 @@ describe('manifests lifecycle TRANSFER E2E (mocked)', () => {
             findFirst: async () => null,
             findMany: async () => [...store.orderLegs.values()].map((leg) => authorizedCteLegFixture(leg.orderId)),
         };
-        prisma.manifestFiscalDocument.findMany = (async (args: any) => args.select ? [authorizedMdfeFixture] : []) as unknown as typeof prisma.manifestFiscalDocument.findMany;
+        prisma.manifestFiscalDocument.findMany = (async (args: any) => args.select ? [authorizedMdfeFixture, authorizedCiotFixture] : []) as unknown as typeof prisma.manifestFiscalDocument.findMany;
 
         // Manifesto deste teste não usa ManifestStop (Fatia B) — mantém completeManifest no
         // caminho legado (0 paradas), preservando o comportamento original do teste.

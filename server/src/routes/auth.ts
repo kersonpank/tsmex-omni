@@ -335,8 +335,8 @@ router.post('/claim-link', async (req: AuthRequest, res: Response, next: NextFun
         }
         const hashedPassword = existing ? undefined : await bcrypt.hash(data.password, 10);
         const user = await prisma.$transaction(async (tx) => {
-            const link = await tx.link.findUnique({ where: { id: linkId }, select: { userId: true } });
-            if (!link || link.userId) throw new AppError('Convite já utilizado ou transportador não encontrado.', 409);
+            const link = await tx.link.findUnique({ where: { id: linkId }, select: { userId: true, approvalStatus: true, active: true } });
+            if (!link || link.userId || link.approvalStatus !== 'APPROVED' || !link.active) throw new AppError('Convite indisponível ou já utilizado.', 409);
             const claimedUser = existing
                 ? await tx.user.update({ where: { id: existing.id }, data: { roles: { set: [...new Set([...existing.roles, 'LINK' as const])] } } })
                 : await tx.user.create({ data: { email: data.email, password: hashedPassword!, roles: ['LINK'] } });

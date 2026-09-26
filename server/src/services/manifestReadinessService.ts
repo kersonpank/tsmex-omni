@@ -104,6 +104,7 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
                     person: { select: { neighborhood: true, cep: true, address: true, number: true, city: true, state: true, cityIbgeCode: true } },
                 },
             },
+            driverAssignments: { orderBy: { sequence: 'asc' }, include: { driver: { include: { person: true, carriers: { where: { active: true } } } } } },
             freightAgreement: { select: { id: true, freteBruto: true } },
             tripStops: {
                 orderBy: { sequence: 'asc' },
@@ -144,6 +145,13 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
 
     if (manifest._count.legs < 1) {
         add(issue('orders', 'ORDER_REQUIRED', 'Adicione pelo menos um pedido à viagem.'));
+    }
+    if (manifest.status === 'DRAFT' && manifest._count.legs > 0) {
+        const legs = await prisma.orderLeg.findMany({ where: { manifestId }, select: { order: { select: {
+            freightCalculations: { where: { status: 'CTE_AUTHORIZED', documentType: 'CTE' }, select: { cteAccessKey: true, cteProtocol: true, cteXml: true, cteXmlStorageKey: true } },
+        } } } });
+        const pending = legs.filter((leg) => !leg.order.freightCalculations.some((doc) => /^\d{44}$/.test(doc.cteAccessKey ?? '') && !!doc.cteProtocol && !!(doc.cteXml || doc.cteXmlStorageKey)));
+        if (pending.length) add(issue('orders', 'ORDER_DOCUMENTATION_PENDING', `${pending.length} pedido(s) vinculados; documentação CT-e pendente antes do MDF-e e da saída.`, undefined, 'warning'));
     }
 
     for (const point of manifest.tripStops) {
@@ -233,6 +241,14 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
             add(issue('responsible', 'DRIVER_CNH_EXPIRED', 'CNH do motorista está vencida.', 'cnhExpiry', 'warning'));
         }
     }
+    for (const assignment of (manifest.driverAssignments ?? []).filter((item) => !item.isPrimary)) {
+        const additional = assignment.driver;
+        if (!additional.active || (additional.linkId !== manifest.linkId && !additional.carriers.some((carrier) => carrier.linkId === manifest.linkId))) {
+            add(issue('responsible', 'ADDITIONAL_DRIVER_INVALID', `Motorista adicional ${additional.name} inativo ou sem vínculo com o transportador.`, additional.id));
+        } else if (!additional.cnhNumber || (additional.cnhExpiry && additional.cnhExpiry < new Date())) {
+            add(issue('responsible', 'ADDITIONAL_DRIVER_CNH_PENDING', `Confira a CNH do motorista adicional ${additional.name}.`, additional.id));
+        }
+    }
 
     if (!manifest.freightAgreement || manifest.freightAgreement.freteBruto < 0) {
         add(issue('freight', 'FREIGHT_AGREEMENT_REQUIRED', 'Informe a Carta Frete antes de enviar a oferta.', 'freteBruto'));
@@ -250,7 +266,7 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
         if (!fiscalDocs.some((doc) => doc.documentType === 'MDFE' && /^\d{44}$/.test(doc.accessKey ?? '') && !!doc.protocol && !!doc.xmlUrl)) {
             add(issue('fiscal', 'MDFE_AUTHORIZATION_REQUIRED', 'MDF-e autorizado com XML, chave e protocolo obrigatório para a saída.'));
         }
-        if (manifest.link?.carrierType !== 'FROTA' && !manifest.ciotDispensado && !fiscalDocs.some((doc) => doc.documentType === 'CIOT')) {
+        if (!manifest.ciotDispensado && !fiscalDocs.some((doc) => doc.documentType === 'CIOT')) {
             add(issue('fiscal', 'CIOT_REQUIRED', 'Emita o CIOT ou registre dispensa justificada antes da saída.'));
         }
     }

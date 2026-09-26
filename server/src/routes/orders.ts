@@ -479,11 +479,11 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
                     },
                     orderBy: { sequence: 'asc' }
                 },
-                remetentePerson: { select: { id: true, legalName: true, document: true, documentType: true, address: true, cep: true, city: true, state: true, neighborhood: true, number: true, complement: true } },
-                destinatarioPerson: { select: { id: true, legalName: true, document: true, documentType: true } },
-                consignatarioPerson: { select: { id: true, legalName: true, document: true, documentType: true } },
-                expedidorPerson: { select: { id: true, legalName: true, document: true, documentType: true } },
-                redespachantePerson: { select: { id: true, legalName: true, document: true, documentType: true } },
+                remetentePerson: true,
+                destinatarioPerson: true,
+                consignatarioPerson: true,
+                expedidorPerson: true,
+                redespachantePerson: true,
                 route: { select: { id: true, name: true } },
                 history: {
                     orderBy: { createdAt: 'asc' }

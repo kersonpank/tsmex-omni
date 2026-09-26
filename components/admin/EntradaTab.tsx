@@ -80,6 +80,8 @@ const EntradaTab: React.FC<EntradaTabProps> = ({
     evolucao: false,
     imagens: false,
   });
+  const [invoiceWarningSignature, setInvoiceWarningSignature] = useState<string | null>(null);
+  const [confirmInvoiceContinue, setConfirmInvoiceContinue] = useState(false);
 
   const [hubs, setHubs] = useState<Hub[]>([]);
   const [routes, setRoutes] = useState<PricingRoute[]>([]);
@@ -119,6 +121,7 @@ const EntradaTab: React.FC<EntradaTabProps> = ({
     cnpjEmitente: string;
     emitenteRazaoSocial: string | null;
     emitenteTradeName: string | null;
+    emitenteIe?: string | null;
   }
 
   const [nfPrescan, setNfPrescan] = useState<NfPrescanData | null>(null);
@@ -488,6 +491,7 @@ const EntradaTab: React.FC<EntradaTabProps> = ({
       cnpjEmitente: data.cnpjEmitente,
       emitenteRazaoSocial: data.emitenteRazaoSocial,
       emitenteTradeName: data.emitenteTradeName,
+      emitenteIe: data.emitenteIe,
     });
 
     if (data.cnpjEmitente) {
@@ -713,11 +717,35 @@ const EntradaTab: React.FC<EntradaTabProps> = ({
 
   const goToSectionByIndex = (nextIndex: number) => {
     const clamped = Math.min(Math.max(nextIndex, 0), SECTION_IDS.length - 1);
+    if (SECTION_IDS[safeActiveIndex] === 'nf' && clamped > safeActiveIndex) {
+      const pending = (order?.invoicesRel ?? []).flatMap((invoice: OrderInvoiceItem) => {
+        const missing = [invoice.cubedVolume == null || invoice.cubedVolume <= 0 ? 'cubagem' : null, !invoice.species?.trim() ? 'espécie' : null].filter(Boolean);
+        return missing.length ? [`NF ${invoice.nfNumber}: ${missing.join(' e ')}`] : [];
+      });
+      if (pending.length) {
+        const signature = pending.join('|');
+        if (invoiceWarningSignature === signature) setConfirmInvoiceContinue(true);
+        else { setInvoiceWarningSignature(signature); setConfirmInvoiceContinue(false); }
+        return;
+      }
+    }
+    setInvoiceWarningSignature(null);
     const nextId = SECTION_IDS[clamped];
     toggleSection(nextId);
   };
 
   const invoicesRel: OrderInvoiceItem[] = order?.invoicesRel ?? [];
+  const invoicePendingDetails = invoicesRel.flatMap((invoice) => {
+    const missing = [invoice.cubedVolume == null || invoice.cubedVolume <= 0 ? 'cubagem' : null, !invoice.species?.trim() ? 'espécie' : null].filter(Boolean);
+    return missing.length ? [`NF ${invoice.nfNumber}: ${missing.join(' e ')}`] : [];
+  });
+  const nfeCargo = order?.demand?.rawInputData?.nfeXmlData;
+  const senderIeSuggestion = nfeCargo?.emitente?.cnpj && nfeCargo?.emitente?.ie
+    ? { document: nfeCargo.emitente.cnpj, value: nfeCargo.emitente.ie, source: 'XML da NF-e' }
+    : nfPrescan?.cnpjEmitente && nfPrescan.emitenteIe
+      ? { document: nfPrescan.cnpjEmitente, value: nfPrescan.emitenteIe, source: 'consulta da NF-e' } : undefined;
+  const recipientIeSuggestion = nfeCargo?.destinatario?.cnpj && nfeCargo?.destinatario?.ie
+    ? { document: nfeCargo.destinatario.cnpj, value: nfeCargo.destinatario.ie, source: 'XML da NF-e' } : undefined;
   const editingExistingOrder = Boolean(initialOrderId && selectedOrderId);
   const contextTitle = startCreating
     ? 'Nova entrada'
@@ -1098,6 +1126,7 @@ const EntradaTab: React.FC<EntradaTabProps> = ({
                     <PersonAutocomplete
                       label="Remetente *"
                       value={peopleForm.remetente}
+                      stateRegistrationSuggestion={senderIeSuggestion}
                       onChange={(p) => setPeopleForm((f) => ({ ...f, remetente: p }))}
                       placeholder="Buscar remetente..."
                       required
@@ -1106,6 +1135,7 @@ const EntradaTab: React.FC<EntradaTabProps> = ({
                     <PersonAutocomplete
                       label="Destinatário *"
                       value={peopleForm.destinatario}
+                      stateRegistrationSuggestion={recipientIeSuggestion}
                       onChange={(p) => setPeopleForm((f) => ({ ...f, destinatario: p }))}
                       placeholder="Buscar destinatário..."
                       required
@@ -1243,6 +1273,10 @@ const EntradaTab: React.FC<EntradaTabProps> = ({
               </Section>
 
               <Section title="NOTAS FISCAIS" badge={invoicesRel.length} expanded={sectionsExpanded.nf} onToggle={() => toggleSection('nf')}>
+                {invoiceWarningSignature && SECTION_IDS[safeActiveIndex] === 'nf' && invoicePendingDetails.length > 0 && <div role="alert" className="mb-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-100">
+                  <p className="font-bold">Dados pendentes nas notas: {invoicePendingDetails.join('; ')}.</p>
+                  <p className="mt-1">A cubagem afeta capacidade e cálculo do frete; a espécie descreve a carga. Preencha agora ou toque em Próximo novamente para decidir continuar com a pendência.</p>
+                </div>}
                 {selectedOrderId ? (
                   <OrderNFForm
                     orderId={selectedOrderId}
@@ -1436,6 +1470,14 @@ const EntradaTab: React.FC<EntradaTabProps> = ({
           <QRCodeScanner onScan={handlePrescanQR} onClose={() => setShowPrescanQR(false)} />
         </Suspense>
       )}
+      {confirmInvoiceContinue && <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="invoice-pending-title">
+        <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl dark:bg-tower-900">
+          <h2 id="invoice-pending-title" className="text-lg font-bold">Continuar com dados pendentes?</h2>
+          <p className="mt-2 text-sm">{invoicePendingDetails.join('; ')}. Essas informações continuarão pendentes; nenhuma medida será presumida.</p>
+          <div className="mt-5 flex gap-3"><button type="button" onClick={() => setConfirmInvoiceContinue(false)} className="min-h-11 flex-1 rounded-lg border px-3">Voltar às notas</button>
+            <button type="button" onClick={() => { setConfirmInvoiceContinue(false); setInvoiceWarningSignature(null); toggleSection('calculo'); }} className="min-h-11 flex-1 rounded-lg bg-brand-600 px-3 font-bold text-white">Continuar com pendências</button></div>
+        </div>
+      </div>}
       {addClientModalPerson && (
         <AddClientModal
           person={addClientModalPerson}

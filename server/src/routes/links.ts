@@ -21,6 +21,7 @@ const createLinkSchema = z.object({
     vehiclePlate: z.string().min(7).max(8).optional(),
     vehicleTypeId: z.string().uuid().optional(),
     homeBase: z.string().optional(),
+    carrierType: z.enum(['ETC', 'CTC', 'FROTA']).optional(),
 });
 router.post('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
@@ -52,7 +53,7 @@ router.post('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthReques
                 create: { document: normalizedDoc, documentType: normalizedDoc.length === 11 ? 'CPF' : 'CNPJ', legalName: body.name.trim() },
                 update: {},
             });
-            return tx.link.create({
+            const created = await tx.link.create({
                 data: {
                     personId: person.id,
                     name: body.name,
@@ -64,9 +65,24 @@ router.post('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthReques
                     coverageStates: [],
                     approvalStatus: 'PENDING',
                     active: false,
+                    carrierType: normalizedDoc.length === 11 ? 'TAC' : body.carrierType,
+                    createdByHubId: req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') ? req.user!.hubId : null,
                 },
                 include: { vehicleType: true },
             });
+            if (normalizedDoc.length === 11) {
+                const driver = await tx.driver.upsert({
+                    where: { document: normalizedDoc },
+                    create: { document: normalizedDoc, name: body.name.trim(), phone: body.phone, personId: person.id },
+                    update: { personId: person.id },
+                });
+                await tx.driverCarrier.upsert({
+                    where: { driverId_linkId: { driverId: driver.id, linkId: created.id } },
+                    create: { driverId: driver.id, linkId: created.id, active: true },
+                    update: { active: true },
+                });
+            }
+            return created;
         });
 
         res.status(201).json({ success: true, data: link, message: 'Transportador cadastrado. Falta aprovação e convite de acesso antes da oferta.' });
@@ -205,10 +221,11 @@ router.get('/drivers/search', authenticate, authorize('ADMIN', 'HUB'), async (re
 });
 
 // GET /api/links/:id
-router.post('/:id/invite', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/:id/invite', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const link = await prisma.link.findUnique({ where: { id: req.params.id as string }, select: { id: true, userId: true, approvalStatus: true } });
+        const link = await prisma.link.findUnique({ where: { id: req.params.id as string }, select: { id: true, userId: true, approvalStatus: true, createdByHubId: true } });
         if (!link) throw new AppError('Transportador não encontrado.', 404);
+        if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && (!req.user!.hubId || link.createdByHubId !== req.user!.hubId)) throw new AppError('Somente o Hub que cadastrou este transportador pode gerar o convite.', 403);
         if (link.approvalStatus !== 'APPROVED') throw new AppError('Aprove o cadastro comercial antes de convidar o transportador.', 409);
         if (link.userId) throw new AppError('O transportador já possui acesso ao aplicativo.', 409);
         res.json({ success: true, data: { token: signLinkInvite(link.id), expiresInDays: 7 } });
@@ -394,18 +411,20 @@ router.put('/:id/onboarding', authenticate, async (req: AuthRequest, res: Respon
 });
 
 // PATCH /api/links/:id/approve - Approve link (Admin only); body: { vehicleTypeId } required when link has no vehicleTypeId
-router.patch('/:id/approve', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.patch('/:id/approve', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const id = req.params.id as string;
         const { vehicleTypeId } = req.body || {};
 
         const existing = await prisma.link.findUnique({
             where: { id },
-            select: { vehicleTypeId: true },
+            select: { vehicleTypeId: true, createdByHubId: true, approvalStatus: true },
         });
         if (!existing) {
             return next(new AppError('Link not found', 404));
         }
+        if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && (!req.user!.hubId || existing.createdByHubId !== req.user!.hubId)) throw new AppError('Somente o Hub que cadastrou este transportador pode aprová-lo.', 403);
+        if (existing.approvalStatus !== 'PENDING') throw new AppError('Apenas cadastros pendentes podem ser aprovados.', 409);
 
         const finalVehicleTypeId = vehicleTypeId ?? existing.vehicleTypeId;
         if (finalVehicleTypeId) {
@@ -419,6 +438,8 @@ router.patch('/:id/approve', authenticate, authorize('ADMIN'), async (req: AuthR
                 approvalStatus: 'APPROVED',
                 active: true,
                 vehicleTypeId: finalVehicleTypeId ?? null,
+                approvedByUserId: req.user!.id,
+                approvedAt: new Date(),
             },
             include: {
                 vehicleType: true,

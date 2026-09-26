@@ -5,10 +5,14 @@ import { getManifestReadiness } from './manifestReadinessService.js';
 
 const prismaSnapshot = {
     manifestFindUnique: prisma.manifest.findUnique.bind(prisma.manifest),
+    orderLegFindMany: prisma.orderLeg.findMany,
+    fiscalFindMany: prisma.manifestFiscalDocument.findMany,
 };
 
 function restorePrismaMocks() {
     prisma.manifest.findUnique = prismaSnapshot.manifestFindUnique;
+    prisma.orderLeg.findMany = prismaSnapshot.orderLegFindMany;
+    prisma.manifestFiscalDocument.findMany = prismaSnapshot.fiscalFindMany;
 }
 
 // Dates used throughout
@@ -63,6 +67,7 @@ const baseManifest = {
     link: baseLink,
     driverId: 'driver-1',
     driver: baseDriver,
+    driverAssignments: [],
     freightAgreement: { id: 'fa-1', freteBruto: 1000 },
     tripStops: [],
     _count: { legs: 1 },
@@ -73,6 +78,7 @@ describe('manifestReadinessService', () => {
     afterEach(() => restorePrismaMocks());
 
     function mockWith(linkOverrides?: object, driverOverrides?: object, manifestOverrides?: object) {
+        prisma.orderLeg.findMany = (async () => []) as any;
         const link = linkOverrides !== undefined ? { ...baseLink, ...linkOverrides } : baseLink;
         const driver = driverOverrides !== undefined ? { ...baseDriver, ...driverOverrides } : baseDriver;
         prisma.manifest.findUnique = (async () => ({
@@ -89,6 +95,36 @@ describe('manifestReadinessService', () => {
         const blocking = r.issues.filter((i) => i.severity === 'blocking');
         assert.equal(blocking.length, 0, `unexpected blocking: ${blocking.map((i) => i.code).join(', ')}`);
         assert.equal(r.canOffer, true);
+    });
+
+    it('permite planejar e ofertar com CT-e pendente, mostrando atenção nos pedidos', async () => {
+        mockWith();
+        prisma.orderLeg.findMany = (async () => [{ order: { freightCalculations: [] } }]) as any;
+        const result = await getManifestReadiness('manifest-1');
+        assert.equal(result.canOffer, true);
+        assert.equal(result.steps.orders.state, 'attention');
+        assert.ok(result.issues.some(item => item.code === 'ORDER_DOCUMENTATION_PENDING'));
+    });
+
+    it('bloqueia saída quando o segundo pedido não tem CT-e e não dispensa CIOT por FROTA', async () => {
+        mockWith({ carrierType: 'FROTA' }, undefined, { status: 'ACCEPTED' });
+        prisma.orderLeg.findMany = (async () => [
+            { orderId: 'order-1', order: { freightCalculations: [{ cteAccessKey: '1'.repeat(44), cteProtocol: 'protocol', cteXml: '<xml/>' }] } },
+            { orderId: 'order-2', order: { freightCalculations: [] } },
+        ]) as any;
+        prisma.manifestFiscalDocument.findMany = (async () => [{ documentType: 'MDFE', accessKey: '2'.repeat(44), protocol: 'protocol', xmlUrl: 'stored' }]) as any;
+        const result = await getManifestReadiness('manifest-1');
+        assert.equal(result.canStart, false);
+        assert.ok(result.issues.some(item => item.code === 'CTE_AUTHORIZATION_REQUIRED' && item.field === 'order-2'));
+        assert.ok(result.issues.some(item => item.code === 'CIOT_REQUIRED'));
+    });
+
+    it('bloqueia oferta antes de reivindicar o convite e com motorista adicional inativo', async () => {
+        mockWith({ userId: null }, undefined, { driverAssignments: [{ isPrimary: false, driver: { id: 'driver-2', name: 'Segundo', active: false } }] });
+        const result = await getManifestReadiness('manifest-1');
+        assert.equal(result.canOffer, false);
+        assert.ok(result.issues.some(item => item.code === 'LINK_ACCESS_PENDING'));
+        assert.ok(result.issues.some(item => item.code === 'ADDITIONAL_DRIVER_INVALID'));
     });
 
     it('não oferece viagem antiga sem composição confirmada, mesmo com placa no transportador', async () => {

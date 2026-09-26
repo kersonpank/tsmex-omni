@@ -22,6 +22,7 @@ export function departureReadyManifest<T extends { legs: unknown[]; linkId?: str
     };
 }
 
+export const authorizedCiotFixture = { documentType: 'CIOT', status: 'AUTHORIZED', protocol: 'ciot-test' };
 export const authorizedMdfeFixture = {
     documentType: 'MDFE', accessKey: '1'.repeat(44), protocol: '123456789', xmlUrl: 'fiscal/mdfe/test.xml',
 };

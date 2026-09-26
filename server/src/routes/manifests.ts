@@ -314,6 +314,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
                 vehicleType: true,
                 link: { include: { vehicleType: true, person: true, ...linkVehicleInclude } },
                 driver: { include: { person: true } },
+                driverAssignments: { orderBy: { sequence: 'asc' }, include: { driver: { include: { person: true } } } },
                 hub: true,
                 destHub: true,
                 fiscalEmitter: true,
@@ -1038,6 +1039,23 @@ const manifestAssignmentSchema = z.object({
     driverId: z.string().uuid().nullable().optional(),
 });
 
+async function replaceManifestDrivers(manifestId: string, driverIds: string[], expectedUpdatedAt: Date, linkId?: string | null) {
+    return prisma.$transaction(async (tx) => {
+        const updated = await tx.manifest.updateMany({
+            where: { id: manifestId, status: 'DRAFT', updatedAt: expectedUpdatedAt },
+            data: { driverId: driverIds[0] ?? null, ...(linkId !== undefined ? { linkId } : {}), updatedAt: new Date() },
+        });
+        if (updated.count !== 1) throw new AppError('A viagem mudou durante a edição. Recarregue e tente novamente.', 409);
+        await tx.manifestDriverAssignment.deleteMany({ where: { manifestId } });
+        if (driverIds.length) {
+            await tx.manifestDriverAssignment.createMany({ data: driverIds.map((driverId, index) => ({
+                manifestId, driverId, sequence: index + 1, isPrimary: index === 0,
+            })) });
+        }
+        return tx.manifest.findUniqueOrThrow({ where: { id: manifestId }, include: { link: true, driver: true, vehicleType: true, driverAssignments: { orderBy: { sequence: 'asc' }, include: { driver: true } } } });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+}
+
 // PATCH /api/manifests/:id/assignment — escolhe o responsável sem enviar a oferta.
 router.patch('/:id/assignment', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('HUB')) {
@@ -1056,10 +1074,7 @@ router.patch('/:id/assignment', authenticate, async (req: AuthRequest, res: Resp
         }
 
         if (!data.linkId) {
-            const cleared = await prisma.manifest.update({
-                where: { id },
-                data: { linkId: null, driverId: null },
-            });
+            const cleared = await replaceManifestDrivers(id, [], manifest.updatedAt, null);
             return res.json({ success: true, data: cleared, message: 'Responsável removido.' });
         }
 
@@ -1084,11 +1099,9 @@ router.patch('/:id/assignment', authenticate, async (req: AuthRequest, res: Resp
             driverId = manifest.driverId;
         }
 
-        const updated = await prisma.manifest.update({
-            where: { id },
-            data: { linkId: link.id, driverId },
-            include: { link: true, driver: true, vehicleType: true },
-        });
+        const existingAssignments = await prisma.manifestDriverAssignment.findMany({ where: { manifestId: id }, orderBy: { sequence: 'asc' } });
+        const retained = existingAssignments.map((assignment) => assignment.driverId).filter((id) => linkDrivers.some((driver) => driver.id === id));
+        const updated = await replaceManifestDrivers(id, driverId ? [driverId, ...retained.filter((id) => id !== driverId)] : [], manifest.updatedAt, link.id);
         res.json({
             success: true,
             data: updated,
@@ -1525,13 +1538,37 @@ router.patch('/:id/driver', authenticate, authorize('ADMIN', 'HUB'), async (req:
         if (manifest.status !== 'DRAFT') throw new AppError('Reabra o planejamento ou registre uma correção antes de trocar o motorista.', 409);
 
         const driver = await prisma.driver.findUnique({ where: { id: driverId }, include: { carriers: { where: { active: true }, select: { linkId: true } } } });
-        if (!driver || (driver.linkId !== manifest.linkId && !driver.carriers.some((carrier) => carrier.linkId === manifest.linkId))) {
+        if (!driver || !driver.active || (driver.linkId !== manifest.linkId && !driver.carriers.some((carrier) => carrier.linkId === manifest.linkId))) {
             throw new AppError('Motorista não encontrado ou não pertence ao Link deste manifesto.', 404);
         }
 
-        const updated = await prisma.manifest.update({ where: { id }, data: { driverId } });
+        const current = await prisma.manifestDriverAssignment.findMany({ where: { manifestId: id }, orderBy: { sequence: 'asc' } });
+        const updated = await replaceManifestDrivers(id, [driverId, ...current.map((assignment) => assignment.driverId).filter((id) => id !== driverId)], manifest.updatedAt);
         res.json({ success: true, data: updated, message: 'Motorista definido' });
     } catch (error) {
+        next(error);
+    }
+});
+
+// A ordem é operacional: o primeiro condutor é o principal usado no CIOT.
+router.put('/:id/drivers', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const id = req.params.id as string;
+        const { driverIds } = z.object({ driverIds: z.array(z.string().uuid()).min(1).max(10) }).parse(req.body);
+        if (new Set(driverIds).size !== driverIds.length) throw new AppError('Não repita o mesmo motorista na viagem.', 400);
+        const manifest = await prisma.manifest.findUnique({ where: { id } });
+        if (!manifest) throw new AppError('Viagem não encontrada.', 404);
+        if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && manifest.hubId !== req.user!.hubId) throw new AppError('Sem acesso a esta viagem.', 403);
+        if (manifest.status !== 'DRAFT') throw new AppError('Retire a oferta ou registre correção antes de alterar os motoristas.', 409);
+        if (!manifest.linkId) throw new AppError('Selecione primeiro o transportador.', 400);
+        const drivers = await prisma.driver.findMany({ where: { id: { in: driverIds }, active: true, OR: [
+            { linkId: manifest.linkId }, { carriers: { some: { linkId: manifest.linkId, active: true } } },
+        ] } });
+        if (drivers.length !== driverIds.length) throw new AppError('Associe todos os motoristas ativos ao transportador antes de selecioná-los.', 400);
+        const updated = await replaceManifestDrivers(id, driverIds, manifest.updatedAt);
+        res.json({ success: true, data: updated });
+    } catch (error) {
+        if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
         next(error);
     }
 });

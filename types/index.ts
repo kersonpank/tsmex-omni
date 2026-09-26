@@ -464,6 +464,9 @@ export interface Link {
     onTimeRate: number;
     approvalStatus: LinkApprovalStatus;
     active: boolean;
+    createdByHubId?: string | null;
+    approvedByUserId?: string | null;
+    approvedAt?: string | null;
     onboarding?: LinkOnboarding;
     drivers?: Driver[];
 
@@ -667,6 +670,7 @@ export interface Manifest {
     link?: Link;
     driverId?: string | null;
     driver?: Driver | null;
+    driverAssignments?: Array<{ driverId: string; sequence: number; isPrimary: boolean; driver: Driver }>;
     ciotTipoViagemOverride?: CiotTipoViagem | null;
     ciotDispensado?: boolean;
     ciotDispensadoMotivo?: string | null;

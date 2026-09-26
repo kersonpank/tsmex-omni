@@ -49,13 +49,19 @@ export interface MdfeDescargaGroup {
     chaves: string[];
 }
 
-function cteKeysFromOrders(orders: { freightCalculations: { cteAccessKey: string | null }[] }[]): string[] {
+type CteForMdfe = { cteAccessKey: string | null; cteProtocol: string | null; cteXml: string | null; cteXmlStorageKey: string | null };
+
+function validCteKey(calculations: CteForMdfe[]): string | null {
+    const authorized = calculations.find((calculation) => /^\d{44}$/.test(calculation.cteAccessKey ?? '')
+        && !!calculation.cteProtocol && !!(calculation.cteXml || calculation.cteXmlStorageKey));
+    return authorized?.cteAccessKey ?? null;
+}
+
+function cteKeysFromOrders(orders: { freightCalculations: CteForMdfe[] }[]): string[] {
     const keys = new Set<string>();
     for (const o of orders) {
-        for (const c of o.freightCalculations) {
-            const k = digits(c.cteAccessKey ?? '');
-            if (k.length === 44) keys.add(k);
-        }
+        const key = validCteKey(o.freightCalculations);
+        if (key) keys.add(key);
     }
     return [...keys];
 }
@@ -76,7 +82,7 @@ export async function collectDescargaGroupsForManifest(manifestId: string): Prom
                 include: {
                     order: {
                         include: {
-                            freightCalculations: { where: { status: 'CTE_AUTHORIZED', documentType: 'CTE' }, select: { cteAccessKey: true } },
+                            freightCalculations: { where: { status: 'CTE_AUTHORIZED', documentType: 'CTE' }, orderBy: { createdAt: 'desc' }, select: { cteAccessKey: true, cteProtocol: true, cteXml: true, cteXmlStorageKey: true } },
                         },
                     },
                 },
@@ -97,12 +103,12 @@ export async function collectDescargaGroupsForManifest(manifestId: string): Prom
         }));
     }
 
-    const [orders, manifest] = await Promise.all([
-        prisma.order.findMany({
+    const [legs, manifest] = await Promise.all([
+        prisma.orderLeg.findMany({
             where: { manifestId },
-            include: {
-                freightCalculations: { where: { status: 'CTE_AUTHORIZED', documentType: 'CTE' }, select: { cteAccessKey: true } },
-            },
+            include: { order: { include: {
+                freightCalculations: { where: { status: 'CTE_AUTHORIZED', documentType: 'CTE' }, orderBy: { createdAt: 'desc' }, select: { cteAccessKey: true, cteProtocol: true, cteXml: true, cteXmlStorageKey: true } },
+            } } },
         }),
         prisma.manifest.findUnique({
             where: { id: manifestId },
@@ -119,7 +125,7 @@ export async function collectDescargaGroupsForManifest(manifestId: string): Prom
             destCity: manifest?.destinationCity ?? legacyDestination.city,
             destState: manifest?.destinationState ?? legacyDestination.state,
             destCityIbgeCode: manifest?.destinationCityIbgeCode ?? null,
-            chaves: cteKeysFromOrders(orders),
+            chaves: cteKeysFromOrders(legs.map((leg) => leg.order)),
         },
     ];
 }
@@ -132,6 +138,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
             link: { include: linkVehicleInclude },
             vehicleAssignments: manifestVehicleAssignmentsInclude,
             driver: { include: { carriers: { where: { active: true }, select: { linkId: true } } } },
+            driverAssignments: { orderBy: { sequence: 'asc' }, include: { driver: { include: { carriers: { where: { active: true }, select: { linkId: true } } } } } },
             fiscalEmitter: { include: { person: true } },
             tripStops: {
                 orderBy: { sequence: 'asc' },
@@ -150,20 +157,33 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
     if (vehicleIssues.length) {
         return { ok: false, error: `Composição veicular incompleta para o MDF-e: ${vehicleIssues.map((i) => `${i.plate ?? 'cavalo'} (${describeUnitIssues(i)})`).join('; ')}.` };
     }
+    const legs = await prisma.orderLeg.findMany({
+        where: { manifestId },
+        include: { order: { select: { demand: { select: { orderNumber: true } }, freightCalculations: {
+            where: { status: 'CTE_AUTHORIZED', documentType: 'CTE' }, orderBy: { createdAt: 'desc' },
+            select: { cteAccessKey: true, cteProtocol: true, cteXml: true, cteXmlStorageKey: true },
+        } } } },
+    });
+    if (!legs.length) return { ok: false, error: 'Associe ao menos um pedido à viagem antes de emitir MDF-e.' };
+    const missingCte = legs.filter((leg) => !validCteKey(leg.order.freightCalculations));
+    if (missingCte.length) {
+        return { ok: false, error: `CT-e autorizado com chave, protocolo e XML pendente nos pedidos: ${missingCte.map((leg) => leg.order.demand.orderNumber).join(', ')}.` };
+    }
     const groups = await collectDescargaGroupsForManifest(manifestId);
     const allChaves = groups.flatMap((g) => g.chaves);
-    if (!allChaves.length) {
-        return { ok: false, error: 'Nenhum CT-e autorizado vinculado aos pedidos deste manifesto.' };
+    const expectedKeys = new Set(legs.map((leg) => validCteKey(leg.order.freightCalculations)!));
+    if (allChaves.length !== expectedKeys.size || new Set(allChaves).size !== expectedKeys.size || allChaves.some((key) => !expectedKeys.has(key))) {
+        return { ok: false, error: 'As paradas do MDF-e não contemplam exatamente todos os CT-es dos pedidos da viagem. Revise a descarga de cada pedido.' };
     }
 
-    // CIOT é pré-requisito do MDF-e (exceto frota própria contratada ou dispensa explícita e
+    // CIOT é pré-requisito do MDF-e (exceto dispensa explícita e
     // auditada pelo Hub/Admin) — sem isso, o transportador executor da viagem fica sem cobertura
     // ANTT. Ver .cursor/skills/tsmex-efrete-ciot/SKILL.md.
     const ciotDoc = await prisma.manifestFiscalDocument.findFirst({
         where: { manifestId, documentType: 'CIOT', status: 'AUTHORIZED' },
         orderBy: { createdAt: 'desc' },
     });
-    if (!ciotDoc && manifest.link.carrierType !== 'FROTA' && !manifest.ciotDispensado) {
+    if (!ciotDoc && !manifest.ciotDispensado) {
         return { ok: false, error: 'CIOT ainda não emitido para este manifesto. Emita o CIOT antes do MDF-e (ou registre dispensa justificada).' };
     }
 
@@ -206,8 +226,11 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
     if (!emitIe || !emit.address?.trim() || !emit.number?.trim() || !emit.neighborhood?.trim() || !emit.city?.trim() || !emit.state?.trim() || emitCep.length !== 8) {
         return { ok: false, error: 'Complete IE, logradouro, número, bairro, cidade, UF e CEP reais do emitente antes de emitir MDF-e.' };
     }
-    if (!manifest.driver || (manifest.driver.linkId !== manifest.linkId && !manifest.driver.carriers.some((carrier) => carrier.linkId === manifest.linkId)) || digits(manifest.driver.document).length !== 11 || !manifest.driver.name.trim()) {
-        return { ok: false, error: 'Defina um motorista válido vinculado ao transportador para o MDF-e.' };
+    const drivers = manifest.driverAssignments.length
+        ? manifest.driverAssignments.map((assignment) => assignment.driver)
+        : manifest.driver ? [manifest.driver] : [];
+    if (!drivers.length || drivers.some((driver) => !driver.active || (driver.linkId !== manifest.linkId && !driver.carriers.some((carrier) => carrier.linkId === manifest.linkId)) || digits(driver.document).length !== 11 || !driver.name.trim())) {
+        return { ok: false, error: 'Defina todos os motoristas ativos e vinculados ao transportador antes de emitir MDF-e.' };
     }
     if (!Number.isFinite(manifest.totalValue) || manifest.totalValue <= 0 || !Number.isFinite(manifest.totalWeight) || manifest.totalWeight <= 0) {
         return { ok: false, error: 'Informe o valor total e o peso físico real da carga antes de emitir MDF-e.' };
@@ -226,7 +249,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
         return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
     const { rntrc, veicReboque } = vehicles;
-    const veicTracao = { ...vehicles.veicTracao, condutor: [{ xNome: manifest.driver.name.trim().slice(0, 60), CPF: digits(manifest.driver.document) }] };
+    const veicTracao = { ...vehicles.veicTracao, condutor: drivers.map((driver) => ({ xNome: driver.name.trim().slice(0, 60), CPF: digits(driver.document) })) };
 
     // Uma entrada de infMunDescarga por parada/descarga real da viagem (Fatia B) — cada uma com
     // o município REAL de destino daquela parada (nunca o do emitente/origem) e só as chaves de

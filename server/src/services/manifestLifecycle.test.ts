@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { authorizedCteLegFixture, authorizedMdfeFixture, departureReadyManifest } from '../test/departureReadyFixture.js';
+import { authorizedCteLegFixture, authorizedMdfeFixture, authorizedCiotFixture, departureReadyManifest } from '../test/departureReadyFixture.js';
 import {
     addOrderToManifest,
     assertOperationalTripType,
@@ -382,7 +382,7 @@ describe('manifestLifecycle', () => {
             findFirst: async () => null,
             findMany: async () => [authorizedCteLegFixture('o1')],
         };
-        prisma.manifestFiscalDocument.findMany = (async () => [authorizedMdfeFixture]) as unknown as typeof prisma.manifestFiscalDocument.findMany;
+        prisma.manifestFiscalDocument.findMany = (async () => [authorizedMdfeFixture, authorizedCiotFixture]) as unknown as typeof prisma.manifestFiscalDocument.findMany;
 
         prisma.$transaction = (async (fn: unknown) => {
             if (typeof fn !== 'function') throw new Error('batch not mocked');

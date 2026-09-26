@@ -243,10 +243,12 @@ const ManifestDetailPage: React.FC = () => {
   });
   const [showLinkQuickCreate, setShowLinkQuickCreate] = useState(false);
   const [savingLinkQuickCreate, setSavingLinkQuickCreate] = useState(false);
+  const [createdQuickLinkId, setCreatedQuickLinkId] = useState<string | null>(null);
+  const [quickLinkInviteUrl, setQuickLinkInviteUrl] = useState<string | null>(null);
   const [linkLookupLoading, setLinkLookupLoading] = useState(false);
   const [linkLookupSource, setLinkLookupSource] = useState<string | null>(null);
   const [linkQuickCreateForm, setLinkQuickCreateForm] = useState<LinkQuickCreateFormState>({
-    document: '', name: '', phone: '', vehiclePlate: '', vehicleTypeId: '',
+    document: '', name: '', phone: '', carrierType: 'ETC',
   });
   const emptyFreightForm = { freteBruto: '', adiantamento: '', pedagio: '', irrf: '', inss: '', issqn: '', sestSenat: '', outrosDescontos: '', outrosDescontosDescricao: '' };
   const [showFreightForm, setShowFreightForm] = useState(false);
@@ -276,6 +278,8 @@ const ManifestDetailPage: React.FC = () => {
     retornoVazio: false, composicaoVeicular: false, tipoPagamento: 'TransferenciaBancaria' as const,
     entregaDocumentacao: 'RedeCredenciada' as const, totalOperacao: '', totalViagem: '',
     totalAdiantamento: '', totalQuitacao: '', pedagio: '', combustivel: '',
+    paymentAccountType: 'Corrente', paymentBankCode: '', paymentAgency: '', paymentAccount: '',
+    pixKeyType: 'CpfOuCnpj' as 'CpfOuCnpj' | 'Email' | 'TelefoneCelular' | 'ChaveAleatoria', pixKey: '', paymentMethod: 'BANK' as 'BANK' | 'PIX',
     destNome: '', destCpfCnpj: '',
   };
   const [ciotForm, setCiotForm] = useState(emptyCiotForm);
@@ -595,8 +599,9 @@ const ManifestDetailPage: React.FC = () => {
 
   const openCapaForm = () => {
     if (!manifest) return;
+    const emittersForHub = fiscalEmitters.filter((item) => item.active && item.hubId === manifest.hubId);
     setCapaForm({
-      fiscalEmitterId: manifest.fiscalEmitterId ?? '',
+      fiscalEmitterId: manifest.fiscalEmitterId ?? (emittersForHub.length === 1 ? emittersForHub[0].id : ''),
       plannedDepartureAt: dateTimeInputBR(manifest.plannedDepartureAt),
       plannedArrivalAt: dateTimeInputBR(manifest.plannedArrivalAt),
       notes: manifest.notes ?? '',
@@ -605,6 +610,12 @@ const ManifestDetailPage: React.FC = () => {
     });
     setShowCapaForm(true);
   };
+
+  useEffect(() => {
+    if (!manifest || manifest.status !== 'DRAFT' || (isHubOnly && manifest.hubId !== user?.hubId)) return;
+    if (currentStep === 'cover' && (!manifest.plannedDepartureAt || !manifest.fiscalEmitterId)) openCapaForm();
+    if (currentStep === 'responsible' && !manifest.linkId) setShowAssignForm(true);
+  }, [currentStep, manifest?.id, fiscalEmitters.length]);
 
   const handleAssignLink = async (selectedLinkId = assignLinkId) => {
     if (!id || !selectedLinkId) return;
@@ -744,6 +755,9 @@ const ManifestDetailPage: React.FC = () => {
       setError('Preencha distância, data fim de viagem e os dados do destinatário (obrigatórios para o CIOT).');
       return;
     }
+    if (!Number.isFinite(Number(f.totalViagem)) || Number(f.totalViagem) <= 0) { setError('Confira o valor contratado do frete antes de emitir o CIOT.'); return; }
+    if (f.paymentMethod === 'PIX' && !f.pixKey.trim()) { setError('Informe e confirme a chave PIX real do beneficiário.'); return; }
+    if (f.paymentMethod === 'BANK' && (!f.paymentBankCode.trim() || !f.paymentAgency.trim() || !f.paymentAccount.trim())) { setError('Informe banco, agência e conta reais do beneficiário.'); return; }
     setError(null);
     setFiscalBusy(true);
     try {
@@ -764,7 +778,9 @@ const ManifestDetailPage: React.FC = () => {
           entregaDocumentacao: f.entregaDocumentacao,
           valores: { totalOperacao: Number(f.totalOperacao || 0), totalViagem: Number(f.totalViagem || 0), totalAdiantamento: Number(f.totalAdiantamento || 0), totalQuitacao: Number(f.totalQuitacao || 0), pedagio: Number(f.pedagio || 0), combustivel: Number(f.combustivel || 0) },
           impostos: {},
-          pagamentos: [{ idPagamentoCliente: `PAG-${id.slice(0, 8)}-1`, dataLiberacao: f.dataFimViagem, valor: Number(f.totalViagem || 0), tipoPagamento: f.tipoPagamento, categoria: 'SemCategoria', cpfCnpjCreditado: linkDocument, indicadorPagamento: 'Avista', pix: { tipoChave: 'CpfOuCnpj', valorChave: linkDocument } }],
+          pagamentos: [{ idPagamentoCliente: `PAG-${id.slice(0, 8)}-1`, dataLiberacao: f.dataFimViagem, valor: Number(f.totalViagem), tipoPagamento: f.tipoPagamento, categoria: 'SemCategoria', cpfCnpjCreditado: linkDocument, indicadorPagamento: 'Avista',
+            ...(f.paymentMethod === 'PIX' ? { pix: { tipoChave: f.pixKeyType, valorChave: f.pixKey.trim() } } : { informacoesBancarias: { instituicaoBancaria: f.paymentBankCode.trim(), agencia: f.paymentAgency.trim(), conta: f.paymentAccount.trim(), tipoConta: f.paymentAccountType } }),
+          }],
           destinatario: { nomeOuRazaoSocial: f.destNome, cpfOuCnpj: f.destCpfCnpj, endereco: { bairro: ciotAddress.neighborhood, cep: ciotAddress.cep, codigoMunicipio: Number(ciotAddress.cityIbgeCode), rua: ciotAddress.address, numero: ciotAddress.number } },
         },
       });
@@ -973,7 +989,10 @@ const ManifestDetailPage: React.FC = () => {
         return;
       }
       if (!driverId) throw new Error('Os dados foram salvos, mas não foi possível vinculá-los à viagem.');
-      await manifestsApi.setResponsible(id, manifest?.linkId ?? driverLinkId, driverId);
+      const currentIds = manifest?.driverAssignments?.length
+        ? manifest.driverAssignments.map((assignment) => assignment.driverId)
+        : manifest?.driverId ? [manifest.driverId] : [];
+      await manifestsApi.setDrivers(id, [...new Set([...currentIds, driverId])]);
       setShowDriverFiscalSheet(false);
       setShowDriverForm(false);
       flashSuccess('Dados fiscais do motorista atualizados.');
@@ -1138,9 +1157,18 @@ const ManifestDetailPage: React.FC = () => {
   };
 
   const openLinkQuickCreate = () => {
-    setLinkQuickCreateForm({ document: '', name: '', phone: '' });
+    setLinkQuickCreateForm({ document: '', name: '', phone: '', carrierType: 'ETC' });
+    setCreatedQuickLinkId(null);
+    setQuickLinkInviteUrl(null);
     setLinkLookupSource(null);
     setError(null);
+    setShowLinkQuickCreate(true);
+  };
+  const openSelectedLinkActivation = () => {
+    if (!manifest?.link) return;
+    setCreatedQuickLinkId(manifest.link.id);
+    setQuickLinkInviteUrl(null);
+    setLinkQuickCreateForm({ document: manifest.link.document, name: manifest.link.name, phone: manifest.link.phone, carrierType: manifest.link.carrierType === 'CTC' || manifest.link.carrierType === 'FROTA' ? manifest.link.carrierType : 'ETC' });
     setShowLinkQuickCreate(true);
   };
 
@@ -1162,8 +1190,8 @@ const ManifestDetailPage: React.FC = () => {
     if (!id) return;
     const f = linkQuickCreateForm;
     const doc = f.document.replace(/\D/g, '');
-    if (!isValidCNPJ(doc)) {
-      setError('Informe um CNPJ válido para o transportador. O motorista será cadastrado pelo CPF na próxima etapa.');
+    if (!(doc.length === 11 ? isValidCPF(doc) : doc.length === 14 && isValidCNPJ(doc))) {
+      setError('Informe um CPF ou CNPJ válido para o transportador.');
       return;
     }
     if (!f.name.trim() || !f.phone.trim()) {
@@ -1177,13 +1205,13 @@ const ManifestDetailPage: React.FC = () => {
         document: doc,
         name: f.name.trim(),
         phone: f.phone.trim(),
+        ...(doc.length === 14 ? { carrierType: f.carrierType } : {}),
       });
       const newLinkId = (created as any)?.data?.id ?? (created as any)?.id;
       if (!newLinkId) throw new Error('Transportador cadastrado, mas não foi possível selecioná-lo.');
+      setCreatedQuickLinkId(newLinkId);
       await manifestsApi.setResponsible(id, newLinkId);
-      setShowLinkQuickCreate(false);
-      setShowAssignForm(false);
-      flashSuccess('Transportador cadastrado e selecionado. Aguarde aprovação e convite para receber ofertas.');
+      flashSuccess('Transportador cadastrado e selecionado. Revise e aprove para gerar o convite.');
       await load();
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Não foi possível cadastrar o transportador.');
@@ -1192,16 +1220,46 @@ const ManifestDetailPage: React.FC = () => {
     }
   };
 
+  const approveQuickLinkAndInvite = async () => {
+    if (!createdQuickLinkId) return;
+    setSavingLinkQuickCreate(true);
+    setError(null);
+    try {
+      if (id && manifest?.linkId !== createdQuickLinkId) await manifestsApi.setResponsible(id, createdQuickLinkId);
+      if (manifest?.link?.id !== createdQuickLinkId || manifest.link.approvalStatus !== 'APPROVED') {
+        await linksApi.approve(createdQuickLinkId);
+        await load();
+      }
+      const response = await linksApi.invite(createdQuickLinkId);
+      const url = `${window.location.origin}/#/claim-link?token=${encodeURIComponent(response.data.token)}`;
+      setQuickLinkInviteUrl(url);
+      try { await navigator.clipboard.writeText(url); flashSuccess('Cadastro aprovado. Convite copiado; envie ao transportador.'); }
+      catch { flashSuccess('Cadastro aprovado. Copie o convite exibido e envie ao transportador.'); }
+      await load();
+    } catch (cause: any) {
+      setError(cause.response?.data?.error || cause.message || 'Não foi possível aprovar ou gerar o convite.');
+    } finally { setSavingLinkQuickCreate(false); }
+  };
+
   const handleSelectDriver = (driver: Driver) => {
-    if (!manifest?.linkId) return;
+    if (!manifest?.linkId || !id) return;
+    const currentIds = manifest.driverAssignments?.length
+      ? manifest.driverAssignments.map((assignment) => assignment.driverId)
+      : manifest.driverId ? [manifest.driverId] : [];
     void linksApi.associateDriver(manifest.linkId, driver.id)
-      .then(() => manifestsApi.setResponsible(id!, manifest.linkId!, driver.id))
+      .then(() => manifestsApi.setDrivers(id, [...new Set([...currentIds, driver.id])]))
       .then(async () => {
         setShowDriverForm(false);
-        flashSuccess('Motorista vinculado ao transportador desta viagem.');
+        flashSuccess('Motorista incluído na viagem.');
         await load();
       })
       .catch((e: any) => setError(e.response?.data?.error || e.message));
+  };
+
+  const changeManifestDrivers = async (driverIds: string[]) => {
+    if (!id || !driverIds.length) return;
+    try { await manifestsApi.setDrivers(id, driverIds); await load(); }
+    catch (cause: any) { setError(cause.response?.data?.error || cause.message || 'Não foi possível atualizar os motoristas.'); }
   };
 
   const submitCorrection = async () => {
@@ -1514,6 +1572,10 @@ const ManifestDetailPage: React.FC = () => {
 
       {currentStep === 'orders' && (
       <JourneySection eyebrow="Etapa 2" title="Pedidos e capacidade" description="Bipe ou pesquise os pedidos desta viagem. Os destinos aparecem como referência, sem definir a rota.">
+        {readiness?.steps.orders.issues.some((item) => item.code === 'ORDER_DOCUMENTATION_PENDING') && <div role="status" className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-100">
+          <p className="font-bold">Pedidos vinculados · documentação pendente</p>
+          <p className="mt-1">Você pode planejar e ofertar a viagem. Cada pedido precisará de CT-e autorizado antes do MDF-e e da saída.</p>
+        </div>}
         {canEditOrders && (
           <div className="mb-6">
             <OrderScanInput manifestId={id} onResolved={handleOrderResolved} disabled={addingOrderId !== null} />
@@ -1792,10 +1854,19 @@ const ManifestDetailPage: React.FC = () => {
           onAssignLink={(linkId) => void handleAssignLink(linkId)}
           onOpenDriverSearch={() => void openDriverForm()}
           onSelectDriver={handleSelectDriver}
+          onMakePrimary={(driverId) => {
+            const ids = manifest.driverAssignments?.map((assignment) => assignment.driverId) ?? (manifest.driverId ? [manifest.driverId] : []);
+            void changeManifestDrivers([driverId, ...ids.filter((item) => item !== driverId)]);
+          }}
+          onRemoveDriver={(driverId) => {
+            const ids = manifest.driverAssignments?.map((assignment) => assignment.driverId) ?? (manifest.driverId ? [manifest.driverId] : []);
+            void changeManifestDrivers(ids.filter((item) => item !== driverId));
+          }}
           onOpenDriverFiscalSheet={openDriverFiscalSheet}
           onOpenVehicleSheet={openVehicleSheet}
           onOpenOwnerPersonSheet={openOwnerPersonSheet}
           onOpenLinkQuickCreate={openLinkQuickCreate}
+          onOpenLinkActivation={openSelectedLinkActivation}
           fieldClass={fieldClass}
         />
       )}
@@ -1992,6 +2063,20 @@ const ManifestDetailPage: React.FC = () => {
                       <option value="DepositoAgendado">Depósito agendado</option>
                     </select>
                   </div>
+                  <fieldset className="md:col-span-3 rounded-xl border border-tower-200 p-3 dark:border-tower-700">
+                    <legend className="px-1 text-sm font-bold">Conta real do beneficiário do CIOT</legend>
+                    <p className="mb-3 text-xs text-tower-500">Confirme os dados de pagamento com o contratado. O CPF/CNPJ não será presumido como chave PIX.</p>
+                    <div className="mb-3 flex gap-4 text-sm"><label><input type="radio" checked={ciotForm.paymentMethod === 'BANK'} onChange={() => setCiotForm((f) => ({ ...f, paymentMethod: 'BANK' }))} /> Conta bancária</label><label><input type="radio" checked={ciotForm.paymentMethod === 'PIX'} onChange={() => setCiotForm((f) => ({ ...f, paymentMethod: 'PIX' }))} /> PIX</label></div>
+                    {ciotForm.paymentMethod === 'PIX' ? <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="text-sm">Tipo de chave<select value={ciotForm.pixKeyType} onChange={(e) => setCiotForm((f) => ({ ...f, pixKeyType: e.target.value as typeof f.pixKeyType }))} className={fieldClass}><option value="CpfOuCnpj">CPF/CNPJ</option><option value="Email">E-mail</option><option value="TelefoneCelular">Celular</option><option value="ChaveAleatoria">Chave aleatória</option></select></label>
+                      <label className="text-sm">Chave PIX confirmada<input value={ciotForm.pixKey} onChange={(e) => setCiotForm((f) => ({ ...f, pixKey: e.target.value }))} className={fieldClass} /></label>
+                    </div> : <div className="grid gap-3 sm:grid-cols-4">
+                      <label className="text-sm">Código do banco<input inputMode="numeric" value={ciotForm.paymentBankCode} onChange={(e) => setCiotForm((f) => ({ ...f, paymentBankCode: e.target.value }))} className={fieldClass} /></label>
+                      <label className="text-sm">Agência<input value={ciotForm.paymentAgency} onChange={(e) => setCiotForm((f) => ({ ...f, paymentAgency: e.target.value }))} className={fieldClass} /></label>
+                      <label className="text-sm">Conta<input value={ciotForm.paymentAccount} onChange={(e) => setCiotForm((f) => ({ ...f, paymentAccount: e.target.value }))} className={fieldClass} /></label>
+                      <label className="text-sm">Tipo<select value={ciotForm.paymentAccountType} onChange={(e) => setCiotForm((f) => ({ ...f, paymentAccountType: e.target.value }))} className={fieldClass}><option value="Corrente">Corrente</option><option value="Poupanca">Poupança</option></select></label>
+                    </div>}
+                  </fieldset>
                   <div>
                     <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Entrega de documentação</label>
                     <select value={ciotForm.entregaDocumentacao} onChange={(e) => setCiotForm((f) => ({ ...f, entregaDocumentacao: e.target.value as any }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg">
@@ -2105,6 +2190,9 @@ const ManifestDetailPage: React.FC = () => {
           saving={savingLinkQuickCreate}
           onClose={() => setShowLinkQuickCreate(false)}
           onSave={() => void handleSaveLinkQuickCreate()}
+          createdLinkId={createdQuickLinkId}
+          inviteUrl={quickLinkInviteUrl}
+          onApproveAndInvite={() => void approveQuickLinkAndInvite()}
           fieldClass={fieldClass}
         />
       )}

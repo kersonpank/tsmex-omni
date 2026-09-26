@@ -18,9 +18,10 @@ async function httpPostJson<T = unknown>(
     path: string,
     token: string,
     payload: unknown,
+    method = 'POST',
 ): Promise<ApiResponse<T>> {
     const response = await fetch(`${baseUrl}${path}`, {
-        method: 'POST',
+        method,
         headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
         body: JSON.stringify(payload),
     });
@@ -63,10 +64,12 @@ describe('POST /api/links', () => {
 
     let createdUser: Record<string, unknown> | null = null;
     let createdLink: Record<string, unknown> | null = null;
+    let approvalTarget: any = null;
 
     const original = {
         userFindUnique: prisma.user.findUnique,
         linkFindUnique: prisma.link.findUnique,
+        linkUpdate: prisma.link.update,
         vehicleTypeFindFirst: prisma.vehicleType.findFirst,
         transaction: prisma.$transaction,
     };
@@ -90,7 +93,8 @@ describe('POST /api/links', () => {
             };
         }) as unknown as typeof prisma.user.findUnique;
 
-        prisma.link.findUnique = (async (args: any) => existingLinks[args?.where?.document] ?? null) as unknown as typeof prisma.link.findUnique;
+        prisma.link.findUnique = (async (args: any) => args?.where?.id ? approvalTarget : existingLinks[args?.where?.document] ?? null) as unknown as typeof prisma.link.findUnique;
+        prisma.link.update = (async (args: any) => { approvalTarget = { ...approvalTarget, ...args.data }; return approvalTarget; }) as any;
 
         prisma.vehicleType.findFirst = (async (args: any) => {
             const vt = vehicleTypes[args?.where?.id];
@@ -101,6 +105,8 @@ describe('POST /api/links', () => {
 
         prisma.$transaction = (async (fn: any) => {
             const tx = {
+                driver: { upsert: async (args: any) => ({ id: 'driver-new', ...args.create }) },
+                driverCarrier: { upsert: async (args: any) => args.create },
                 person: { upsert: async (args: any) => ({ id: 'person-new', ...args.create }) },
                 link: {
                     create: async (args: any) => {
@@ -129,6 +135,7 @@ describe('POST /api/links', () => {
         if (server) await new Promise<void>((resolve, reject) => server!.close((err) => (err ? reject(err) : resolve())));
         prisma.user.findUnique = original.userFindUnique;
         prisma.link.findUnique = original.linkFindUnique;
+        prisma.link.update = original.linkUpdate;
         prisma.vehicleType.findFirst = original.vehicleTypeFindFirst;
         prisma.$transaction = original.transaction;
     });
@@ -136,6 +143,7 @@ describe('POST /api/links', () => {
     beforeEach(() => {
         createdUser = null;
         createdLink = null;
+        approvalTarget = { id: 'link-review', createdByHubId: 'hub-test', approvalStatus: 'PENDING', userId: null };
     });
 
     it('creates a pending transporter without provisional user (201)', async () => {
@@ -157,6 +165,16 @@ describe('POST /api/links', () => {
         const res = await httpPostJson<any>(baseUrl, '/api/links', token, { ...BASE_PAYLOAD, document: CNPJ_TAKEN });
 
         assert.equal(res.status, 409, `Expected 409, got ${res.status}: ${JSON.stringify(res.body)}`);
+    });
+
+    it('Hub cadastra autônomo CPF como TAC pendente da própria unidade', async () => {
+        const token = jwt.sign({ userId: 'hub-1' }, jwtSecret);
+        const res = await httpPostJson<any>(baseUrl, '/api/links', token, { document: '52998224725', name: 'Autônomo Teste', phone: '11999999999' });
+        assert.equal(res.status, 201, JSON.stringify(res.body));
+        assert.equal(res.body.data.carrierType, 'TAC');
+        assert.equal(res.body.data.createdByHubId, 'hub-test');
+        assert.equal(res.body.data.personId, 'person-new');
+        assert.equal(res.body.data.approvalStatus, 'PENDING');
     });
 
     it('rejects an inactive/unknown vehicleTypeId (400)', async () => {
@@ -187,5 +205,26 @@ describe('POST /api/links', () => {
         const res = await httpPostJson<any>(baseUrl, '/api/links', token, BASE_PAYLOAD);
 
         assert.equal(res.status, 403, `Expected 403, got ${res.status}: ${JSON.stringify(res.body)}`);
+    });
+
+    it('Hub aprova cadastro da própria unidade com autor e horário, depois gera convite', async () => {
+        const token = jwt.sign({ userId: 'hub-1' }, jwtSecret);
+        const before = await httpPostJson(baseUrl, '/api/links/link-review/invite', token, {});
+        assert.equal(before.status, 409);
+        const approved = await httpPostJson<any>(baseUrl, '/api/links/link-review/approve', token, {}, 'PATCH');
+        assert.equal(approved.status, 200);
+        assert.equal(approved.body.data.approvedByUserId, 'hub-1');
+        assert.ok(approved.body.data.approvedAt);
+        const invited = await httpPostJson<any>(baseUrl, '/api/links/link-review/invite', token, {});
+        assert.equal(invited.status, 200);
+        assert.ok(invited.body.data.token);
+    });
+
+    it('Hub não aprova nem convida cadastro criado por outra unidade', async () => {
+        approvalTarget.createdByHubId = 'another-hub';
+        const token = jwt.sign({ userId: 'hub-1' }, jwtSecret);
+        assert.equal((await httpPostJson(baseUrl, '/api/links/link-review/approve', token, {}, 'PATCH')).status, 403);
+        approvalTarget.approvalStatus = 'APPROVED';
+        assert.equal((await httpPostJson(baseUrl, '/api/links/link-review/invite', token, {})).status, 403);
     });
 });

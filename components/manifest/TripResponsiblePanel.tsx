@@ -16,21 +16,25 @@ const ISSUE_CTA_LABEL: Record<string, string> = {
   DRIVER_CNH_PENDING: 'Completar motorista',
   DRIVER_BIRTH_DATE_PENDING: 'Completar motorista',
   DRIVER_ADDRESS_PENDING: 'Completar motorista',
+  LINK_NOT_APPROVED: 'Revisar cadastro',
+  LINK_ACCESS_PENDING: 'Gerar convite',
 };
 
 const PendingIssuesList: React.FC<{
   issues: ManifestReadinessIssue[];
   onOpenVehicleSheet: () => void;
-  onOpenDriverFiscalSheet: () => void;
+  onOpenDriverFiscalSheet: (driverId?: string) => void;
   onOpenOwnerPersonSheet: () => void;
-}> = ({ issues, onOpenVehicleSheet, onOpenDriverFiscalSheet, onOpenOwnerPersonSheet }) => {
+  onOpenLinkActivation: () => void;
+}> = ({ issues, onOpenVehicleSheet, onOpenDriverFiscalSheet, onOpenOwnerPersonSheet, onOpenLinkActivation }) => {
   const blocking = issues.filter((item) => item.severity === 'blocking');
   if (!blocking.length) return null;
 
-  const resolve = (code: string) => {
+  const resolve = (code: string, field?: string) => {
+    if (code === 'LINK_NOT_APPROVED' || code === 'LINK_ACCESS_PENDING') return onOpenLinkActivation;
     if (code === 'LINK_PERSON_ADDRESS_PENDING') return onOpenOwnerPersonSheet;
     if (code.startsWith('VEHICLE_') || code === 'TRAILER_UNIT_PENDING') return onOpenVehicleSheet;
-    return onOpenDriverFiscalSheet;
+    return () => onOpenDriverFiscalSheet(code.startsWith('ADDITIONAL_DRIVER_') ? field : undefined);
   };
 
   return (
@@ -52,7 +56,7 @@ const PendingIssuesList: React.FC<{
             <span className="text-sm text-amber-900 dark:text-amber-100">{item.message}</span>
             <button
               type="button"
-              onClick={resolve(item.code)}
+              onClick={resolve(item.code, item.field)}
               className="admin-focus min-h-9 shrink-0 rounded-lg bg-amber-600 px-3 text-xs font-bold text-white hover:bg-amber-700"
             >
               {ISSUE_CTA_LABEL[item.code] ?? 'Resolver'}
@@ -103,6 +107,8 @@ interface Props {
   onOpenDriverSearch: () => void;
   /** Callback to directly select an existing driver (sets responsible + driver) */
   onSelectDriver: (driver: Driver) => void;
+  onMakePrimary: (driverId: string) => void;
+  onRemoveDriver: (driverId: string) => void;
   /** Callback to open the driver fiscal sheet (create or edit) */
   onOpenDriverFiscalSheet: (driver?: Driver | null) => void;
   /** Callback to open the vehicle fiscal sheet */
@@ -111,6 +117,7 @@ interface Props {
   onOpenOwnerPersonSheet: () => void;
   /** Callback to open the "cadastrar novo motorista" quick-create modal */
   onOpenLinkQuickCreate: () => void;
+  onOpenLinkActivation: () => void;
   fieldClass: string;
 }
 
@@ -135,10 +142,13 @@ const TripResponsiblePanel: React.FC<Props> = ({
   onAssignLink,
   onOpenDriverSearch,
   onSelectDriver,
+  onMakePrimary,
+  onRemoveDriver,
   onOpenDriverFiscalSheet,
   onOpenVehicleSheet,
   onOpenOwnerPersonSheet,
   onOpenLinkQuickCreate,
+  onOpenLinkActivation,
   fieldClass,
 }) => (
   <JourneySection
@@ -150,8 +160,9 @@ const TripResponsiblePanel: React.FC<Props> = ({
       <PendingIssuesList
         issues={readiness?.steps?.responsible?.issues ?? []}
         onOpenVehicleSheet={() => onOpenVehicleSheet(manifest.link)}
-        onOpenDriverFiscalSheet={() => onOpenDriverFiscalSheet(manifest.driver)}
+        onOpenDriverFiscalSheet={(driverId) => onOpenDriverFiscalSheet(driverId ? manifest.driverAssignments?.find((item) => item.driverId === driverId)?.driver : manifest.driver)}
         onOpenOwnerPersonSheet={onOpenOwnerPersonSheet}
+        onOpenLinkActivation={onOpenLinkActivation}
       />
     )}
 
@@ -170,24 +181,26 @@ const TripResponsiblePanel: React.FC<Props> = ({
           </div>
           <StatusBadge label={manifest.link ? 'Selecionado' : 'Pendente'} tone={manifest.link ? 'success' : 'warning'} />
         </div>
+        {canEditPlanning && manifest.link && !manifest.link.userId && manifest.link.createdByHubId === manifest.hubId && (
+          <button type="button" onClick={onOpenLinkActivation} className="admin-focus mt-3 min-h-11 rounded-xl border border-amber-400 px-3 text-sm font-bold text-amber-800 dark:text-amber-200">
+            {manifest.link.approvalStatus === 'APPROVED' ? 'Gerar convite de acesso' : 'Aprovar e gerar convite'}
+          </button>
+        )}
       </div>
       <div className="border-t border-tower-200 p-4 dark:border-tower-700">
-        <p className="text-xs font-bold uppercase tracking-[0.08em] text-tower-500">Motorista fiscal</p>
-        {manifest.driver ? (
-          <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
-            <div><dt className="text-tower-500">Nome</dt><dd className="font-bold text-tower-900 dark:text-tower-50">{manifest.driver.name}</dd></div>
-            <div><dt className="text-tower-500">CPF</dt><dd className="font-bold text-tower-900 dark:text-tower-50">{manifest.driver.document}</dd></div>
-            <div><dt className="text-tower-500">CNH</dt><dd className="font-bold text-tower-900 dark:text-tower-50">{manifest.driver.cnhNumber || 'Não informada'}</dd></div>
-            <div>
-              <dt className="text-tower-500">Validade</dt>
-              <dd className="font-bold text-tower-900 dark:text-tower-50">
-                {manifest.driver.cnhExpiry ? new Date(manifest.driver.cnhExpiry).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'Não informada'}
-              </dd>
-            </div>
-          </dl>
-        ) : (
-          <p className="mt-2 text-sm text-tower-500">Nenhum motorista vinculado.</p>
-        )}
+        <p className="text-xs font-bold uppercase tracking-[0.08em] text-tower-500">Motoristas da viagem</p>
+        {(manifest.driverAssignments?.length ? manifest.driverAssignments : manifest.driver ? [{ driverId: manifest.driver.id, driver: manifest.driver, isPrimary: true, sequence: 1 }] : []).map((assignment) => (
+          <div key={assignment.driverId} className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-tower-200 p-3 dark:border-tower-700">
+            <div><p className="font-bold text-tower-900 dark:text-tower-50">{assignment.driver.name} {assignment.isPrimary ? '· Principal' : '· Adicional'}</p>
+              <p className="text-xs text-tower-500">CPF {assignment.driver.document} · CNH {assignment.driver.cnhNumber || 'pendente'}</p></div>
+            {canEditPlanning && <div className="flex flex-wrap gap-2 text-xs font-bold">
+              {!assignment.isPrimary && <button type="button" onClick={() => onMakePrimary(assignment.driverId)} className="admin-focus rounded-lg px-2 py-2 text-brand-700">Definir principal</button>}
+              <button type="button" onClick={() => onOpenDriverFiscalSheet(assignment.driver)} className="admin-focus rounded-lg px-2 py-2 text-brand-700">Editar</button>
+              {!assignment.isPrimary && <button type="button" onClick={() => onRemoveDriver(assignment.driverId)} className="admin-focus rounded-lg px-2 py-2 text-red-700">Remover</button>}
+            </div>}
+          </div>
+        ))}
+        {!manifest.driver && !manifest.driverAssignments?.length && <p className="mt-2 text-sm text-tower-500">Nenhum motorista vinculado.</p>}
       </div>
       <div className="border-t border-tower-200 p-4 dark:border-tower-700">
         <p className="text-xs font-bold uppercase tracking-[0.08em] text-tower-500">Composição veicular</p>
@@ -240,16 +253,7 @@ const TripResponsiblePanel: React.FC<Props> = ({
             onClick={onOpenDriverSearch}
             className="admin-focus min-h-11 rounded-xl bg-tower-100 px-4 text-sm font-bold text-tower-700 hover:bg-tower-200 dark:bg-tower-800 dark:text-tower-300 dark:hover:bg-tower-700"
           >
-            {manifest.driver ? 'Trocar motorista' : 'Selecionar motorista'}
-          </button>
-        )}
-        {manifest.driver && (
-          <button
-            type="button"
-            onClick={() => onOpenDriverFiscalSheet(manifest.driver)}
-            className="admin-focus min-h-11 rounded-xl bg-tower-100 px-4 text-sm font-bold text-tower-700 hover:bg-tower-200 dark:bg-tower-800 dark:text-tower-300 dark:hover:bg-tower-700"
-          >
-            Editar motorista
+            {manifest.driver ? 'Adicionar motorista' : 'Selecionar motorista'}
           </button>
         )}
         {manifest.link && (
@@ -321,7 +325,7 @@ const TripResponsiblePanel: React.FC<Props> = ({
     {showDriverForm && manifest.linkId && (
       <div className="mt-5 rounded-2xl border border-tower-200 p-4 dark:border-tower-700">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-base font-bold text-tower-900 dark:text-tower-50">Pesquisar motorista</h2>
+          <h2 className="text-base font-bold text-tower-900 dark:text-tower-50">{manifest.driver ? 'Adicionar motorista' : 'Selecionar motorista principal'}</h2>
           <button
             type="button"
             onClick={() => setShowDriverForm(false)}
