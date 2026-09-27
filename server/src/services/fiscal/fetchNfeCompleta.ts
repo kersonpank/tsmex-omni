@@ -14,6 +14,7 @@ import {
 import { getDistribuicaoCheckpointStatus } from './distribuicaoCheckpointStatus.js';
 import { findCargoDataForChave as defaultFindCargoDataForChave } from '../../routes/intakeDemands.js';
 import type { ParsedNfeCargo } from '../acbr/nfeXmlParser.js';
+import { parseNfeProcXml } from '../acbr/nfeXmlParser.js';
 
 /** Motivo pelo qual não foi possível buscar a NF-e completa via Distribuição ACBr agora —
  * `rate_limit` é acionável na UI (mostra quando tentar de novo); `erro` é só best-effort/log. */
@@ -48,6 +49,7 @@ export interface FetchNfeCompletaDeps {
     markXmlDownloaded: typeof markXmlDownloaded;
     getCargoDataFromDistribuicaoDocument: (doc: NfeDistribuicaoDocumentoForCargo) => Promise<ParsedNfeCargo | null>;
     getDistribuicaoCheckpointStatus: typeof getDistribuicaoCheckpointStatus;
+    parseNfeProcXml: typeof parseNfeProcXml;
 }
 
 export const defaultFetchNfeCompletaDeps: FetchNfeCompletaDeps = {
@@ -71,6 +73,7 @@ export const defaultFetchNfeCompletaDeps: FetchNfeCompletaDeps = {
     markXmlDownloaded,
     getCargoDataFromDistribuicaoDocument,
     getDistribuicaoCheckpointStatus,
+    parseNfeProcXml,
 };
 
 function ambienteFromEnvironment(environment: string): 'homologacao' | 'producao' {
@@ -191,13 +194,16 @@ export async function fetchNfeCompleta(
         if (!documentoId) return { cargo: null };
 
         const xml = await deps.baixarXmlDocumentoDistribuicao(documentoId, ambiente);
+        const parsedXml = deps.parseNfeProcXml(xml);
+        if (parsedXml.chave.replace(/\D/g, '') !== parsed.accessKey.replace(/\D/g, '')) return { cargo: null };
         const uploaded = await deps.uploadBase64Object({
             base64: Buffer.from(xml, 'utf-8').toString('base64'),
             fileName: `${parsed.accessKey}.xml`,
             mimeType: 'application/xml',
             keyPrefix: `nfe-distribuicao/${parsed.accessKey}/xml`,
+            storageKey: `nfe-distribuicao/${parsed.accessKey}/xml/${parsed.accessKey}.xml`,
         });
-        await deps.markXmlDownloaded(doc.id, uploaded.storageKey);
+        await deps.markXmlDownloaded(doc.id, uploaded.storageKey, undefined, { checksum: uploaded.checksum, size: uploaded.size });
 
         const cargo = await deps.getCargoDataFromDistribuicaoDocument({ tipo: parsed.tipo, xmlStorageKey: uploaded.storageKey });
         return { cargo };

@@ -47,6 +47,7 @@ function makeDeps(overrides: Partial<FetchNfeCompletaDeps> = {}): FetchNfeComple
             seeded: true,
             nextAllowedAt: null,
         })),
+        parseNfeProcXml: mock.fn(() => FAKE_CARGO),
         ...overrides,
     };
 }

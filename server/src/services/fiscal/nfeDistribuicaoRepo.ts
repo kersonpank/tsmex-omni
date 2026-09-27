@@ -75,10 +75,14 @@ export async function markXmlDownloaded(
     id: string,
     xmlStorageKey: string,
     deps: NfeDistribuicaoRepoDeps = defaultNfeDistribuicaoRepoDeps,
+    integrity?: { checksum?: string; size?: number },
 ): Promise<boolean> {
     const result = await deps.prisma.nfeDistribuicaoDocumento.updateMany({
         where: { id, status: 'MANIFESTED', xmlDownloadedAt: null },
-        data: { status: 'READY_FOR_TRIAGE', xmlDownloadedAt: new Date(), xmlStorageKey },
+        data: {
+            status: 'READY_FOR_TRIAGE', tipo: 'NFE_PROC', xmlDownloadedAt: new Date(), xmlStorageKey,
+            xmlChecksum: integrity?.checksum, xmlSize: integrity?.size, lastError: null,
+        },
     });
     return result.count > 0;
 }

@@ -5,6 +5,7 @@ import express from 'express';
 import axios from 'axios';
 import prisma from '../lib/prisma.js';
 import { errorHandler } from '../middleware/errorHandler.js';
+import { defaultGetCargoDataDeps } from '../services/fiscal/nfeDistribuicaoCargoData.js';
 
 type ApiResponse<T = unknown> = { status: number; body: T };
 
@@ -48,10 +49,23 @@ describe('nfeDistribuicaoTriagem routes', () => {
         transaction: prisma.$transaction,
         clientFindFirst: prisma.client.findFirst,
         axiosGet: axios.get,
+        getObjectAsBase64: defaultGetCargoDataDeps.getObjectAsBase64,
+        parseNfeProcXml: defaultGetCargoDataDeps.parseNfeProcXml,
     };
 
     before(async () => {
         process.env.JWT_SECRET = jwtSecret;
+
+        // Conversão exige XML completo armazenado com chave coincidente (sem fallback silencioso).
+        defaultGetCargoDataDeps.getObjectAsBase64 = async () => '';
+        defaultGetCargoDataDeps.parseNfeProcXml = (() => ({
+            chave: CHAVE,
+            emitente: { cnpj: '11111111000111', razaoSocial: 'Fornecedor Teste', municipio: 'Imperatriz', uf: 'MA' },
+            destinatario: { cnpj: '33333333000133', razaoSocial: 'Destinatario Teste', municipio: 'Sao Paulo', uf: 'SP' },
+            produtos: [{ descricao: 'Carga teste' }],
+            pesoBruto: 10,
+            valorTotalNota: 100,
+        })) as any;
 
         prisma.user.findUnique = (async ({ where }: any) => {
             if (where.id === 'admin-1') {
@@ -121,6 +135,8 @@ describe('nfeDistribuicaoTriagem routes', () => {
         prisma.$transaction = original.transaction;
         prisma.client.findFirst = original.clientFindFirst;
         axios.get = original.axiosGet;
+        defaultGetCargoDataDeps.getObjectAsBase64 = original.getObjectAsBase64;
+        defaultGetCargoDataDeps.parseNfeProcXml = original.parseNfeProcXml;
     });
 
     it('GET / lista documentos READY_FOR_TRIAGE', async () => {
@@ -150,6 +166,8 @@ describe('nfeDistribuicaoTriagem routes', () => {
         nfeDocStore = {
             id: READY_DOC_ID,
             status: 'READY_FOR_TRIAGE',
+            tipo: 'NFE_PROC',
+            xmlStorageKey: 'xml/doc.xml',
             accessKey: CHAVE,
             cnpjEmitente: '11111111000111',
             fiscalEmitter: { hubId: 'hub-A' },
@@ -170,6 +188,8 @@ describe('nfeDistribuicaoTriagem routes', () => {
         nfeDocStore = {
             id: READY_DOC_ID,
             status: 'READY_FOR_TRIAGE',
+            tipo: 'NFE_PROC',
+            xmlStorageKey: 'xml/doc.xml',
             accessKey: CHAVE,
             cnpjEmitente: '22222222000122',
             fiscalEmitter: { hubId: 'hub-A' },

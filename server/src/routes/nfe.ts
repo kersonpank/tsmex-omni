@@ -1,9 +1,9 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import axios from 'axios';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, authorize, type AuthRequest } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { resolveStateRegistration } from '../services/fiscal/resolveStateRegistration.js';
 import { fetchNfeCompleta } from '../services/fiscal/fetchNfeCompleta.js';
+import prisma from '../lib/prisma.js';
+import { getCargoDataFromDistribuicaoDocument } from '../services/fiscal/nfeDistribuicaoCargoData.js';
 
 const router = Router();
 
@@ -92,8 +92,6 @@ router.get('/:chave', authenticate, async (req: Request, res: Response, next: Ne
       throw new AppError('Não foi possível interpretar a chave NF-e', 400);
     }
 
-    // Busca razão social do emitente via BrasilAPI (gratuita, sem autenticação) — cadastro
-    // FEDERAL (Receita Federal), não tem Inscrição Estadual (registro ESTADUAL).
     let emitenteRazaoSocial: string | null = null;
     let emitenteTradeName: string | null = null;
     let emitenteMunicipio: string | null = null;
@@ -101,36 +99,12 @@ router.get('/:chave', authenticate, async (req: Request, res: Response, next: Ne
     let emitenteLogradouro: string | null = null;
     let emitenteNumero: string | null = null;
     let emitenteBairro: string | null = null;
-    try {
-      const cnpjRes = await axios.get(
-        `https://brasilapi.com.br/api/cnpj/v1/${parsed.cnpjEmit}`,
-        { timeout: 5000 }
-      );
-      emitenteRazaoSocial = cnpjRes.data?.razao_social ?? null;
-      emitenteTradeName = cnpjRes.data?.nome_fantasia ?? null;
-      emitenteMunicipio = cnpjRes.data?.municipio ?? null;
-      emitenteCep = cnpjRes.data?.cep ? String(cnpjRes.data.cep).replace(/\D/g, '') : null;
-      emitenteLogradouro = cnpjRes.data?.logradouro ?? null;
-      emitenteNumero = cnpjRes.data?.numero ?? null;
-      emitenteBairro = cnpjRes.data?.bairro ?? null;
-    } catch {
-      // BrasilAPI falhou — retorna sem razão social, não bloqueia operação
-    }
 
-    // Cascata: nossa base (grátis) > ACBr sob demanda via cons-chave (síncrono, persiste pra
-    // próxima vez sair grátis também) > o que já temos da BrasilAPI acima. `hubId` decide qual
-    // FiscalEmitter/CNPJ usar pra falar com a ACBr — sem ele (ex.: ADMIN sem hub selecionado
-    // ainda), cai direto pro fallback parcial da BrasilAPI, sem erro.
-    const hubId = typeof req.query.hubId === 'string' ? req.query.hubId : undefined;
-    let cargoData: Awaited<ReturnType<typeof fetchNfeCompleta>>['cargo'] = null;
-    let distribuicaoIndisponivel: Awaited<ReturnType<typeof fetchNfeCompleta>>['distribuicaoIndisponivel'];
-    try {
-      const fetched = await fetchNfeCompleta(hubId, chave);
-      cargoData = fetched.cargo;
-      distribuicaoIndisponivel = fetched.distribuicaoIndisponivel;
-    } catch {
-      // Busca completa é best-effort — nunca bloqueia o lookup da NF-e.
-    }
+    // Leitura estritamente local. Este GET nunca consulta a ACBr/SEFAZ.
+    const localDocument = await prisma.nfeDistribuicaoDocumento.findUnique({
+      where: { accessKey: chave }, select: { tipo: true, xmlStorageKey: true },
+    });
+    const cargoData = localDocument ? await getCargoDataFromDistribuicaoDocument(localDocument).catch(() => null) : null;
 
     if (cargoData?.emitente?.razaoSocial) emitenteRazaoSocial = cargoData.emitente.razaoSocial;
     if (cargoData?.emitente?.municipio) emitenteMunicipio = cargoData.emitente.municipio;
@@ -138,16 +112,8 @@ router.get('/:chave', authenticate, async (req: Request, res: Response, next: Ne
     // IE (Inscrição Estadual): resolve pela fonte mais barata — Person já cadastrado > XML da
     // NF-e já baixado via Distribuição ACBr (grátis, já pago) > Sintegra (crédito, só se as
     // duas anteriores não resolverem). Nunca bloqueia a resposta se qualquer etapa falhar.
-    let emitenteIe: string | undefined;
-    let destinatarioIe: string | undefined;
-    try {
-      emitenteIe = await resolveStateRegistration(parsed.cnpjEmit, cargoData?.emitente?.ie);
-      if (cargoData?.destinatario?.cnpj) {
-        destinatarioIe = await resolveStateRegistration(cargoData.destinatario.cnpj, cargoData.destinatario.ie);
-      }
-    } catch {
-      // Resolução de IE é best-effort — nunca bloqueia o lookup da NF-e.
-    }
+    const emitenteIe = cargoData?.emitente?.ie;
+    const destinatarioIe = cargoData?.destinatario?.ie;
 
     res.json({
       success: true,
@@ -197,12 +163,36 @@ router.get('/:chave', authenticate, async (req: Request, res: Response, next: Ne
         // Presente só quando a busca completa falhou por um motivo acionável na UI (hoje: só
         // rate-limit de 1h/CNPJ da SEFAZ) — permite mostrar o motivo real em vez de um "não
         // identificado" genérico (ver EntradaTab.tsx).
-        distribuicaoIndisponivel: distribuicaoIndisponivel ?? null,
+        distribuicaoIndisponivel: null,
         modelo: parsed.mod === '55' ? 'NF-e' : parsed.mod === '57' ? 'CT-e' : parsed.mod,
       },
     });
   } catch (err) {
     next(err);
+  }
+});
+
+// Consulta potencialmente cobrada, isolada da operação e disponível apenas a ADMIN.
+router.post('/:chave/fetch-from-provider', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+  let audit: { chave?: string; hubId?: string } = {};
+  try {
+    const chave = extractChaveFromUrl(decodeURIComponent(Array.isArray(req.params.chave) ? req.params.chave[0] : req.params.chave));
+    if (chave.length !== 44) throw new AppError('Chave NF-e inválida (deve ter 44 dígitos)', 400);
+    const hubId = typeof req.body?.hubId === 'string' ? req.body.hubId : undefined;
+    if (!hubId) throw new AppError('Informe o Hub para a consulta explícita ao provedor.', 400);
+    audit = { chave, hubId };
+    const result = await fetchNfeCompleta(hubId, chave);
+    await prisma.fiscalProviderRequestAudit.create({ data: {
+      provider: 'ACBR', action: 'NFE_CONS_CHAVE', userId: req.user!.id, hubId, accessKey: chave,
+      status: result.cargo ? 'SUCCESS' : 'NOT_FOUND', result: { found: Boolean(result.cargo), unavailable: result.distribuicaoIndisponivel ? { ...result.distribuicaoIndisponivel } : null },
+    } });
+    res.json({ success: true, data: result, warning: 'Esta ação pode consumir crédito do provedor fiscal.' });
+  } catch (error) {
+    if (audit.chave) await prisma.fiscalProviderRequestAudit.create({ data: {
+      provider: 'ACBR', action: 'NFE_CONS_CHAVE', userId: req.user!.id, hubId: audit.hubId,
+      accessKey: audit.chave, status: 'FAILED', result: { error: error instanceof Error ? error.message : String(error) },
+    } }).catch(() => undefined);
+    next(error);
   }
 });
 

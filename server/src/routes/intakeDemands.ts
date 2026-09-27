@@ -4,10 +4,7 @@ import type { DemandStatus, Prisma } from '@prisma/client';
 import prisma from '../lib/prisma.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
-import {
-    createIntakeDemand,
-    createIntakeDemandFromNfeKey,
-} from '../services/intake/createIntakeDemand.js';
+import { createIntakeDemand, createIntakeDemandFromNfeKey } from '../services/intake/createIntakeDemand.js';
 import { confirmIntakeArrival } from '../services/intake/confirmIntakeArrival.js';
 import { buildIntakeDemandSearchWhere } from '../services/intake/intakeListQuery.js';
 import { extractChaveFromInput } from '../lib/nfeChaveIntake.js';
@@ -21,6 +18,7 @@ import {
 } from '../services/fiscal/nfeDistribuicaoCargoData.js';
 import type { ParsedNfeCargo } from '../services/acbr/nfeXmlParser.js';
 import { ensureDistribuicaoBootstrap } from '../services/fiscal/ensureDistribuicaoBootstrap.js';
+import { resolveLocalNfeCargo } from '../services/intake/resolveLocalNfeCargo.js';
 
 const router = Router();
 
@@ -40,9 +38,7 @@ const createIntakeSchema = z.object({
     clientId: z.string().uuid(),
     expectedHubId: z.string().uuid().optional(),
     externalReference: z.string().optional(),
-    documentType: z
-        .enum(['NFE', 'DECLARATION', 'CTE', 'MANUAL_REFERENCE', 'NO_DOCUMENT_YET'])
-        .optional(),
+    documentType: z.enum(['NFE', 'DECLARATION', 'CTE', 'MANUAL_REFERENCE', 'NO_DOCUMENT_YET']).optional(),
     documentKey: z.string().optional(),
     nfNumber: z.string().min(1).optional(),
     nfValue: z.number().nonnegative().optional(),
@@ -143,10 +139,7 @@ function buildIntakeListWhere(
     },
 ): Prisma.DemandWhereInput {
     const status = (query.status ?? 'AWAITING_ARRIVAL') as DemandStatus;
-    const parts: Prisma.DemandWhereInput[] = [
-        { status },
-        { sourceType: { in: INTAKE_SOURCE_TYPES } },
-    ];
+    const parts: Prisma.DemandWhereInput[] = [{ status }, { sourceType: { in: INTAKE_SOURCE_TYPES } }];
 
     if (req.user!.roles.includes('HUB')) {
         if (!req.user!.hubId) {
@@ -154,9 +147,7 @@ function buildIntakeListWhere(
         }
         parts.push({ expectedHubId: req.user!.hubId });
     } else {
-        const onlyUn =
-            query.onlyUnassignedHub === '1' ||
-            query.onlyUnassignedHub === 'true';
+        const onlyUn = query.onlyUnassignedHub === '1' || query.onlyUnassignedHub === 'true';
         if (onlyUn) {
             parts.push({ expectedHubId: null });
         } else if (query.expectedHubId) {
@@ -239,19 +230,16 @@ router.post('/demands/resolve-by-key', async (req: AuthRequest, res: Response, n
 });
 
 // POST /api/intake/demands/resolve-client-by-document
-router.post(
-    '/demands/resolve-client-by-document',
-    async (req: AuthRequest, res: Response, next: NextFunction) => {
-        try {
-            const { document } = resolveClientSchema.parse(req.body);
-            const data = await resolveIntakeClientByDocument(document);
-            res.json({ success: true, data });
-        } catch (e) {
-            if (e instanceof z.ZodError) return next(new AppError(e.errors[0]?.message ?? 'Payload inválido', 400));
-            next(e);
-        }
-    },
-);
+router.post('/demands/resolve-client-by-document', async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const { document } = resolveClientSchema.parse(req.body);
+        const data = await resolveIntakeClientByDocument(document);
+        res.json({ success: true, data });
+    } catch (e) {
+        if (e instanceof z.ZodError) return next(new AppError(e.errors[0]?.message ?? 'Payload inválido', 400));
+        next(e);
+    }
+});
 
 // POST /api/intake/demands/lookup-by-key
 router.post('/demands/lookup-by-key', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -275,37 +263,36 @@ router.post('/demands/lookup-by-key', async (req: AuthRequest, res: Response, ne
 });
 
 // POST /api/intake/demands/:id/confirm-arrival
-router.post(
-    '/demands/:id/confirm-arrival',
-    async (req: AuthRequest, res: Response, next: NextFunction) => {
-        try {
-            const id = req.params.id as string;
-            const body = confirmArrivalSchema.parse(req.body);
-            const result = await confirmIntakeArrival({
-                demandId: id,
-                actingRoles: req.user!.roles,
-                actingHubId: req.user!.hubId,
-                remetentePersonId: body.remetentePersonId,
-                destinatarioPersonId: body.destinatarioPersonId,
-                freightTerm: body.freightTerm,
-            });
-            const fullOrder = await prisma.order.findUnique({
-                where: { id: result.order.id },
-                include: {
-                    demand: { include: { client: { select: { id: true, companyName: true } } } },
-                    currentHub: { select: { id: true, name: true, code: true } },
+router.post('/demands/:id/confirm-arrival', async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const id = req.params.id as string;
+        const body = confirmArrivalSchema.parse(req.body);
+        const result = await confirmIntakeArrival({
+            demandId: id,
+            actingRoles: req.user!.roles,
+            actingHubId: req.user!.hubId,
+            remetentePersonId: body.remetentePersonId,
+            destinatarioPersonId: body.destinatarioPersonId,
+            freightTerm: body.freightTerm,
+        });
+        const fullOrder = await prisma.order.findUnique({
+            where: { id: result.order.id },
+            include: {
+                demand: {
+                    include: { client: { select: { id: true, companyName: true } } },
                 },
-            });
-            res.status(201).json({
-                success: true,
-                data: { demand: result.demand, order: fullOrder },
-            });
-        } catch (e) {
-            if (e instanceof z.ZodError) return next(new AppError(e.errors[0]?.message ?? 'Payload inválido', 400));
-            next(e);
-        }
-    },
-);
+                currentHub: { select: { id: true, name: true, code: true } },
+            },
+        });
+        res.status(201).json({
+            success: true,
+            data: { demand: result.demand, order: fullOrder },
+        });
+    } catch (e) {
+        if (e instanceof z.ZodError) return next(new AppError(e.errors[0]?.message ?? 'Payload inválido', 400));
+        next(e);
+    }
+});
 
 // POST /api/intake/demands
 router.post('/demands', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -314,8 +301,7 @@ router.post('/demands', async (req: AuthRequest, res: Response, next: NextFuncti
         const expectedHubId = requireResolvedHubId(resolveExpectedHubId(req, data.expectedHubId));
 
         const documentType =
-            data.documentType ??
-            (data.sourceType === 'DECLARATION' ? 'DECLARATION' : 'NO_DOCUMENT_YET');
+            data.documentType ?? (data.sourceType === 'DECLARATION' ? 'DECLARATION' : 'NO_DOCUMENT_YET');
 
         const demand = await createIntakeDemand({
             sourceType: data.sourceType,
@@ -383,10 +369,7 @@ router.post('/demands/from-nfe-key', async (req: AuthRequest, res: Response, nex
 router.get('/demands', async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const { expectedHubId, status, q, onlyUnassignedHub, limit = '50', offset = '0' } = req.query;
-        if (
-            (onlyUnassignedHub === '1' || onlyUnassignedHub === 'true') &&
-            req.user!.roles.includes('HUB')
-        ) {
+        if ((onlyUnassignedHub === '1' || onlyUnassignedHub === 'true') && req.user!.roles.includes('HUB')) {
             throw new AppError('Not authorized', 403);
         }
 
@@ -433,6 +416,16 @@ router.get('/demands/:id', async (req: AuthRequest, res: Response, next: NextFun
         res.json({ success: true, data: demand });
     } catch (e) {
         next(e);
+    }
+});
+
+router.get('/demands/:id/nfe-data', async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const id = req.params.id as string;
+        await assertCanViewIntakeDemand(req, id);
+        res.json({ success: true, data: await resolveLocalNfeCargo(id) });
+    } catch (error) {
+        next(error);
     }
 });
 

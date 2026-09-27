@@ -1,12 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import ReactDOM from 'react-dom';
-import { intakeDemandsApi, locationsApi, nfeApi, personsApi } from '../../../lib/api';
+import { intakeDemandsApi, locationsApi, personsApi } from '../../../lib/api';
 import { PersonFormModal } from '../../ui/PersonFormModal';
 import type { ApiResponse, Demand, HubCargoItem, Person } from '../../../types/index';
 
 interface HubArrivalSheetProps {
   item: HubCargoItem;
-  hubId?: string | null;
   onClose: () => void;
   onConfirmed: (orderId: string) => void;
 }
@@ -38,7 +37,7 @@ type ArrivalNfeData = {
 
 const text = (value: unknown): string | undefined => typeof value === 'string' && value.trim() ? value.trim() : undefined;
 
-function nfeDataAlreadyStored(demand: Demand): ArrivalNfeData | null {
+function nfeDataAlreadyStored(demand: Pick<Demand, 'rawInputData'>): ArrivalNfeData | null {
   const raw = demand.rawInputData?.nfeXmlData;
   if (!raw || typeof raw !== 'object') return null;
   const cargo = raw as Record<string, unknown>;
@@ -67,7 +66,6 @@ function responseRows(body: ApiResponse<Person[]> | { data: Person[] }): Person[
 
 const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
   item,
-  hubId,
   onClose,
   onConfirmed,
 }) => {
@@ -91,17 +89,13 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
       setLoadingSuggestion(true);
       setSuggestionNotice(null);
       try {
-        const demandResponse = await intakeDemandsApi.getById(item.demandId);
-        const demand = demandResponse.data as Demand | undefined;
-        const key = demand?.documentKey?.replace(/\D/g, '') ?? '';
-        if (!demand) throw new Error('Não foi possível localizar a pré-entrada. Atualize a lista e tente novamente.');
-        // A demanda já guarda o XML quando a Distribuição NF-e o recebeu. Reutilizá-lo evita
-        // uma segunda consulta ao provedor e mantém a entrada utilizável se a consulta externa
-        // estiver temporariamente indisponível.
-        const stored = nfeDataAlreadyStored(demand);
-        const data: ArrivalNfeData = stored ?? (key.length === 44
-          ? (await nfeApi.lookup(key, hubId ?? undefined)).data.data
-          : (() => { throw new Error('A pré-entrada não tem uma chave NF-e válida para buscar os dados.'); })());
+        const localResponse = await intakeDemandsApi.getLocalNfeData(item.demandId);
+        const resolved = localResponse.data;
+        if (resolved.status !== 'available' || !resolved.cargo) {
+          throw new Error(resolved.reason ?? 'XML da Distribuição não disponível no armazenamento.');
+        }
+        const data = nfeDataAlreadyStored({ rawInputData: { nfeXmlData: resolved.cargo } });
+        if (!data) throw new Error('O XML armazenado não contém os dados do destinatário.');
 
         const resolveCityIbgeCode = async (city?: string | null, state?: string | null) => {
           if (!city || !state) return undefined;
@@ -222,7 +216,7 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [item.demandId, hubId, suggestionAttempt]);
+  }, [item.demandId, suggestionAttempt]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {

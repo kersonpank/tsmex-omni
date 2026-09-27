@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { describe, it, afterEach } from 'node:test';
 import prisma from '../../lib/prisma.js';
 import { confirmIntakeArrival } from './confirmIntakeArrival.js';
+
+const LOCAL_CARGO = { chave: '35260512345678000190550010000000012345678901', emitente: { cnpj: '11111111000111', razaoSocial: 'Emitente' }, destinatario: { cnpj: '22222222000122', razaoSocial: 'Destinatário' }, produtos: [], valorTotalNota: 100 };
 import { AppError } from '../../middleware/errorHandler.js';
 
 function stubTransactionDeps(options: { personsById?: Record<string, { city?: string | null; state?: string | null; cityIbgeCode?: string | null }> } = {}) {
@@ -128,6 +130,7 @@ describe('confirmIntakeArrival', () => {
             id: 'd1',
             status: 'AWAITING_ARRIVAL',
             sourceType: 'DFE_ACBR',
+            rawInputData: { nfeXmlData: LOCAL_CARGO },
             clientId: null,
             origin: 'A',
             destination: 'B',
@@ -159,6 +162,7 @@ describe('confirmIntakeArrival', () => {
             id: 'd1',
             status: 'AWAITING_ARRIVAL',
             sourceType: 'DFE_ACBR',
+            rawInputData: { nfeXmlData: LOCAL_CARGO },
             clientId: null,
             origin: 'A',
             destination: 'B',
@@ -228,6 +232,7 @@ describe('confirmIntakeArrival', () => {
             id: 'd1',
             status: 'AWAITING_ARRIVAL',
             sourceType: 'DFE_ACBR',
+            rawInputData: { nfeXmlData: LOCAL_CARGO },
             clientId: 'c1',
             origin: 'Fornecedor XML LTDA - Imperatriz, MA',
             destination: 'A definir',

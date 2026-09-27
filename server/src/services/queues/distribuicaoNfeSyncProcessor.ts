@@ -11,8 +11,9 @@ import {
     type DistribuicaoNfeRequestBody,
 } from '../acbr/acbrDistribuicaoNfe.js';
 import { parseDistribuicaoDocumento } from '../acbr/distribuicaoNfeDocumentParser.js';
+import { parseNfeProcXml } from '../acbr/nfeXmlParser.js';
 import { manifestarCienciaOperacao } from '../acbr/acbrManifestacao.js';
-import { uploadBase64Object } from '../../lib/objectStorage.js';
+import { objectExists, uploadBase64Object } from '../../lib/objectStorage.js';
 import {
     markFailed,
     markManifested,
@@ -53,6 +54,8 @@ export interface SyncProcessorDeps {
     manifestarCienciaOperacao: typeof manifestarCienciaOperacao;
     baixarXmlDocumentoDistribuicao: typeof baixarXmlDocumentoDistribuicao;
     uploadBase64Object: typeof uploadBase64Object;
+    objectExists?: typeof objectExists;
+    validateDownloadedXml?: (xml: string, accessKey: string) => boolean;
     upsertDiscovered: typeof upsertDiscovered;
     markManifested: typeof markManifested;
     markXmlDownloaded: typeof markXmlDownloaded;
@@ -80,6 +83,8 @@ export const defaultSyncProcessorDeps: SyncProcessorDeps = {
     manifestarCienciaOperacao,
     baixarXmlDocumentoDistribuicao,
     uploadBase64Object,
+    objectExists,
+    validateDownloadedXml: (xml, accessKey) => parseNfeProcXml(xml).chave.replace(/\D/g, '') === accessKey.replace(/\D/g, ''),
     upsertDiscovered,
     markManifested,
     markXmlDownloaded,
@@ -291,6 +296,12 @@ async function runManifestacaoEDownloadPhases(
         // relê esse mesmo campo do banco e nunca rebaixa o XML do mesmo `id` interno duas
         // vezes (2ª chamada de download do mesmo arquivo custa 1 crédito ACBr).
         if (status === 'MANIFESTED' && !doc.xmlDownloadedAt) {
+            const deterministicStorageKey = `nfe-distribuicao/${doc.accessKey}/xml/${doc.accessKey}.xml`;
+            if (deps.objectExists && await deps.objectExists(deterministicStorageKey)) {
+                await deps.markXmlDownloaded(doc.id, deterministicStorageKey);
+                await deps.autoConvertDistribuicaoDocument(doc.id);
+                continue;
+            }
             const documentoId = extractDocumentoId(doc.resumoRaw);
             if (!documentoId) {
                 // Nunca usar accessKey/NSU como substituto do id interno da ACBr — a URL de
@@ -309,13 +320,18 @@ async function runManifestacaoEDownloadPhases(
             }
             calledAcbrOnce = true;
             const xml = await deps.baixarXmlDocumentoDistribuicao(documentoId, ambiente);
+            if (deps.validateDownloadedXml && !deps.validateDownloadedXml(xml, doc.accessKey)) {
+                await deps.markFailed(doc.id, 'XML retornado pelo provedor não corresponde à chave solicitada.');
+                continue;
+            }
             const uploaded = await deps.uploadBase64Object({
                 base64: Buffer.from(xml, 'utf-8').toString('base64'),
                 fileName: `${doc.accessKey}.xml`,
                 mimeType: 'application/xml',
                 keyPrefix: `nfe-distribuicao/${doc.accessKey}/xml`,
+                storageKey: deterministicStorageKey,
             });
-            await deps.markXmlDownloaded(doc.id, uploaded.storageKey);
+            await deps.markXmlDownloaded(doc.id, uploaded.storageKey, undefined, { checksum: uploaded.checksum, size: uploaded.size });
 
             // Auto-conversão é best-effort e nunca propaga falha pro job: se der erro (ex.: XML
             // sem produtos, race com bipagem manual), o documento fica em READY_FOR_TRIAGE e

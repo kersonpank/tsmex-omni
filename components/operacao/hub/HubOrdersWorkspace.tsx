@@ -803,7 +803,6 @@ const HubOrdersWorkspace: React.FC<HubOrdersWorkspaceProps> = ({
       {arrivalItem && typeof document !== 'undefined' && createPortal(
         <HubArrivalSheet
           item={arrivalItem}
-          hubId={hubId}
           onClose={() => setArrivalItem(null)}
           onConfirmed={(orderId) => {
             setArrivalItem(null);

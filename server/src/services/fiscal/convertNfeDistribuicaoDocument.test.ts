@@ -3,9 +3,12 @@ import { after, before, beforeEach, describe, it } from 'node:test';
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { convertNfeDistribuicaoDocument } from './convertNfeDistribuicaoDocument.js';
+import type { ParsedNfeCargo } from '../acbr/nfeXmlParser.js';
 
 const CHAVE = '35260512345678000190550010000000012345678901';
 const DOC_ID = 'doc-ready-1';
+const CARGO: ParsedNfeCargo = { chave: CHAVE, emitente: { cnpj: '11111111000111', razaoSocial: 'Emitente' }, destinatario: { cnpj: '22222222000122', razaoSocial: 'Destinatário' }, produtos: [], valorTotalNota: 100 };
+const convert = () => convertNfeDistribuicaoDocument(DOC_ID, {}, { getCargoData: async () => CARGO });
 
 describe('convertNfeDistribuicaoDocument', () => {
     const demandStore = new Map<string, Record<string, unknown>>();
@@ -14,6 +17,7 @@ describe('convertNfeDistribuicaoDocument', () => {
     const original = {
         nfeDocFindUnique: prisma.nfeDistribuicaoDocumento.findUnique,
         nfeDocUpdateMany: prisma.nfeDistribuicaoDocumento.updateMany,
+        nfeDocUpdate: prisma.nfeDistribuicaoDocumento.update,
         demandFindFirst: prisma.demand.findFirst,
         demandFindMany: prisma.demand.findMany,
         demandCreate: prisma.demand.create,
@@ -35,6 +39,7 @@ describe('convertNfeDistribuicaoDocument', () => {
             }
             return { count: 0 };
         }) as any;
+        prisma.nfeDistribuicaoDocumento.update = (async ({ data }: any) => { if (nfeDocStore) Object.assign(nfeDocStore, data); return nfeDocStore; }) as any;
 
         prisma.demand.findFirst = (async () => null) as any;
         prisma.demand.findMany = (async () => []) as any; // resolveIntakeByNfeKey: not_found por padrão
@@ -54,6 +59,7 @@ describe('convertNfeDistribuicaoDocument', () => {
     after(() => {
         prisma.nfeDistribuicaoDocumento.findUnique = original.nfeDocFindUnique;
         prisma.nfeDistribuicaoDocumento.updateMany = original.nfeDocUpdateMany;
+        prisma.nfeDistribuicaoDocumento.update = original.nfeDocUpdate;
         prisma.demand.findFirst = original.demandFindFirst;
         prisma.demand.findMany = original.demandFindMany;
         prisma.demand.create = original.demandCreate;
@@ -69,8 +75,8 @@ describe('convertNfeDistribuicaoDocument', () => {
             status: 'READY_FOR_TRIAGE',
             accessKey: CHAVE,
             cnpjEmitente: '11111111000111',
-            tipo: 'RESUMO',
-            xmlStorageKey: null,
+            tipo: 'NFE_PROC',
+            xmlStorageKey: 'nfe-distribuicao/chave/xml/chave.xml',
             fiscalEmitter: { hubId: 'hub-A' },
         };
         prisma.demand.findMany = (async () => []) as any;
@@ -78,7 +84,7 @@ describe('convertNfeDistribuicaoDocument', () => {
     });
 
     it('converte documento READY_FOR_TRIAGE em Demand (DFE_ACBR) e marca CONVERTED', async () => {
-        const result = await convertNfeDistribuicaoDocument(DOC_ID);
+        const result = await convert();
 
         assert.equal(result.converted, true);
         if (result.converted) {
@@ -90,7 +96,7 @@ describe('convertNfeDistribuicaoDocument', () => {
 
     it('não bloqueia quando o CNPJ emitente não está cadastrado como Client', async () => {
         prisma.client.findFirst = (async () => null) as any;
-        const result = await convertNfeDistribuicaoDocument(DOC_ID);
+        const result = await convert();
         assert.equal(result.converted, true);
         if (result.converted) {
             assert.ok(!result.demand.clientId, 'Demand nasce sem clientId — resolvido depois na confirmação de chegada');
@@ -99,7 +105,7 @@ describe('convertNfeDistribuicaoDocument', () => {
 
     it('retorna converted:false reason:not_ready quando o documento não está READY_FOR_TRIAGE', async () => {
         nfeDocStore!.status = 'DISCOVERED';
-        const result = await convertNfeDistribuicaoDocument(DOC_ID);
+        const result = await convert();
         assert.deepEqual(result, { converted: false, reason: 'not_ready' });
     });
 
@@ -107,7 +113,7 @@ describe('convertNfeDistribuicaoDocument', () => {
         prisma.demand.findMany = (async () => [
             { id: 'dem-existing', status: 'AWAITING_ARRIVAL', documentKey: CHAVE, expectedHubId: 'hub-A', order: null, client: null, nfNumber: null },
         ]) as any;
-        const result = await convertNfeDistribuicaoDocument(DOC_ID);
+        const result = await convert();
         assert.deepEqual(result, { converted: false, reason: 'already_has_demand' });
         assert.equal(nfeDocStore!.status, 'READY_FOR_TRIAGE', 'não deve converter nem marcar o documento');
     });

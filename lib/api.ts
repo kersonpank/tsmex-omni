@@ -342,6 +342,16 @@ export const intakeDemandsApi = {
         return response.data;
     },
 
+    getLocalNfeData: async (id: string) => {
+        const response = await api.get<ApiResponse<{
+            status: 'available' | 'pending' | 'invalid';
+            source?: 'demand' | 'distribution_storage';
+            cargo?: Record<string, unknown>;
+            reason?: string;
+        }>>(`/intake/demands/${id}/nfe-data`);
+        return response.data;
+    },
+
     create: async (data: CreateIntakeDemandRequest) => {
         const response = await api.post<ApiResponse<Demand>>('/intake/demands', data);
         return response.data;

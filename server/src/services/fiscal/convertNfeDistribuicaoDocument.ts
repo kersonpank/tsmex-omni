@@ -13,6 +13,10 @@ export interface ConvertNfeDistribuicaoDocumentOptions {
     actingHubId?: string | null;
 }
 
+export interface ConvertNfeDistribuicaoDocumentDeps {
+    getCargoData: typeof getCargoDataFromDistribuicaoDocument;
+}
+
 export type ConvertNfeDistribuicaoDocumentResult =
     | { converted: true; demand: Demand }
     | { converted: false; reason: 'not_ready' | 'already_has_demand' | 'concurrent_conversion' };
@@ -26,6 +30,7 @@ export type ConvertNfeDistribuicaoDocumentResult =
 export async function convertNfeDistribuicaoDocument(
     documentId: string,
     options: ConvertNfeDistribuicaoDocumentOptions = {},
+    deps: ConvertNfeDistribuicaoDocumentDeps = { getCargoData: getCargoDataFromDistribuicaoDocument },
 ): Promise<ConvertNfeDistribuicaoDocumentResult> {
     const doc = await prisma.nfeDistribuicaoDocumento.findUnique({
         where: { id: documentId },
@@ -59,14 +64,38 @@ export async function convertNfeDistribuicaoDocument(
         }
     }
 
-    const cargoData = await getCargoDataFromDistribuicaoDocument(doc).catch(() => null);
+    if (doc.tipo !== 'NFE_PROC' || !doc.xmlStorageKey) {
+        await prisma.nfeDistribuicaoDocumento.update({
+            where: { id: doc.id },
+            data: { lastError: 'Conversão bloqueada: XML completo da NF-e não está armazenado.' },
+        });
+        return { converted: false, reason: 'not_ready' };
+    }
+
+    let cargoData;
+    try {
+        cargoData = await deps.getCargoData(doc);
+    } catch (error) {
+        await prisma.nfeDistribuicaoDocumento.update({
+            where: { id: doc.id },
+            data: { lastError: `Falha ao ler o XML armazenado: ${error instanceof Error ? error.message : String(error)}` },
+        });
+        return { converted: false, reason: 'not_ready' };
+    }
+    if (!cargoData || cargoData.chave.replace(/\D/g, '') !== doc.accessKey.replace(/\D/g, '')) {
+        await prisma.nfeDistribuicaoDocumento.update({
+            where: { id: doc.id },
+            data: { lastError: 'XML inválido ou chave divergente; demanda não criada.' },
+        });
+        return { converted: false, reason: 'not_ready' };
+    }
 
     const { demand } = await createIntakeDemandFromNfeKey({
         chave: doc.accessKey,
         clientId,
         expectedHubId: doc.fiscalEmitter.hubId,
         sourceType: 'DFE_ACBR',
-        ...(cargoData ? { cargoData } : {}),
+        cargoData,
     });
 
     const converted = await markConverted(doc.id, demand.id);

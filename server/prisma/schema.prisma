@@ -2553,6 +2553,8 @@ model NfeDistribuicaoDocumento {
   manifestedAt    DateTime?
   xmlDownloadedAt DateTime?
   xmlStorageKey   String?
+  xmlChecksum     String?
+  xmlSize         Int?
 
   attemptCount   Int     @default(0)
   lastHttpStatus Int?
@@ -2571,4 +2573,20 @@ model NfeDistribuicaoDocumento {
   @@index([fiscalEmitterId, status])
   @@index([status])
   @@index([cnpjEmitente])
+}
+
+model FiscalProviderRequestAudit {
+  id        String   @id @default(uuid())
+  provider  String
+  action    String
+  userId    String
+  hubId     String?
+  accessKey String?
+  status    String
+  result    Json?
+  createdAt DateTime @default(now())
+
+  @@index([provider, action, createdAt])
+  @@index([userId, createdAt])
+  @@index([accessKey])
 }

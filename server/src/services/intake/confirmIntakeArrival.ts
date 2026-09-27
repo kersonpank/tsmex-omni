@@ -5,6 +5,7 @@ import { isIntakeSource } from './intakeDemandPolicy.js';
 import { resolvePayerClient } from './resolvePayerClient.js';
 import { parseChaveNfe } from '../../lib/nfeChaveIntake.js';
 import type { ParsedNfeCargo } from '../acbr/nfeXmlParser.js';
+import { resolveLocalNfeCargo } from './resolveLocalNfeCargo.js';
 
 export interface ConfirmIntakeArrivalInput {
     demandId: string;
@@ -40,6 +41,15 @@ export async function confirmIntakeArrival(input: ConfirmIntakeArrivalInput): Pr
     }
     if (!isIntakeSource(demand.sourceType as DemandSource)) {
         throw new AppError('Not an intake demand', 400);
+    }
+
+    let cargoData = (demand.rawInputData as { nfeXmlData?: ParsedNfeCargo } | null)?.nfeXmlData;
+    if (demand.sourceType === 'DFE_ACBR' && !cargoData) {
+        const local = await resolveLocalNfeCargo(demand.id);
+        if (local.status !== 'available') {
+            throw new AppError(local.reason, 409);
+        }
+        cargoData = local.cargo;
     }
 
     const isHub = input.actingRoles.includes('HUB');
@@ -102,7 +112,6 @@ export async function confirmIntakeArrival(input: ConfirmIntakeArrivalInput): Pr
     // já tem. Chave/número/emissão vêm só da própria chave (sempre confiáveis, não dependem de
     // XML baixado); peso/volumes/valor/natureza só quando o XML já baixou (cargoData) — sem
     // isso, ficam no default do schema (0/undefined), igual ao que já acontece hoje na Demand.
-    const cargoData = (demand.rawInputData as { nfeXmlData?: ParsedNfeCargo } | null)?.nfeXmlData;
     const parsedChave = demand.documentKey ? parseChaveNfe(demand.documentKey) : null;
     const orderInvoiceData =
         demand.documentType === 'NFE' && demand.documentKey

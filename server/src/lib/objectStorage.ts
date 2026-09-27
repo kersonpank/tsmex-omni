@@ -4,6 +4,8 @@ import {
     DeleteObjectCommand,
     GetObjectCommand,
     HeadBucketCommand,
+    HeadObjectCommand,
+    ListObjectsV2Command,
     PutObjectCommand,
     S3Client,
 } from '@aws-sdk/client-s3';
@@ -148,10 +150,11 @@ export async function uploadBase64Object(params: {
     fileName: string;
     mimeType?: string;
     keyPrefix: string;
+    storageKey?: string;
 }) {
     const normalized = normalizeBase64(params.base64);
     const buffer = Buffer.from(normalized, 'base64');
-    const storageKey = buildStorageKey(params.keyPrefix, params.fileName);
+    const storageKey = params.storageKey ?? buildStorageKey(params.keyPrefix, params.fileName);
     const checksum = crypto.createHash('sha256').update(buffer).digest('hex');
 
     const client = getS3Client();
@@ -179,6 +182,27 @@ export async function uploadBase64Object(params: {
         signedUrl: rewriteSignedUrlToPublicHost(signedUrl),
         publicUrl: publicBaseUrl ? `${publicBaseUrl.replace(/\/$/, '')}/${storageKey}` : null,
     };
+}
+
+export async function objectExists(storageKey: string): Promise<boolean> {
+    try {
+        await getS3Client().send(new HeadObjectCommand({ Bucket: bucket, Key: storageKey }));
+        return true;
+    } catch (error: any) {
+        if (error?.name === 'NotFound' || error?.name === 'NoSuchKey' || error?.$metadata?.httpStatusCode === 404) return false;
+        throw error;
+    }
+}
+
+export async function listObjectKeys(prefix: string): Promise<string[]> {
+    const keys: string[] = [];
+    let continuationToken: string | undefined;
+    do {
+        const page = await getS3Client().send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ContinuationToken: continuationToken }));
+        for (const item of page.Contents ?? []) if (item.Key) keys.push(item.Key);
+        continuationToken = page.NextContinuationToken;
+    } while (continuationToken);
+    return keys;
 }
 
 export async function deleteObjectByKey(storageKey: string): Promise<void> {

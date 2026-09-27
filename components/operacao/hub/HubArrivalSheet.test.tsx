@@ -5,14 +5,13 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import HubArrivalSheet from './HubArrivalSheet';
 import type { HubCargoItem } from '../../../types/index';
 
-const { intakeDemandsApi, locationsApi, nfeApi, personsApi } = vi.hoisted(() => ({
-  intakeDemandsApi: { getById: vi.fn(), confirmArrival: vi.fn() },
+const { intakeDemandsApi, locationsApi, personsApi } = vi.hoisted(() => ({
+  intakeDemandsApi: { getLocalNfeData: vi.fn(), confirmArrival: vi.fn() },
   locationsApi: { search: vi.fn() },
-  nfeApi: { lookup: vi.fn() },
   personsApi: { search: vi.fn(), create: vi.fn() },
 }));
 
-vi.mock('../../../lib/api', () => ({ intakeDemandsApi, locationsApi, nfeApi, personsApi }));
+vi.mock('../../../lib/api', () => ({ intakeDemandsApi, locationsApi, personsApi }));
 
 const ITEM = {
   id: 'item-1',
@@ -41,24 +40,12 @@ const EMITENTE = {
 const DESTINATARIO_MATCH = { id: 'person-dest-1', legalName: 'F Pereira Araújo', document: '05851109000156' };
 
 function mockLookupSuccess() {
-  intakeDemandsApi.getById.mockResolvedValue({ data: { documentKey: '3'.repeat(44) } });
-  nfeApi.lookup.mockResolvedValue({
-    data: {
-      data: {
-        cnpjEmitente: EMITENTE.cnpj,
-        emitenteRazaoSocial: EMITENTE.razaoSocial,
-        emitenteTradeName: EMITENTE.tradeName,
-        emitenteMunicipio: EMITENTE.municipio,
-        emitenteCep: EMITENTE.cep,
-        emitenteLogradouro: EMITENTE.logradouro,
-        emitenteNumero: EMITENTE.numero,
-        emitenteBairro: EMITENTE.bairro,
-        emitenteIe: EMITENTE.ie,
-        uf: 'SP',
+  intakeDemandsApi.getLocalNfeData.mockResolvedValue({ data: { status: 'available', source: 'demand', cargo: {
+        chave: '3'.repeat(44),
+        emitente: { cnpj: EMITENTE.cnpj, razaoSocial: EMITENTE.razaoSocial, municipio: EMITENTE.municipio, uf: 'SP', ie: EMITENTE.ie },
         destinatario: { cnpj: DESTINATARIO_MATCH.document, razaoSocial: DESTINATARIO_MATCH.legalName, ie: null },
-      },
-    },
-  });
+        produtos: [], valorTotalNota: 1,
+      } } });
 }
 
 describe('HubArrivalSheet — resolução automática do remetente (item 1 do bug de entrada)', () => {
@@ -68,16 +55,16 @@ describe('HubArrivalSheet — resolução automática do remetente (item 1 do bu
   });
 
   it('reaproveita o XML salvo na demanda sem depender da nova consulta da NF-e', async () => {
-    intakeDemandsApi.getById.mockResolvedValue({ data: {
-      documentKey: '3'.repeat(44), rawInputData: { nfeXmlData: {
+    intakeDemandsApi.getLocalNfeData.mockResolvedValue({ data: { status: 'available', source: 'demand', cargo: {
+        chave: '3'.repeat(44),
         emitente: { cnpj: EMITENTE.cnpj, razaoSocial: EMITENTE.razaoSocial, municipio: 'Diadema', uf: 'SP' },
         destinatario: { cnpj: DESTINATARIO_MATCH.document, razaoSocial: DESTINATARIO_MATCH.legalName, municipio: 'Diadema', uf: 'SP' },
-      } },
-    } });
+        produtos: [], valorTotalNota: 1,
+      } } });
     personsApi.search.mockImplementation(async (q: string) => q === DESTINATARIO_MATCH.document ? { data: [DESTINATARIO_MATCH] } : { data: [{ id: 'sender', document: EMITENTE.cnpj }] });
-    render(<HubArrivalSheet item={ITEM} hubId="hub-1" onClose={vi.fn()} onConfirmed={vi.fn()} />);
+    render(<HubArrivalSheet item={ITEM} onClose={vi.fn()} onConfirmed={vi.fn()} />);
     await waitFor(() => expect(screen.getByText('Destinatário confirmado pelo cadastro.')).toBeInTheDocument());
-    expect(nfeApi.lookup).not.toHaveBeenCalled();
+    expect(intakeDemandsApi.getLocalNfeData).toHaveBeenCalledWith('demand-1');
   });
 
   it('resolve o remetente pelo emitente da NF-e (Person já cadastrada) e envia remetentePersonId ao confirmar', async () => {
@@ -107,15 +94,10 @@ describe('HubArrivalSheet — resolução automática do remetente (item 1 do bu
     expect(onConfirmed).toHaveBeenCalledWith('order-1');
   });
 
-  it('consulta a NF-e de contingência no contexto do Hub', async () => {
-    mockLookupSuccess();
-    personsApi.search.mockImplementation(async (q: string) => q === DESTINATARIO_MATCH.document
-      ? { data: [DESTINATARIO_MATCH] }
-      : { data: [{ id: 'person-remetente-1', document: EMITENTE.cnpj }] });
-
-    render(<HubArrivalSheet item={ITEM} hubId="hub-1" onClose={vi.fn()} onConfirmed={vi.fn()} />);
-
-    await waitFor(() => expect(nfeApi.lookup).toHaveBeenCalledWith('3'.repeat(44), 'hub-1'));
+  it('expõe a inconsistência local sem consultar provedor', async () => {
+    intakeDemandsApi.getLocalNfeData.mockResolvedValue({ data: { status: 'pending', reason: 'XML da Distribuição não disponível no armazenamento. Verifique a integração fiscal.' } });
+    render(<HubArrivalSheet item={ITEM} onClose={vi.fn()} onConfirmed={vi.fn()} />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('XML da Distribuição não disponível');
   });
 
   it('cria a Person do remetente quando o CNPJ do emitente não está cadastrado, espelhando o EntradaTab', async () => {
