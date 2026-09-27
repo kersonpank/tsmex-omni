@@ -23,7 +23,6 @@ export function FiscalAddressFields<T extends FiscalAddress>({ value, onChange, 
     const cep = value.cep.replace(/\D/g, '');
     if (readOnly || cep.length !== 8) { setStatus('idle'); return; }
     setStatus('loading'); setError('');
-    onChange(form => ({ ...form, city: '', state: '', cityIbgeCode: '' }));
     const timer = setTimeout(async () => {
       try {
         const response = await locationsApi.getCEP(cep);
@@ -48,7 +47,9 @@ export function FiscalAddressFields<T extends FiscalAddress>({ value, onChange, 
           onChange={event => { setStatus('idle'); onChange(form => ({ ...form, cep: event.target.value.replace(/\D/g, ''), city: '', state: '', cityIbgeCode: '' })); }} />
         {status === 'loading' && <p role="status" className="mt-1 text-xs">Consultando CEP…</p>}
         {status === 'resolved' && <p role="status" className="mt-1 text-xs text-tower-600 dark:text-tower-300">Cidade confirmada pelo CEP. Altere o CEP para mudar o município.</p>}
-        {error && status === 'error' && <div role="alert" className="mt-1 text-sm text-red-600">{error} <button type="button" onClick={() => setRetry(i => i + 1)} className="underline">Tentar novamente</button><p>Você também pode selecionar a cidade na busca abaixo.</p></div>}
+        {error && status === 'error' && (value.cityIbgeCode
+          ? <p role="status" className="mt-1 text-xs text-amber-700 dark:text-amber-300">Não foi possível confirmar o CEP ({error}). Mantida a cidade do cadastro.</p>
+          : <div role="alert" className="mt-1 text-sm text-red-600">{error} <button type="button" onClick={() => setRetry(i => i + 1)} className="underline">Tentar novamente</button><p>Você também pode selecionar a cidade na busca abaixo.</p></div>)}
       </div>
       {([['address', 'Logradouro*'], ['number', 'Número*'], ['complement', 'Complemento'], ['neighborhood', 'Bairro*']] as const).map(([key, label]) => (
         <div key={key}><label htmlFor={`${id}-${key}`} className="mb-2 block text-sm font-bold">{required ? label : label.replace('*', '')}</label>

@@ -1,6 +1,6 @@
-import axios from 'axios';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { lookupCep } from './cepLookup.js';
 
 export const normalizeCityName = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLocaleLowerCase('pt-BR');
 
@@ -25,16 +25,14 @@ export async function requireSelectedIbge(city: string | null | undefined, state
 }
 
 /**
- * IBGE oficial de um CEP fora do cache, pelo ViaCEP (que já devolve o código IBGE).
+ * IBGE oficial de um CEP fora do cache (ViaCEP com fallback BrasilAPI — ver cepLookup).
  * `null` = não foi possível confirmar agora (rede, CEP inexistente): quem chama decide.
  * Objeto mutável para os testes substituírem a consulta externa.
  */
 export const cepIbgeLookup = {
     async lookup(cep: string): Promise<string | null> {
         try {
-            const response = await axios.get(`https://viacep.com.br/ws/${cep}/json/`, { timeout: 5000 });
-            const ibge = response.data?.erro ? null : String(response.data?.ibge ?? '');
-            return ibge && /^\d{7}$/.test(ibge) ? ibge : null;
+            return (await lookupCep(cep)).ibge;
         } catch {
             return null;
         }

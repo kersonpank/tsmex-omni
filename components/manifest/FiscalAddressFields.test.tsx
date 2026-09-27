@@ -47,4 +47,16 @@ describe('CEP fiscal address', () => {
     expect(saved.cityIbgeCode).toBe('');
     expect(saved.state).toBe('');
   });
+  it('mantém a cidade já informada (importação de CNPJ) quando o CEP não é confirmado', async () => {
+    vi.mocked(locationsApi.getCEP).mockRejectedValue(new Error('CEP não encontrado'));
+    const imported: FiscalAddress = { ...empty, cep: '58200000', address: 'PADRE INACIO', neighborhood: 'CENTRO', city: 'Guarabira', state: 'PB', cityIbgeCode: '2506301' };
+    function Imported() {
+      const [value, onChange] = useState(imported);
+      return <><FiscalAddressFields value={value} onChange={onChange} readOnly={false} fieldClass="" /><output data-testid="address">{JSON.stringify(value)}</output></>;
+    }
+    render(<Imported />);
+    await waitFor(() => expect(screen.getByText(/Mantida a cidade do cadastro/)).toBeTruthy());
+    expect(screen.getByLabelText('Cidade*')).toHaveValue('Guarabira');
+    expect(screen.getByTestId('address')).toHaveTextContent('2506301');
+  });
 });

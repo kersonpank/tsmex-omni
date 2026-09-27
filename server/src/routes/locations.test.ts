@@ -5,6 +5,7 @@ import axios from 'axios';
 import prisma from '../lib/prisma.js';
 import { locationsRouter } from './locations.js';
 import { errorHandler } from '../middleware/errorHandler.js';
+import { cepProviders, lookupCep } from '../services/cepLookup.js';
 
 describe('municipality lookup API', () => {
     const originals = { cities: prisma.city.findMany, city: prisma.city.findUnique, cep: prisma.cEP.findUnique, saveCep: prisma.cEP.upsert, state: prisma.state.findUnique, get: axios.get };
@@ -49,5 +50,45 @@ describe('municipality lookup API', () => {
         assert.equal(body.data.cidade, 'São Paulo');
         assert.equal(body.data.uf, 'SP');
         assert.equal(savedCep.update.cityId, 'sp');
+    });
+
+    describe('cadeia de provedores de CEP', () => {
+        const gb = { id: 'gb', name: 'Guarabira', ibgeCode: '2506301', stateId: 'state-pb', state: { id: 'state-pb', code: 'PB', name: 'Paraíba' } };
+        const original = { chain: cepProviders.chain, cepFind: prisma.cEP.findUnique, city: prisma.city.findUnique, state: prisma.state.findUnique };
+        const gbResult = { cep: '58200000', logradouro: '', bairro: '', cidade: 'Guarabira', uf: 'PB', ibge: '2506301', source: 'brasilapi' as const };
+        before(() => {
+            prisma.cEP.findUnique = (async () => null) as any;
+            prisma.city.findUnique = (async () => gb) as any;
+            prisma.state.findUnique = (async () => gb.state) as any;
+        });
+        after(() => {
+            cepProviders.chain = original.chain; prisma.cEP.findUnique = original.cepFind;
+            prisma.city.findUnique = original.city; prisma.state.findUnique = original.state;
+        });
+        it('CEP geral de município (ViaCEP não conhece) resolve pelo fallback com IBGE', async () => {
+            cepProviders.chain = [async () => null, async () => gbResult];
+            const response = await fetch(url + '/locations/cep/58200000');
+            const body = await response.json() as any;
+            assert.equal(response.status, 200);
+            assert.equal(body.data.cityIbgeCode, '2506301');
+            assert.equal(body.data.cidade, 'Guarabira');
+            assert.equal(body.data.uf, 'PB');
+            assert.equal(body.source, 'brasilapi');
+        });
+        it('provedor primário fora do ar não impede o fallback', async () => {
+            cepProviders.chain = [async () => { throw new Error('timeout'); }, async () => gbResult];
+            assert.equal((await lookupCep('58200000')).ibge, '2506301');
+        });
+        it('todos dizem que não existe: 404 em português', async () => {
+            cepProviders.chain = [async () => null, async () => null];
+            const response = await fetch(url + '/locations/cep/00000000');
+            assert.equal(response.status, 404);
+            assert.match(((await response.json()) as any).error, /CEP não encontrado/);
+        });
+        it('todos indisponíveis: 503, não "CEP inexistente"', async () => {
+            cepProviders.chain = [async () => { throw new Error('x'); }, async () => { throw new Error('y'); }];
+            const response = await fetch(url + '/locations/cep/58200000');
+            assert.equal(response.status, 503);
+        });
     });
 });
