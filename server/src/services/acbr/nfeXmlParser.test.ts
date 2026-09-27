@@ -205,4 +205,22 @@ describe('parseNfeProcXml', () => {
             /nfeProc/i,
         );
     });
+
+    it('extrai código IBGE (cMun), CEP e endereço completo de emitente e destinatário', () => {
+        const xml = `<nfeProc><NFe><infNFe Id="NFe35260712345678000199550010000012345678901234">
+          <emit><CNPJ>12345678000199</CNPJ><xNome>EMIT LTDA</xNome><xFant>EMIT</xFant>
+            <enderEmit><xLgr>Rua A</xLgr><nro>10</nro><xCpl>Sala 2</xCpl><xBairro>Centro</xBairro><cMun>2506301</cMun><xMun>Guarabira</xMun><UF>PB</UF><CEP>58200000</CEP></enderEmit>
+          </emit>
+          <dest><CNPJ>10256071000103</CNPJ><xNome>DEST LTDA</xNome>
+            <enderDest><xLgr>Rua B</xLgr><nro>20</nro><xBairro>Bela Vista</xBairro><cMun>3550308</cMun><xMun>São Paulo</xMun><UF>SP</UF><CEP>01310100</CEP></enderDest>
+          </dest></infNFe></NFe></nfeProc>`;
+        const parsed = parseNfeProcXml(xml);
+        assert.equal(parsed.emitente.ibge, '2506301');
+        assert.equal(parsed.emitente.cep, '58200000');
+        assert.equal(parsed.emitente.logradouro, 'Rua A');
+        assert.equal(parsed.emitente.complemento, 'Sala 2');
+        assert.equal(parsed.emitente.nomeFantasia, 'EMIT');
+        assert.equal(parsed.destinatario.ibge, '3550308');
+        assert.equal(parsed.destinatario.bairro, 'Bela Vista');
+    });
 });

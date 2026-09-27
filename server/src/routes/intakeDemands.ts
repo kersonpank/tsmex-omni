@@ -19,6 +19,7 @@ import {
 import type { ParsedNfeCargo } from '../services/acbr/nfeXmlParser.js';
 import { ensureDistribuicaoBootstrap } from '../services/fiscal/ensureDistribuicaoBootstrap.js';
 import { resolveLocalNfeCargo } from '../services/intake/resolveLocalNfeCargo.js';
+import { ensureNfePartyPersons } from '../services/intake/ensureNfePartyPersons.js';
 
 const router = Router();
 
@@ -355,6 +356,8 @@ router.post('/demands/from-nfe-key', async (req: AuthRequest, res: Response, nex
         // Best-effort: a primeira chave real semeia a Distribuição NF-e, mas essa integração
         // externa nunca pode atrasar nem transformar em timeout a entrada operacional já criada.
         void ensureDistribuicaoBootstrap(expectedHubId, data.chave);
+        // Idem: partes da NF-e (remetente/destinatário) já normalizadas por IBGE para a entrada.
+        if (cargoData) void ensureNfePartyPersons(cargoData);
     } catch (e) {
         if (e instanceof z.ZodError) return next(new AppError(e.errors[0]?.message ?? 'Payload inválido', 400));
         if (e instanceof Error && e.message.includes('Chave NF-e')) {
@@ -423,7 +426,10 @@ router.get('/demands/:id/nfe-data', async (req: AuthRequest, res: Response, next
     try {
         const id = req.params.id as string;
         await assertCanViewIntakeDemand(req, id);
-        res.json({ success: true, data: await resolveLocalNfeCargo(id) });
+        const local = await resolveLocalNfeCargo(id);
+        // Fallback idempotente para demandas anteriores: garante Pessoas com cidade por IBGE ao abrir a entrada.
+        const parties = local.status === 'available' ? await ensureNfePartyPersons(local.cargo) : null;
+        res.json({ success: true, data: { ...local, ...(parties ? { parties } : {}) } });
     } catch (error) {
         next(error);
     }

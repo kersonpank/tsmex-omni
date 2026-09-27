@@ -629,6 +629,7 @@ const PessoasTab: React.FC = () => {
             complement: selectedPerson.complement ?? '',
             neighborhood: selectedPerson.neighborhood ?? '',
             city: selectedPerson.city ?? '',
+            cityIbgeCode: selectedPerson.cityIbgeCode ?? '',
             state: selectedPerson.state ?? '',
             country: selectedPerson.country ?? 'BRASIL',
             stateRegistration: selectedPerson.stateRegistration ?? '',

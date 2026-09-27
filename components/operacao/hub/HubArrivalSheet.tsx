@@ -1,63 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import ReactDOM from 'react-dom';
-import { intakeDemandsApi, locationsApi, personsApi } from '../../../lib/api';
+import { intakeDemandsApi, personsApi } from '../../../lib/api';
 import { PersonFormModal } from '../../ui/PersonFormModal';
-import type { ApiResponse, Demand, HubCargoItem, Person } from '../../../types/index';
+import type { ApiResponse, HubCargoItem, Person } from '../../../types/index';
 
 interface HubArrivalSheetProps {
   item: HubCargoItem;
   onClose: () => void;
   onConfirmed: (orderId: string) => void;
-}
-
-type ArrivalNfeData = {
-  cnpjEmitente?: string;
-  emitenteRazaoSocial?: string | null;
-  emitenteTradeName?: string | null;
-  emitenteMunicipio?: string | null;
-  emitenteCep?: string | null;
-  emitenteLogradouro?: string | null;
-  emitenteNumero?: string | null;
-  emitenteBairro?: string | null;
-  emitenteIe?: string | null;
-  uf?: string | null;
-  destinatario?: {
-    cnpj?: string;
-    razaoSocial?: string | null;
-    ie?: string | null;
-    municipio?: string | null;
-    uf?: string | null;
-    cep?: string | null;
-    logradouro?: string | null;
-    numero?: string | null;
-    bairro?: string | null;
-    indIEDest?: string | null;
-  } | null;
-};
-
-const text = (value: unknown): string | undefined => typeof value === 'string' && value.trim() ? value.trim() : undefined;
-
-function nfeDataAlreadyStored(demand: Pick<Demand, 'rawInputData'>): ArrivalNfeData | null {
-  const raw = demand.rawInputData?.nfeXmlData;
-  if (!raw || typeof raw !== 'object') return null;
-  const cargo = raw as Record<string, unknown>;
-  const emitente = cargo.emitente as Record<string, unknown> | undefined;
-  const destinatario = cargo.destinatario as Record<string, unknown> | undefined;
-  if (!destinatario?.cnpj) return null;
-  return {
-    cnpjEmitente: text(emitente?.cnpj),
-    emitenteRazaoSocial: text(emitente?.razaoSocial) ?? null,
-    emitenteMunicipio: text(emitente?.municipio) ?? null,
-    emitenteIe: text(emitente?.ie) ?? null,
-    uf: text(emitente?.uf) ?? null,
-    destinatario: destinatario ? {
-      cnpj: text(destinatario.cnpj), razaoSocial: text(destinatario.razaoSocial) ?? null,
-      ie: text(destinatario.ie) ?? null, municipio: text(destinatario.municipio) ?? null,
-      uf: text(destinatario.uf) ?? null, cep: text(destinatario.cep) ?? null,
-      logradouro: text(destinatario.logradouro) ?? null, numero: text(destinatario.numero) ?? null,
-      bairro: text(destinatario.bairro) ?? null, indIEDest: text(destinatario.indIEDest) ?? null,
-    } : null,
-  };
 }
 
 function responseRows(body: ApiResponse<Person[]> | { data: Person[] }): Person[] {
@@ -94,118 +44,23 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
         if (resolved.status !== 'available' || !resolved.cargo) {
           throw new Error(resolved.reason ?? 'XML da Distribuição não disponível no armazenamento.');
         }
-        const data = nfeDataAlreadyStored({ rawInputData: { nfeXmlData: resolved.cargo } });
-        if (!data) throw new Error('O XML armazenado não contém os dados do destinatário.');
-
-        const resolveCityIbgeCode = async (city?: string | null, state?: string | null) => {
-          if (!city || !state) return undefined;
-          const result = await locationsApi.search({ q: city, state });
-          const normalized = city.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
-          const match = (result.data ?? []).find((candidate: any) =>
-            String(candidate.name ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim() === normalized
-            && candidate.state?.code === state,
-          );
-          return match?.ibgeCode as string | undefined;
-        };
-
-        const addressWithSelectedCity = async (city?: string | null, state?: string | null) => {
-          try {
-            const cityIbgeCode = await resolveCityIbgeCode(city, state);
-            return cityIbgeCode && city && state ? { city, state, cityIbgeCode } : {};
-          } catch { return {}; }
-        };
-
-        // Remetente e destinatário não dependem um do outro — resolvidos em paralelo (cada um
-        // com try/catch próprio, best-effort) em vez de sequenciais, pra cortar o delay do modal.
-        const resolveRemetente = async () => {
-          // Espelha components/admin/EntradaTab.tsx — resolvido do emitente da NF-e sem exigir
-          // campo extra no modal, pra satisfazer o remetentePersonId que o backend exige em
-          // confirmIntakeArrival.ts (best-effort: se falhar, comportamento é o mesmo de antes —
-          // o backend ainda tenta o fallback via demand.client?.personId).
-          if (!data.cnpjEmitente) return;
-          try {
-            const res = await personsApi.search(data.cnpjEmitente);
-            const persons = responseRows(res as ApiResponse<Person[]> | { data: Person[] });
-            const match = persons.find(
-              (p) => p.document?.replace(/\D/g, '') === data.cnpjEmitente.replace(/\D/g, ''),
-            );
-            if (match) {
-              if (!cancelled) {
-                setRemetentePersonId(match.id);
-                setRemetentePerson(match);
-              }
-            } else if (data.emitenteRazaoSocial) {
-              const selectedCity = await addressWithSelectedCity(data.emitenteMunicipio, data.uf);
-              const createRes = await personsApi.create({
-                documentType: 'CNPJ',
-                document: data.cnpjEmitente,
-                legalName: data.emitenteRazaoSocial,
-                ...(data.emitenteTradeName ? { tradeName: data.emitenteTradeName } : {}),
-                ...selectedCity,
-                ...(data.emitenteCep ? { cep: data.emitenteCep } : {}),
-                ...(data.emitenteLogradouro ? { address: data.emitenteLogradouro } : {}),
-                ...(data.emitenteNumero ? { number: data.emitenteNumero } : {}),
-                ...(data.emitenteBairro ? { neighborhood: data.emitenteBairro } : {}),
-                ...(data.emitenteIe ? { stateRegistration: data.emitenteIe } : {}),
-              });
-              const newPerson = ((createRes as any)?.data ?? createRes) as Person;
-              if (!cancelled) {
-                setRemetentePersonId(newPerson.id);
-                setRemetentePerson(newPerson);
-              }
-            }
-          } catch {
-            if (!cancelled) setSuggestionNotice('Não foi possível completar o remetente automaticamente. Você ainda pode revisar o pedido depois da entrada.');
+        // Remetente/destinatário chegam prontos do backend: a NF-e já foi normalizada na chegada
+        // (cidade por código IBGE `cMun`, endereço completo) — sem criar Pessoa nem adivinhar cidade aqui.
+        const { remetente, destinatario } = resolved.parties ?? {};
+        if (!cancelled) {
+          if (remetente) {
+            setRemetentePersonId(remetente.id);
+            setRemetentePerson(remetente);
+          } else {
+            setSuggestionNotice('Não foi possível completar o remetente automaticamente. Você ainda pode revisar o pedido depois da entrada.');
           }
-        };
-
-        const resolveDestinatario = async () => {
-          // Mesmo padrão do remetente acima — a NF-e já traz razão social e endereço completos
-          // (`nfeXmlParser.ts` extrai `dest`/`enderDest`); se não achar Person cadastrada por
-          // CNPJ, cria em vez de deixar o campo vazio pro humano redigitar o que já foi lido.
-          const destinatarioDoc = data.destinatario?.cnpj;
-          if (!destinatarioDoc) return;
-          try {
-            const personResponse = await personsApi.search(destinatarioDoc);
-            const matches = responseRows(personResponse as ApiResponse<Person[]> | { data: Person[] });
-            const exact = matches.find((person) => person.document?.replace(/\D/g, '') === destinatarioDoc);
-            if (exact) {
-              if (!cancelled) {
-                setSelected(exact);
-                setQuery(`${exact.legalName} (${exact.document})`);
-              }
-            } else if (data.destinatario?.razaoSocial) {
-              const selectedCity = await addressWithSelectedCity(data.destinatario.municipio, data.destinatario.uf);
-              const createRes = await personsApi.create({
-                documentType: 'CNPJ',
-                document: destinatarioDoc,
-                legalName: data.destinatario.razaoSocial,
-                ...selectedCity,
-                ...(data.destinatario.cep ? { cep: data.destinatario.cep } : {}),
-                ...(data.destinatario.logradouro ? { address: data.destinatario.logradouro } : {}),
-                ...(data.destinatario.numero ? { number: data.destinatario.numero } : {}),
-                ...(data.destinatario.bairro ? { neighborhood: data.destinatario.bairro } : {}),
-                // IE real sempre vence; só marca ISENTO quando não há IE resolvida e a própria
-                // nota confirma isenção (indIEDest=2) — `9` (não contribuinte) ou ausência do
-                // campo não vira isenção, fica em branco pra revisão humana.
-                ...(data.destinatario.ie
-                  ? { stateRegistration: data.destinatario.ie }
-                  : data.destinatario.indIEDest === '2'
-                    ? { stateRegistration: 'ISENTO' }
-                    : {}),
-              });
-              const newPerson = ((createRes as any)?.data ?? createRes) as Person;
-              if (!cancelled) {
-                setSelected(newPerson);
-                setQuery(`${newPerson.legalName} (${newPerson.document})`);
-              }
-            }
-          } catch {
-            if (!cancelled) setSuggestionNotice('Não foi possível completar o destinatário automaticamente. Busque e selecione a pessoa abaixo.');
+          if (destinatario) {
+            setSelected(destinatario);
+            setQuery(`${destinatario.legalName} (${destinatario.document})`);
+          } else {
+            setSuggestionNotice('Não foi possível completar o destinatário automaticamente. Busque e selecione a pessoa abaixo.');
           }
-        };
-
-        await Promise.all([resolveRemetente(), resolveDestinatario()]);
+        }
       } catch (cause) {
         if (!cancelled) setSuggestionNotice(cause instanceof Error ? cause.message : 'Não foi possível buscar os dados da NF-e. Tente novamente.');
       } finally {
@@ -405,6 +260,7 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
               complement: remetentePerson.complement ?? '',
               neighborhood: remetentePerson.neighborhood ?? '',
               city: remetentePerson.city ?? '',
+              cityIbgeCode: remetentePerson.cityIbgeCode ?? '',
               state: remetentePerson.state ?? '',
               country: remetentePerson.country ?? 'BRASIL',
               stateRegistration: remetentePerson.stateRegistration ?? '',
@@ -432,6 +288,7 @@ const HubArrivalSheet: React.FC<HubArrivalSheetProps> = ({
               complement: selected.complement ?? '',
               neighborhood: selected.neighborhood ?? '',
               city: selected.city ?? '',
+              cityIbgeCode: selected.cityIbgeCode ?? '',
               state: selected.state ?? '',
               country: selected.country ?? 'BRASIL',
               stateRegistration: selected.stateRegistration ?? '',

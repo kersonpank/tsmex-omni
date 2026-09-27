@@ -5,13 +5,12 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import HubArrivalSheet from './HubArrivalSheet';
 import type { HubCargoItem } from '../../../types/index';
 
-const { intakeDemandsApi, locationsApi, personsApi } = vi.hoisted(() => ({
+const { intakeDemandsApi, personsApi } = vi.hoisted(() => ({
   intakeDemandsApi: { getLocalNfeData: vi.fn(), confirmArrival: vi.fn() },
-  locationsApi: { search: vi.fn() },
   personsApi: { search: vi.fn(), create: vi.fn() },
 }));
 
-vi.mock('../../../lib/api', () => ({ intakeDemandsApi, locationsApi, personsApi }));
+vi.mock('../../../lib/api', () => ({ intakeDemandsApi, personsApi }));
 
 const ITEM = {
   id: 'item-1',
@@ -25,56 +24,28 @@ const ITEM = {
   invoiceCount: 1,
 } as unknown as HubCargoItem;
 
-const EMITENTE = {
-  cnpj: '11111111000111',
-  razaoSocial: 'POLILONTRA INDUSTRIA DE PRODUTOS DE POLIMEROS LTDA',
-  tradeName: null,
-  municipio: 'Diadema',
-  cep: '09950000',
-  logradouro: 'Rua das Industrias',
-  numero: '500',
-  bairro: 'Centro',
-  ie: null,
+const REMETENTE = {
+  id: 'person-remetente-1', documentType: 'CNPJ', document: '11111111000111',
+  legalName: 'POLILONTRA INDUSTRIA DE PRODUTOS DE POLIMEROS LTDA',
+  city: 'Diadema', state: 'SP', cityIbgeCode: '3513801',
+};
+const DESTINATARIO = {
+  id: 'person-dest-1', documentType: 'CNPJ', document: '05851109000156',
+  legalName: 'F Pereira Araújo', city: 'Guarabira', state: 'PB', cityIbgeCode: '2506301',
 };
 
-const DESTINATARIO_MATCH = { id: 'person-dest-1', legalName: 'F Pereira Araújo', document: '05851109000156' };
+const CARGO = { chave: '3'.repeat(44), emitente: {}, destinatario: {}, produtos: [], valorTotalNota: 1 };
 
-function mockLookupSuccess() {
-  intakeDemandsApi.getLocalNfeData.mockResolvedValue({ data: { status: 'available', source: 'demand', cargo: {
-        chave: '3'.repeat(44),
-        emitente: { cnpj: EMITENTE.cnpj, razaoSocial: EMITENTE.razaoSocial, municipio: EMITENTE.municipio, uf: 'SP', ie: EMITENTE.ie },
-        destinatario: { cnpj: DESTINATARIO_MATCH.document, razaoSocial: DESTINATARIO_MATCH.legalName, ie: null },
-        produtos: [], valorTotalNota: 1,
-      } } });
-}
-
-describe('HubArrivalSheet — resolução automática do remetente (item 1 do bug de entrada)', () => {
+describe('HubArrivalSheet — partes da NF-e normalizadas pelo backend', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    locationsApi.search.mockResolvedValue({ data: [{ name: 'Diadema', ibgeCode: '3513801', state: { code: 'SP' } }] });
+    personsApi.search.mockResolvedValue({ data: [] });
   });
 
-  it('reaproveita o XML salvo na demanda sem depender da nova consulta da NF-e', async () => {
-    intakeDemandsApi.getLocalNfeData.mockResolvedValue({ data: { status: 'available', source: 'demand', cargo: {
-        chave: '3'.repeat(44),
-        emitente: { cnpj: EMITENTE.cnpj, razaoSocial: EMITENTE.razaoSocial, municipio: 'Diadema', uf: 'SP' },
-        destinatario: { cnpj: DESTINATARIO_MATCH.document, razaoSocial: DESTINATARIO_MATCH.legalName, municipio: 'Diadema', uf: 'SP' },
-        produtos: [], valorTotalNota: 1,
-      } } });
-    personsApi.search.mockImplementation(async (q: string) => q === DESTINATARIO_MATCH.document ? { data: [DESTINATARIO_MATCH] } : { data: [{ id: 'sender', document: EMITENTE.cnpj }] });
-    render(<HubArrivalSheet item={ITEM} onClose={vi.fn()} onConfirmed={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText('Destinatário confirmado pelo cadastro.')).toBeInTheDocument());
-    expect(intakeDemandsApi.getLocalNfeData).toHaveBeenCalledWith('demand-1');
-  });
-
-  it('resolve o remetente pelo emitente da NF-e (Person já cadastrada) e envia remetentePersonId ao confirmar', async () => {
-    mockLookupSuccess();
-    const remetenteMatch = { id: 'person-remetente-1', legalName: EMITENTE.razaoSocial, document: EMITENTE.cnpj };
-    personsApi.search.mockImplementation(async (q: string) => {
-      if (q === DESTINATARIO_MATCH.document) return { data: [DESTINATARIO_MATCH] };
-      if (q === EMITENTE.cnpj) return { data: [remetenteMatch] };
-      return { data: [] };
-    });
+  it('usa remetente e destinatário já normalizados (IBGE) sem criar Pessoa no front e envia os ids ao confirmar', async () => {
+    intakeDemandsApi.getLocalNfeData.mockResolvedValue({ data: {
+      status: 'available', source: 'demand', cargo: CARGO, parties: { remetente: REMETENTE, destinatario: DESTINATARIO },
+    } });
     intakeDemandsApi.confirmArrival.mockResolvedValue({ data: { order: { id: 'order-1' } } });
 
     const user = userEvent.setup();
@@ -82,6 +53,7 @@ describe('HubArrivalSheet — resolução automática do remetente (item 1 do bu
     render(<HubArrivalSheet item={ITEM} onClose={vi.fn()} onConfirmed={onConfirmed} />);
 
     await waitFor(() => expect(screen.getByText('Destinatário confirmado pelo cadastro.')).toBeInTheDocument());
+    expect(intakeDemandsApi.getLocalNfeData).toHaveBeenCalledWith('demand-1');
 
     const confirmBtn = screen.getByRole('button', { name: 'Confirmar entrada física' });
     await waitFor(() => expect(confirmBtn).not.toBeDisabled());
@@ -89,8 +61,9 @@ describe('HubArrivalSheet — resolução automática do remetente (item 1 do bu
 
     await waitFor(() => expect(intakeDemandsApi.confirmArrival).toHaveBeenCalledTimes(1));
     const [, payload] = intakeDemandsApi.confirmArrival.mock.calls[0];
-    expect(payload.destinatarioPersonId).toBe(DESTINATARIO_MATCH.id);
-    expect(payload.remetentePersonId).toBe(remetenteMatch.id);
+    expect(payload.destinatarioPersonId).toBe(DESTINATARIO.id);
+    expect(payload.remetentePersonId).toBe(REMETENTE.id);
+    expect(personsApi.create).not.toHaveBeenCalled();
     expect(onConfirmed).toHaveBeenCalledWith('order-1');
   });
 
@@ -100,34 +73,11 @@ describe('HubArrivalSheet — resolução automática do remetente (item 1 do bu
     expect(await screen.findByRole('alert')).toHaveTextContent('XML da Distribuição não disponível');
   });
 
-  it('cria a Person do remetente quando o CNPJ do emitente não está cadastrado, espelhando o EntradaTab', async () => {
-    mockLookupSuccess();
-    const createdRemetente = { id: 'person-remetente-novo', legalName: EMITENTE.razaoSocial, document: EMITENTE.cnpj };
-    personsApi.search.mockImplementation(async (q: string) => {
-      if (q === DESTINATARIO_MATCH.document) return { data: [DESTINATARIO_MATCH] };
-      return { data: [] }; // remetente não cadastrado ainda
-    });
-    personsApi.create.mockResolvedValue({ data: createdRemetente });
-    intakeDemandsApi.confirmArrival.mockResolvedValue({ data: { order: { id: 'order-2' } } });
-
-    const user = userEvent.setup();
+  it('avisa quando o backend não conseguiu normalizar o remetente', async () => {
+    intakeDemandsApi.getLocalNfeData.mockResolvedValue({ data: {
+      status: 'available', source: 'demand', cargo: CARGO, parties: { remetente: null, destinatario: DESTINATARIO },
+    } });
     render(<HubArrivalSheet item={ITEM} onClose={vi.fn()} onConfirmed={vi.fn()} />);
-
-    await waitFor(() => expect(screen.getByText('Destinatário confirmado pelo cadastro.')).toBeInTheDocument());
-    await waitFor(() => expect(personsApi.create).toHaveBeenCalledTimes(1));
-    expect(personsApi.create.mock.calls[0][0]).toMatchObject({
-      documentType: 'CNPJ',
-      document: EMITENTE.cnpj,
-      legalName: EMITENTE.razaoSocial,
-      city: EMITENTE.municipio,
-    });
-
-    const confirmBtn = screen.getByRole('button', { name: 'Confirmar entrada física' });
-    await waitFor(() => expect(confirmBtn).not.toBeDisabled());
-    await user.click(confirmBtn);
-
-    await waitFor(() => expect(intakeDemandsApi.confirmArrival).toHaveBeenCalledTimes(1));
-    const [, payload] = intakeDemandsApi.confirmArrival.mock.calls[0];
-    expect(payload.remetentePersonId).toBe(createdRemetente.id);
+    expect(await screen.findByRole('alert')).toHaveTextContent('remetente automaticamente');
   });
 });

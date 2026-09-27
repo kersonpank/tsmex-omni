@@ -4,6 +4,7 @@ import { AppError } from '../../middleware/errorHandler.js';
 import { resolveIntakeByNfeKey } from '../intake/resolveIntakeByNfeKey.js';
 import { resolveIntakeClientByDocument } from '../intake/resolveIntakeClientByDocument.js';
 import { createIntakeDemandFromNfeKey } from '../intake/createIntakeDemand.js';
+import { ensureNfePartyPersons } from '../intake/ensureNfePartyPersons.js';
 import { getCargoDataFromDistribuicaoDocument } from './nfeDistribuicaoCargoData.js';
 import { markConverted } from './nfeDistribuicaoRepo.js';
 
@@ -15,6 +16,8 @@ export interface ConvertNfeDistribuicaoDocumentOptions {
 
 export interface ConvertNfeDistribuicaoDocumentDeps {
     getCargoData: typeof getCargoDataFromDistribuicaoDocument;
+    /** Normaliza remetente/destinatário (cidade por IBGE) na chegada da nota. Opcional: ausente = não roda. */
+    ensureParties?: typeof ensureNfePartyPersons;
 }
 
 export type ConvertNfeDistribuicaoDocumentResult =
@@ -30,7 +33,7 @@ export type ConvertNfeDistribuicaoDocumentResult =
 export async function convertNfeDistribuicaoDocument(
     documentId: string,
     options: ConvertNfeDistribuicaoDocumentOptions = {},
-    deps: ConvertNfeDistribuicaoDocumentDeps = { getCargoData: getCargoDataFromDistribuicaoDocument },
+    deps: ConvertNfeDistribuicaoDocumentDeps = { getCargoData: getCargoDataFromDistribuicaoDocument, ensureParties: ensureNfePartyPersons },
 ): Promise<ConvertNfeDistribuicaoDocumentResult> {
     const doc = await prisma.nfeDistribuicaoDocumento.findUnique({
         where: { id: documentId },
@@ -102,6 +105,9 @@ export async function convertNfeDistribuicaoDocument(
     if (!converted) {
         return { converted: false, reason: 'concurrent_conversion' };
     }
+
+    // Cadastro das partes já normalizado quando a entrada física for confirmada. Nunca falha a conversão.
+    await deps.ensureParties?.(cargoData);
 
     return { converted: true, demand };
 }

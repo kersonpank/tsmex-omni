@@ -11,9 +11,18 @@ export interface ParsedNfeProduto {
 export interface ParsedNfeEmitente {
     cnpj: string;
     razaoSocial: string;
+    /** `xFant` — nome fantasia. */
+    nomeFantasia?: string;
     municipio?: string;
     uf?: string;
     ie?: string;
+    /** `cMun` — código IBGE do município (7 dígitos), fonte oficial da cidade na NF-e. */
+    ibge?: string;
+    cep?: string;
+    logradouro?: string;
+    numero?: string;
+    complemento?: string;
+    bairro?: string;
 }
 
 export interface ParsedNfeDestinatario {
@@ -23,9 +32,12 @@ export interface ParsedNfeDestinatario {
     /** Diferente do emitente, o destinatário não tem enriquecimento externo (BrasilAPI) — o XML é a única fonte de endereço. */
     municipio?: string;
     uf?: string;
+    /** `cMun` — código IBGE do município (7 dígitos), fonte oficial da cidade na NF-e. */
+    ibge?: string;
     cep?: string;
     logradouro?: string;
     numero?: string;
+    complemento?: string;
     bairro?: string;
     /** `1`=contribuinte ICMS, `2`=isento de inscrição, `9`=não contribuinte — diz *por quê* `ie` está ausente. */
     indIEDest?: string;
@@ -62,6 +74,15 @@ function toArray(v: unknown): Record<string, unknown>[] {
 function toNumber(v: unknown): number {
     const n = typeof v === 'string' ? Number(v) : typeof v === 'number' ? v : NaN;
     return Number.isFinite(n) ? n : 0;
+}
+
+function optionalText<K extends string>(fields: Record<K, unknown>): Partial<Record<K, string>> {
+    const out: Partial<Record<K, string>> = {};
+    for (const key of Object.keys(fields) as K[]) {
+        const value = fields[key];
+        if (value !== undefined && value !== null && String(value) !== '') out[key] = String(value);
+    }
+    return out;
 }
 
 function toText(v: unknown): string {
@@ -136,6 +157,11 @@ export function parseNfeProcXml(xml: string): ParsedNfeCargo {
             municipio: enderEmit?.xMun ? toText(enderEmit.xMun) : undefined,
             uf: enderEmit?.UF ? toText(enderEmit.UF) : undefined,
             ie: emit?.IE ? toText(emit.IE) : undefined,
+            // Só entram quando presentes no XML (mantém o formato dos XMLs já armazenados).
+            ...optionalText({
+                nomeFantasia: emit?.xFant, ibge: enderEmit?.cMun, cep: enderEmit?.CEP, logradouro: enderEmit?.xLgr,
+                numero: enderEmit?.nro, complemento: enderEmit?.xCpl, bairro: enderEmit?.xBairro,
+            }),
         },
         destinatario: {
             cnpj: toText(dest?.CNPJ),
@@ -144,6 +170,7 @@ export function parseNfeProcXml(xml: string): ParsedNfeCargo {
             ie: dest?.IE ? toText(dest.IE) : undefined,
             municipio: enderDest?.xMun ? toText(enderDest.xMun) : undefined,
             uf: enderDest?.UF ? toText(enderDest.UF) : undefined,
+            ...optionalText({ ibge: enderDest?.cMun, complemento: enderDest?.xCpl }),
             cep: enderDest?.CEP ? toText(enderDest.CEP) : undefined,
             logradouro: enderDest?.xLgr ? toText(enderDest.xLgr) : undefined,
             numero: enderDest?.nro ? toText(enderDest.nro) : undefined,

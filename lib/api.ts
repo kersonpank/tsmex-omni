@@ -348,6 +348,8 @@ export const intakeDemandsApi = {
             source?: 'demand' | 'distribution_storage';
             cargo?: Record<string, unknown>;
             reason?: string;
+            /** Remetente/destinatário já normalizados (cidade por IBGE) pelo backend. */
+            parties?: { remetente: Person | null; destinatario: Person | null };
         }>>(`/intake/demands/${id}/nfe-data`);
         return response.data;
     },

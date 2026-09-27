@@ -49,6 +49,9 @@ describe('nfeDistribuicaoTriagem routes', () => {
         transaction: prisma.$transaction,
         clientFindFirst: prisma.client.findFirst,
         axiosGet: axios.get,
+        personFindUnique: prisma.person.findUnique,
+        personCreate: prisma.person.create,
+        cityFindUnique: prisma.city.findUnique,
         getObjectAsBase64: defaultGetCargoDataDeps.getObjectAsBase64,
         parseNfeProcXml: defaultGetCargoDataDeps.parseNfeProcXml,
     };
@@ -105,6 +108,11 @@ describe('nfeDistribuicaoTriagem routes', () => {
 
         prisma.client.findFirst = (async () => ({ id: 'client-1', companyName: 'Fornecedor Teste', document: '11111111000111' })) as any;
 
+        // Normalização das partes da NF-e na conversão: sem banco real.
+        prisma.person.findUnique = (async () => null) as any;
+        prisma.person.create = (async ({ data }: any) => ({ id: `p-${data.document}`, ...data })) as any;
+        prisma.city.findUnique = (async () => null) as any;
+
         axios.get = (async () => ({ data: { razao_social: 'Fornecedor Teste', nome_fantasia: 'Forn', municipio: 'Imperatriz' } })) as any;
 
         const { nfeDistribuicaoTriagemRouter } = await import('./nfeDistribuicaoTriagem.js');
@@ -135,6 +143,9 @@ describe('nfeDistribuicaoTriagem routes', () => {
         prisma.$transaction = original.transaction;
         prisma.client.findFirst = original.clientFindFirst;
         axios.get = original.axiosGet;
+        prisma.person.findUnique = original.personFindUnique;
+        prisma.person.create = original.personCreate;
+        prisma.city.findUnique = original.cityFindUnique;
         defaultGetCargoDataDeps.getObjectAsBase64 = original.getObjectAsBase64;
         defaultGetCargoDataDeps.parseNfeProcXml = original.parseNfeProcXml;
     });
