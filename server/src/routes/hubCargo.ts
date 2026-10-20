@@ -12,6 +12,7 @@ import {
     listHubCargoItems,
 } from '../services/hubCargo/hubCargoReadModel.js';
 import { resolveHubCargoCode } from '../services/hubCargo/resolveHubCargoCode.js';
+import { getConsolidationQueues } from '../services/hubCargo/consolidationQueue.js';
 
 const router = Router();
 
@@ -99,6 +100,22 @@ router.get('/items', async (req: AuthRequest, res: Response, next: NextFunction)
         if (error instanceof z.ZodError) {
             return next(new AppError(error.errors[0]?.message ?? 'Filtro inválido.', 400));
         }
+        next(error);
+    }
+});
+
+// GET /api/hub/cargo/queues — fila de consolidação por próximo salto (G1).
+router.get('/queues', async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const requested = typeof req.query.hubId === 'string' ? req.query.hubId : undefined;
+        const hubId = resolveActingHubId(req, requested);
+        const capabilities = hubCargoCapabilities(req.user!.roles, req.user!.permissions);
+        if (!capabilities.canViewOrders && !capabilities.canCreateTrip) {
+            throw new AppError('Sem permissão para ver a fila de consolidação deste Hub.', 403);
+        }
+        const data = await getConsolidationQueues(hubId);
+        res.json({ success: true, data, capabilities });
+    } catch (error) {
         next(error);
     }
 });

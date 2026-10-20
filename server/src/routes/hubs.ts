@@ -404,6 +404,80 @@ router.post('/:id/users', authenticate, authorize('ADMIN'), async (req: AuthRequ
     }
 });
 
+// ========================================
+// Cobertura rica (tabela de roteamento da teia — G1)
+// ========================================
+
+const coverageEntrySchema = z.object({
+    cityIbgeCode: z.string().regex(/^\d{7}$/, 'Código IBGE deve ter 7 dígitos'),
+    leadTimeDays: z.number().int().min(0).max(60).optional(),
+    priority: z.number().int().min(1).max(9999).default(100),
+    active: z.boolean().default(true),
+});
+const coverageBodySchema = z.object({ entries: z.array(coverageEntrySchema).max(500) });
+
+// GET /api/hubs/:id/coverage — ADMIN ou o próprio hub
+router.get('/:id/coverage', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const id = req.params.id as string;
+        if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && req.user!.hubId !== id) {
+            throw new AppError('Not authorized to access this hub', 403);
+        }
+        const entries = await prisma.hubCoverage.findMany({
+            where: { hubId: id },
+            orderBy: [{ priority: 'asc' }, { cityName: 'asc' }],
+        });
+        res.json({ success: true, data: entries });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// PUT /api/hubs/:id/coverage — substitui a cobertura do hub (ADMIN). Valida cada
+// cidade contra a base IBGE e grava nome/UF oficiais; operação atômica.
+router.put('/:id/coverage', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const id = req.params.id as string;
+        const { entries } = coverageBodySchema.parse(req.body);
+        const hub = await prisma.hub.findUnique({ where: { id }, select: { id: true } });
+        if (!hub) throw new AppError('Hub not found', 404);
+
+        const codes = [...new Set(entries.map((e) => e.cityIbgeCode))];
+        if (codes.length !== entries.length) throw new AppError('Cidade repetida na cobertura.', 400);
+        const cities = await prisma.city.findMany({
+            where: { ibgeCode: { in: codes } },
+            select: { ibgeCode: true, name: true, state: { select: { code: true } } },
+        });
+        const byCode = new Map(cities.map((c) => [c.ibgeCode, c]));
+        const missing = codes.filter((c) => !byCode.has(c));
+        if (missing.length > 0) throw new AppError(`Código IBGE desconhecido: ${missing.join(', ')}`, 400);
+
+        const saved = await prisma.$transaction(async (tx) => {
+            await tx.hubCoverage.deleteMany({ where: { hubId: id } });
+            if (entries.length > 0) {
+                await tx.hubCoverage.createMany({
+                    data: entries.map((e) => ({
+                        hubId: id,
+                        cityIbgeCode: e.cityIbgeCode,
+                        cityName: byCode.get(e.cityIbgeCode)!.name,
+                        state: byCode.get(e.cityIbgeCode)!.state.code,
+                        leadTimeDays: e.leadTimeDays ?? null,
+                        priority: e.priority,
+                        active: e.active,
+                    })),
+                });
+            }
+            return tx.hubCoverage.findMany({ where: { hubId: id }, orderBy: [{ priority: 'asc' }, { cityName: 'asc' }] });
+        });
+        res.json({ success: true, data: saved });
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return next(new AppError(error.errors[0]?.message ?? 'Cobertura inválida.', 400));
+        }
+        next(error);
+    }
+});
+
 // GET /api/hubs/:id
 router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {

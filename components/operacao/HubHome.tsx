@@ -558,6 +558,19 @@ const HubHome: React.FC = () => {
               <h1 id="home-title" className="mt-1 text-2xl font-bold tracking-tight text-tower-950 dark:text-white">O que precisa da sua atenção</h1>
             </header>
 
+            {/* Ponte para o TSM O.S.: fila por destino e conferência com divergência só existem lá. */}
+            <button
+              type="button"
+              onClick={() => navigate('/hubs/viagens')}
+              className="admin-focus flex w-full items-center justify-between gap-3 rounded-2xl bg-brand-yellow-400 px-4 py-3 text-left text-brand-950"
+            >
+              <span>
+                <span className="block text-sm font-bold">Montar viagem pela fila de destino</span>
+                <span className="mt-0.5 block text-xs">Novo TSM O.S.: pedidos agrupados pelo próximo hub, prontos para consolidar</span>
+              </span>
+              <span aria-hidden className="text-lg font-bold">›</span>
+            </button>
+
             <div className="overflow-hidden rounded-2xl border border-tower-200 bg-white dark:border-tower-700 dark:bg-tower-900">
               <button type="button" onClick={() => goToCargo('stock')} className="admin-focus flex min-h-[76px] w-full items-center justify-between gap-4 border-b border-tower-200 px-4 py-3 text-left hover:bg-tower-50 dark:border-tower-700 dark:hover:bg-tower-800">
                 <span>

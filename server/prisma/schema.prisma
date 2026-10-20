@@ -346,6 +346,7 @@ model Hub {
   freightCalculations  OrderFreightCalculation[]
   fiscalEmitters       FiscalEmitter[]
   commissionAgreements HubCommissionAgreement[]
+  coverage             HubCoverage[]
 
   // Management
   canOrchestrate Boolean @default(false) // Can act as orchestrator
@@ -353,6 +354,28 @@ model Hub {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// Cobertura rica do hub — a "tabela de roteamento" da teia: quais cidades este hub
+// atende como próximo salto, com prioridade (menor vence) e prazo. Complementa (e
+// substituirá) o legado Hub.coverageCities; cidade do próprio hub vale como cobertura
+// implícita quando não há linha explícita (ver consolidationQueue.ts).
+model HubCoverage {
+  id           String  @id @default(uuid())
+  hubId        String
+  hub          Hub     @relation(fields: [hubId], references: [id], onDelete: Cascade)
+  cityIbgeCode String
+  cityName     String
+  state        String
+  leadTimeDays Int?
+  priority     Int     @default(100)
+  active       Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([hubId, cityIbgeCode])
+  @@index([cityIbgeCode, active])
 }
 
 // Onboarding do Hub (dados do depósito, responsável, documentos, bancários; simétrico ao Link)

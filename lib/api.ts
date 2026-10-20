@@ -52,6 +52,8 @@ import type {
     HubCargoItem,
     HubCargoResolution,
     HubCargoSummary,
+    ConsolidationQueueGroup,
+    HubCoverageEntry,
 } from '../types/index';
 
 // URL relativa: em dev o Vite faz proxy de `/api` → backend (vite.config); em produção o nginx repassa `/api`.
@@ -1750,6 +1752,29 @@ export const hubCargoApi = {
             '/hub/cargo/resolve',
             { code, ...(hubId ? { hubId } : {}) },
         );
+        return response.data;
+    },
+
+    /** Fila de consolidação por próximo salto (G1). */
+    queues: async (hubId?: string) => {
+        const response = await api.get<ApiResponse<ConsolidationQueueGroup[]>>(
+            '/hub/cargo/queues',
+            { params: hubId ? { hubId } : undefined },
+        );
+        return response.data;
+    },
+};
+
+export const hubCoverageApi = {
+    list: async (hubId: string) => {
+        const response = await api.get<ApiResponse<HubCoverageEntry[]>>(`/hubs/${hubId}/coverage`);
+        return response.data;
+    },
+    replace: async (
+        hubId: string,
+        entries: Array<{ cityIbgeCode: string; leadTimeDays?: number; priority?: number; active?: boolean }>,
+    ) => {
+        const response = await api.put<ApiResponse<HubCoverageEntry[]>>(`/hubs/${hubId}/coverage`, { entries });
         return response.data;
     },
 };

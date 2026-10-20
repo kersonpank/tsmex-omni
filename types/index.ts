@@ -883,6 +883,42 @@ export interface HubCargoItem {
     updatedAt?: string;
 }
 
+// Fila de consolidação por próximo salto (G1 — tabela de roteamento da teia)
+export interface ConsolidationQueueOrder {
+    orderId: string;
+    orderNumber: number | null;
+    nfNumber: string | null;
+    destination: string | null;
+    weightKg: number;
+    volumeM3: number;
+    valueBRL: number;
+    sinceAt: string;
+}
+
+export interface ConsolidationQueueGroup {
+    key: string;
+    kind: 'TRANSFER' | 'LOCAL' | 'UNROUTED';
+    destHubId: string | null;
+    destHubName: string | null;
+    destHubCode: string | null;
+    orders: ConsolidationQueueOrder[];
+    totalWeightKg: number;
+    totalVolumeM3: number;
+    totalValueBRL: number;
+    oldestSinceAt: string;
+}
+
+export interface HubCoverageEntry {
+    id: string;
+    hubId: string;
+    cityIbgeCode: string;
+    cityName: string;
+    state: string;
+    leadTimeDays: number | null;
+    priority: number;
+    active: boolean;
+}
+
 export interface HubCargoSummary {
     stock: {
         orders: number;
