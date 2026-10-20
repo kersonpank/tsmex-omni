@@ -1,5 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { HashRouter, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
+
+// TSM O.S. — superfície operacional do hub, chunk separado do app legado.
+const OsApp = React.lazy(() => import('./components/os/OsApp'));
 import GlobalSystemMenu, { shouldShowGlobalSystemMenu } from './components/admin/layout/GlobalSystemMenu';
 import AdminDashboard from './components/AdminDashboard';
 import ClientDashboard from './components/ClientDashboard';
@@ -62,7 +65,8 @@ const Navigation: React.FC = () => {
     setMobileOpen(false);
   }, [location.pathname]);
 
-  if (isLogin || location.pathname === '/claim-link' || location.pathname === '/link/cadastro' || location.pathname === '/hub/cadastro') return null;
+  // TSM O.S. (/hubs) tem header e navegação próprios, mobile-first.
+  if (isLogin || location.pathname === '/claim-link' || location.pathname === '/link/cadastro' || location.pathname === '/hub/cadastro' || location.pathname === '/hubs' || location.pathname.startsWith('/hubs/')) return null;
 
   const navLinks = (
     <>
@@ -331,6 +335,13 @@ const AppMain: React.FC = () => {
             <Route path="/hub" element={
               <ProtectedRoute allowedRoles={['HUB']}>
                 <OperacaoApp />
+              </ProtectedRoute>
+            } />
+            <Route path="/hubs/*" element={
+              <ProtectedRoute allowedRoles={['HUB', 'ADMIN']}>
+                <Suspense fallback={<div className="flex min-h-screen items-center justify-center text-tower-500">Carregando TSM O.S.…</div>}>
+                  <OsApp />
+                </Suspense>
               </ProtectedRoute>
             } />
             <Route path="/operacao" element={<OperacaoRedirect />} />

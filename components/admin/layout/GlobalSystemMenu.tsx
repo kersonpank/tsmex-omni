@@ -11,6 +11,8 @@ const EXCLUDED = new Set(['/login', '/gestao', '/hub', '/onboarding', '/unauthor
 export function shouldShowGlobalSystemMenu(pathname: string): boolean {
   if (EXCLUDED.has(pathname)) return false;
   if (pathname.startsWith('/form/')) return false;
+  // TSM O.S. (/hubs) é superfície operacional mobile-first com navegação própria.
+  if (pathname === '/hubs' || pathname.startsWith('/hubs/')) return false;
   return true;
 }
 
