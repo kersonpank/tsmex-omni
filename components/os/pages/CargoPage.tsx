@@ -3,12 +3,12 @@ import clsx from 'clsx';
 import { hubCargoApi } from '../../../lib/api';
 import type { HubCargoBucket, HubCargoItem } from '../../../types/index';
 import { useOs } from '../OsContext';
-import { CARGO_BUCKETS, cargoFacts, scanOutcome } from '../lib/cargo';
+import { CARGO_BUCKETS, cargoFacts } from '../lib/cargo';
+import { looksLikeAccessKey } from '../lib/intake';
+import { useScanController } from '../useScanController';
 import { OsBadge, OsEmpty, OsErrorNotice, OsRow, OsSectionTitle, OsSkeletonRows } from '../ui/kit';
 import { IconReceive } from '../ui/icons';
-import CargoItemSheet from './CargoItemSheet';
 
-const Scanner = React.lazy(() => import('../ui/Scanner'));
 
 /**
  * CARGAS — estação de estoque e entrada. Pergunta única: "o que tenho aqui e
@@ -25,9 +25,6 @@ const CargoPage: React.FC = () => {
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [scanOpen, setScanOpen] = useState(false);
-    const [scanMsg, setScanMsg] = useState<{ kind: 'info' | 'error'; message: string } | null>(null);
-    const [selected, setSelected] = useState<{ item: HubCargoItem; note?: string } | null>(null);
     const debounceRef = useRef<number | undefined>(undefined);
 
     const load = useCallback(
@@ -55,22 +52,10 @@ const CargoPage: React.FC = () => {
         return () => window.clearTimeout(debounceRef.current);
     }, [load, q]);
 
-    const handleCode = useCallback(
-        async (code: string) => {
-            setScanOpen(false);
-            setScanMsg(null);
-            if (!hubId) return;
-            try {
-                const body = await hubCargoApi.resolve(code, hubId);
-                const out = scanOutcome(body.data);
-                if (out.kind === 'item') setSelected({ item: out.item, note: out.note });
-                else setScanMsg(out);
-            } catch {
-                setScanMsg({ kind: 'error', message: 'Falha ao consultar o código. Verifique a conexão.' });
-            }
-        },
-        [hubId],
-    );
+    const scan = useScanController(hubId, () => {
+        void load(0);
+        void refresh();
+    });
 
     const meta = CARGO_BUCKETS.find((b) => b.bucket === bucket)!;
     const visible = capabilities.canViewOrders
@@ -86,23 +71,38 @@ const CargoPage: React.FC = () => {
                     type="search"
                     value={q}
                     onChange={(e) => setQ(e.target.value)}
-                    placeholder="Pedido, NF, destinatário…"
+                    onKeyDown={(e) => {
+                        // Leitor USB/Bluetooth digita o código e manda Enter; chave de 44 dígitos ou nº do pedido.
+                        if (e.key === 'Enter' && (looksLikeAccessKey(q) || /^\d+$/.test(q.trim()))) {
+                            e.preventDefault();
+                            void scan.handleCode(q);
+                        }
+                    }}
+                    placeholder="Chave da NF-e, pedido, destinatário…"
                     className="h-[48px] min-w-0 flex-1 rounded-xl border-2 border-tower-200 bg-white px-3.5 text-[15px] text-tower-900 placeholder:text-tower-400 focus:border-brand-400 focus:outline-none dark:border-tower-600 dark:bg-tower-900 dark:text-white"
                 />
                 <button
                     type="button"
-                    onClick={() => setScanOpen(true)}
+                    onClick={scan.openScanner}
+                    disabled={scan.busy}
                     className="flex h-[48px] shrink-0 items-center gap-2 rounded-xl bg-brand-yellow-400 px-4 font-bold text-brand-950 shadow-[0_2px_0_0_var(--color-brand-yellow-500)] active:translate-y-[1px] active:shadow-none"
                 >
                     <IconReceive size={20} />
-                    Escanear
+                    {scan.busy ? 'Lendo…' : 'Escanear'}
                 </button>
             </div>
 
-            {scanMsg ? (
-                <div className="mt-3">
-                    <OsErrorNotice message={scanMsg.message} />
-                </div>
+            {scan.message ? (
+                <p
+                    className={clsx(
+                        'mt-3 rounded-xl p-3 text-[13px] font-semibold',
+                        scan.message.kind === 'error'
+                            ? 'border-l-4 border-brand-red-500 bg-brand-red-500/8 text-brand-red-700 dark:text-brand-red-400'
+                            : 'border-l-4 border-brand-500 bg-brand-500/8 text-brand-700 dark:text-brand-200',
+                    )}
+                >
+                    {scan.message.text}
+                </p>
             ) : null}
 
             <div className="mt-3 grid grid-cols-3 rounded-xl border border-tower-200 bg-tower-100/70 p-1 dark:border-tower-700 dark:bg-tower-900">
@@ -133,7 +133,7 @@ const CargoPage: React.FC = () => {
                 ) : (
                     <div className="flex flex-col gap-2.5">
                         {items.map((item) => (
-                            <OsRow key={`${item.kind}-${item.id}`} tone={meta.tone} onClick={() => setSelected({ item })}>
+                            <OsRow key={`${item.kind}-${item.id}`} tone={meta.tone} onClick={() => void scan.openItem(item)}>
                                 <div className="flex items-center justify-between gap-2 pr-1">
                                     <p className="truncate font-semibold text-tower-900 dark:text-white">
                                         {item.orderNumber ? `Pedido ${item.orderNumber}` : item.statusLabel}
@@ -164,24 +164,7 @@ const CargoPage: React.FC = () => {
                 )}
             </div>
 
-            {scanOpen ? (
-                <React.Suspense fallback={null}>
-                    <Scanner onCode={(code) => void handleCode(code)} onClose={() => setScanOpen(false)} />
-                </React.Suspense>
-            ) : null}
-
-            {selected ? (
-                <CargoItemSheet
-                    item={selected.item}
-                    note={selected.note}
-                    onClose={() => setSelected(null)}
-                    onChanged={() => {
-                        setSelected(null);
-                        void load(0);
-                        void refresh();
-                    }}
-                />
-            ) : null}
+            {scan.overlays}
         </div>
     );
 };

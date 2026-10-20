@@ -1,64 +1,100 @@
 import React, { useEffect, useRef, useState } from 'react';
+import {
+    BarcodeFormat,
+    BinaryBitmap,
+    DecodeHintType,
+    HTMLCanvasElementLuminanceSource,
+    HybridBinarizer,
+    MultiFormatReader,
+} from '@zxing/library';
 import { OsButton } from './kit';
 import { IconX } from './icons';
 
 /**
- * Leitor de código do TSM O.S. — câmera traseira via html5-qrcode (dependência já
- * existente no app), carregada sob demanda para não pesar o chunk da estação.
- * Lê QR (DANFE/etiqueta) e código de barras; devolve o texto cru para o resolve.
+ * Leitor do TSM O.S. — mesmo motor (ZXing) que já lê a DANFE no painel atual, sem escolher modo:
+ * alterna a cada quadro entre código de barras (CODE-128 da chave de 44 dígitos da DANFE, numa
+ * faixa horizontal em resolução cheia — o código é longo e fino) e QR (etiquetas TSM, DACTE,
+ * DAMDFE) no quadro inteiro. Devolve o texto cru para o resolve do hub.
  */
 
-const REGION_ID = 'os-scanner-region';
+function reader(formats: BarcodeFormat[]): MultiFormatReader {
+    const hints = new Map<DecodeHintType, unknown>();
+    hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
+    hints.set(DecodeHintType.TRY_HARDER, true);
+    const r = new MultiFormatReader();
+    r.setHints(hints);
+    return r;
+}
 
 const Scanner: React.FC<{ onCode: (code: string) => void; onClose: () => void }> = ({ onCode, onClose }) => {
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const onCodeRef = useRef(onCode);
+    onCodeRef.current = onCode;
     const [error, setError] = useState<string | null>(null);
-    const stopRef = useRef<(() => Promise<void>) | null>(null);
-    const firedRef = useRef(false);
 
     useEffect(() => {
-        let disposed = false;
+        let stream: MediaStream | null = null;
+        let timer: ReturnType<typeof setInterval> | null = null;
+        let done = false;
+        const barcode = reader([BarcodeFormat.CODE_128, BarcodeFormat.CODE_39, BarcodeFormat.ITF]);
+        const qr = reader([BarcodeFormat.QR_CODE, BarcodeFormat.DATA_MATRIX]);
+        const canvas = document.createElement('canvas');
+        let tick = 0;
+
+        const decode = () => {
+            const video = videoRef.current;
+            if (done || !video || video.readyState < 2 || !video.videoWidth) return;
+            const w = video.videoWidth;
+            const h = video.videoHeight;
+            const tryBarcode = tick++ % 2 === 0;
+            // Faixa central (40% da altura) em largura total para o código de barras; quadro inteiro para QR.
+            const bandH = Math.round(h * 0.4);
+            const sy = tryBarcode ? Math.round((h - bandH) / 2) : 0;
+            const sh = tryBarcode ? bandH : h;
+            canvas.width = w;
+            canvas.height = sh;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            if (!ctx) return;
+            ctx.drawImage(video, 0, sy, w, sh, 0, 0, w, sh);
+            try {
+                const bitmap = new BinaryBitmap(new HybridBinarizer(new HTMLCanvasElementLuminanceSource(canvas)));
+                const result = (tryBarcode ? barcode : qr).decodeWithState(bitmap);
+                done = true;
+                if (navigator.vibrate) navigator.vibrate(60);
+                onCodeRef.current(result.getText());
+            } catch {
+                /* quadro sem código — segue tentando */
+            }
+        };
+
         (async () => {
             try {
-                const { Html5Qrcode } = await import('html5-qrcode');
-                if (disposed) return;
-                const scanner = new Html5Qrcode(REGION_ID);
-                stopRef.current = async () => {
-                    try {
-                        await scanner.stop();
-                        scanner.clear();
-                    } catch {
-                        /* já parado */
-                    }
-                };
-                await scanner.start(
-                    { facingMode: 'environment' },
-                    { fps: 8, qrbox: (w, h) => ({ width: Math.min(w, h) * 0.75, height: Math.min(w, h) * 0.55 }) },
-                    (text) => {
-                        if (firedRef.current) return;
-                        firedRef.current = true;
-                        if (navigator.vibrate) navigator.vibrate(60);
-                        onCode(text);
-                    },
-                    () => {
-                        /* frame sem código — silêncio */
-                    },
-                );
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+                });
+                const video = videoRef.current;
+                if (!video) return;
+                video.srcObject = stream;
+                video.muted = true;
+                video.playsInline = true;
+                await video.play();
+                timer = setInterval(decode, 220);
             } catch {
-                if (!disposed) {
-                    setError('Câmera indisponível. Permita o acesso à câmera ou digite o código na busca.');
-                }
+                setError('Câmera indisponível. Permita o acesso à câmera ou digite a chave/código.');
             }
         })();
+
         return () => {
-            disposed = true;
-            void stopRef.current?.();
+            done = true;
+            if (timer) clearInterval(timer);
+            stream?.getTracks().forEach((t) => t.stop());
         };
-    }, [onCode]);
+    }, []);
 
     return (
         <div className="fixed inset-0 z-50 flex flex-col bg-black">
             <div className="flex items-center justify-between px-4 py-3 text-white">
-                <p className="font-display text-[15px] font-bold">Aponte para a etiqueta ou o QR da NF-e</p>
+                <p className="font-display text-[15px] font-bold">Código de barras da DANFE, QR ou etiqueta</p>
                 <button
                     type="button"
                     onClick={onClose}
@@ -68,17 +104,21 @@ const Scanner: React.FC<{ onCode: (code: string) => void; onClose: () => void }>
                     <IconX />
                 </button>
             </div>
-            <div id={REGION_ID} className="min-h-0 flex-1 [&_video]:h-full [&_video]:w-full [&_video]:object-cover" />
+            <div className="relative min-h-0 flex-1">
+                <video ref={videoRef} className="h-full w-full object-cover" />
+                {/* Guia: a faixa onde o código de barras é lido. */}
+                <div className="pointer-events-none absolute inset-x-4 top-1/2 h-[28%] -translate-y-1/2 rounded-xl border-2 border-brand-yellow-400/90 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
+            </div>
             {error ? (
                 <div className="px-4 py-5 text-center text-sm text-white/90">
                     <p>{error}</p>
                     <OsButton variant="secondary" className="mt-3" onClick={onClose}>
-                        Voltar e digitar o código
+                        Voltar e digitar
                     </OsButton>
                 </div>
             ) : (
-                <p className="px-4 pb-[max(env(safe-area-inset-bottom),16px)] pt-3 text-center text-[13px] text-white/60">
-                    A leitura é automática — segure firme por um instante.
+                <p className="px-4 pb-[max(env(safe-area-inset-bottom),16px)] pt-3 text-center text-[13px] text-white/70">
+                    Aproxime até o código de barras ocupar a faixa de ponta a ponta. A leitura é automática.
                 </p>
             )}
         </div>

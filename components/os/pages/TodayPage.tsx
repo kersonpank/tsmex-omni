@@ -60,9 +60,9 @@ const TodayPage: React.FC = () => {
                     <OsStatTile
                         label="Aguardando entrada"
                         value={summary.awaiting.demands}
-                        hint="mercadoria anunciada"
+                        hint="notas para dar entrada"
                         tone="attention"
-                        onClick={() => navigate('/hubs/cargas')}
+                        onClick={() => navigate('/hubs/receber')}
                     />
                 ) : null}
                 {capabilities.canViewOrders ? (

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { HubCargoItem, HubCargoResolution } from '../../../types/index';
-import { buildVolumeLabels, cargoFacts, scanOutcome } from './cargo';
+import type { HubCargoItem } from '../../../types/index';
+import { buildVolumeLabels, cargoFacts } from './cargo';
 
 function item(partial: Partial<HubCargoItem>): HubCargoItem {
     return {
@@ -45,33 +45,5 @@ describe('cargoFacts', () => {
 
     it('omite partes ausentes sem deixar separador órfão', () => {
         expect(cargoFacts(item({ units: 0, effectiveWeightKg: 0 }))).toBe('');
-    });
-});
-
-describe('scanOutcome', () => {
-    const anyItem = item({});
-
-    it('pedido no hub abre o item', () => {
-        expect(scanOutcome({ resolution: 'order_at_hub', item: anyItem })).toMatchObject({ kind: 'item' });
-    });
-
-    it('pedido já em viagem abre com aviso, nunca silencioso', () => {
-        const out = scanOutcome({ resolution: 'already_in_trip', item: anyItem });
-        expect(out.kind).toBe('item');
-        expect('note' in out && out.note).toBeTruthy();
-    });
-
-    it('código inválido vira erro com a mensagem do backend', () => {
-        const res: HubCargoResolution = { resolution: 'invalid', message: 'Código inválido.', preservedCode: 'x' };
-        expect(scanOutcome(res)).toEqual({ kind: 'error', message: 'Código inválido.' });
-    });
-
-    it('NF-e válida sem cadastro orienta a entrada', () => {
-        const res: HubCargoResolution = {
-            resolution: 'valid_nfe_not_registered',
-            accessKey: '1'.repeat(44),
-            message: 'x',
-        };
-        expect(scanOutcome(res).kind).toBe('info');
     });
 });

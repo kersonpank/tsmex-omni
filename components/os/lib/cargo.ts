@@ -1,9 +1,9 @@
-import type { HubCargoBucket, HubCargoItem, HubCargoResolution } from '../../../types/index';
+import type { HubCargoBucket, HubCargoItem } from '../../../types/index';
 import type { RowTone } from '../ui/kit';
 
 /**
  * Lógica pura da estação Cargas (sem React, sem rede): metadados dos buckets,
- * dados das etiquetas por volume e tradução do resultado do scan em ação de UI.
+ * e dados das etiquetas por volume. O passo após um scan fica em intake.ts.
  */
 
 export interface BucketMeta {
@@ -75,37 +75,4 @@ export function buildVolumeLabels(item: HubCargoItem): VolumeLabel[] {
         destination: item.destination ?? null,
         weightKg: item.effectiveWeightKg,
     }));
-}
-
-export type ScanOutcome =
-    | { kind: 'item'; item: HubCargoItem; note?: string }
-    | { kind: 'info'; message: string }
-    | { kind: 'error'; message: string };
-
-/** Traduz a resolução do backend na ação da tela: abrir o item, informar ou corrigir. */
-export function scanOutcome(res: HubCargoResolution): ScanOutcome {
-    switch (res.resolution) {
-        case 'order_at_hub':
-        case 'order_incoming':
-        case 'order_other':
-        case 'awaiting_arrival':
-        case 'fiscal_document_found':
-            return { kind: 'item', item: res.item };
-        case 'already_in_trip':
-            return { kind: 'item', item: res.item, note: 'Este pedido já está planejado em uma viagem ativa.' };
-        case 'order_elsewhere':
-            return { kind: 'info', message: res.message };
-        case 'valid_nfe_not_registered':
-            return {
-                kind: 'info',
-                message: 'NF-e válida, mas ainda sem cadastro aqui. Dê entrada pela triagem ou pelo painel atual.',
-            };
-        case 'multiple':
-            return { kind: 'info', message: 'Mais de uma carga responde por este código. Refine pela busca.' };
-        case 'invalid':
-        case 'not_found':
-            return { kind: 'error', message: res.message };
-        default:
-            return { kind: 'error', message: 'Não foi possível entender este código.' };
-    }
 }

@@ -167,7 +167,7 @@ Detalhe completo, com fila, ação e evento de cada uma: spec
 |---|---|---|
 | Hoje | O que precisa de mim agora? | ✅ |
 | Receber | O que chegou e confere? | ✅ conferência por pedido + divergência |
-| Entrada | O que está chegando no balcão e falta para virar pedido? | parcial (1 toque quando a NF-e resolve as partes) |
+| Entrada | O que está chegando no balcão e falta para virar pedido? | ✅ scan da DANFE (código de barras) ou chave digitada → entrada → pedido → etiquetas, em Receber |
 | Estoque e etiquetas | O que tenho aqui e está identificado? | ✅ busca, scan, etiqueta por volume |
 | Consolidar | O que está pronto para viajar e para onde? | ✅ fila por próximo salto + montar viagem |
 | Preparar e despachar | O que falta para esta viagem sair? | ✅ pendências, responsável, Carta Frete, confirmar e sair pelo hub (CT-e/CIOT ainda pela tela atual até A7) |
@@ -223,7 +223,8 @@ automático, autorização do hub no ciclo da própria viagem. (Detalhe: `docs/s
 - [ ] A6 Carregamento conferido por scan (custódia ponto 1); divergência nunca silenciosa
 - [ ] A7 Documentos no fluxo: CT-e por pedido, MDF-e, CIOT (emitir/dispensar com motivo) sem sair do O.S.
 - [ ] A8 Entregar: rota do dia + tentativa de entrega com comprovação (`DeliveryAttempt` já existe)
-- [ ] A9 Entrada completa no balcão (quando a NF-e não resolve as partes)
+- [x] A9 Entrada no balcão pela NF-e: leitura do código de barras da DANFE (mesmo motor do painel atual), chave digitada ou leitor USB; nota esperada, nota da triagem SEFAZ ou nota válida sem cadastro viram entrada; remetente/destinatário da NF-e ou escolhidos/cadastrados na hora; confirma e abre as etiquetas
+- [ ] A9.1 Entrada sem NF-e (declaração/manual) no O.S.
 - [ ] A10 Fila única de exceções (promover `SystemAlert`: dono, prazo, desfecho)
 - [ ] A11 Corte do `/hub` legado: `/hubs` vira o destino padrão do papel HUB
 
