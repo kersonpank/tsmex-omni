@@ -288,6 +288,8 @@ export interface Person {
     neighborhood?: string;
     city?: string;
     state?: string;
+    /** Código IBGE do município (7 dígitos) — exigido no CT-e/MDF-e. */
+    cityIbgeCode?: string | null;
     country?: string;
     stateRegistration?: string;
     municipalRegistration?: string;
@@ -1150,6 +1152,8 @@ export interface ConfirmIntakeArrivalRequest {
     destinatarioPersonId: string;
     remetentePersonId?: string;
     freightTerm?: 'CIF' | 'FOB' | 'REDESPACHO';
+    /** Volumes/peso/valor da DANFE impressa — usados pelo backend só quando o XML não está no sistema. */
+    cargo?: { units: number; weightKg: number; nfValue?: number };
 }
 
 export type IntakeNfeKeyResolution =

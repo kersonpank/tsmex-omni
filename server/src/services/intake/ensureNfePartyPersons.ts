@@ -4,9 +4,9 @@ import { normalizeCityName } from '../selectedCity.js';
 import { resolveIbgeCode } from '../acbr/acbrIbge.js';
 import type { ParsedNfeCargo } from '../acbr/nfeXmlParser.js';
 
-type PartyAddress = Pick<ParsedNfeCargo['destinatario'], 'municipio' | 'uf' | 'ibge' | 'cep' | 'logradouro' | 'numero' | 'complemento' | 'bairro'>;
+type PartyAddress = Partial<Pick<ParsedNfeCargo['destinatario'], 'municipio' | 'uf' | 'ibge'>>;
 
-interface NormalizedParty {
+export interface NormalizedParty {
     document: string;
     legalName: string;
     tradeName?: string;
@@ -115,7 +115,7 @@ function buildFillPatch(person: Person, party: NormalizedParty): Prisma.PersonUp
     return patch;
 }
 
-async function upsertParty(party: NormalizedParty): Promise<Person> {
+export async function upsertParty(party: NormalizedParty): Promise<Person> {
     const existing = await prisma.person.findUnique({ where: { document: party.document } });
     if (existing) {
         const patch = buildFillPatch(existing, party);

@@ -224,6 +224,7 @@ automático, autorização do hub no ciclo da própria viagem. (Detalhe: `docs/s
 - [ ] A7 Documentos no fluxo: CT-e por pedido, MDF-e, CIOT (emitir/dispensar com motivo) sem sair do O.S.
 - [ ] A8 Entregar: rota do dia + tentativa de entrega com comprovação (`DeliveryAttempt` já existe)
 - [x] A9 Entrada no balcão pela NF-e: leitura do código de barras da DANFE (mesmo motor do painel atual), chave digitada ou leitor USB; nota esperada, nota da triagem SEFAZ ou nota válida sem cadastro viram entrada; remetente/destinatário da NF-e ou escolhidos/cadastrados na hora; confirma e abre as etiquetas
+- [x] A9.2 Entrada sem XML que funciona: remetente pelo CNPJ da chave nos dados públicos da Receita (BrasilAPI → ReceitaWS, cidade IBGE); destinatário com campo vazio (nunca texto do sistema para apagar) e cadastro em um toque por CNPJ; volumes, peso e valor copiados da DANFE impressa e gravados com evento; cartão da pessoa aponta o que falta para o CT-e (cidade IBGE, IE)
 - [ ] A9.1 Entrada sem NF-e (declaração/manual) no O.S.
 - [ ] A10 Fila única de exceções (promover `SystemAlert`: dono, prazo, desfecho)
 - [ ] A11 Corte do `/hub` legado: `/hubs` vira o destino padrão do papel HUB

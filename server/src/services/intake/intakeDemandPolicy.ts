@@ -1,4 +1,4 @@
-import type { DemandSource, DemandStatus } from '@prisma/client';
+import type { DemandSource, DemandStatus, Prisma } from '@prisma/client';
 
 /** Fontes que exigem confirmação física (confirm-arrival) antes de Order. */
 export const INTAKE_SOURCE_TYPES: DemandSource[] = [
@@ -47,4 +47,33 @@ export function intakeEventDescription(sourceType: DemandSource): string {
         default:
             return 'Demanda de pré-entrada criada (aguardando chegada)';
     }
+}
+
+const nameAt = (value: unknown, ...path: string[]): string | null => {
+    let cursor: unknown = value;
+    for (const key of path) {
+        if (!cursor || typeof cursor !== 'object' || Array.isArray(cursor)) return null;
+        cursor = (cursor as Record<string, unknown>)[key];
+    }
+    return typeof cursor === 'string' && cursor.trim() ? cursor.trim() : null;
+};
+
+/**
+ * Nomes de remetente/destinatário de uma entrada aguardando chegada, sem inventar: XML da NF-e
+ * primeiro; sem XML, o emitente pelo cadastro público do CNPJ da chave; por fim, a conta do
+ * cliente. Desconhecido fica `null` (a tela diz "a conferir"), nunca um texto de preenchimento.
+ */
+export function intakePartyNames(demand: {
+    rawInputData: Prisma.JsonValue | null;
+    client?: { companyName: string } | null;
+}): { senderName: string | null; recipientName: string | null } {
+    const raw = demand.rawInputData;
+    return {
+        senderName:
+            nameAt(raw, 'nfeXmlData', 'emitente', 'razaoSocial') ??
+            nameAt(raw, 'nfeKeyLookup', 'emitente', 'emitenteRazaoSocial') ??
+            demand.client?.companyName ??
+            null,
+        recipientName: nameAt(raw, 'nfeXmlData', 'destinatario', 'razaoSocial'),
+    };
 }

@@ -390,6 +390,48 @@ describe('confirmIntakeArrival', () => {
         deps.restore();
     });
 
+    it('sem XML, carga conferida na DANFE no balcão: volumes/peso/valor vão para a NF do pedido e para a Demand', async () => {
+        const deps = stubTransactionDeps();
+        prisma.demand.findUnique = (async () => ({
+            id: 'd1',
+            status: 'AWAITING_ARRIVAL',
+            sourceType: 'NFE_KEY',
+            clientId: 'c1',
+            origin: 'A',
+            destination: 'B',
+            nfNumber: '12345',
+            documentType: 'NFE',
+            documentKey: CHAVE44,
+            rawInputData: null,
+            missingFields: ['weight', 'nfValue', 'destinatario', 'volume'],
+            manifestId: null,
+            client: { id: 'c1', personId: 'p-remet', companyName: 'X' },
+            order: null,
+            expectedHubId: 'hub-1',
+        })) as unknown as typeof prisma.demand.findUnique;
+
+        await confirmIntakeArrival({
+            demandId: 'd1',
+            actingRoles: ['HUB'],
+            actingHubId: 'hub-1',
+            remetentePersonId: 'p-remet',
+            destinatarioPersonId: 'p-dest',
+            cargo: { units: 3, weightKg: 120.5, nfValue: 4500 },
+            actorUserId: 'user-hub',
+        });
+
+        const invoiceData = (deps.orderCreateCalls[0]?.data as any)?.invoicesRel?.create;
+        assert.equal(invoiceData?.volumes, 3);
+        assert.equal(invoiceData?.weight, 120.5);
+        assert.equal(invoiceData?.value, 4500);
+        const demandUpdate = deps.updateCalls[0]?.data;
+        assert.equal(demandUpdate?.units, 3);
+        assert.equal(demandUpdate?.weight, 120.5);
+        assert.equal(demandUpdate?.nfValue, 4500);
+        assert.deepEqual(demandUpdate?.missingFields, ['destinatario', 'volume']);
+        deps.restore();
+    });
+
     it('documentType não-NFE (DECLARATION): não cria OrderInvoice nenhum', async () => {
         const deps = stubTransactionDeps();
         prisma.demand.findUnique = (async () => ({

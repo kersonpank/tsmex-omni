@@ -10,6 +10,7 @@ import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { getParamId } from '../lib/routeUtils.js';
 import { findOrCreateConcluirCadastroColumn } from './pipeline.js';
 import { validateSelectedCity, validateSelectedAddress } from '../services/selectedCity.js';
+import { ensurePublicCnpjPerson } from '../services/intake/publicCnpjParty.js';
 
 const router = Router();
 
@@ -404,6 +405,26 @@ router.post('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthReques
             success: true,
             data: person,
         });
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return next(new AppError(error.errors[0].message, 400));
+        }
+        next(error);
+    }
+});
+
+// POST /api/persons/from-public-cnpj - Pessoa pelo cadastro público do CNPJ (balcão do hub)
+// Já cadastrada → devolve a existente; senão cria com razão social, endereço e cidade IBGE da Receita.
+router.post('/from-public-cnpj', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const { cnpj } = z.object({ cnpj: z.string().min(1) }).parse(req.body);
+        const document = normalizeDocument(cnpj);
+        validateDocument('CNPJ', document);
+        const person = await ensurePublicCnpjPerson(document);
+        if (!person) {
+            throw new AppError('Não encontramos este CNPJ nos dados públicos agora. Cadastre manualmente.', 404);
+        }
+        res.json({ success: true, data: person });
     } catch (error) {
         if (error instanceof z.ZodError) {
             return next(new AppError(error.errors[0].message, 400));

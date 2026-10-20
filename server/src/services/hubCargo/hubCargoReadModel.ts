@@ -3,6 +3,7 @@ import prisma from '../../lib/prisma.js';
 import { buildHubOrderVisibilityWhere } from '../../lib/hubOrderAccess.js';
 import { hasOperationalPermission } from '../../lib/operationalPermissions.js';
 import { HUB_CARGO_ACTIVE_MANIFEST_STATUSES } from './hubCargoPolicy.js';
+import { intakePartyNames } from '../intake/intakeDemandPolicy.js';
 
 export type HubCargoBucket = 'stock' | 'incoming' | 'awaiting' | 'triage' | 'other';
 
@@ -423,8 +424,7 @@ export async function listHubCargoItems(
                 nfNumber: demand.nfNumber,
                 nfKeySuffix: demand.documentKey?.slice(-8) ?? null,
                 invoiceCount: demand.documentKey || demand.nfNumber ? 1 : 0,
-                senderName: demand.client?.companyName ?? 'Cliente não definido',
-                recipientName: null,
+                ...intakePartyNames(demand),
                 origin: demand.origin,
                 destination: demand.destination,
                 currentHubName: null,

@@ -20,6 +20,7 @@ import type { ParsedNfeCargo } from '../services/acbr/nfeXmlParser.js';
 import { ensureDistribuicaoBootstrap } from '../services/fiscal/ensureDistribuicaoBootstrap.js';
 import { resolveLocalNfeCargo } from '../services/intake/resolveLocalNfeCargo.js';
 import { ensureNfePartyPersons } from '../services/intake/ensureNfePartyPersons.js';
+import { ensureKeyEmitterPerson } from '../services/intake/publicCnpjParty.js';
 
 const router = Router();
 
@@ -80,6 +81,14 @@ const confirmArrivalSchema = z.object({
     destinatarioPersonId: z.string().uuid(),
     remetentePersonId: z.string().uuid().optional(),
     freightTerm: z.enum(['CIF', 'FOB', 'REDESPACHO']).optional(),
+    // Conferência no balcão pela DANFE impressa — usada só quando o XML não está no sistema.
+    cargo: z
+        .object({
+            units: z.number().int().min(1).max(99999),
+            weightKg: z.number().positive().max(200000),
+            nfValue: z.number().nonnegative().max(1_000_000_000).optional(),
+        })
+        .optional(),
 });
 
 /**
@@ -275,6 +284,8 @@ router.post('/demands/:id/confirm-arrival', async (req: AuthRequest, res: Respon
             remetentePersonId: body.remetentePersonId,
             destinatarioPersonId: body.destinatarioPersonId,
             freightTerm: body.freightTerm,
+            cargo: body.cargo,
+            actorUserId: req.user!.id,
         });
         const fullOrder = await prisma.order.findUnique({
             where: { id: result.order.id },
@@ -425,11 +436,20 @@ router.get('/demands/:id', async (req: AuthRequest, res: Response, next: NextFun
 router.get('/demands/:id/nfe-data', async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const id = req.params.id as string;
-        await assertCanViewIntakeDemand(req, id);
+        const demand = await assertCanViewIntakeDemand(req, id);
         const local = await resolveLocalNfeCargo(id);
-        // Fallback idempotente para demandas anteriores: garante Pessoas com cidade por IBGE ao abrir a entrada.
-        const parties = local.status === 'available' ? await ensureNfePartyPersons(local.cargo) : null;
-        res.json({ success: true, data: { ...local, ...(parties ? { parties } : {}) } });
+        if (local.status === 'available') {
+            // Fallback idempotente para demandas anteriores: garante Pessoas com cidade por IBGE ao abrir a entrada.
+            const parties = await ensureNfePartyPersons(local.cargo);
+            return res.json({ success: true, data: { ...local, parties, partiesSource: 'nfe_xml' } });
+        }
+        // Sem XML: o remetente é o emitente da chave, pelo cadastro público do CNPJ (Receita).
+        // O destinatário não está na chave — fica para o operador.
+        const remetente = await ensureKeyEmitterPerson(demand);
+        res.json({
+            success: true,
+            data: { ...local, ...(remetente ? { parties: { remetente, destinatario: null }, partiesSource: 'public_cnpj' } : {}) },
+        });
     } catch (error) {
         next(error);
     }

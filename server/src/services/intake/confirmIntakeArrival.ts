@@ -14,6 +14,33 @@ export interface ConfirmIntakeArrivalInput {
     remetentePersonId?: string | null;
     destinatarioPersonId: string;
     freightTerm?: 'CIF' | 'FOB' | 'REDESPACHO';
+    /**
+     * Volumes/peso/valor lidos da DANFE impressa no balcão. Só valem quando o XML da NF-e não
+     * está no sistema — com XML, o XML é a fonte (ver `counterCargoFor`).
+     */
+    cargo?: CounterCargo;
+    /** Quem confirmou a entrada (evento com autor). */
+    actorUserId?: string | null;
+}
+
+export interface CounterCargo {
+    units: number;
+    weightKg: number;
+    nfValue?: number;
+}
+
+/** Campos que a conferência no balcão resolve na Demand. */
+const COUNTER_RESOLVED_FIELDS = new Set(['weight', 'units', 'nfValue']);
+
+export function counterCargoFor(cargo: CounterCargo | undefined, hasXml: boolean): CounterCargo | null {
+    if (hasXml || !cargo) return null;
+    if (!Number.isInteger(cargo.units) || cargo.units < 1 || !(cargo.weightKg > 0)) return null;
+    return cargo;
+}
+
+export function counterCargoNote(cargo: CounterCargo): string {
+    const kg = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 3 }).format(cargo.weightKg);
+    return `${cargo.units} vol. e ${kg} kg conferidos na DANFE impressa`;
 }
 
 export interface ConfirmIntakeArrivalResult {
@@ -112,6 +139,7 @@ export async function confirmIntakeArrival(input: ConfirmIntakeArrivalInput): Pr
     // já tem. Chave/número/emissão vêm só da própria chave (sempre confiáveis, não dependem de
     // XML baixado); peso/volumes/valor/natureza só quando o XML já baixou (cargoData) — sem
     // isso, ficam no default do schema (0/undefined), igual ao que já acontece hoje na Demand.
+    const counterCargo = counterCargoFor(input.cargo, Boolean(cargoData));
     const parsedChave = demand.documentKey ? parseChaveNfe(demand.documentKey) : null;
     const orderInvoiceData =
         demand.documentType === 'NFE' && demand.documentKey
@@ -121,9 +149,9 @@ export async function confirmIntakeArrival(input: ConfirmIntakeArrivalInput): Pr
                   nfKey: demand.documentKey,
                   ...(parsedChave ? { emissionDate: new Date(parsedChave.emissionDate) } : {}),
                   ...(cargoData?.produtos?.[0]?.descricao ? { nature: cargoData.produtos[0].descricao } : {}),
-                  volumes: cargoData?.quantidadeVolumes ?? 0,
-                  weight: cargoData?.pesoBruto ?? cargoData?.pesoLiquido ?? 0,
-                  value: cargoData?.valorTotalNota ?? 0,
+                  volumes: cargoData?.quantidadeVolumes ?? counterCargo?.units ?? 0,
+                  weight: cargoData?.pesoBruto ?? cargoData?.pesoLiquido ?? counterCargo?.weightKg ?? 0,
+                  value: cargoData?.valorTotalNota ?? counterCargo?.nfValue ?? 0,
               }
             : null;
 
@@ -145,6 +173,14 @@ export async function confirmIntakeArrival(input: ConfirmIntakeArrivalInput): Pr
             data: {
                 status: 'CONVERTED',
                 ...(payerResolution?.client ? { clientId: payerResolution.client.id } : {}),
+                ...(counterCargo
+                    ? {
+                          units: counterCargo.units,
+                          weight: counterCargo.weightKg,
+                          ...(counterCargo.nfValue && counterCargo.nfValue > 0 ? { nfValue: counterCargo.nfValue } : {}),
+                          missingFields: (demand.missingFields ?? []).filter((field) => !COUNTER_RESOLVED_FIELDS.has(field)),
+                      }
+                    : {}),
             },
         });
 
@@ -152,7 +188,9 @@ export async function confirmIntakeArrival(input: ConfirmIntakeArrivalInput): Pr
             data: {
                 demandId: demand.id,
                 status: 'CONVERTED',
-                description: 'Chegada confirmada no hub — pedido criado',
+                description: counterCargo
+                    ? `Chegada confirmada no hub — pedido criado (${counterCargoNote(counterCargo)})`
+                    : 'Chegada confirmada no hub — pedido criado',
                 location: demand.origin,
             },
         });
@@ -213,8 +251,11 @@ export async function confirmIntakeArrival(input: ConfirmIntakeArrivalInput): Pr
             data: {
                 orderId: newOrder.id,
                 eventType: 'AT_HUB',
-                description: 'Chegada confirmada no hub (intake)',
+                description: counterCargo
+                    ? `Chegada confirmada no hub (intake) — ${counterCargoNote(counterCargo)}`
+                    : 'Chegada confirmada no hub (intake)',
                 location: demand.origin,
+                ...(input.actorUserId ? { actorUserId: input.actorUserId } : {}),
             },
         });
 

@@ -4,7 +4,6 @@ import type {
     DemandSource,
     Prisma,
 } from '@prisma/client';
-import axios from 'axios';
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { getNextOrderNumber } from '../orderSequence.js';
@@ -22,6 +21,7 @@ import {
     normalizeExternalReference,
 } from './intakeDemandPolicy.js';
 import type { ParsedNfeCargo } from '../acbr/nfeXmlParser.js';
+import { fetchBrasilApiCnpj, type PublicCnpjData } from './publicCnpjParty.js';
 
 export interface CreateIntakeDemandInput {
     sourceType: Extract<DemandSource, 'MANUAL_HUB' | 'DECLARATION' | 'NFE_KEY' | 'DFE_ACBR'>;
@@ -70,6 +70,7 @@ export interface NfeKeyLookupData {
     emitenteRazaoSocial: string | null;
     emitenteTradeName: string | null;
     emitenteMunicipio: string | null;
+    publicData?: PublicCnpjData | null;
 }
 
 const PLACEHOLDER_ORIGIN = 'A definir';
@@ -243,24 +244,16 @@ export async function lookupNfeKeyEmitente(cnpj: string): Promise<{
     emitenteRazaoSocial: string | null;
     emitenteTradeName: string | null;
     emitenteMunicipio: string | null;
+    /** Cadastro público completo — guardado para criar o remetente sem nova consulta. */
+    publicData: PublicCnpjData | null;
 }> {
-    try {
-        const cnpjRes = await axios.get(
-            `https://brasilapi.com.br/api/cnpj/v1/${cnpj}`,
-            { timeout: 5000 },
-        );
-        return {
-            emitenteRazaoSocial: cnpjRes.data?.razao_social ?? null,
-            emitenteTradeName: cnpjRes.data?.nome_fantasia ?? null,
-            emitenteMunicipio: cnpjRes.data?.municipio ?? null,
-        };
-    } catch {
-        return {
-            emitenteRazaoSocial: null,
-            emitenteTradeName: null,
-            emitenteMunicipio: null,
-        };
-    }
+    const publicData = await fetchBrasilApiCnpj(cnpj);
+    return {
+        emitenteRazaoSocial: publicData?.legalName ?? null,
+        emitenteTradeName: publicData?.tradeName ?? null,
+        emitenteMunicipio: publicData?.city ?? null,
+        publicData,
+    };
 }
 
 function describeOrigemFromCargo(emitente: ParsedNfeCargo['emitente']): string {

@@ -352,6 +352,8 @@ export const intakeDemandsApi = {
             reason?: string;
             /** Remetente/destinatário já normalizados (cidade por IBGE) pelo backend. */
             parties?: { remetente: Person | null; destinatario: Person | null };
+            /** De onde vieram as partes: XML da NF-e, ou (sem XML) o CNPJ emitente da chave pelo cadastro público. */
+            partiesSource?: 'nfe_xml' | 'public_cnpj';
         }>>(`/intake/demands/${id}/nfe-data`);
         return response.data;
     },
@@ -1135,6 +1137,12 @@ export const personsApi = {
 
     create: async (data: CreatePersonRequest) => {
         const response = await api.post<ApiResponse<Person>>('/persons', data);
+        return response.data;
+    },
+
+    /** Pessoa pelo cadastro público do CNPJ (Receita): existente, ou criada com endereço e cidade IBGE. */
+    fromPublicCnpj: async (cnpj: string) => {
+        const response = await api.post<ApiResponse<Person>>('/persons/from-public-cnpj', { cnpj });
         return response.data;
     },
 
