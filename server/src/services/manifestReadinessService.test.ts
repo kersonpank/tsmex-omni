@@ -119,12 +119,13 @@ describe('manifestReadinessService', () => {
         assert.ok(result.issues.some(item => item.code === 'CIOT_REQUIRED'));
     });
 
-    it('bloqueia oferta antes de reivindicar o convite e com motorista adicional inativo', async () => {
+    it('transportador sem app só avisa (o hub opera a viagem — NORTE #24); motorista adicional inativo bloqueia', async () => {
         mockWith({ userId: null }, undefined, { driverAssignments: [{ isPrimary: false, driver: { id: 'driver-2', name: 'Segundo', active: false } }] });
         const result = await getManifestReadiness('manifest-1');
         assert.equal(result.canOffer, false);
-        assert.ok(result.issues.some(item => item.code === 'LINK_ACCESS_PENDING'));
-        assert.ok(result.issues.some(item => item.code === 'ADDITIONAL_DRIVER_INVALID'));
+        const access = result.issues.find(item => item.code === 'LINK_ACCESS_PENDING');
+        assert.equal(access?.severity, 'warning');
+        assert.ok(result.issues.some(item => item.code === 'ADDITIONAL_DRIVER_INVALID' && item.severity === 'blocking'));
     });
 
     it('não oferece viagem antiga sem composição confirmada, mesmo com placa no transportador', async () => {

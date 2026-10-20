@@ -183,7 +183,7 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
     } else if (manifest.link.approvalStatus !== 'APPROVED') {
         add(issue('responsible', 'LINK_NOT_APPROVED', 'O responsável selecionado ainda não está aprovado.', 'linkId'));
     } else {
-        if (manifest.link.userId === null) add(issue('responsible', 'LINK_ACCESS_PENDING', 'Convide o transportador para receber e aceitar a oferta no aplicativo.', 'linkId'));
+        if (manifest.link.userId === null) add(issue('responsible', 'LINK_ACCESS_PENDING', 'Transportador sem acesso ao aplicativo: o hub de origem confirma e registra a saída em nome dele.', 'linkId', 'warning'));
         // Pendência só aparece quando a Unidade de Veículo realmente não tem o dado — cada unidade
         // (cavalo e reboques) carrega chassi, RENAVAM, eixos e RNTRC obrigatórios.
         const composition = resolveManifestComposition(manifest);

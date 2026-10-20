@@ -18,6 +18,7 @@ import { getObjectDownloadUrl } from '../lib/objectStorage.js';
 import { enqueueCiotEmissionJob } from '../services/queues/ciotEmissionQueue.js';
 import type { StoredCiotRequestData } from '../services/queues/ciotEmissionJobInput.js';
 import { getManifestReadiness } from '../services/manifestReadinessService.js';
+import { createManifestDraft } from '../services/manifestCreate.js';
 import { manifestVehiclesSchema, setManifestVehicles, publishManifestOffer } from '../services/manifestVehicleService.js';
 import { cancelManifest, deleteEmptyManifest, getPlanningActions, reopenAcceptedManifest, requestManifestCorrection, resolveManifestCorrection } from '../services/manifestPlanningChanges.js';
 import { listManifestDeliveryProgress, recordDeliveryAttempt } from '../services/deliveryAttempts.js';
@@ -70,6 +71,23 @@ const router = Router();
 router.use(uuidParam(), ...resourceGuard('manifest'));
 
 const operationalTripTypeSchema = z.enum(OPERATIONAL_TRIP_TYPES);
+
+/**
+ * Quem está agindo sobre a execução da viagem: o próprio transportador (LINK atribuído) ou,
+ * em nome dele, a torre (ADMIN) ou o hub de ORIGEM — nunca o hub de destino (NORTE #24).
+ */
+async function resolveTripActor(
+    req: AuthRequest,
+    manifest: { linkId: string | null; hubId: string | null },
+): Promise<{ asLink: boolean; onBehalf: boolean }> {
+    const roles = req.user!.roles;
+    if (roles.includes('LINK')) {
+        const link = await prisma.link.findFirst({ where: { userId: req.user!.id }, select: { id: true } });
+        if (link && manifest.linkId === link.id) return { asLink: true, onBehalf: false };
+    }
+    const isOriginHub = roles.includes('HUB') && Boolean(req.user!.hubId) && manifest.hubId === req.user!.hubId;
+    return { asLink: false, onBehalf: roles.includes('ADMIN') || isOriginHub };
+}
 
 // Validation schemas
 const manifestSchema = z
@@ -409,42 +427,7 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response, next: Nex
             throw new AppError('Hub user can only create manifests for their own hub', 403);
         }
 
-        await validateCreateManifestInput({
-            vehicleTypeId: data.vehicleTypeId,
-            origin: data.origin,
-            destination: data.destination,
-            tripType: data.tripType,
-            hubId: effectiveHubId ?? undefined,
-            destHubId: data.destHubId,
-            stops: data.stops,
-        });
-
-        const originSelection = await selectedManifestCity(data, 'origin', effectiveHubId);
-        const destinationSelection = await selectedManifestCity(data, 'destination', data.tripType === 'TRANSFER' ? data.destHubId : undefined);
-        const manifest = await prisma.manifest.create({
-            data: {
-                vehicleTypeId: data.vehicleTypeId,
-                origin: data.origin,
-                originCity: data.originCity,
-                originState: data.originState,
-                originCityIbgeCode: data.originCityIbgeCode,
-                destination: data.destination,
-                destinationCity: data.destinationCity,
-                destinationState: data.destinationState,
-                destinationCityIbgeCode: data.destinationCityIbgeCode,
-                ...originSelection,
-                ...destinationSelection,
-                startsWithCollection: data.startsWithCollection,
-                tripType: data.tripType,
-                hubId: effectiveHubId ?? undefined,
-                destHubId: data.tripType === 'TRANSFER' || data.tripType === 'TRANSFER_DELIVERY' ? data.destHubId : undefined,
-                stops: data.stops ? data.stops : undefined,
-            },
-            include: {
-                vehicleType: true,
-                destHub: { select: { id: true, code: true, name: true } },
-            }
-        });
+        const manifest = await createManifestDraft(data, effectiveHubId ?? undefined);
 
         res.status(201).json({
             success: true,
@@ -1311,36 +1294,40 @@ router.patch('/:id/assign', authenticate, async (req: AuthRequest, res: Response
 });
 
 // PATCH /api/manifests/:id/accept - Link accepts manifest
-router.patch('/:id/accept', authenticate, authorize('LINK'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.patch('/:id/accept', authenticate, authorize('LINK', 'HUB', 'ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const id = req.params.id as string;
-
-        const link = await prisma.link.findFirst({
-            where: { userId: req.user!.id }
-        });
-
-        if (!link) {
-            throw new AppError('Link profile not found', 404);
-        }
-
         const manifest = await prisma.manifest.findUnique({
-            where: { id: id }
+            where: { id },
+            select: { id: true, status: true, linkId: true, hubId: true, link: { select: { name: true } }, legs: { select: { orderId: true } } },
         });
+        if (!manifest) throw new AppError('Manifest not found', 404);
 
-        if (!manifest || manifest.linkId !== link.id) {
-            throw new AppError('Manifest not found or not assigned to you', 404);
-        }
+        // NORTE #24: o hub de origem (ou a torre) confirma em nome do transportador.
+        const { asLink, onBehalf } = await resolveTripActor(req, manifest);
+        if (!asLink && !onBehalf) throw new AppError('Manifest not found or not assigned to you', 404);
+        if (manifest.status !== 'PENDING_ACCEPT') throw new AppError('Manifest is not pending acceptance', 400);
+        if (!manifest.linkId) throw new AppError('Defina o transportador antes de confirmar.', 422);
 
-        if (manifest.status !== 'PENDING_ACCEPT') {
-            throw new AppError('Manifest is not pending acceptance', 400);
-        }
-
-        const updated = await prisma.manifest.update({
-            where: { id: id },
-            data: {
-                status: 'ACCEPTED',
-                acceptedAt: new Date(),
-            },
+        const updated = await prisma.$transaction(async (tx) => {
+            const changed = await tx.manifest.updateMany({
+                where: { id, status: 'PENDING_ACCEPT' },
+                data: { status: 'ACCEPTED', acceptedAt: new Date() },
+            });
+            if (changed.count !== 1) throw new AppError('A viagem mudou de situação. Atualize e tente de novo.', 409);
+            if (onBehalf) {
+                for (const leg of manifest.legs) {
+                    await tx.orderHistory.create({
+                        data: {
+                            orderId: leg.orderId,
+                            eventType: 'NOTE',
+                            description: `Transportador ${manifest.link?.name ?? 'da viagem'} confirmado pelo hub, em nome do transportador`,
+                            actorUserId: req.user!.id,
+                        },
+                    });
+                }
+            }
+            return tx.manifest.findUnique({ where: { id } });
         });
 
         res.json({
@@ -1397,16 +1384,17 @@ router.patch('/:id/reject', authenticate, authorize('LINK'), async (req: AuthReq
 });
 
 // PATCH /api/manifests/:id/start - Start manifest execution
-router.patch('/:id/start', authenticate, authorize('LINK'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.patch('/:id/start', authenticate, authorize('LINK', 'HUB', 'ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const id = req.params.id as string;
         const kmSaida = typeof req.body?.kmSaida === 'number' ? req.body.kmSaida : undefined;
 
-        const link = await prisma.link.findFirst({ where: { userId: req.user!.id }, select: { id: true } });
-        const assigned = link && await prisma.manifest.findFirst({ where: { id, linkId: link.id }, select: { id: true } });
-        if (!assigned) throw new AppError('Manifest not found', 404);
+        const manifest = await prisma.manifest.findUnique({ where: { id }, select: { linkId: true, hubId: true } });
+        if (!manifest) throw new AppError('Manifest not found', 404);
+        const { asLink, onBehalf } = await resolveTripActor(req, manifest);
+        if (!asLink && !onBehalf) throw new AppError('Manifest not found', 404);
 
-        await startManifest(id, { kmSaida });
+        await startManifest(id, { kmSaida, actor: { userId: req.user!.id, onBehalfOfLink: onBehalf } });
 
         res.json({
             success: true,

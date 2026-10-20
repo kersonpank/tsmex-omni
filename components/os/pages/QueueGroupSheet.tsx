@@ -1,15 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { manifestsApi, vehicleTypesApi } from '../../../lib/api';
+import { hubCargoApi, vehicleTypesApi } from '../../../lib/api';
 import type { ConsolidationQueueGroup, VehicleType } from '../../../types/index';
-import { useOs } from '../OsContext';
 import { OsBadge, OsButton } from '../ui/kit';
 import { IconX } from '../ui/icons';
 
 /**
- * Montagem de viagem a partir da fila: escolhe pedidos (todos por padrão) e o tipo
- * de veículo, cria o manifesto DRAFT e adiciona os pedidos — cada adição passa pelo
- * motor existente (validação de capacidade + ConsolidationFeedback automático).
- * O restante (Link, Carta Frete, fiscal) segue no detalhe da viagem.
+ * Montagem de viagem a partir da fila: escolhe pedidos (todos por padrão) e o tipo de
+ * veículo. O servidor recalcula a fila, cria a viagem, adiciona os pedidos pelo motor
+ * (capacidade/elegibilidade) e grava o feedback sugerido × final. A viagem abre na
+ * estação Preparar e despachar do O.S.
  */
 
 const nf0 = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 });
@@ -21,7 +20,6 @@ const QueueGroupSheet: React.FC<{
     onClose: () => void;
     onCreated: (manifestId: string) => void;
 }> = ({ group, hubId, canCreateTrip, onClose, onCreated }) => {
-    const { hub } = useOs();
     const [types, setTypes] = useState<VehicleType[]>([]);
     const [vehicleTypeId, setVehicleTypeId] = useState('');
     const [picked, setPicked] = useState<Set<string>>(() => new Set(group.orders.map((o) => o.orderId)));
@@ -58,47 +56,29 @@ const QueueGroupSheet: React.FC<{
         });
 
     const create = async () => {
-        if (!canCreateTrip || busy || pickedOrders.length === 0 || !vehicleTypeId || !hub) return;
+        if (!canCreateTrip || busy || pickedOrders.length === 0 || !vehicleTypeId) return;
         setBusy(true);
         setError(null);
         try {
-            const isTransfer = group.kind === 'TRANSFER';
-            const created = await manifestsApi.create({
+            const body = await hubCargoApi.consolidate({
+                groupKey: group.key,
+                orderIds: pickedOrders.map((o) => o.orderId),
                 vehicleTypeId,
-                tripType: isTransfer ? 'TRANSFER' : 'DELIVERY',
-                origin: `${hub.city}, ${hub.state}`,
-                destination: isTransfer ? group.destHubName ?? '' : `${hub.city}, ${hub.state}`,
                 hubId,
-                ...(isTransfer && group.destHubId ? { destHubId: group.destHubId } : {}),
-                // Entrega local: o backend exige a cidade destino selecionada (IBGE) — é a do próprio hub.
-                ...(!isTransfer
-                    ? {
-                          destinationCity: hub.city,
-                          destinationState: hub.state,
-                          ...(hub.cityIbgeCode ? { destinationCityIbgeCode: hub.cityIbgeCode } : {}),
-                      }
-                    : {}),
             });
-            const manifest = created.data;
-            if (!manifest?.id) throw new Error('create failed');
-            let added = 0;
-            try {
-                for (const order of pickedOrders) {
-                    await manifestsApi.addDemand(manifest.id, { orderId: order.orderId });
-                    added += 1;
-                }
-            } catch {
-                // Capacidade estourou ou pedido ficou inelegível no meio: a viagem existe com os
-                // já adicionados — seguir para o detalhe é o caminho de correção, nunca silêncio.
+            const result = body.data;
+            if (result.failed.length > 0) {
+                // Viagem criada, mas o motor recusou parte (capacidade/elegibilidade): avisar, nunca silenciar.
                 setError(
-                    `A viagem foi criada com ${added} de ${pickedOrders.length} pedido(s) — o motor bloqueou o restante (capacidade/elegibilidade). Ajuste no detalhe da viagem.`,
+                    `Viagem criada com ${result.added.length} de ${pickedOrders.length} pedido(s). ${result.failed[0].message}`,
                 );
-                window.setTimeout(() => onCreated(manifest.id), 1800);
+                window.setTimeout(() => onCreated(result.manifestId), 2200);
                 return;
             }
-            onCreated(manifest.id);
-        } catch {
-            setError('Não foi possível criar a viagem. Tente de novo.');
+            onCreated(result.manifestId);
+        } catch (cause) {
+            const message = (cause as { response?: { data?: { error?: string; message?: string } } })?.response?.data;
+            setError(message?.error ?? message?.message ?? 'Não foi possível criar a viagem. Tente de novo.');
             setBusy(false);
         }
     };

@@ -118,8 +118,10 @@ export async function addOrderToManifest(
     manifestId: string,
     orderId: string,
     actor: { userId: string; role: UserRole; adminId?: string },
-    stopId?: string
+    stopId?: string,
+    options?: { recordFeedback?: boolean },
 ) {
+    const recordFeedback = options?.recordFeedback ?? true;
     const manifest = await prisma.manifest.findUnique({
         where: { id: manifestId },
         include: { vehicleType: true, destHub: { select: { code: true } } },
@@ -255,6 +257,7 @@ export async function addOrderToManifest(
                 orderId: orderId,
                 eventType: 'NOTE',
                 description: historyDescription,
+                actorUserId: actor.userId,
             },
         });
 
@@ -276,8 +279,8 @@ export async function addOrderToManifest(
             ? marginAfterStats.margin / marginAfterStats.revenue
             : null;
 
-        // Write ConsolidationFeedback
-        await tx.consolidationFeedback.create({
+        // Write ConsolidationFeedback (a consolidação pela fila grava um feedback único da viagem)
+        if (recordFeedback) await tx.consolidationFeedback.create({
             data: {
                 adminId: actor.adminId || null,
                 actorUserId: actor.userId,
@@ -381,6 +384,7 @@ export async function removeOrderFromManifest(
                 orderId: orderId,
                 eventType: 'NOTE',
                 description: `Pedido removido do manifesto ${manifestId}`,
+                actorUserId: actor.userId,
             },
         });
 
@@ -481,7 +485,10 @@ function startStatuses(tripType: OperationalTripType): {
     };
 }
 
-export async function startManifest(manifestId: string, options?: { kmSaida?: number }) {
+export async function startManifest(
+    manifestId: string,
+    options?: { kmSaida?: number; actor?: { userId: string; onBehalfOfLink?: boolean } },
+) {
     const manifest = await loadManifestForLifecycle(manifestId);
 
     if (manifest.status !== 'ACCEPTED') {
@@ -542,8 +549,11 @@ export async function startManifest(manifestId: string, options?: { kmSaida?: nu
                 data: {
                     orderId: leg.orderId,
                     eventType: statuses.orderEventType,
-                    description: statuses.demandDescription,
+                    description: options?.actor?.onBehalfOfLink
+                        ? `${statuses.demandDescription} (saída registrada pelo hub em nome do transportador)`
+                        : statuses.demandDescription,
                     location: manifest.origin,
+                    actorUserId: options?.actor?.userId ?? null,
                 },
             });
         }

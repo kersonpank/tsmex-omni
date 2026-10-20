@@ -13,6 +13,8 @@ import {
 } from '../services/hubCargo/hubCargoReadModel.js';
 import { resolveHubCargoCode } from '../services/hubCargo/resolveHubCargoCode.js';
 import { getConsolidationQueues } from '../services/hubCargo/consolidationQueue.js';
+import { consolidateFromQueue } from '../services/hubCargo/consolidateFromQueue.js';
+import prisma from '../lib/prisma.js';
 
 const router = Router();
 
@@ -116,6 +118,39 @@ router.get('/queues', async (req: AuthRequest, res: Response, next: NextFunction
         const data = await getConsolidationQueues(hubId);
         res.json({ success: true, data, capabilities });
     } catch (error) {
+        next(error);
+    }
+});
+
+const consolidateSchema = z.object({
+    groupKey: z.string().min(1).max(200),
+    orderIds: z.array(z.string().uuid()).min(1).max(500),
+    vehicleTypeId: z.string().uuid(),
+    hubId: z.string().uuid().optional(),
+});
+
+// POST /api/hub/cargo/queues/consolidate — monta a viagem a partir da fila (sugerido × final no feedback).
+router.post('/queues/consolidate', async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const body = consolidateSchema.parse(req.body);
+        const hubId = resolveActingHubId(req, body.hubId);
+        const capabilities = hubCargoCapabilities(req.user!.roles, req.user!.permissions);
+        if (!capabilities.canCreateTrip) {
+            throw new AppError('Sem permissão para montar viagem neste Hub.', 403);
+        }
+        const admin = await prisma.admin.findUnique({ where: { userId: req.user!.id }, select: { id: true } });
+        const data = await consolidateFromQueue({
+            hubId,
+            groupKey: body.groupKey,
+            orderIds: body.orderIds,
+            vehicleTypeId: body.vehicleTypeId,
+            actor: { userId: req.user!.id, role: req.user!.roles[0], adminId: admin?.id },
+        });
+        res.status(201).json({ success: true, data });
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return next(new AppError(error.errors[0]?.message ?? 'Dados inválidos.', 400));
+        }
         next(error);
     }
 });

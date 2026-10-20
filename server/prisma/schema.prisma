@@ -1857,6 +1857,9 @@ model OrderHistory {
   // Relacionamento com DemandEvent (se aplicável)
   demandEventId String?
 
+  // Quem registrou o evento (evento com porquê — NORTE #25). Nulo em eventos antigos/sistema.
+  actorUserId String?
+
   createdAt DateTime @default(now())
 
   @@index([orderId])

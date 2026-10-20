@@ -170,7 +170,7 @@ Detalhe completo, com fila, ação e evento de cada uma: spec
 | Entrada | O que está chegando no balcão e falta para virar pedido? | parcial (1 toque quando a NF-e resolve as partes) |
 | Estoque e etiquetas | O que tenho aqui e está identificado? | ✅ busca, scan, etiqueta por volume |
 | Consolidar | O que está pronto para viajar e para onde? | ✅ fila por próximo salto + montar viagem |
-| Preparar e despachar | O que falta para esta viagem sair? | **em construção** (Etapa A5) |
+| Preparar e despachar | O que falta para esta viagem sair? | ✅ pendências, responsável, Carta Frete, confirmar e sair pelo hub (CT-e/CIOT ainda pela tela atual até A7) |
 | Documentos | Que CT-e/MDF-e/CIOT faltam? | dentro de "Preparar"; estação própria depois |
 | Entregar | O que sai hoje para entrega e como comprovo? | pendente |
 | Exceções (transversal) | O que travou, de quem é, até quando? | pendente |
@@ -212,8 +212,9 @@ automático, autorização do hub no ciclo da própria viagem. (Detalhe: `docs/s
 - [x] A2 Receber: conferência pedido a pedido; divergência exige reconhecimento e vira evento
 - [x] A3 Estoque com busca e scan + etiquetas por volume (QR) + entrada em 1 toque (caminho feliz)
 - [x] A4 Teia: `HubCoverage` + editor de cobertura (torre) + fila de consolidação por próximo salto + montar viagem
-- [ ] A5 **Preparar e despachar** no O.S. (sem cair na tela antiga): pendências da viagem em linguagem simples,
-      responsável, saída prevista, Carta Frete com sugestão, confirmar transportador e registrar saída **pelo hub** (#24)
+- [x] A5 **Preparar e despachar** no O.S. (sem cair na tela antiga): pendências da viagem em linguagem simples,
+      responsável, saída prevista, Carta Frete com sugestão, confirmar transportador e registrar saída **pelo hub** (#24).
+      CT-e por pedido e CIOT ainda abrem a tela atual (sinalizado como transitório) até A7
 - [ ] A6 Carregamento conferido por scan (custódia ponto 1); divergência nunca silenciosa
 - [ ] A7 Documentos no fluxo: CT-e por pedido, MDF-e, CIOT (emitir/dispensar com motivo) sem sair do O.S.
 - [ ] A8 Entregar: rota do dia + tentativa de entrega com comprovação (`DeliveryAttempt` já existe)
@@ -223,7 +224,7 @@ automático, autorização do hub no ciclo da própria viagem. (Detalhe: `docs/s
 
 ### Etapa B — Evento com porquê (dados para L2)
 - [x] B1 `ConsolidationFeedback` com sugerido (fila) × final ao montar viagem pela fila
-- [ ] B2 Ator (`actorUserId`) em `OrderHistory`/`DemandEvent` em todos os pontos de escrita (hoje: parcial)
+- [ ] B2 Ator (`actorUserId`) em `OrderHistory`/`DemandEvent` em todos os pontos de escrita (feito: histórico manual, adicionar/remover pedido da viagem, confirmação e saída; faltam os demais)
 - [ ] B3 Motivo obrigatório quando o operador altera a sugestão do sistema
 
 ### Etapa C — Fechamento e Aprendizado (antigas Fatias 2/3)

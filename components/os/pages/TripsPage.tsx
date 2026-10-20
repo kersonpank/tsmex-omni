@@ -116,7 +116,7 @@ const TripsPage: React.FC = () => {
             ) : (
                 <div className="flex flex-col gap-2.5">
                     {active.map((m) => (
-                        <OsRow key={m.id} tone="route" onClick={() => navigate(`/manifests/${m.id}`)}>
+                        <OsRow key={m.id} tone="route" onClick={() => navigate(`/hubs/viagens/${m.id}`)}>
                             <div className="flex items-center justify-between gap-2 pr-1">
                                 <p className="truncate font-semibold text-tower-900 dark:text-white">
                                     {m.origin} → {m.destination}
@@ -139,7 +139,7 @@ const TripsPage: React.FC = () => {
                     onClose={() => setSelected(null)}
                     onCreated={(manifestId) => {
                         setSelected(null);
-                        navigate(`/manifests/${manifestId}`);
+                        navigate(`/hubs/viagens/${manifestId}`);
                     }}
                 />
             ) : null}

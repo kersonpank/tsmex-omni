@@ -1299,6 +1299,7 @@ router.post('/:id/history', authenticate, authorize('ADMIN', 'LINK', 'HUB'), asy
             data: {
                 orderId: id,
                 ...data,
+                actorUserId: req.user!.id,
             }
         });
 

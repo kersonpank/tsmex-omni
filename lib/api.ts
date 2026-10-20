@@ -1763,6 +1763,16 @@ export const hubCargoApi = {
         );
         return response.data;
     },
+
+    /** Monta a viagem a partir da fila; o servidor grava sugerido × final no ConsolidationFeedback. */
+    consolidate: async (body: { groupKey: string; orderIds: string[]; vehicleTypeId: string; hubId?: string }) => {
+        const response = await api.post<ApiResponse<{
+            manifestId: string;
+            added: string[];
+            failed: Array<{ orderId: string; message: string }>;
+        }>>('/hub/cargo/queues/consolidate', body);
+        return response.data;
+    },
 };
 
 export const hubCoverageApi = {
