@@ -32,7 +32,8 @@ Entregar implementação medíocre "porque não estava detalhado no NORTE" **tam
 - ❌ IA executando operação física sozinha (piloto autônomo).
 - ❌ Planejador de rota 100% automático.
 - ❌ Cadastro self-service complexo de hubs.
-- ❌ Migrar HashRouter→BrowserRouter ou quebrar god-components **agora**.
+- ❌ Replicar outros sistemas (Lonngren, Aleff…) — o desenho é nosso.
+- ❌ Refatorar o legado (`/hub`, god-components) ou migrar HashRouter — **o TSM O.S. (`/#/hubs`) substitui estação por estação**.
 
 Anti-escopo foi decidido **com fundamento**. Não reabrir sozinho. Se você (ou o humano) puxar isso, **sinalize e pare**.
 
@@ -47,6 +48,10 @@ Anti-escopo foi decidido **com fundamento**. Não reabrir sozinho. Se você (ou 
 | **IA copiloto** | Humano decide. Gravar `ConsolidationFeedback` em toda consolidação. Nunca piloto autônomo. |
 | **Fiscal = encanamento** | Não produtizar. CT-e/MDF-e só para nossa operação. |
 | **Confiar no código real** | Validar no código (e rodando), nunca em README/.md/relatório de agente. |
+| **Teia: decisão local** | Cada hub decide só o próximo salto (via `HubCoverage`). Nada de otimizador global nem rota hard-coded. Passe no teste de conformidade (§2.3 do NORTE). |
+| **UI por estação** | Tela nova = 1 pergunta, 1 fila, 1 ação primária, 1 evento que alimenta a próxima estação. Nunca tela por entidade. Mobile-first, scan-first. |
+| **Hub é hub** | Uma superfície para qualquer porte, por capability. Inicialmente todo hub faz tudo (inclui confirmar transportador e registrar saída, auditado). |
+| **Evento com porquê** | Decisão grava ator + sugestão do sistema + aceito/alterado. Divergência nunca encerra em silêncio. |
 | **Segurança = gate pré-prod** | Dinheiro/credencial/dado sensível: rigor máximo. Cifrar chaves antes de go-live. |
 
 ## Verificação específica do TSM (além do checklist da `goal`)
