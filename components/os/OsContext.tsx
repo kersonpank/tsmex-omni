@@ -37,7 +37,8 @@ interface OsContextValue {
     hub: Hub | null;
     isAdmin: boolean;
     hubs: Hub[];
-    selectHub: (hubId: string) => void;
+    /** Modo torre: escolhe o hub operado; null volta ao seletor. */
+    selectHub: (hubId: string | null) => void;
     summary: HubCargoSummary;
     capabilities: HubCargoCapabilities;
     loading: boolean;

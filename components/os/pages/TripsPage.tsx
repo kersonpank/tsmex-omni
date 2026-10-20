@@ -27,7 +27,7 @@ function groupTitle(g: ConsolidationQueueGroup): string {
 
 const TripsPage: React.FC = () => {
     const navigate = useNavigate();
-    const { hubId, capabilities } = useOs();
+    const { hubId, capabilities, isAdmin } = useOs();
     const [groups, setGroups] = useState<ConsolidationQueueGroup[]>([]);
     const [active, setActive] = useState<Manifest[]>([]);
     const [loading, setLoading] = useState(true);
@@ -63,7 +63,21 @@ const TripsPage: React.FC = () => {
 
     return (
         <div className="pb-6">
-            <OsSectionTitle>Prontos para viajar</OsSectionTitle>
+            <OsSectionTitle
+                action={
+                    isAdmin ? (
+                        <button
+                            type="button"
+                            onClick={() => navigate('/hubs/cobertura')}
+                            className="text-[13px] font-bold text-brand-600 dark:text-brand-300"
+                        >
+                            Cobertura do hub
+                        </button>
+                    ) : undefined
+                }
+            >
+                Prontos para viajar
+            </OsSectionTitle>
             {loading ? (
                 <OsSkeletonRows />
             ) : error ? (

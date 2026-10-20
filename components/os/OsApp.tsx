@@ -8,6 +8,7 @@ import TripReceivePage from './pages/TripReceivePage';
 import CargoPage from './pages/CargoPage';
 import LabelsPrintPage from './pages/LabelsPrintPage';
 import TripsPage from './pages/TripsPage';
+import CoveragePage from './pages/CoveragePage';
 import { OsEmpty, OsRow, OsSectionTitle } from './ui/kit';
 import { IconDay, IconReceive, IconTag, IconTower, IconTruck, type OsIconProps } from './ui/icons';
 
@@ -52,7 +53,7 @@ const HubPicker: React.FC = () => {
 };
 
 const OsShell: React.FC = () => {
-    const { hubId, hub, isAdmin } = useOs();
+    const { hubId, hub, isAdmin, selectHub } = useOs();
     const navigate = useNavigate();
 
     return (
@@ -79,10 +80,18 @@ const OsShell: React.FC = () => {
                         </span>
                     </button>
                     {isAdmin ? (
-                        <span className="flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-500/10 px-2.5 py-1.5 text-[11px] font-bold text-brand-600 dark:bg-brand-500/20 dark:text-brand-300">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                selectHub(null);
+                                navigate('/hubs');
+                            }}
+                            title="Trocar o hub operado"
+                            className="flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-500/10 px-2.5 py-1.5 text-[11px] font-bold text-brand-600 active:bg-brand-500/20 dark:bg-brand-500/20 dark:text-brand-300"
+                        >
                             <IconTower />
-                            torre
-                        </span>
+                            {hubId ? 'trocar hub' : 'torre'}
+                        </button>
                     ) : null}
                 </div>
             </header>
@@ -98,6 +107,7 @@ const OsShell: React.FC = () => {
                         <Route path="cargas" element={<CargoPage />} />
                         <Route path="etiquetas/:orderId" element={<LabelsPrintPage />} />
                         <Route path="viagens" element={<TripsPage />} />
+                        <Route path="cobertura" element={<CoveragePage />} />
                         <Route path="excecoes" element={<StubPage title="Exceções" slice="Fatia 4" />} />
                     </Routes>
                 )}
