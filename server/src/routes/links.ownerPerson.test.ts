@@ -48,7 +48,8 @@ const BASE_ADDRESS = {
 };
 
 const links: Record<string, Record<string, unknown>> = {
-    [LINK_CNPJ_NO_PERSON]: { id: LINK_CNPJ_NO_PERSON, name: 'Transportadora CNPJ', document: CNPJ, personId: null },
+    // Cadastrado pelo hub de teste: quem cadastra pode completar o proprietário (NORTE #22).
+    [LINK_CNPJ_NO_PERSON]: { id: LINK_CNPJ_NO_PERSON, name: 'Transportadora CNPJ', document: CNPJ, personId: null, createdByHubId: 'hub-test' },
     [LINK_CPF_NO_PERSON]: { id: LINK_CPF_NO_PERSON, name: 'Autônomo CPF', document: CPF, personId: null },
     [LINK_PENDING_DOC]: { id: LINK_PENDING_DOC, name: 'A completar', document: 'PENDING-abc123', personId: null },
 };
@@ -72,6 +73,7 @@ describe('PATCH /api/links/:id/owner-person', () => {
         userFindUnique: prisma.user.findUnique,
         linkFindUnique: prisma.link.findUnique,
         linkUpdate: prisma.link.update,
+        manifestFindFirst: prisma.manifest.findFirst,
         personFindUnique: prisma.person.findUnique,
         personCreate: prisma.person.create,
         personUpdate: prisma.person.update,
@@ -97,6 +99,8 @@ describe('PATCH /api/links/:id/owner-person', () => {
         }) as unknown as typeof prisma.user.findUnique;
 
         prisma.link.findUnique = (async (args: any) => links[args?.where?.id] ?? null) as unknown as typeof prisma.link.findUnique;
+        // Nenhuma viagem nos fixtures: o acesso do hub vem só de ter cadastrado o transportador.
+        prisma.manifest.findFirst = (async () => null) as unknown as typeof prisma.manifest.findFirst;
 
         prisma.link.update = (async (args: any) => {
             updatedLink = { ...(links[args.where.id] ?? {}), ...args.data };
@@ -136,6 +140,7 @@ describe('PATCH /api/links/:id/owner-person', () => {
         prisma.user.findUnique = original.userFindUnique;
         prisma.link.findUnique = original.linkFindUnique;
         prisma.link.update = original.linkUpdate;
+        prisma.manifest.findFirst = original.manifestFindFirst;
         prisma.person.findUnique = original.personFindUnique;
         prisma.person.create = original.personCreate;
         prisma.person.update = original.personUpdate;
@@ -198,6 +203,15 @@ describe('PATCH /api/links/:id/owner-person', () => {
         });
 
         assert.notEqual(res.status, 403, 'HUB should not be forbidden');
+    });
+
+    it('HUB que não cadastrou nem usou o transportador recebe 403', async () => {
+        const token = jwt.sign({ userId: 'hub-1' }, jwtSecret);
+        const res = await httpPatchJson<any>(baseUrl, `/api/links/${LINK_CPF_NO_PERSON}/owner-person`, token, {
+            address: BASE_ADDRESS,
+        });
+
+        assert.equal(res.status, 403);
     });
 });
 
