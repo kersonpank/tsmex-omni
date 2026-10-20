@@ -4,6 +4,7 @@ import {
     compositionIssues,
     describeUnitIssues,
     legacyColumnsFromComposition,
+    mdfeUnitDataIssues,
     normalizePlate,
     resolveComposition,
     resolveManifestComposition,
@@ -175,5 +176,43 @@ describe('retrato da composição com responsável RNTRC (viagem ofertada não p
         const composition = resolveManifestComposition({ vehicleAssignments: [{ slot: 0, vehicleUnit: { ...unit, rntrcHolderPerson: { ...holder, rntrc: null } } }] });
         assert.deepEqual(compositionIssues(composition)[0].fields.map((f) => f.field), ['rntrc']);
         assert.equal(tractionRntrc(composition, '55555555'), null, 'não cai no RNTRC do Link');
+    });
+});
+
+describe('mdfeUnitDataIssues — o que a emissão do MDF-e exige por placa', () => {
+    const holder = { personId: 'p1', document: '12345678000190', name: 'Transportadora X', state: 'MA', rntrc: '12345678' };
+    const ready = {
+        role: 'TRACTION' as const,
+        bodyType: 'FechadaOuBau',
+        wheelType: 'Cavalo',
+        licensedState: 'MA',
+        mdfeOwnerType: '2',
+        rntrcHolder: holder,
+    };
+
+    it('cavalo completo não tem pendência', () => {
+        assert.deepEqual(mdfeUnitDataIssues(ready, '99999999000199'), []);
+    });
+
+    it('cavalo sem carroceria, rodado e UF de licenciamento', () => {
+        const issues = mdfeUnitDataIssues({ ...ready, bodyType: null, wheelType: 'NaoAplicavel', licensedState: null }, '99999999000199');
+        assert.deepEqual(issues, ['tipo de carroceria', 'tipo de rodado', 'UF de licenciamento']);
+    });
+
+    it('reboque não exige rodado', () => {
+        assert.deepEqual(mdfeUnitDataIssues({ ...ready, role: 'TRAILER', wheelType: null }, '99999999000199'), []);
+    });
+
+    it('RNTRC de 9 dígitos passa no cadastro mas não no MDF-e', () => {
+        const issues = mdfeUnitDataIssues({ ...ready, rntrcHolder: { ...holder, rntrc: '123456789' } }, '99999999000199');
+        assert.ok(issues.some((i) => i.startsWith('RNTRC com exatamente 8')));
+    });
+
+    it('responsável RNTRC de terceiro exige vínculo e UF; se for o próprio emitente, não', () => {
+        const third = mdfeUnitDataIssues({ ...ready, mdfeOwnerType: null, rntrcHolder: { ...holder, state: null } }, '99999999000199');
+        assert.ok(third.includes('vínculo do proprietário no MDF-e'));
+        assert.ok(third.includes('UF do responsável RNTRC'));
+        const own = mdfeUnitDataIssues({ ...ready, mdfeOwnerType: null, rntrcHolder: { ...holder, state: null } }, holder.document);
+        assert.deepEqual(own, []);
     });
 });

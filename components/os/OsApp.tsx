@@ -10,6 +10,7 @@ import LabelsPrintPage from './pages/LabelsPrintPage';
 import TripsPage from './pages/TripsPage';
 import CoveragePage from './pages/CoveragePage';
 import TripPrepPage from './pages/trip/TripPrepPage';
+import CarrierPage from './pages/carrier/CarrierPage';
 import { OsEmpty, OsRow, OsSectionTitle } from './ui/kit';
 import { IconDay, IconReceive, IconTag, IconTower, IconTruck, type OsIconProps } from './ui/icons';
 
@@ -109,6 +110,7 @@ const OsShell: React.FC = () => {
                         <Route path="etiquetas/:orderId" element={<LabelsPrintPage />} />
                         <Route path="viagens" element={<TripsPage />} />
                         <Route path="viagens/:manifestId" element={<TripPrepPage />} />
+                        <Route path="transportadores/:linkId" element={<CarrierPage />} />
                         <Route path="cobertura" element={<CoveragePage />} />
                         <Route path="excecoes" element={<StubPage title="Exceções" slice="Fatia 4" />} />
                     </Routes>

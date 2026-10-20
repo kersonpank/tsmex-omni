@@ -1,14 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import { linksApi, manifestsApi } from '../../../../lib/api';
 import type { Driver, Link } from '../../../../types/index';
 import { linkCompositionPlates } from '../../lib/trip';
 import { OsButton, OsEmpty } from '../../ui/kit';
 import OsSheet, { apiErrorMessage, osFieldClass } from '../../ui/Sheet';
+import NewCarrierForm from './NewCarrierForm';
 
 /**
- * Transportador e motorista da viagem: escolhe um transportador aprovado, o motorista
- * dele e confirma o veículo cadastrado do transportador (só placas — o resto é cadastro).
+ * Transportador e motorista da viagem: escolhe (ou cadastra) o transportador, o motorista
+ * dele e confirma o veículo cadastrado (só placas — dados de CIOT/MDF-e ficam na ficha).
  * Duas escritas pelo backend existente: responsável (transportador + motorista) e composição (placas).
  */
 
@@ -25,6 +27,9 @@ const ResponsibleEditor: React.FC<{
     const [driverId, setDriverId] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [creating, setCreating] = useState(false);
+    const navigate = useNavigate();
+    const openRegistry = (linkId: string) => navigate(`/hubs/transportadores/${linkId}?viagem=${manifestId}`);
 
     useEffect(() => {
         linksApi
@@ -62,11 +67,13 @@ const ResponsibleEditor: React.FC<{
 
     const plates = link ? linkCompositionPlates(link) : null;
 
-    const save = async () => {
+    const save = async (thenOpenRegistry = false) => {
         if (!link || busy) return;
         setBusy(true);
         setError(null);
         try {
+            // Pendente cadastrado por este hub: aprovar é dele (o backend recusa se for de outro hub).
+            if (link.approvalStatus === 'PENDING') await linksApi.approve(link.id);
             await manifestsApi.setResponsible(manifestId, link.id, driverId);
             if (plates?.traction) {
                 await manifestsApi.setVehicles(manifestId, {
@@ -74,7 +81,8 @@ const ResponsibleEditor: React.FC<{
                     trailers: plates.trailers.map((plate) => ({ plate })),
                 });
             }
-            onSaved();
+            if (thenOpenRegistry) openRegistry(link.id);
+            else onSaved();
         } catch (cause) {
             setError(apiErrorMessage(cause, 'Não foi possível salvar o transportador.'));
             setBusy(false);
@@ -93,14 +101,28 @@ const ResponsibleEditor: React.FC<{
                             {error}
                         </p>
                     ) : null}
-                    <OsButton full disabled={!link || busy} onClick={() => void save()}>
-                        {busy ? 'Salvando…' : 'Usar este transportador'}
-                    </OsButton>
+                    {creating ? null : (
+                        <>
+                            <OsButton full disabled={!link || busy} onClick={() => void save()}>
+                                {busy ? 'Salvando…' : 'Usar este transportador'}
+                            </OsButton>
+                            {link ? (
+                                <OsButton full variant="ghost" className="mt-1" disabled={busy} onClick={() => void save(true)}>
+                                    Usar e completar cadastro (CIOT/MDF-e)
+                                </OsButton>
+                            ) : null}
+                        </>
+                    )}
                 </>
             }
         >
-            {!link ? (
+            {creating ? (
+                <NewCarrierForm manifestId={manifestId} onCreated={openRegistry} onCancel={() => setCreating(false)} />
+            ) : !link ? (
                 <>
+                    <OsButton full variant="secondary" className="mb-3" onClick={() => setCreating(true)}>
+                        Cadastrar novo transportador
+                    </OsButton>
                     <input
                         type="search"
                         value={q}
@@ -120,6 +142,7 @@ const ResponsibleEditor: React.FC<{
                                 <span className="text-[14px] font-semibold text-tower-900 dark:text-white">{l.name}</span>
                                 <span className="text-[12px] text-tower-500 dark:text-tower-400">
                                     {linkCompositionPlates(l).traction ?? 'sem placa'} · {l.homeBase}
+                                    {l.approvalStatus === 'PENDING' ? ' · pendente (será aprovado ao usar)' : ''}
                                 </span>
                             </button>
                         ))}

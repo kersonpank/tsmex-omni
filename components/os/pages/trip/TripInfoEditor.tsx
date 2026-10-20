@@ -7,16 +7,17 @@ import OsSheet, { apiErrorMessage } from '../../ui/Sheet';
 
 /**
  * Grupos sem formulário próprio no O.S.: cadastro, documentos, carga e rota.
- * MDF-e emite daqui. CT-e por pedido e CIOT ainda abrem a tela atual —
- * transitório até a etapa Documentos (NORTE A7); sinalizado na própria folha.
+ * Cadastro abre a ficha do transportador no O.S. MDF-e emite daqui. CT-e por pedido e CIOT
+ * ainda abrem a tela atual — transitório até a etapa Documentos (NORTE A7), sinalizado na folha.
  */
 
 const TripInfoEditor: React.FC<{
     manifestId: string;
+    linkId?: string | null;
     group: TripGroup;
     onClose: () => void;
     onDone: () => void;
-}> = ({ manifestId, group, onClose, onDone }) => {
+}> = ({ manifestId, linkId, group, onClose, onDone }) => {
     const navigate = useNavigate();
     const [busy, setBusy] = useState(false);
     const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
@@ -94,12 +95,16 @@ const TripInfoEditor: React.FC<{
                 {group.key === 'registry' ? (
                     <>
                         <p className="text-[13px] leading-relaxed text-tower-500 dark:text-tower-300">
-                            São dados de cadastro do veículo e do motorista: corrigidos uma vez, valem para as próximas viagens.
+                            São dados de cadastro do transportador, do veículo e do motorista: completados uma vez, valem para as
+                            próximas viagens.
                         </p>
-                        <OsButton full variant="secondary" onClick={() => navigate(`/manifests/${manifestId}`)}>
-                            Abrir cadastro
-                        </OsButton>
-                        {legacyNote}
+                        {linkId ? (
+                            <OsButton full onClick={() => navigate(`/hubs/transportadores/${linkId}?viagem=${manifestId}`)}>
+                                Completar ficha do transportador
+                            </OsButton>
+                        ) : (
+                            <p className="text-[13px] text-tower-500">Escolha o transportador da viagem primeiro.</p>
+                        )}
                     </>
                 ) : null}
                 {group.key === 'cargo' ? (

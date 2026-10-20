@@ -11,6 +11,8 @@ import { isValidCpf, isValidCnpj, documentDigits } from '../services/documentVal
 import { signLinkInvite } from '../services/linkInvite.js';
 import { getObjectDownloadUrl, uploadBase64Object } from '../lib/objectStorage.js';
 
+import { getCarrierRegistry, hubCanEditLink } from '../services/carrierRegistry.js';
+
 const router = Router();
 
 // Cadastro comercial de transportador: nasce pendente e sem usuário de aplicativo.
@@ -102,7 +104,7 @@ router.get('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest
 
         const where = {
             ...(isHubOnly
-                ? { approvalStatus: 'APPROVED' as const, active: true }
+                ? { OR: [{ approvalStatus: 'APPROVED' as const, active: true }, { createdByHubId: req.user!.hubId ?? '__none__' }] }
                 : statusFilter
                   ? { approvalStatus: statusFilter as 'PENDING' | 'APPROVED' | 'REJECTED' }
                   : {}),
@@ -510,6 +512,7 @@ const VEHICLE_FIELD_KEYS = [
 // Cada placa vira/atualiza uma VehicleUnit reutilizável; o Link só referencia as unidades.
 router.put('/:id/composition', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+        await assertCanEditLink(req, req.params.id as string);
         const body = linkCompositionSchema.parse(req.body);
         const link = await setLinkComposition(req.params.id as string, body);
         res.json({ success: true, data: link });
@@ -521,6 +524,7 @@ router.put('/:id/composition', authenticate, authorize('ADMIN', 'HUB'), async (r
 
 router.patch('/:id/fiscal', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+        await assertCanEditLink(req, req.params.id as string);
         const id = req.params.id as string;
         const body = patchLinkFiscalSchema.parse(req.body);
         if (body.vehicleTypeId) {
@@ -634,13 +638,28 @@ const driverSchema = z.object({
 });
 
 async function assertHubDriverLinkAccess(req: AuthRequest, linkId: string) {
-    if (req.user!.roles.includes('ADMIN')) return;
-    if (!req.user!.hubId) throw new AppError('Acesso à ficha do motorista não autorizado.', 404);
-    const assigned = await prisma.manifest.findFirst({
-        where: { linkId, hubId: req.user!.hubId }, select: { id: true },
-    });
-    if (!assigned) throw new AppError('Acesso à ficha do motorista não autorizado.', 404);
+    if (!(await hubCanEditLink(req.user!, linkId))) throw new AppError('Acesso à ficha do motorista não autorizado.', 404);
 }
+
+/** Placas, dados fiscais e proprietário: só a torre, o hub que cadastrou ou o que já usou o transportador. */
+async function assertCanEditLink(req: AuthRequest, linkId: string) {
+    if (!(await hubCanEditLink(req.user!, linkId))) {
+        throw new AppError('Somente o hub que cadastrou ou que já usou este transportador pode alterar o cadastro dele.', 403);
+    }
+}
+
+// GET /api/links/:id/registry — ficha completa para CIOT/MDF-e (transportador, placas, motoristas e o que falta)
+router.get('/:id/registry', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const id = req.params.id as string;
+        const canEdit = await hubCanEditLink(req.user!, id);
+        const registry = await getCarrierRegistry(id);
+        if (!canEdit && registry.link.approvalStatus !== 'APPROVED') throw new AppError('Transportador não encontrado.', 404);
+        res.json({ success: true, data: { ...registry, canEdit } });
+    } catch (error) {
+        next(error);
+    }
+});
 
 router.get('/:id/drivers/:driverId', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
@@ -842,6 +861,7 @@ const ownerPersonSchema = z.object({
 });
 router.patch('/:id/owner-person', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+        await assertCanEditLink(req, req.params.id as string);
         const id = req.params.id as string;
         const link = await prisma.link.findUnique({ where: { id } });
         if (!link) throw new AppError('Link not found', 404);

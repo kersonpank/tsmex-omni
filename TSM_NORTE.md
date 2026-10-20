@@ -171,6 +171,7 @@ Detalhe completo, com fila, ação e evento de cada uma: spec
 | Estoque e etiquetas | O que tenho aqui e está identificado? | ✅ busca, scan, etiqueta por volume |
 | Consolidar | O que está pronto para viajar e para onde? | ✅ fila por próximo salto + montar viagem |
 | Preparar e despachar | O que falta para esta viagem sair? | ✅ pendências, responsável, Carta Frete, confirmar e sair pelo hub (CT-e/CIOT ainda pela tela atual até A7) |
+| Ficha do transportador | O que falta para este transportador rodar com CIOT e MDF-e? | ✅ transportador, placas e motoristas completos pelo hub |
 | Documentos | Que CT-e/MDF-e/CIOT faltam? | dentro de "Preparar"; estação própria depois |
 | Entregar | O que sai hoje para entrega e como comprovo? | pendente |
 | Exceções (transversal) | O que travou, de quem é, até quando? | pendente |
@@ -215,6 +216,10 @@ automático, autorização do hub no ciclo da própria viagem. (Detalhe: `docs/s
 - [x] A5 **Preparar e despachar** no O.S. (sem cair na tela antiga): pendências da viagem em linguagem simples,
       responsável, saída prevista, Carta Frete com sugestão, confirmar transportador e registrar saída **pelo hub** (#24).
       CT-e por pedido e CIOT ainda abrem a tela atual (sinalizado como transitório) até A7
+- [x] A5.1 **Ficha do transportador** no O.S. (`/#/hubs/transportadores/:id`): hub cadastra e aprova transportador,
+      completa veículo (cada placa) e motoristas com tudo que CIOT (e-Frete) e MDF-e exigem; o motor de pendências passa
+      a cobrar os dados que antes só falhavam na emissão do MDF-e (carroceria, rodado, UF de licenciamento, RNTRC de 8
+      dígitos, vínculo do proprietário). Edição restrita a torre, hub que cadastrou ou que já usou o transportador
 - [ ] A6 Carregamento conferido por scan (custódia ponto 1); divergência nunca silenciosa
 - [ ] A7 Documentos no fluxo: CT-e por pedido, MDF-e, CIOT (emitir/dispensar com motivo) sem sair do O.S.
 - [ ] A8 Entregar: rota do dia + tentativa de entrega com comprovação (`DeliveryAttempt` já existe)

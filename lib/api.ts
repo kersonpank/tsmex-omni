@@ -867,6 +867,12 @@ export const linksApi = {
         return response.data;
     },
 
+    /** Ficha completa (transportador, placas, motoristas e o que falta para CIOT/MDF-e). */
+    registry: async (linkId: string) => {
+        const response = await api.get<ApiResponse<import('../components/os/lib/carrier').CarrierRegistry>>(`/links/${linkId}/registry`);
+        return response.data;
+    },
+
     searchDrivers: async (query = '') => {
         const response = await api.get<ApiResponse<Driver[]>>('/links/drivers/search', { params: { q: query } });
         return response.data;

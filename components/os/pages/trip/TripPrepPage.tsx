@@ -209,7 +209,7 @@ const TripPrepPage: React.FC = () => {
                     onSaved={closeAndReload}
                 />
             ) : openGroup ? (
-                <TripInfoEditor manifestId={manifest.id} group={openGroup} onClose={() => setOpen(null)} onDone={closeAndReload} />
+                <TripInfoEditor manifestId={manifest.id} linkId={manifest.linkId} group={openGroup} onClose={() => setOpen(null)} onDone={closeAndReload} />
             ) : null}
 
             {startOpen ? (

@@ -3,7 +3,7 @@ import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import type { PlanningActions } from './manifestPlanningChanges.js';
 import { linkVehicleInclude, manifestVehicleAssignmentsInclude } from './vehicleUnitService.js';
-import { compositionIssues, describeUnitIssues, resolveManifestComposition, tractionHolderDiffersFromCarrier, type VehicleUnitField } from './vehicleUnitRules.js';
+import { compositionIssues, describeUnitIssues, mdfeUnitDataIssues, resolveManifestComposition, tractionHolderDiffersFromCarrier, type VehicleUnitField } from './vehicleUnitRules.js';
 
 export type ManifestJourneyStep =
     | 'route'
@@ -73,6 +73,7 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
         include: {
             vehicleAssignments: manifestVehicleAssignmentsInclude,
             vehicleType: { select: { id: true, active: true } },
+            fiscalEmitter: { select: { person: { select: { document: true } } } },
             link: {
                 select: {
                     id: true,
@@ -198,6 +199,11 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
             }
         }
         for (const unit of composition.units) {
+            // Dados que só a emissão do MDF-e cobrava: agora aparecem antes, como pendência de cadastro.
+            const mdfeMissing = mdfeUnitDataIssues(unit, manifest.fiscalEmitter?.person?.document);
+            if (mdfeMissing.length) {
+                add(issue('responsible', 'MDFE_VEHICLE_DATA_PENDING', `${unit.plate}: informe ${mdfeMissing.join(', ')}.`, `vehicleUnit:${unit.plate}`, manifest.status === 'ACCEPTED' ? 'blocking' : 'warning'));
+            }
             if (!unit.tareKg || !unit.capacityKg) {
                 add(issue('fiscal', 'MDFE_VEHICLE_CAPACITY_PENDING', `Informe tara e capacidade em kg reais para ${unit.plate}.`, `vehicleUnit:${unit.plate}`, manifest.status === 'ACCEPTED' ? 'blocking' : 'warning'));
             }

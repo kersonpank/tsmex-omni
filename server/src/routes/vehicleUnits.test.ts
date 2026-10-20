@@ -114,6 +114,8 @@ describe('Vehicle units API', () => {
             return withUnits(links[where.id]);
         }) as any;
         prisma.$transaction = (async (fn: any) => fn(prisma)) as any;
+        // Nenhuma viagem nos fixtures: acesso de hub vem só de ter cadastrado o transportador.
+        prisma.manifest.findFirst = (async () => null) as any;
 
         const { vehicleUnitsRouter } = await import('./vehicleUnits.js');
         const { linksRouter } = await import('./links.js');
@@ -136,7 +138,8 @@ describe('Vehicle units API', () => {
             { id: 'person-dono', document: '11222333000181', legalName: 'Dono', state: 'SP', rntrc: null },
             { id: 'person-link', document: '52998224725', legalName: 'Transportador', state: 'MA', rntrc: null },
         ];
-        links = { 'link-1': { id: 'link-1', name: 'Transportador', personId: 'person-link', vehiclePlate: 'A completar', tractionUnitId: null, trailer1UnitId: null, trailer2UnitId: null, trailer3UnitId: null } };
+        // link-1 foi cadastrado pelo hub de teste (NORTE #22: quem cadastra pode completar o cadastro).
+        links = { 'link-1': { id: 'link-1', name: 'Transportador', personId: 'person-link', createdByHubId: 'hub-test', vehiclePlate: 'A completar', tractionUnitId: null, trailer1UnitId: null, trailer2UnitId: null, trailer3UnitId: null } };
     });
 
     after(async () => {
@@ -232,6 +235,13 @@ describe('Vehicle units API', () => {
         assert.equal(link.trailer2Plate, 'REB2B22');
         assert.equal(link.trailer3Plate, null);
         assert.equal(link.tractionUnitId, units[0].id);
+    });
+
+    it('PUT composition: hub que não cadastrou nem usou o transportador recebe 403', async () => {
+        links['link-1'].createdByHubId = 'outro-hub';
+        const res = await call('PUT', '/api/links/link-1/composition', 'hub-1', { traction: { plate: 'ABC1D23' }, trailers: [] });
+        assert.equal(res.status, 403);
+        assert.equal(units.length, 0);
     });
 
     it('PUT composition: um reboque compartilhado entre dois Links continua sendo UMA unidade', async () => {

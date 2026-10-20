@@ -130,6 +130,41 @@ export function unitFieldIssues(unit: Pick<VehicleUnitLike, 'plate' | 'chassi' |
     return issues;
 }
 
+export const MDFE_BODY_TYPES = ['NaoAplicavel', 'Aberta', 'FechadaOuBau', 'Granelera', 'PortaContainer', 'Sider'] as const;
+/** Rodado aceito no MDF-e para o cavalo (NaoAplicavel não tem código em tpRod). */
+export const MDFE_TRACTION_WHEEL_TYPES = ['Truck', 'Toco', 'Cavalo'] as const;
+
+/**
+ * Dados da unidade que a emissão do MDF-e exige além de `unitFieldIssues` (espelha
+ * `buildMdfeVehicles`): carroceria, rodado do cavalo, UF de licenciamento, RNTRC de
+ * exatamente 8 dígitos e, quando o responsável RNTRC não é o emitente, vínculo e UF dele.
+ * Tara/capacidade têm pendência própria (MDFE_VEHICLE_CAPACITY_PENDING). Vazio = pronto.
+ */
+export function mdfeUnitDataIssues(
+    unit: Pick<VehicleUnitLike, 'role' | 'bodyType' | 'wheelType' | 'licensedState' | 'mdfeOwnerType' | 'ownerState' | 'rntrc' | 'rntrcHolder' | 'rntrcHolderPerson'>,
+    emitterDocument?: string | null,
+): string[] {
+    const issues: string[] = [];
+    if (!unit.bodyType || !(MDFE_BODY_TYPES as readonly string[]).includes(unit.bodyType)) issues.push('tipo de carroceria');
+    if (unit.role === 'TRACTION' && !(MDFE_TRACTION_WHEEL_TYPES as readonly string[]).includes(unit.wheelType ?? '')) {
+        issues.push('tipo de rodado');
+    }
+    if (!/^[A-Z]{2}$/.test(unit.licensedState ?? '')) issues.push('UF de licenciamento');
+    const rntrc = digitsOnly(unitRntrc(unit));
+    if (rntrc && (!/^\d{8}$/.test(rntrc) || /^0+$/.test(rntrc))) issues.push('RNTRC com exatamente 8 dígitos (exigência do MDF-e)');
+
+    const holderDocument = unit.rntrcHolder !== undefined
+        ? unit.rntrcHolder?.document ?? null
+        : unit.rntrcHolderPerson !== undefined ? digitsOnly(unit.rntrcHolderPerson?.document) || null : null;
+    const emitter = digitsOnly(emitterDocument);
+    if (holderDocument && holderDocument !== emitter) {
+        if (!['0', '1', '2'].includes(unit.mdfeOwnerType ?? '')) issues.push('vínculo do proprietário no MDF-e');
+        const holderUf = unit.rntrcHolder?.state ?? unit.rntrcHolderPerson?.state ?? unit.ownerState ?? null;
+        if (!/^[A-Z]{2}$/.test(holderUf ?? '')) issues.push('UF do responsável RNTRC');
+    }
+    return issues;
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Composição
 // ────────────────────────────────────────────────────────────────────────────
