@@ -33,6 +33,8 @@ const EMPTY_CAPABILITIES: HubCargoCapabilities = {
 
 interface OsContextValue {
     hubId: string | null;
+    /** Hub em operação (nome/código para o cabeçalho); null enquanto carrega. */
+    hub: Hub | null;
     isAdmin: boolean;
     hubs: Hub[];
     selectHub: (hubId: string) => void;
@@ -56,6 +58,26 @@ export const OsProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     const [error, setError] = useState<string | null>(null);
 
     const hubId = user?.hubId ?? selectedHubId;
+    const [hub, setHub] = useState<Hub | null>(null);
+
+    useEffect(() => {
+        if (!hubId) {
+            setHub(null);
+            return;
+        }
+        let cancelled = false;
+        hubsApi
+            .getById(hubId)
+            .then((body) => {
+                if (!cancelled) setHub((body.data as Hub) ?? null);
+            })
+            .catch(() => {
+                if (!cancelled) setHub(null);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [hubId]);
 
     useEffect(() => {
         if (!isAdmin) return;
@@ -98,6 +120,7 @@ export const OsProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     const value = useMemo<OsContextValue>(
         () => ({
             hubId: hubId ?? null,
+            hub,
             isAdmin,
             hubs,
             selectHub: setSelectedHubId,
@@ -107,7 +130,7 @@ export const OsProvider: React.FC<{ children: React.ReactNode }> = ({ children }
             error,
             refresh,
         }),
-        [hubId, isAdmin, hubs, summary, capabilities, loading, error, refresh],
+        [hubId, hub, isAdmin, hubs, summary, capabilities, loading, error, refresh],
     );
 
     return <OsContext.Provider value={value}>{children}</OsContext.Provider>;

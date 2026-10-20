@@ -5,7 +5,8 @@ import { OsProvider, useOs } from './OsContext';
 import TodayPage from './pages/TodayPage';
 import ReceivePage from './pages/ReceivePage';
 import TripReceivePage from './pages/TripReceivePage';
-import { OsCard, OsEmpty, OsSectionTitle } from './ui/kit';
+import { OsEmpty, OsRow, OsSectionTitle } from './ui/kit';
+import { IconDay, IconReceive, IconTag, IconTower, IconTruck, type OsIconProps } from './ui/icons';
 
 /**
  * TSM O.S. — superfície operacional do hub (rota /hubs).
@@ -13,15 +14,15 @@ import { OsCard, OsEmpty, OsSectionTitle } from './ui/kit';
  * não por entidade. Módulo isolado: nada aqui importa componentes do app legado.
  */
 
-const TABS = [
-    { to: '/hubs', label: 'Hoje', end: true, icon: '☀️' },
-    { to: '/hubs/receber', label: 'Receber', end: false, icon: '📦' },
-    { to: '/hubs/cargas', label: 'Cargas', end: false, icon: '🏷️' },
-    { to: '/hubs/viagens', label: 'Viagens', end: false, icon: '🚚' },
+const TABS: Array<{ to: string; label: string; end: boolean; Icon: React.FC<OsIconProps> }> = [
+    { to: '/hubs', label: 'Hoje', end: true, Icon: IconDay },
+    { to: '/hubs/receber', label: 'Receber', end: false, Icon: IconReceive },
+    { to: '/hubs/cargas', label: 'Cargas', end: false, Icon: IconTag },
+    { to: '/hubs/viagens', label: 'Viagens', end: false, Icon: IconTruck },
 ];
 
 const StubPage: React.FC<{ title: string; slice: string }> = ({ title, slice }) => (
-    <div className="pt-2">
+    <div className="pt-1">
         <OsSectionTitle>{title}</OsSectionTitle>
         <OsEmpty title="Em construção" detail={`Esta estação chega na ${slice} do TSM O.S.`} />
     </div>
@@ -30,16 +31,16 @@ const StubPage: React.FC<{ title: string; slice: string }> = ({ title, slice }) 
 const HubPicker: React.FC = () => {
     const { hubs, selectHub } = useOs();
     return (
-        <div className="pt-2">
+        <div className="pt-1">
             <OsSectionTitle>Escolha o hub para operar</OsSectionTitle>
-            <div className="flex flex-col gap-3">
-                {hubs.map((hub) => (
-                    <OsCard key={hub.id} onClick={() => selectHub(hub.id)}>
-                        <p className="font-semibold text-tower-900 dark:text-white">{hub.name}</p>
-                        <p className="text-sm text-tower-500 dark:text-tower-300">
-                            {hub.code} · {hub.city}/{hub.state}
+            <div className="flex flex-col gap-2.5">
+                {hubs.map((h) => (
+                    <OsRow key={h.id} tone="route" onClick={() => selectHub(h.id)}>
+                        <p className="truncate font-semibold text-tower-900 dark:text-white">{h.name}</p>
+                        <p className="text-[13px] text-tower-500 dark:text-tower-400">
+                            <span className="font-mono text-[12px]">{h.code}</span> · {h.city}/{h.state}
                         </p>
-                    </OsCard>
+                    </OsRow>
                 ))}
                 {hubs.length === 0 ? <OsEmpty title="Carregando hubs…" /> : null}
             </div>
@@ -48,26 +49,42 @@ const HubPicker: React.FC = () => {
 };
 
 const OsShell: React.FC = () => {
-    const { hubId, isAdmin } = useOs();
+    const { hubId, hub, isAdmin } = useOs();
     const navigate = useNavigate();
 
     return (
         <div className="min-h-screen bg-tower-50 text-tower-900 dark:bg-tower-950 dark:text-white">
-            <header className="sticky top-0 z-40 border-b border-tower-200 bg-white/90 backdrop-blur dark:border-tower-800 dark:bg-tower-900/90">
-                <div className="mx-auto flex max-w-xl items-center justify-between px-4 py-3">
-                    <button type="button" onClick={() => navigate('/hubs')} className="text-left">
-                        <p className="font-display text-lg font-bold leading-none">TSM O.S.</p>
-                        <p className="text-[11px] text-tower-400">operação do hub</p>
+            <header className="sticky top-0 z-40 border-b border-tower-200 bg-white/95 backdrop-blur dark:border-tower-800 dark:bg-tower-900/95">
+                <div className="mx-auto flex max-w-xl items-center justify-between gap-3 px-4 py-2.5">
+                    <button type="button" onClick={() => navigate('/hubs')} className="flex items-center gap-2.5 text-left">
+                        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-500 font-display text-[13px] font-extrabold tracking-tight text-white dark:bg-brand-400 dark:text-brand-950">
+                            OS
+                        </span>
+                        <span className="min-w-0">
+                            <span className="block truncate font-display text-[15px] font-bold leading-tight">
+                                {hub?.name ?? 'TSM O.S.'}
+                            </span>
+                            <span className="block text-[11px] leading-tight text-tower-400">
+                                {hub ? (
+                                    <>
+                                        <span className="font-mono">{hub.code}</span> · operação do hub
+                                    </>
+                                ) : (
+                                    'operação do hub'
+                                )}
+                            </span>
+                        </span>
                     </button>
                     {isAdmin ? (
-                        <span className="rounded-full bg-tower-100 px-2.5 py-1 text-[11px] font-semibold text-tower-600 dark:bg-tower-800 dark:text-tower-300">
-                            modo torre
+                        <span className="flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-500/10 px-2.5 py-1.5 text-[11px] font-bold text-brand-600 dark:bg-brand-500/20 dark:text-brand-300">
+                            <IconTower />
+                            torre
                         </span>
                     ) : null}
                 </div>
             </header>
 
-            <main className="mx-auto max-w-xl px-4 pb-24 pt-2">
+            <main className="mx-auto max-w-xl px-4 pb-28 pt-2">
                 {!hubId && isAdmin ? (
                     <HubPicker />
                 ) : (
@@ -84,24 +101,31 @@ const OsShell: React.FC = () => {
 
             <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-tower-200 bg-white pb-[max(env(safe-area-inset-bottom),4px)] dark:border-tower-800 dark:bg-tower-900">
                 <div className="mx-auto grid max-w-xl grid-cols-4">
-                    {TABS.map((tab) => (
+                    {TABS.map(({ to, label, end, Icon }) => (
                         <NavLink
-                            key={tab.to}
-                            to={tab.to}
-                            end={tab.end}
+                            key={to}
+                            to={to}
+                            end={end}
                             className={({ isActive }) =>
                                 clsx(
-                                    'flex min-h-[56px] flex-col items-center justify-center gap-0.5 text-[11px] font-semibold',
-                                    isActive
-                                        ? 'text-accent-600 dark:text-accent-400'
-                                        : 'text-tower-400 dark:text-tower-500',
+                                    'relative flex min-h-[60px] flex-col items-center justify-center gap-1 text-[11px] font-bold focus-visible:outline-2 focus-visible:outline-brand-500',
+                                    isActive ? 'text-tower-900 dark:text-white' : 'text-tower-400 dark:text-tower-500',
                                 )
                             }
                         >
-                            <span aria-hidden className="text-lg leading-none">
-                                {tab.icon}
-                            </span>
-                            {tab.label}
+                            {({ isActive }) => (
+                                <>
+                                    {/* Eco da faixa: só a aba ativa carrega o amarelo. */}
+                                    <span
+                                        className={clsx(
+                                            'absolute left-1/2 top-0 h-[3px] w-9 -translate-x-1/2 rounded-b',
+                                            isActive ? 'bg-brand-yellow-400' : 'bg-transparent',
+                                        )}
+                                    />
+                                    <Icon />
+                                    {label}
+                                </>
+                            )}
                         </NavLink>
                     ))}
                 </div>

@@ -2,17 +2,15 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { manifestsApi } from '../../../lib/api';
 import { useOs } from '../OsContext';
-import { arrivingManifests, type ManifestWithLegs } from '../lib/arrival';
-import { OsBadge, OsCard, OsEmpty, OsErrorNotice, OsSectionTitle, OsSpinner, OsStatTile } from '../ui/kit';
+import { arrivingManifests, ordersToUnload, type ManifestWithLegs } from '../lib/arrival';
+import { OsBadge, OsEmpty, OsErrorNotice, OsRow, OsSectionTitle, OsSkeletonRows, OsStatTile } from '../ui/kit';
 
 /**
  * HOJE — a capa da roda no hub. Pergunta única: "o que precisa de mim agora?"
- * Fila: chegadas em rota, aguardando entrada, cargas em estoque, triagem.
+ * Placar de leitura à distância + fila de chegadas em rota.
  */
 
-function formatKg(value: number): string {
-    return `${new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 }).format(value)} kg`;
-}
+const nf0 = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 });
 
 const TodayPage: React.FC = () => {
     const navigate = useNavigate();
@@ -42,18 +40,19 @@ const TodayPage: React.FC = () => {
         };
     }, [hubId]);
 
-    if (loading) return <OsSpinner label="Carregando o seu dia…" />;
+    if (loading) return <OsSkeletonRows count={4} />;
     if (error) return <OsErrorNotice message={error} onRetry={() => void refresh()} />;
 
     return (
         <div className="pb-6">
             <OsSectionTitle>Agora</OsSectionTitle>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-2.5">
                 {capabilities.canReceive ? (
                     <OsStatTile
                         label="Chegando"
-                        value={arrivalsLoading ? '…' : arrivals.length}
+                        value={arrivalsLoading ? '–' : arrivals.length}
                         hint="viagens em rota para cá"
+                        tone="route"
                         onClick={() => navigate('/hubs/receber')}
                     />
                 ) : null}
@@ -62,6 +61,7 @@ const TodayPage: React.FC = () => {
                         label="Aguardando entrada"
                         value={summary.awaiting.demands}
                         hint="mercadoria anunciada"
+                        tone="attention"
                         onClick={() => navigate('/hubs/cargas')}
                     />
                 ) : null}
@@ -69,7 +69,8 @@ const TodayPage: React.FC = () => {
                     <OsStatTile
                         label="Em estoque"
                         value={summary.stock.orders}
-                        hint={`${summary.stock.withoutActiveTrip} sem viagem · ${formatKg(summary.stock.effectiveWeightKg)}`}
+                        hint={`${summary.stock.withoutActiveTrip} sem viagem · ${nf0.format(summary.stock.effectiveWeightKg)} kg`}
+                        tone={summary.stock.withoutActiveTrip > 0 ? 'attention' : 'ok'}
                         onClick={() => navigate('/hubs/cargas')}
                     />
                 ) : null}
@@ -77,6 +78,7 @@ const TodayPage: React.FC = () => {
                     label="Triagem"
                     value={summary.triage.documents}
                     hint="documentos descobertos"
+                    tone={summary.triage.documents > 0 ? 'attention' : 'none'}
                     onClick={() => navigate('/hubs/cargas')}
                 />
             </div>
@@ -85,24 +87,31 @@ const TodayPage: React.FC = () => {
                 <>
                     <OsSectionTitle>Chegadas em rota</OsSectionTitle>
                     {arrivalsLoading ? (
-                        <OsSpinner />
+                        <OsSkeletonRows />
                     ) : arrivals.length === 0 ? (
-                        <OsEmpty title="Nenhuma viagem vindo para cá agora" detail="Quando uma transferência sair com destino a este hub, ela aparece aqui." />
+                        <OsEmpty
+                            title="Nenhuma viagem vindo para cá"
+                            detail="Quando uma transferência sair com destino a este hub, ela entra nesta fila."
+                        />
                     ) : (
-                        <div className="flex flex-col gap-3">
-                            {arrivals.map((m) => (
-                                <OsCard key={m.id} onClick={() => navigate(`/hubs/receber/${m.id}`)}>
-                                    <div className="flex items-center justify-between gap-2">
-                                        <p className="font-semibold text-tower-900 dark:text-white">
-                                            {m.origin} → {m.destination}
+                        <div className="flex flex-col gap-2.5">
+                            {arrivals.map((m) => {
+                                const unload = hubId ? ordersToUnload(m, hubId).length : 0;
+                                return (
+                                    <OsRow key={m.id} tone="route" onClick={() => navigate(`/hubs/receber/${m.id}`)}>
+                                        <div className="flex items-center justify-between gap-2 pr-1">
+                                            <p className="truncate font-semibold text-tower-900 dark:text-white">
+                                                {m.origin} → {m.destination}
+                                            </p>
+                                            <OsBadge tone="route">em rota</OsBadge>
+                                        </div>
+                                        <p className="mt-0.5 truncate text-[13px] text-tower-500 dark:text-tower-400">
+                                            {unload > 0 ? `${unload} pedido(s) descem aqui · ` : ''}
+                                            {m.link?.name ?? 'transportador a confirmar'} · {nf0.format(m.totalWeight)} kg
                                         </p>
-                                        <OsBadge tone="warn">em rota</OsBadge>
-                                    </div>
-                                    <p className="mt-1 text-sm text-tower-500 dark:text-tower-300">
-                                        {m.link?.name ?? 'Transportador não informado'} · {formatKg(m.totalWeight)}
-                                    </p>
-                                </OsCard>
-                            ))}
+                                    </OsRow>
+                                );
+                            })}
                         </div>
                     )}
                 </>
