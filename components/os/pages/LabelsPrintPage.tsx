@@ -73,6 +73,16 @@ const LabelsPrintPage: React.FC = () => {
                 </div>
                 <OsButton onClick={() => window.print()}>Imprimir</OsButton>
             </div>
+            {item.orderId ? (
+                <OsButton
+                    full
+                    variant="secondary"
+                    className="mt-3 print:hidden"
+                    onClick={() => navigate(`/hubs/pedidos/${item.orderId}`, { state: { item } })}
+                >
+                    Próximo: documento do frete (CT-e/minuta)
+                </OsButton>
+            ) : null}
 
             <div id="os-labels" className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {labels.map((label, i) => (

@@ -74,6 +74,15 @@ const TodayPage: React.FC = () => {
                         onClick={() => navigate('/hubs/cargas')}
                     />
                 ) : null}
+                {capabilities.canViewOrders ? (
+                    <OsStatTile
+                        label="Sem CT-e/minuta"
+                        value={summary.freight?.missing ?? 0}
+                        hint="pedidos do estoque sem documento"
+                        tone={(summary.freight?.missing ?? 0) > 0 ? 'attention' : 'ok'}
+                        onClick={() => navigate('/hubs/documentos')}
+                    />
+                ) : null}
                 <OsStatTile
                     label="Triagem"
                     value={summary.triage.documents}

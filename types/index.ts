@@ -883,6 +883,78 @@ export interface HubCargoItem {
     allowedActions: HubCargoAllowedActions;
     blockingReasons: string[];
     updatedAt?: string;
+    /** Documento do frete do pedido (CT-e/DC-e/minuta). */
+    freightDocState?: FreightDocState;
+}
+
+// ========== DOCUMENTO DO FRETE (TSM O.S.) ==========
+
+export type FreightDocState = 'emitted' | 'in_flight' | 'rejected' | 'draft' | 'none';
+export type FreightTermValue = 'CIF' | 'FOB' | 'REDESPACHO';
+
+export interface FreightBreakdownValues {
+    freightBase: number;
+    adValorem: number;
+    gris: number;
+    toll: number;
+    dispatch: number;
+    others: number;
+    icms: number;
+}
+
+export interface FreightDocumentSummary {
+    id: string;
+    documentType: FreightDocType;
+    status: FreightCalcStatus;
+    number: string | null;
+    freightTotal: number;
+    calculationMethod: FreightCalcMethod;
+    pricingLabel: string | null;
+    statusReason: string | null;
+    accessKey: string | null;
+    attempt: { count: number; max: number } | null;
+    createdAt: string;
+}
+
+export interface FreightPricingChoice {
+    method: 'ESPECIAL' | 'TARIFA_GERAL';
+    tableId: string;
+    tableLabel: string;
+    routeId: string | null;
+    source: 'payer_special_route' | 'payer_special' | 'general_route' | 'general';
+}
+
+export interface FreightSuggestion {
+    orderId: string;
+    orderNumber: number | null;
+    nfNumber: string | null;
+    freightTerm: FreightTermValue;
+    payer: { role: 'remetente' | 'destinatario' | 'consignatario'; personId: string; name: string; document: string; isClient: boolean } | null;
+    payerChange: { allowed: boolean; reason: string | null };
+    docs: { allowed: FreightDocType[]; recommended: FreightDocType; reason: string };
+    emitter: { id: string; name: string; provider: string; environment: string } | null;
+    route: { id: string; label: string } | null;
+    pricing: FreightPricingChoice | null;
+    preview: { total: number; breakdown: FreightBreakdownValues; effectiveWeight: number } | null;
+    params: { volumes: number; weight: number; nfValue: number };
+    blockers: string[];
+    missingFields: string[];
+    state: FreightDocState;
+    documents: FreightDocumentSummary[];
+    parties: { remetente: Person | null; destinatario: Person | null; consignatario: Person | null };
+}
+
+export interface FreightQueueItem {
+    orderId: string;
+    orderNumber: number | null;
+    nfNumber: string | null;
+    recipientName: string | null;
+    destination: string | null;
+    units: number;
+    weightKg: number;
+    sinceAt: string;
+    suggestion: Pick<FreightSuggestion, 'freightTerm' | 'payer' | 'docs' | 'pricing' | 'blockers' | 'state'> & { total: number | null };
+    ready: boolean;
 }
 
 // Fila de consolidação por próximo salto (G1 — tabela de roteamento da teia)
@@ -936,6 +1008,8 @@ export interface HubCargoSummary {
     incoming: { orders: number; trips: number };
     awaiting: { demands: number };
     triage: { documents: number };
+    /** Pedidos no estoque sem CT-e/minuta emitido nem a caminho da SEFAZ. */
+    freight?: { missing: number };
 }
 
 export type HubCargoResolution =

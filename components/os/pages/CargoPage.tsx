@@ -144,7 +144,11 @@ const CargoPage: React.FC = () => {
                                             </span>
                                         ) : null}
                                     </p>
-                                    {item.activeTrip ? <OsBadge tone="route">em viagem</OsBadge> : null}
+                                    {item.activeTrip ? (
+                                        <OsBadge tone="route">em viagem</OsBadge>
+                                    ) : item.kind === 'order' && item.freightDocState && !['emitted', 'in_flight'].includes(item.freightDocState) ? (
+                                        <OsBadge tone="warn">sem CT-e</OsBadge>
+                                    ) : null}
                                 </div>
                                 <p className="mt-0.5 truncate text-[13px] text-tower-500 dark:text-tower-400">
                                     {cargoFacts(item) || item.statusLabel}

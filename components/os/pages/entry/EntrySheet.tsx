@@ -13,12 +13,14 @@ import {
 } from '../../lib/entry';
 import { OsButton } from '../../ui/kit';
 import OsSheet, { apiErrorMessage } from '../../ui/Sheet';
+import { payerFromModFrete } from '../../lib/freight';
 import CargoFields from './CargoFields';
 import type { PartySource } from './PartyCard';
 import PartyPicker from './PartyPicker';
+import PayerChoice, { type PayerTerm } from './PayerChoice';
 
 /**
- * ENTRADA NO BALCÃO — "esta mercadoria chegou; quem envia, para quem vai e quanto é?"
+ * ENTRADA NO BALCÃO — "esta mercadoria chegou; quem envia, para quem vai, quem paga e quanto é?"
  * Com o XML da NF-e no sistema, tudo vem pronto. Sem XML: o remetente vem do CNPJ da chave
  * pelo cadastro público (Receita), o destinatário o operador busca ou cadastra, e volumes,
  * peso e valor são copiados da DANFE impressa. Confirmar cria o pedido em posse deste hub e
@@ -41,6 +43,7 @@ const EntrySheet: React.FC<{
     const [destinatario, setDestinatario] = useState<Party>(NO_PARTY);
     const [xmlCargo, setXmlCargo] = useState<XmlCargo | null>(null);
     const [cargoForm, setCargoForm] = useState<CargoForm>(EMPTY_CARGO_FORM);
+    const [payer, setPayer] = useState<{ term: PayerTerm | null; fromNfe: boolean }>({ term: null, fromNfe: false });
     const [loading, setLoading] = useState(true);
     const [notice, setNotice] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
@@ -60,7 +63,11 @@ const EntrySheet: React.FC<{
                 const source: PartySource = data?.partiesSource ?? 'manual';
                 if (data?.parties?.remetente) setRemetente({ person: data.parties.remetente, source });
                 if (data?.parties?.destinatario) setDestinatario({ person: data.parties.destinatario, source });
-                if (data?.status === 'available') setXmlCargo(xmlCargoSummary(data.cargo));
+                if (data?.status === 'available') {
+                    setXmlCargo(xmlCargoSummary(data.cargo));
+                    const fromNfe = payerFromModFrete(data.cargo?.modFrete);
+                    if (fromNfe) setPayer({ term: fromNfe, fromNfe: true });
+                }
                 else setNotice('O XML desta NF-e ainda não chegou ao sistema. Confira com a DANFE impressa.');
             })
             .catch(() => !cancelled && setNotice('Não foi possível ler os dados da NF-e. Confira com a DANFE impressa.'))
@@ -74,17 +81,19 @@ const EntrySheet: React.FC<{
     const missing = entryMissing({
         hasRemetente: Boolean(remetente.person),
         hasDestinatario: Boolean(destinatario.person),
+        hasPayer: payer.term !== null,
         cargoMissing: counter.missing,
     });
 
     const confirm = async () => {
-        if (!item.demandId || !remetente.person || !destinatario.person || missing.length > 0 || busy) return;
+        if (!item.demandId || !remetente.person || !destinatario.person || !payer.term || missing.length > 0 || busy) return;
         setBusy(true);
         setError(null);
         try {
             const body = await intakeDemandsApi.confirmArrival(item.demandId, {
                 destinatarioPersonId: destinatario.person.id,
                 remetentePersonId: remetente.person.id,
+                freightTerm: payer.term,
                 ...(counter.cargo ? { cargo: counter.cargo } : {}),
             });
             const orderId = (body.data?.order as { id?: string } | null)?.id;
@@ -137,6 +146,13 @@ const EntrySheet: React.FC<{
                         value={destinatario.person}
                         source={destinatario.source}
                         onChange={(person, source) => setDestinatario({ person, source })}
+                    />
+                    <PayerChoice
+                        value={payer.term}
+                        onChange={(term) => setPayer({ term, fromNfe: false })}
+                        remetenteName={remetente.person?.legalName}
+                        destinatarioName={destinatario.person?.legalName}
+                        sourceLabel={payer.fromNfe ? 'da NF-e' : null}
                     />
                     {xmlCargo ? (
                         <div className="mt-4">

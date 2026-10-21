@@ -22,9 +22,9 @@ abre o cadastro — isso é correção de cadastro (uma vez por link/motorista),
 
 ```
 Entrada ─┐
-Receber ─┴─▶ Estoque/Etiquetas ─▶ Consolidar ─▶ Preparar e despachar ─▶ (outro hub: Receber)
-                                                     │                         └─▶ Entregar ─▶ Comprovado
-                                                     └─ Documentos (dentro)
+Receber ─┴─▶ Pedido: Etiquetas + Documento do frete (CT-e/minuta) ─▶ Viagem (volumetria, carregamento por volume)
+                                                                         └─▶ Preparar e despachar (MDF-e/CIOT) ─▶ (outro hub: Receber)
+                                                                                                                  └─▶ Entregar ─▶ Comprovado
 Exceções: transversal a todas · Aprendizado: torre
 ```
 
@@ -43,7 +43,7 @@ Exceções: transversal a todas · Aprendizado: torre
 - **Próxima:** pedidos entram em Estoque e, por consequência, na fila de Consolidar.
 - **Orçamento:** ≤ 6 toques para uma chegada sem divergência.
 
-### 3. Entrada (parcial)
+### 3. Entrada ✅
 - **Pergunta:** o que está chegando no balcão e o que falta para virar pedido?
 - **Fila:** bucket `awaiting` (NF-e descoberta / coleta anunciada).
 - **Ação primária:** "Confirmar entrada" em 1 toque quando a NF-e já resolveu remetente/destinatário.
@@ -89,14 +89,23 @@ Exceções: transversal a todas · Aprendizado: torre
   `LINK_ACCESS_PENDING` deixa de bloquear (vira aviso), pois o hub pode operar a viagem.
 - **Orçamento:** com cadastro em dia, da fila à saída ≤ 12 toques.
 
-### 7. Carregamento conferido (A6)
-- Dentro de Preparar e despachar, antes da saída: scan das etiquetas/pedidos; contagem por pedido contra os volumes.
-- Pedido faltando ou sobrando → reconhecimento obrigatório → evento NOTE com ator. Entidade `Volume` entra se a
-  contagem por QR de pedido não bastar.
+### 7. Viagem pela volumetria e carregamento por volume (A6, A6.1)
+- **Viagem:** o estoque documentado em 3D (peso/m³) por destino; várias rotas no mesmo veículo; o sistema mostra quando
+  precisa de mais um veículo. Só entra pedido conferido, em estoque e com documento do frete (NORTE #30, #36).
+- **Carregamento:** QR por volume; conferência antes da saída (esperado × conferido); faltou/sobrou → reconhecimento
+  obrigatório → exceção com dono. Doca offline-first (NORTE #35).
 
-### 8. Documentos (A7)
-- CT-e por pedido (cálculo → pré-checagem → emissão), MDF-e, CIOT (emitir ou **dispensar com motivo** — hoje não há
-  endpoint de dispensa). Primeiro dentro de Preparar; vira estação própria se o volume justificar.
+### 8. Documento do frete — no pedido (A7a ✅) e da viagem (A7b)
+- **Pergunta:** este pedido tem CT-e/minuta?
+- **Onde:** página do pedido (`/#/hubs/pedidos/:id`), logo depois da entrada e das etiquetas; fila `/#/hubs/documentos`
+  ("Sem CT-e/minuta") para o lote.
+- **Sugestão do sistema:** pagador (da NF-e `modFrete` ou informado na entrada), tipo (CT-e com NF-e; minuta sempre
+  possível), emitente do hub, preço (especial do pagador → geral da rota → geral → informado), pendências do preflight com
+  quem resolve (cadastro da parte aqui; emitente/hub na torre; CFOP/CST quando o emitente não tem padrão).
+- **Ação primária:** "Emitir CT-e · R$ X" — prepara sem duplicar (trava por pedido) e emite (CAS); acompanha a SEFAZ;
+  imprime DACTE/minuta.
+- **Evento:** documento emitido → pedido "pronto para viajar"; frete informado e troca de pagador gravam ator e motivo.
+- **Viagem (A7b):** MDF-e e CIOT (emitir ou **dispensar com motivo**) sem sair do O.S.
 
 ### 9. Entregar (A8)
 - **Pergunta:** o que sai hoje para entrega e como comprovo?

@@ -54,6 +54,10 @@ import type {
     HubCargoSummary,
     ConsolidationQueueGroup,
     HubCoverageEntry,
+    FreightSuggestion,
+    FreightQueueItem,
+    FreightBreakdownValues,
+    FreightDocType,
 } from '../types/index';
 
 // URL relativa: em dev o Vite faz proxy de `/api` → backend (vite.config); em produção o nginx repassa `/api`.
@@ -1617,6 +1621,27 @@ export const ordersFreightApi = {
         return response.data;
     },
 
+    /** TSM O.S.: pagador, documento, emitente, preço, prévia e pendências do frete do pedido. */
+    suggestion: async (orderId: string) => {
+        const response = await api.get<ApiResponse<FreightSuggestion>>(`/orders/${orderId}/freight-calculations/suggestion`);
+        return response.data;
+    },
+
+    /** TSM O.S.: deixa o cálculo pronto para emitir sem duplicar (ativo do mesmo tipo volta como está). */
+    prepare: async (orderId: string, body: {
+        documentType: FreightDocType;
+        informed?: Partial<FreightBreakdownValues>;
+        reason?: string;
+        newDocument?: boolean;
+    }) => {
+        const response = await api.post<ApiResponse<{
+            calc: OrderFreightCalculation;
+            preflight: CtePreflightResult | null;
+            alreadyActive: boolean;
+        }>>(`/orders/${orderId}/freight-calculations/prepare`, body);
+        return response.data;
+    },
+
     getCteDocumentUrl: async (orderId: string, calcId: string, type: 'xml' | 'pdf') => {
         const response = await api.get<{
             success: boolean;
@@ -1766,6 +1791,14 @@ export const hubCargoApi = {
             '/hub/cargo/resolve',
             { code, ...(hubId ? { hubId } : {}) },
         );
+        return response.data;
+    },
+
+    /** Pedidos no estoque sem CT-e/minuta (emissão pedido a pedido ou em lote). */
+    freightQueue: async (hubId?: string) => {
+        const response = await api.get<ApiResponse<FreightQueueItem[]>>('/hub/cargo/freight-queue', {
+            params: hubId ? { hubId } : undefined,
+        });
         return response.data;
     },
 

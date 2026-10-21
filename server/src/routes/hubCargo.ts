@@ -14,6 +14,7 @@ import {
 import { resolveHubCargoCode } from '../services/hubCargo/resolveHubCargoCode.js';
 import { getConsolidationQueues } from '../services/hubCargo/consolidationQueue.js';
 import { consolidateFromQueue } from '../services/hubCargo/consolidateFromQueue.js';
+import { listFreightQueue } from '../services/freight/freightQueries.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
@@ -117,6 +118,22 @@ router.get('/queues', async (req: AuthRequest, res: Response, next: NextFunction
         }
         const data = await getConsolidationQueues(hubId);
         res.json({ success: true, data, capabilities });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// GET /api/hub/cargo/freight-queue — pedidos no estoque sem CT-e/minuta (emissão pedido a pedido ou em lote).
+router.get('/freight-queue', async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const requested = typeof req.query.hubId === 'string' ? req.query.hubId : undefined;
+        const hubId = resolveActingHubId(req, requested);
+        const capabilities = hubCargoCapabilities(req.user!.roles, req.user!.permissions);
+        if (!capabilities.canViewOrders) {
+            throw new AppError('Sem permissão para ver os pedidos deste Hub.', 403);
+        }
+        const data = await listFreightQueue(hubId);
+        res.json({ success: true, data });
     } catch (error) {
         next(error);
     }

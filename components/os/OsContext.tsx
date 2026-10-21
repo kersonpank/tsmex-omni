@@ -23,6 +23,7 @@ export const EMPTY_SUMMARY: HubCargoSummary = {
     incoming: { orders: 0, trips: 0 },
     awaiting: { demands: 0 },
     triage: { documents: 0 },
+    freight: { missing: 0 },
 };
 
 const EMPTY_CAPABILITIES: HubCargoCapabilities = {

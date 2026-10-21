@@ -37,6 +37,7 @@ import {
 import { parseOrderStatusWhereInput } from '../lib/orderStatusFilter.js';
 import { extractChaveFromInput } from '../lib/nfeChaveIntake.js';
 import { resourceGuard, uuidParam } from '../middleware/resourceAccess.js';
+import { payerChangeBlock } from '../services/freight/freightDocRules.js';
 
 const router = Router();
 
@@ -952,6 +953,31 @@ router.patch('/:id/people', authenticate, authorize('ADMIN', 'HUB'), authorizeOp
 
         checkHubAccessIfHubRole(req, order);
 
+        // Quem paga o frete só muda sem fatura e sem CT-e já emitido com o tomador atual.
+        const payerBefore = await prisma.order.findUniqueOrThrow({
+            where: { id },
+            select: {
+                freightTerm: true,
+                consignatarioPersonId: true,
+                invoices: { where: { status: { not: 'CANCELLED' } }, select: { id: true } },
+                invoiceItems: { where: { invoice: { status: { not: 'CANCELLED' } } }, select: { id: true } },
+                freightCalculations: { select: { status: true, documentType: true, cteNumber: true } },
+            },
+        });
+        const termChanged = data.freightTerm != null && data.freightTerm !== payerBefore.freightTerm;
+        const payerChanged =
+            termChanged ||
+            (data.consignatarioPersonId !== undefined &&
+                data.consignatarioPersonId !== payerBefore.consignatarioPersonId &&
+                (data.freightTerm ?? payerBefore.freightTerm) === 'REDESPACHO');
+        if (payerChanged) {
+            const block = payerChangeBlock({
+                invoiced: payerBefore.invoices.length > 0 || payerBefore.invoiceItems.length > 0,
+                calcs: payerBefore.freightCalculations,
+            });
+            if (block) throw new AppError(block, 409);
+        }
+
         const updateData: Record<string, unknown> = {};
         if (data.freightTerm != null) updateData.freightTerm = data.freightTerm;
         if (data.remetentePersonId != null) updateData.remetentePersonId = data.remetentePersonId;
@@ -1003,6 +1029,18 @@ router.patch('/:id/people', authenticate, authorize('ADMIN', 'HUB'), authorizeOp
             where: { id },
             data: updateData as any
         });
+
+        if (termChanged) {
+            const label = { CIF: 'Remetente (CIF)', FOB: 'Destinatário (FOB)', REDESPACHO: 'Terceiro (redespacho)' } as const;
+            await prisma.orderHistory.create({
+                data: {
+                    orderId: id,
+                    eventType: 'NOTE',
+                    actorUserId: req.user!.id,
+                    description: `Pagador do frete: ${payerBefore.freightTerm ? label[payerBefore.freightTerm] : 'não definido'} → ${label[data.freightTerm!]}`,
+                },
+            });
+        }
 
         const fullOrder = await prisma.order.findUnique({
             where: { id },

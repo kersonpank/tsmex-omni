@@ -82,10 +82,13 @@ export function entryMissing(state: {
     hasRemetente: boolean;
     hasDestinatario: boolean;
     cargoMissing: string[];
+    /** Quem paga o frete — obrigatório quando a NF-e não diz. */
+    hasPayer?: boolean;
 }): string[] {
     return [
         ...(state.hasRemetente ? [] : ['remetente']),
         ...(state.hasDestinatario ? [] : ['destinatário']),
+        ...(state.hasPayer === false ? ['quem paga o frete'] : []),
         ...state.cargoMissing,
     ];
 }

@@ -58,6 +58,7 @@ describe('entryMissing / missingSentence', () => {
         expect(missingSentence(missing)).toBe('Falta: destinatário e peso.');
         expect(missingSentence(['remetente', 'destinatário', 'peso'])).toBe('Falta: remetente, destinatário e peso.');
         expect(missingSentence([])).toBeNull();
+        expect(entryMissing({ hasRemetente: true, hasDestinatario: true, hasPayer: false, cargoMissing: [] })).toEqual(['quem paga o frete']);
     });
 });
 

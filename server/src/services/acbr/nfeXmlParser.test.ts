@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { parseNfeProcXml } from './nfeXmlParser.js';
 
-function buildNfeProcXml(opts: { multiplosItens?: boolean; multiplosVolumes?: boolean; comIe?: boolean; comTransportador?: boolean; comEnderDest?: boolean; indIEDest?: '1' | '2' | '9' } = {}): string {
+function buildNfeProcXml(opts: { multiplosItens?: boolean; multiplosVolumes?: boolean; comIe?: boolean; comTransportador?: boolean; comEnderDest?: boolean; indIEDest?: '1' | '2' | '9'; modFrete?: string } = {}): string {
     const det1 = `
       <det nItem="1">
         <prod>
@@ -70,6 +70,7 @@ function buildNfeProcXml(opts: { multiplosItens?: boolean; multiplosVolumes?: bo
         </ICMSTot>
       </total>
       <transp>
+        ${opts.modFrete !== undefined ? `<modFrete>${opts.modFrete}</modFrete>` : ''}
         ${opts.comTransportador ? `<transporta>
           <CNPJ>26879820000270</CNPJ>
           <xNome>L.M. DA SILVA TRANSPORTES</xNome>
@@ -183,6 +184,12 @@ describe('parseNfeProcXml', () => {
         assert.equal(result.pesoBruto, 136.0);
         assert.equal(result.pesoLiquido, 128.5);
         assert.equal(result.quantidadeVolumes, 4);
+    });
+
+    it('modFrete diz quem paga o frete (0 remetente, 1 destinatário) e fica ausente quando o XML não traz', () => {
+        assert.equal(parseNfeProcXml(buildNfeProcXml({ modFrete: '0' })).modFrete, '0');
+        assert.equal(parseNfeProcXml(buildNfeProcXml({ modFrete: '1' })).modFrete, '1');
+        assert.equal(parseNfeProcXml(buildNfeProcXml()).modFrete, undefined);
     });
 
     it('transportador fica undefined quando <transp> não tem <transporta> (frete próprio/sem transportador formal)', () => {

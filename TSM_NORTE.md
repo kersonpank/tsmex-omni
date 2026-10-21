@@ -124,6 +124,13 @@ O sistema vende trabalho pronto (tese *service-as-software*), mas chega lá **em
 | 27 | O.S. **não reconstrói o que o legado já faz equivalente** — constrói o que fecha a roda; reaproveita o motor (backend) existente | Evitar repintar o legado; o backend já é maduro |
 | 28 | Lonngren será aposentado (2027): corte **por rota**; scraper é ponte de dados com log, idempotência e alarme | Prazo externo; dado divergente abre a roda |
 | 29 | Design atual é **funcional, não final**: passe de design dedicado (moderno, com motion) depois que as estações rodarem | Operação primeiro, acabamento depois |
+| 30 | **Documento do frete (CT-e/minuta) é do pedido** e sai logo depois da entrada e das etiquetas, **antes de qualquer carregamento**. Carregamento só aceita pedido conferido, em estoque e documentado | O pedido nasce com a posse; no legado essa parte já funcionava bem — o que travava era a viagem |
+| 31 | **Quem paga (tomador)** vem da NF-e (`modFrete` 0 remetente / 1 destinatário) quando o XML está no sistema; sem XML, o hub informa na entrada. Muda enquanto não houver fatura e sem CT-e já emitido com o tomador atual (aí cancela/substitui antes). Toda troca grava quem fez | Tomador está no documento fiscal e define quem é faturado |
+| 32 | **CT-e é o padrão** com NF-e; **minuta sempre possível**; o pedido pode ter **vários cálculos/documentos** | Operação real usa os dois |
+| 33 | **Preço**: tabela especial do pagador (na rota → sem rota; por cliente ou conta) → tarifa geral da rota (hub atual → hub que cobre o destino) → geral sem rota → **frete informado pelo hub** (mesmos campos do cálculo). Valor diferente da tabela exige motivo, registrado | Hub faz tudo, sem preço inventado em silêncio |
+| 34 | Emissão **no pedido (um toque) e em lote** pela fila "Sem CT-e/minuta"; **nunca duplica** (trava por pedido no preparo + compare-and-swap na emissão) | Dinheiro e fiscal: 2 toques → 1 documento |
+| 35 | **Custódia por volume nos 2 pontos críticos** — carregamento da transferência e descarga no hub destino (esperado 12, conferido 11 não fecha em silêncio e abre exceção); **doca offline-first**; a fila de exceções nasce junto com a custódia | Combinado no início (PLANO-EXECUTAVEL A4/Fase 2) e esquecido no meio — volta aqui |
+| 36 | **Viagem pela volumetria**: o hub monta a carga vendo o estoque em 3D (peso/m³), junta **várias rotas no mesmo veículo** e o sistema mostra quando precisa de **mais um veículo** | A parte da viagem era a mais confusa do legado |
 
 ---
 
@@ -170,9 +177,10 @@ Detalhe completo, com fila, ação e evento de cada uma: spec
 | Entrada | O que está chegando no balcão e falta para virar pedido? | ✅ scan da DANFE (código de barras) ou chave digitada → entrada → pedido → etiquetas, em Receber |
 | Estoque e etiquetas | O que tenho aqui e está identificado? | ✅ busca, scan, etiqueta por volume |
 | Consolidar | O que está pronto para viajar e para onde? | ✅ fila por próximo salto + montar viagem |
-| Preparar e despachar | O que falta para esta viagem sair? | ✅ pendências, responsável, Carta Frete, confirmar e sair pelo hub (CT-e/CIOT ainda pela tela atual até A7) |
+| Preparar e despachar | O que falta para esta viagem sair? | ✅ pendências, responsável, Carta Frete, confirmar e sair pelo hub; CT-e abre o pedido no O.S.; CIOT ainda pela tela atual (A7b) |
 | Ficha do transportador | O que falta para este transportador rodar com CIOT e MDF-e? | ✅ transportador, placas e motoristas completos pelo hub |
-| Documentos | Que CT-e/MDF-e/CIOT faltam? | dentro de "Preparar"; estação própria depois |
+| Documento do frete | Este pedido tem CT-e/minuta? | ✅ no pedido, logo após entrada e etiquetas: pagador (da NF-e ou informado), CT-e/minuta, preço da tabela ou informado, pendências com quem resolve, emissão em 1 toque; fila "Sem CT-e/minuta" com lote |
+| Documentos da viagem | Que MDF-e/CIOT faltam? | MDF-e dentro de "Preparar"; CIOT ainda pela tela atual (A7b) |
 | Entregar | O que sai hoje para entrega e como comprovo? | pendente |
 | Exceções (transversal) | O que travou, de quem é, até quando? | pendente |
 | Aprendizado (torre) | O que o planejado × realizado ensinou? | backend de margem existe; estação pendente |
@@ -192,6 +200,9 @@ Detalhe completo, com fila, ação e evento de cada uma: spec
 - ❌ Refatorar o legado (`/hub`, god-components) ou migrar HashRouter: **o O.S. substitui estação por estação**.
 
 ### ⏭️ Depois (importante, não agora)
+- Terceiro pagador (redespacho/consignatário como tomador) na entrada do O.S. — o backend já suporta `REDESPACHO`.
+- CFOP intraestadual (5.35x) no catálogo do CT-e para distribuição regional dentro da mesma UF — **confirmar com a contabilidade** antes.
+- Cancelamento/substituição de CT-e pelo O.S. (hoje não existe em lugar nenhum).
 - Passe de design moderno com motion (decisão #29).
 - Gateway de pagamento integrado.
 - Referência da chave do CT-e do consignatário no nosso CT-e.
@@ -220,8 +231,15 @@ automático, autorização do hub no ciclo da própria viagem. (Detalhe: `docs/s
       completa veículo (cada placa) e motoristas com tudo que CIOT (e-Frete) e MDF-e exigem; o motor de pendências passa
       a cobrar os dados que antes só falhavam na emissão do MDF-e (carroceria, rodado, UF de licenciamento, RNTRC de 8
       dígitos, vínculo do proprietário). Edição restrita a torre, hub que cadastrou ou que já usou o transportador
-- [ ] A6 Carregamento conferido por scan (custódia ponto 1); divergência nunca silenciosa
-- [ ] A7 Documentos no fluxo: CT-e por pedido, MDF-e, CIOT (emitir/dispensar com motivo) sem sair do O.S.
+- [x] A7a **Documento do frete no pedido** (#30–#34): pagador na entrada (`modFrete` da NF-e ou informado), página do pedido
+      (`/#/hubs/pedidos/:id`) com etiquetas → CT-e/minuta (preço especial do pagador → geral da rota → informado com motivo),
+      pendências fiscais com quem resolve, emissão em 1 toque com acompanhamento da SEFAZ e impressão; fila "Sem CT-e/minuta"
+      (`/#/hubs/documentos`) com lote; troca de pagador travada por fatura/CT-e emitido e registrada
+- [ ] A6 **Viagem pela volumetria** (#36): estoque documentado em 3D (peso/m³), várias rotas no mesmo veículo, mais um veículo
+      quando não cabe; só entra pedido conferido, em estoque e com documento do frete
+- [ ] A6.1 **Custódia por volume** (#35): QR por volume na etiqueta, carregamento conferido antes da saída e descarga conferida por
+      volume no destino; divergência abre exceção (A10 junto); scan funciona sem internet e sincroniza
+- [ ] A7b MDF-e e CIOT da viagem (emitir/dispensar com motivo) sem sair do O.S.
 - [ ] A8 Entregar: rota do dia + tentativa de entrega com comprovação (`DeliveryAttempt` já existe)
 - [x] A9 Entrada no balcão pela NF-e: leitura do código de barras da DANFE (mesmo motor do painel atual), chave digitada ou leitor USB; nota esperada, nota da triagem SEFAZ ou nota válida sem cadastro viram entrada; remetente/destinatário da NF-e ou escolhidos/cadastrados na hora; confirma e abre as etiquetas
 - [x] A9.2 Entrada sem XML que funciona: remetente pelo CNPJ da chave nos dados públicos da Receita (BrasilAPI → ReceitaWS, cidade IBGE); destinatário com campo vazio (nunca texto do sistema para apagar) e cadastro em um toque por CNPJ; volumes, peso e valor copiados da DANFE impressa e gravados com evento; cartão da pessoa aponta o que falta para o CT-e (cidade IBGE, IE)
@@ -257,6 +275,9 @@ automático, autorização do hub no ciclo da própria viagem. (Detalhe: `docs/s
 
 ### Regras de execução
 - Uma etapa/item por vez; **nada avança porque o software ficou pronto** — avança com uso real e ganho medido.
+- **Medir na rota piloto** (GRU → Imperatriz/São Luís + distribuição regional): toques por tarefa (receber chegada ≤ 6,
+  achar carga ≤ 3 toques ou 1 scan, entrada no balcão ≤ 60 s), minutos de coordenação por remessa e % de remessas que passam
+  pela roda sem sair do sistema — 3 remessas reais (normal, com divergência, com falha de entrega) a cada etapa.
 - Arquivos novos do O.S. ≤ ~300 linhas; O.S. não importa páginas/abas legadas.
 - Toda tela nova passa no contrato de estação (#21) e no teste de conformidade da teia (§2.3).
 

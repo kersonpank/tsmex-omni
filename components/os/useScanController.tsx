@@ -1,4 +1,5 @@
 import React, { useCallback, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { HubCargoItem } from '../../types/index';
 import { useScanFlow } from './useScanFlow';
 import type { ScanFinal } from './lib/intake';
@@ -12,17 +13,23 @@ const Scanner = React.lazy(() => import('./ui/Scanner'));
  * (entrada da NF-e, item, aviso) e desenha as folhas. `onChanged` recarrega a tela chamadora.
  */
 export function useScanController(hubId: string | null, onChanged: () => void) {
+    const navigate = useNavigate();
     const flow = useScanFlow(hubId);
     const [scanOpen, setScanOpen] = useState(false);
     const [entry, setEntry] = useState<HubCargoItem | null>(null);
     const [selected, setSelected] = useState<{ item: HubCargoItem; note?: string } | null>(null);
     const [message, setMessage] = useState<{ kind: 'info' | 'error'; text: string } | null>(null);
 
-    const apply = useCallback((result: ScanFinal) => {
-        if (result.kind === 'entry') setEntry(result.item);
-        else if (result.kind === 'item') setSelected({ item: result.item, note: result.note });
-        else setMessage({ kind: result.kind, text: result.message });
-    }, []);
+    const apply = useCallback(
+        (result: ScanFinal) => {
+            if (result.kind === 'entry') setEntry(result.item);
+            else if (result.kind === 'item' && !result.note && result.item.bucket === 'stock' && result.item.orderId) {
+                navigate(`/hubs/pedidos/${result.item.orderId}`, { state: { item: result.item } });
+            } else if (result.kind === 'item') setSelected({ item: result.item, note: result.note });
+            else setMessage({ kind: result.kind, text: result.message });
+        },
+        [navigate],
+    );
 
     const handleCode = useCallback(
         async (code: string) => {
@@ -33,17 +40,19 @@ export function useScanController(hubId: string | null, onChanged: () => void) {
         [apply, flow],
     );
 
-    /** Toque num item de lista: aguardando → entrada; triagem → preparar e entrar; demais → item. */
+    /** Toque num item de lista: aguardando → entrada; triagem → preparar e entrar; pedido aqui → página do pedido. */
     const openItem = useCallback(
         async (item: HubCargoItem) => {
             setMessage(null);
-            if (item.kind === 'intake' && item.bucket === 'awaiting') setEntry(item);
+            if (item.kind === 'order' && item.bucket === 'stock' && item.orderId) {
+                navigate(`/hubs/pedidos/${item.orderId}`, { state: { item } });
+            } else if (item.kind === 'intake' && item.bucket === 'awaiting') setEntry(item);
             else if (item.kind === 'fiscal_document' && item.fiscalDocumentId) {
                 apply(await flow.prepareFiscal(item.fiscalDocumentId));
                 onChanged();
             } else setSelected({ item });
         },
-        [apply, flow, onChanged],
+        [apply, flow, navigate, onChanged],
     );
 
     const overlays = (
@@ -61,7 +70,8 @@ export function useScanController(hubId: string | null, onChanged: () => void) {
                     onDone={(order) => {
                         setEntry(null);
                         onChanged();
-                        if (order) setSelected({ item: order, note: 'Entrada confirmada. Etiquete os volumes.' });
+                        // Próximo passo da roda: etiquetas e documento do frete, na página do pedido.
+                        if (order?.orderId) navigate(`/hubs/pedidos/${order.orderId}`, { state: { item: order, fromEntry: true } });
                         else setMessage({ kind: 'info', text: 'Entrada confirmada. O pedido está no estoque.' });
                     }}
                 />

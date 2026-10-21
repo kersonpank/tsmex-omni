@@ -4,6 +4,7 @@ import { buildHubOrderVisibilityWhere } from '../../lib/hubOrderAccess.js';
 import { hasOperationalPermission } from '../../lib/operationalPermissions.js';
 import { HUB_CARGO_ACTIVE_MANIFEST_STATUSES } from './hubCargoPolicy.js';
 import { intakePartyNames } from '../intake/intakeDemandPolicy.js';
+import { ACTIVE_DOC_STATUSES, freightDocState, type FreightDocState } from '../freight/freightDocRules.js';
 
 export type HubCargoBucket = 'stock' | 'incoming' | 'awaiting' | 'triage' | 'other';
 
@@ -56,6 +57,8 @@ export interface HubCargoItem {
     allowedActions: HubCargoAllowedActions;
     blockingReasons: string[];
     updatedAt?: string;
+    /** Documento do frete do pedido (CT-e/DC-e/minuta) — só para pedidos. */
+    freightDocState?: FreightDocState;
 }
 
 export interface HubCargoSummary {
@@ -73,6 +76,8 @@ export interface HubCargoSummary {
     incoming: { orders: number; trips: number };
     awaiting: { demands: number };
     triage: { documents: number };
+    /** Pedidos no estoque sem CT-e/minuta emitido nem a caminho da SEFAZ. */
+    freight: { missing: number };
 }
 
 const statusLabels: Record<string, string> = {
@@ -167,6 +172,7 @@ const orderInclude = {
     currentHub: { select: { name: true, code: true } },
     remetentePerson: { select: { legalName: true } },
     destinatarioPerson: { select: { legalName: true } },
+    freightCalculations: { select: { status: true } },
     invoicesRel: {
         select: {
             nfNumber: true,
@@ -240,6 +246,7 @@ function orderToItem(
         nfNumber: order.nfNumber ?? order.demand.nfNumber,
         nfKeySuffix: order.invoicesRel.find((invoice) => invoice.nfKey)?.nfKey?.slice(-8) ?? null,
         invoiceCount: order.invoicesRel.length,
+        freightDocState: freightDocState(order.freightCalculations),
         senderName: order.remetentePerson?.legalName ?? order.demand.client?.companyName ?? 'Cliente não definido',
         recipientName: order.destinatarioPerson?.legalName ?? null,
         origin: order.origemPrestacao ?? order.demand.origin,
@@ -289,6 +296,7 @@ export async function getHubCargoSummary(hubId: string): Promise<HubCargoSummary
         incomingTrips,
         awaiting,
         triage,
+        freightMissing,
     ] = await prisma.$transaction([
         prisma.demand.findMany({
             where: { order: { is: stockWhere } },
@@ -331,6 +339,9 @@ export async function getHubCargoSummary(hubId: string): Promise<HubCargoSummary
                 fiscalEmitter: { hubId },
             },
         }),
+        prisma.order.count({
+            where: { ...stockWhere, freightCalculations: { none: { status: { in: ACTIVE_DOC_STATUSES } } } },
+        }),
     ]);
 
     const totals = stockDemands.reduce(
@@ -365,6 +376,7 @@ export async function getHubCargoSummary(hubId: string): Promise<HubCargoSummary
         incoming: { orders: incomingOrders, trips: incomingTrips },
         awaiting: { demands: awaiting },
         triage: { documents: triage },
+        freight: { missing: freightMissing },
     };
 }
 

@@ -7,6 +7,8 @@ import ReceivePage from './pages/ReceivePage';
 import TripReceivePage from './pages/TripReceivePage';
 import CargoPage from './pages/CargoPage';
 import LabelsPrintPage from './pages/LabelsPrintPage';
+import OrderPage from './pages/order/OrderPage';
+import FreightQueuePage from './pages/order/FreightQueuePage';
 import TripsPage from './pages/TripsPage';
 import CoveragePage from './pages/CoveragePage';
 import TripPrepPage from './pages/trip/TripPrepPage';
@@ -108,6 +110,8 @@ const OsShell: React.FC = () => {
                         <Route path="receber/:manifestId" element={<TripReceivePage />} />
                         <Route path="cargas" element={<CargoPage />} />
                         <Route path="etiquetas/:orderId" element={<LabelsPrintPage />} />
+                        <Route path="pedidos/:orderId" element={<OrderPage />} />
+                        <Route path="documentos" element={<FreightQueuePage />} />
                         <Route path="viagens" element={<TripsPage />} />
                         <Route path="viagens/:manifestId" element={<TripPrepPage />} />
                         <Route path="transportadores/:linkId" element={<CarrierPage />} />

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ordersFreightApi, ordersApi, hubsApi, pricingApi, clientsApi, fiscalEmittersApi, formatApiError } from '../../lib/api';
-import DactePrintPreview from './DactePrintPreview';
+import DactePrintPreview from '../ui/DactePrintPreview';
 import type {
   OrderFreightCalculation,
   Hub,

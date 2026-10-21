@@ -7,8 +7,8 @@ import OsSheet, { apiErrorMessage } from '../../ui/Sheet';
 
 /**
  * Grupos sem formulário próprio no O.S.: cadastro, documentos, carga e rota.
- * Cadastro abre a ficha do transportador no O.S. MDF-e emite daqui. CT-e por pedido e CIOT
- * ainda abrem a tela atual — transitório até a etapa Documentos (NORTE A7), sinalizado na folha.
+ * Cadastro abre a ficha do transportador no O.S. MDF-e emite daqui. CT-e abre o pedido no O.S.
+ * (documento do frete é do pedido, NORTE #30). CIOT ainda abre a tela atual — transitório (A7b).
  */
 
 const TripInfoEditor: React.FC<{
@@ -77,11 +77,13 @@ const TripInfoEditor: React.FC<{
                 {group.key === 'documents' && cteOrders.length > 0 ? (
                     <>
                         {cteOrders.map((orderId) => (
-                            <OsButton key={orderId} full variant="secondary" onClick={() => navigate(`/orders/${orderId}`)}>
+                            <OsButton key={orderId} full variant="secondary" onClick={() => navigate(`/hubs/pedidos/${orderId}`)}>
                                 Emitir CT-e do pedido {orderId.slice(0, 8)}
                             </OsButton>
                         ))}
-                        {legacyNote}
+                        <p className="mt-1 text-[12px] leading-relaxed text-tower-400">
+                            O documento do frete é do pedido: o normal é emitir logo na entrada (fila “Sem CT-e/minuta” no Hoje).
+                        </p>
                     </>
                 ) : null}
                 {group.key === 'documents' && codes.has('CIOT_REQUIRED') ? (

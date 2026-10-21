@@ -60,6 +60,11 @@ export interface ParsedNfeCargo {
     pesoLiquido?: number;
     quantidadeVolumes?: number;
     valorTotalNota: number;
+    /**
+     * `transp/modFrete` — quem contratou o frete: 0 remetente (CIF), 1 destinatário (FOB),
+     * 2 terceiros, 3/4 transporte próprio, 9 sem transporte. Ausente em XMLs antigos guardados.
+     */
+    modFrete?: string;
 }
 
 function asRecord(v: unknown): Record<string, unknown> | undefined {
@@ -189,5 +194,6 @@ export function parseNfeProcXml(xml: string): ParsedNfeCargo {
         pesoLiquido,
         quantidadeVolumes,
         valorTotalNota: toNumber(total?.vNF),
+        ...optionalText({ modFrete: transp?.modFrete }),
     };
 }
