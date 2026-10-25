@@ -22,17 +22,22 @@ export async function resolveLocalNfeCargo(demandId: string): Promise<LocalNfeCa
 
     const embedded = storedCargo(demand.rawInputData);
     if (embedded) return { status: 'available', source: 'demand', cargo: embedded };
-    if (demand.sourceType !== 'DFE_ACBR') {
-        return { status: 'pending', reason: 'Esta entrada não possui XML da Distribuição e deve ser preenchida manualmente.' };
-    }
-
     const accessKey = demand.documentKey?.replace(/\D/g, '') ?? '';
-    if (accessKey.length !== 44) return { status: 'invalid', reason: 'Demanda da Distribuição sem chave NF-e válida.' };
+    const fromDistribution = demand.sourceType === 'DFE_ACBR';
+    if (accessKey.length !== 44) {
+        if (fromDistribution) return { status: 'invalid', reason: 'Demanda da Distribuição sem chave NF-e válida.' };
+        return { status: 'pending', reason: 'Esta entrada não possui chave NF-e e deve ser preenchida manualmente.' };
+    }
     const document = await prisma.nfeDistribuicaoDocumento.findUnique({
         where: { accessKey }, select: { tipo: true, xmlStorageKey: true },
     });
     if (!document?.xmlStorageKey) {
-        return { status: 'pending', reason: 'XML da Distribuição não disponível no armazenamento. Verifique a integração fiscal.' };
+        return {
+            status: 'pending',
+            reason: fromDistribution
+                ? 'XML da Distribuição não disponível no armazenamento. Verifique a integração fiscal.'
+                : 'O XML desta NF-e ainda não está no sistema.',
+        };
     }
 
     try {

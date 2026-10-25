@@ -20,6 +20,7 @@ import type { ParsedNfeCargo } from '../services/acbr/nfeXmlParser.js';
 import { ensureDistribuicaoBootstrap } from '../services/fiscal/ensureDistribuicaoBootstrap.js';
 import { resolveLocalNfeCargo } from '../services/intake/resolveLocalNfeCargo.js';
 import { ensureNfePartyPersons } from '../services/intake/ensureNfePartyPersons.js';
+import { attachNfeXmlToDemand } from '../services/intake/attachNfeXml.js';
 import { ensureKeyEmitterPerson } from '../services/intake/publicCnpjParty.js';
 
 const router = Router();
@@ -429,6 +430,23 @@ router.get('/demands/:id', async (req: AuthRequest, res: Response, next: NextFun
         const demand = await assertCanViewIntakeDemand(req, id);
         res.json({ success: true, data: demand });
     } catch (e) {
+        next(e);
+    }
+});
+
+const attachNfeXmlSchema = z.object({ xml: z.string().min(1, 'Envie o arquivo XML da NF-e.').max(2_000_000, 'XML grande demais (máx. 2 MB).') });
+
+// POST /api/intake/demands/:id/nfe-xml — fallback do balcão quando a Distribuição não trouxe o XML
+router.post('/demands/:id/nfe-xml', async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const id = req.params.id as string;
+        await assertCanViewIntakeDemand(req, id);
+        const { xml } = attachNfeXmlSchema.parse(req.body);
+        const cargo = await attachNfeXmlToDemand({ demandId: id, xml, actorUserId: req.user!.id });
+        const parties = await ensureNfePartyPersons(cargo);
+        res.json({ success: true, data: { status: 'available', source: 'demand', cargo, parties, partiesSource: 'nfe_xml' } });
+    } catch (e) {
+        if (e instanceof z.ZodError) return next(new AppError(e.errors[0]?.message ?? 'Payload inválido', 400));
         next(e);
     }
 });

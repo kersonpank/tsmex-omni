@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { describe, it, afterEach } from 'node:test';
+import { describe, it, afterEach, beforeEach } from 'node:test';
 import prisma from '../../lib/prisma.js';
 import { confirmIntakeArrival } from './confirmIntakeArrival.js';
 
@@ -61,9 +61,16 @@ function stubTransactionDeps(options: { personsById?: Record<string, { city?: st
 
 describe('confirmIntakeArrival', () => {
     const origFind = prisma.demand.findUnique.bind(prisma.demand);
+    const origDistribuicao = prisma.nfeDistribuicaoDocumento.findUnique.bind(prisma.nfeDistribuicaoDocumento);
+
+    beforeEach(() => {
+        // Sem XML na Distribuição: o resolver local não acha documento (e não toca no banco).
+        prisma.nfeDistribuicaoDocumento.findUnique = (async () => null) as unknown as typeof prisma.nfeDistribuicaoDocumento.findUnique;
+    });
 
     afterEach(() => {
         prisma.demand.findUnique = origFind;
+        prisma.nfeDistribuicaoDocumento.findUnique = origDistribuicao;
     });
 
     it('Hub de outro CD → 403', async () => {

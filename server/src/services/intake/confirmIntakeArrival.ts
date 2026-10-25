@@ -71,12 +71,14 @@ export async function confirmIntakeArrival(input: ConfirmIntakeArrivalInput): Pr
     }
 
     let cargoData = (demand.rawInputData as { nfeXmlData?: ParsedNfeCargo } | null)?.nfeXmlData;
-    if (demand.sourceType === 'DFE_ACBR' && !cargoData) {
+    if (!cargoData) {
         const local = await resolveLocalNfeCargo(demand.id);
-        if (local.status !== 'available') {
+        if (local.status === 'available') {
+            cargoData = local.cargo;
+        } else if (demand.sourceType === 'DFE_ACBR') {
             throw new AppError(local.reason, 409);
         }
-        cargoData = local.cargo;
+        // NFE_KEY / manual sem XML: segue com a carga conferida no balcão (counterCargo).
     }
 
     const isHub = input.actingRoles.includes('HUB');

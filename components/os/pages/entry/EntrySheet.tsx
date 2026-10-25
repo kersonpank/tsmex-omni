@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { hubCargoApi, intakeDemandsApi } from '../../../../lib/api';
 import type { HubCargoItem, Person } from '../../../../types/index';
 import { cargoFacts } from '../../lib/cargo';
@@ -47,7 +47,26 @@ const EntrySheet: React.FC<{
     const [loading, setLoading] = useState(true);
     const [notice, setNotice] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
+    const fileInput = useRef<HTMLInputElement>(null);
+    const [attaching, setAttaching] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
+    type NfeData = Awaited<ReturnType<typeof intakeDemandsApi.getLocalNfeData>>['data'];
+
+    /** Aplica a resposta de nfe-data (carga inicial ou XML anexado). O XML é a fonte da verdade. */
+    const applyNfeData = (data: NfeData) => {
+        const source: PartySource = data?.partiesSource ?? 'manual';
+        if (data?.parties?.remetente) setRemetente({ person: data.parties.remetente, source });
+        if (data?.parties?.destinatario) setDestinatario({ person: data.parties.destinatario, source });
+        if (data?.status === 'available') {
+            setXmlCargo(xmlCargoSummary(data.cargo));
+            const fromNfe = payerFromModFrete(data.cargo?.modFrete);
+            if (fromNfe) setPayer({ term: fromNfe, fromNfe: true });
+            setNotice(null);
+        } else {
+            setNotice('O XML desta NF-e não está no sistema. Anexe o XML para preencher tudo, ou copie os dados da DANFE.');
+        }
+    };
 
     useEffect(() => {
         if (!item.demandId) {
@@ -58,24 +77,29 @@ const EntrySheet: React.FC<{
         intakeDemandsApi
             .getLocalNfeData(item.demandId)
             .then((body) => {
-                if (cancelled) return;
-                const data = body.data;
-                const source: PartySource = data?.partiesSource ?? 'manual';
-                if (data?.parties?.remetente) setRemetente({ person: data.parties.remetente, source });
-                if (data?.parties?.destinatario) setDestinatario({ person: data.parties.destinatario, source });
-                if (data?.status === 'available') {
-                    setXmlCargo(xmlCargoSummary(data.cargo));
-                    const fromNfe = payerFromModFrete(data.cargo?.modFrete);
-                    if (fromNfe) setPayer({ term: fromNfe, fromNfe: true });
-                }
-                else setNotice('O XML desta NF-e ainda não chegou ao sistema. Confira com a DANFE impressa.');
+                if (!cancelled) applyNfeData(body.data);
             })
             .catch(() => !cancelled && setNotice('Não foi possível ler os dados da NF-e. Confira com a DANFE impressa.'))
             .finally(() => !cancelled && setLoading(false));
         return () => {
             cancelled = true;
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [item.demandId]);
+
+    const attachXml = async (file: File | undefined) => {
+        if (!file || !item.demandId || attaching) return;
+        setAttaching(true);
+        setError(null);
+        try {
+            const body = await intakeDemandsApi.attachNfeXml(item.demandId, await file.text());
+            applyNfeData(body.data);
+        } catch (cause) {
+            setError(apiErrorMessage(cause, 'Não foi possível anexar o XML. Confira o arquivo e tente de novo.'));
+        } finally {
+            setAttaching(false);
+        }
+    };
 
     const counter = xmlCargo ? { cargo: null, missing: [] } : parseCargoForm(cargoForm);
     const missing = entryMissing({
@@ -129,7 +153,29 @@ const EntrySheet: React.FC<{
             }
         >
             {notice ? (
-                <p className="rounded-lg bg-brand-yellow-400/20 p-3 text-[13px] text-[#6b5900] dark:text-brand-yellow-400">{notice}</p>
+                <div className="rounded-lg bg-brand-yellow-400/20 p-3 text-[13px] text-[#6b5900] dark:text-brand-yellow-400">
+                    <p>{notice}</p>
+                    {!xmlCargo && item.demandId && !loading ? (
+                        <>
+                            <input
+                                ref={fileInput}
+                                type="file"
+                                accept=".xml,text/xml"
+                                className="hidden"
+                                onChange={(event) => {
+                                    const file = event.target.files?.[0];
+                                    event.target.value = '';
+                                    void attachXml(file);
+                                }}
+                            />
+                            <div className="mt-2">
+                                <OsButton variant="secondary" disabled={attaching || busy} onClick={() => fileInput.current?.click()}>
+                                    {attaching ? 'Lendo o XML…' : 'Anexar XML da NF-e'}
+                                </OsButton>
+                            </div>
+                        </>
+                    ) : null}
+                </div>
             ) : null}
             {loading ? (
                 <p className="mt-4 text-[13px] text-tower-400">Lendo a NF-e e o cadastro do emitente…</p>

@@ -362,6 +362,12 @@ export const intakeDemandsApi = {
         return response.data;
     },
 
+    /** Fallback do balcão: anexa o XML da NF-e; devolve o mesmo payload de `getLocalNfeData`. */
+    attachNfeXml: async (id: string, xml: string) => {
+        const response = await api.post<Awaited<ReturnType<typeof intakeDemandsApi.getLocalNfeData>>>(`/intake/demands/${id}/nfe-xml`, { xml });
+        return response.data;
+    },
+
     create: async (data: CreateIntakeDemandRequest) => {
         const response = await api.post<ApiResponse<Demand>>('/intake/demands', data);
         return response.data;
