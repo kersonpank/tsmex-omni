@@ -60,16 +60,20 @@ export function legsWithoutDoc<L extends { orderId: string; order?: OrderLike | 
 }
 
 export interface ReadinessItem {
-    key: 'stock' | 'document';
+    key: 'stock' | 'cubage' | 'document';
     label: string;
     ok: boolean;
 }
 
 /** Checklist "Pronto para viajar?" do pedido. Itens sem dado disponível no cliente ficam de fora. */
-export function orderReadiness(input: { inStock?: boolean | null; docState?: FreightDocState | null }): { items: ReadinessItem[]; ready: boolean } {
+export function orderReadiness(input: { inStock?: boolean | null; volumeM3?: number | null; docState?: FreightDocState | null }): { items: ReadinessItem[]; ready: boolean } {
     const items: ReadinessItem[] = [];
     if (input.inStock != null) {
         items.push({ key: 'stock', label: input.inStock ? 'Em estoque neste hub' : 'Não está em estoque neste hub', ok: input.inStock });
+    }
+    if (input.volumeM3 != null) {
+        const informed = input.volumeM3 > 0.001; // 0,001 m³ é o placeholder da entrada
+        items.push({ key: 'cubage', label: informed ? 'Cubagem informada' : 'Cubagem pendente', ok: informed });
     }
     if (input.docState != null) {
         const documented = isDocumented(input.docState);

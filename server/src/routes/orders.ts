@@ -38,6 +38,7 @@ import { parseOrderStatusWhereInput } from '../lib/orderStatusFilter.js';
 import { extractChaveFromInput } from '../lib/nfeChaveIntake.js';
 import { resourceGuard, uuidParam } from '../middleware/resourceAccess.js';
 import { payerChangeBlock } from '../services/freight/freightDocRules.js';
+import { getOrderPackages, setOrderPackages } from '../services/orderPackages.js';
 
 const router = Router();
 
@@ -1477,6 +1478,60 @@ router.patch('/:id/invoices/:invoiceId', authenticate, authorize('ADMIN', 'HUB')
         });
 
         res.json({ success: true, data: inv });
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return next(new AppError(error.errors[0].message, 400));
+        }
+        next(error);
+    }
+});
+
+// ==================== ORDER PACKAGES (cubagem por volume) ====================
+
+const orderPackagesSchema = z
+    .object({
+        packages: z
+            .array(
+                z.object({
+                    quantity: z.number().int().min(1).max(100000),
+                    lengthCm: z.number().positive().max(2000),
+                    widthCm: z.number().positive().max(2000),
+                    heightCm: z.number().positive().max(2000),
+                    weightKg: z.number().positive().max(100000).nullish(),
+                    description: z.string().max(200).nullish(),
+                }),
+            )
+            .max(100)
+            .default([]),
+        totalM3: z.number().positive().max(1000).optional(),
+    })
+    .refine((v) => v.packages.length > 0 || v.totalM3 != null, { message: 'Informe as medidas ou o m³ total.' });
+
+/** Pedido existe e, para HUB, está no hub do usuário (mesmo padrão do documento do frete). */
+async function assertOrderAtUserHub(req: AuthRequest, orderId: string): Promise<void> {
+    const order = await prisma.order.findUnique({ where: { id: orderId }, select: { currentHubId: true } });
+    if (!order) throw new AppError('Order not found', 404);
+    if (req.user!.roles.includes('HUB') && (!req.user!.hubId || order.currentHubId !== req.user!.hubId)) {
+        throw new AppError('Not authorized to access this order', 403);
+    }
+}
+
+router.get('/:id/packages', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const orderId = req.params.id as string;
+        await assertOrderAtUserHub(req, orderId);
+        res.json({ success: true, data: await getOrderPackages(orderId) });
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.put('/:id/packages', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const orderId = req.params.id as string;
+        const body = orderPackagesSchema.parse(req.body);
+        await assertOrderAtUserHub(req, orderId);
+        res.json({ success: true, data: await setOrderPackages(orderId, body.packages, body.totalM3) });
     } catch (error) {
         if (error instanceof z.ZodError) {
             return next(new AppError(error.errors[0].message, 400));

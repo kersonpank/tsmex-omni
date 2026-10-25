@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { hubCargoApi, intakeDemandsApi } from '../../../../lib/api';
+import { hubCargoApi, intakeDemandsApi, orderPackagesApi } from '../../../../lib/api';
 import type { HubCargoItem, Person } from '../../../../types/index';
 import { cargoFacts } from '../../lib/cargo';
 import {
@@ -14,7 +14,9 @@ import {
 import { OsButton } from '../../ui/kit';
 import OsSheet, { apiErrorMessage } from '../../ui/Sheet';
 import { payerFromModFrete } from '../../lib/freight';
+import { EMPTY_PACKAGE_ROW, parsePackageRows, type PackageRow } from '../../lib/packages';
 import CargoFields from './CargoFields';
+import EntryPackages from './EntryPackages';
 import type { PartySource } from './PartyCard';
 import PartyPicker from './PartyPicker';
 import PayerChoice, { type PayerTerm } from './PayerChoice';
@@ -43,6 +45,7 @@ const EntrySheet: React.FC<{
     const [destinatario, setDestinatario] = useState<Party>(NO_PARTY);
     const [xmlCargo, setXmlCargo] = useState<XmlCargo | null>(null);
     const [cargoForm, setCargoForm] = useState<CargoForm>(EMPTY_CARGO_FORM);
+    const [packageRows, setPackageRows] = useState<PackageRow[]>([{ ...EMPTY_PACKAGE_ROW }]);
     const [payer, setPayer] = useState<{ term: PayerTerm | null; fromNfe: boolean }>({ term: null, fromNfe: false });
     const [loading, setLoading] = useState(true);
     const [notice, setNotice] = useState<string | null>(null);
@@ -121,6 +124,9 @@ const EntrySheet: React.FC<{
                 ...(counter.cargo ? { cargo: counter.cargo } : {}),
             });
             const orderId = (body.data?.order as { id?: string } | null)?.id;
+            // Medidas são opcionais: se falhar, a entrada já está confirmada e dá para informar depois no pedido.
+            const packages = parsePackageRows(packageRows);
+            if (orderId && packages.length > 0) await orderPackagesApi.set(orderId, { packages }).catch(() => undefined);
             let order: HubCargoItem | null = null;
             if (orderId) {
                 const resolved = (await hubCargoApi.resolve(orderId, hubId)).data;
@@ -212,6 +218,7 @@ const EntrySheet: React.FC<{
                     ) : (
                         <CargoFields value={cargoForm} onChange={setCargoForm} />
                     )}
+                    <EntryPackages rows={packageRows} onChange={setPackageRows} />
                 </>
             )}
         </OsSheet>

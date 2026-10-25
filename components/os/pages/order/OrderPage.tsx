@@ -1,15 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { hubCargoApi } from '../../../../lib/api';
 import type { HubCargoItem } from '../../../../types/index';
 import { useOs } from '../../OsContext';
 import { useFreightDoc } from '../../useFreightDoc';
 import { buildVolumeLabels, cargoFacts } from '../../lib/cargo';
+import { orderNextStep } from '../../lib/nextStep';
+import { isCubageInformed } from '../../lib/packages';
 import { orderReadiness } from '../../lib/readiness';
-import { OsBadge, OsCard, OsErrorNotice, OsRow, OsSectionTitle, OsSkeletonRows } from '../../ui/kit';
+import { OsBadge, OsButton, OsCard, OsErrorNotice, OsRow, OsSectionTitle, OsSkeletonRows } from '../../ui/kit';
 import { IconCheck, IconTag } from '../../ui/icons';
 import FreightComposer from './FreightComposer';
 import FreightDocuments from './FreightDocuments';
+import PackagesEditor from './PackagesEditor';
 import PayerRow from './PayerRow';
 
 /**
@@ -26,6 +29,9 @@ const OrderPage: React.FC = () => {
     const [item, setItem] = useState<HubCargoItem | null>(state?.item ?? null);
     const [another, setAnother] = useState(false);
     const freight = useFreightDoc(orderId);
+    const [editingPackages, setEditingPackages] = useState(false);
+    const [savedVolumeM3, setSavedVolumeM3] = useState<number | null>(null);
+    const freightSection = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (!orderId || !hubId) return;
@@ -53,7 +59,17 @@ const OrderPage: React.FC = () => {
     const labels = item ? buildVolumeLabels(item) : [];
     const s = freight.suggestion;
     const documented = s?.state === 'emitted';
-    const readiness = orderReadiness({ inStock: item ? item.bucket === 'stock' : null, docState: s?.state ?? null });
+    const volumeM3 = savedVolumeM3 ?? item?.volumeM3 ?? null;
+    const readiness = orderReadiness({ inStock: item ? item.bucket === 'stock' : null, volumeM3, docState: s?.state ?? null });
+    // Impressão de etiquetas não é rastreada (labelsPrinted indefinido): o passo é pulado.
+    const next = orderNextStep({ volumeM3: volumeM3 ?? 0, freightDocState: s?.state ?? null, inTrip: Boolean(item?.activeTrip) });
+    const runNext = () => {
+        if (next.action === 'cubage') setEditingPackages(true);
+        else if (next.action === 'labels' && item) navigate(`/hubs/etiquetas/${orderId}`, { state: { item } });
+        else if (next.action === 'freight') freightSection.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        else if (next.action === 'trip') navigate('/hubs/cargas?select=1');
+    };
+    const cubageDone = volumeM3 != null && isCubageInformed(volumeM3);
     const composing = s && (!['emitted', 'in_flight'].includes(s.state) || another);
 
     return (
@@ -62,6 +78,18 @@ const OrderPage: React.FC = () => {
                 <p className="mb-3 rounded-xl bg-emerald-600/10 p-3 text-[13px] font-semibold text-emerald-700 dark:text-emerald-300">
                     Entrada confirmada. Etiquete os volumes e emita o documento do frete.
                 </p>
+            ) : null}
+
+            {next.action !== 'none' && (item || s) ? (
+                <div className="mb-3 flex items-center justify-between gap-3 rounded-xl bg-brand-600/10 p-3">
+                    <div className="min-w-0">
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-tower-500 dark:text-tower-400">Próximo passo</p>
+                        <p className="text-[14px] font-bold text-tower-900 dark:text-white">{next.label}</p>
+                    </div>
+                    <OsButton className="min-h-[44px] shrink-0" onClick={runNext}>
+                        {next.action === 'trip' ? 'Ir às cargas' : 'Fazer agora'}
+                    </OsButton>
+                </div>
             ) : null}
 
             <OsCard>
@@ -96,7 +124,18 @@ const OrderPage: React.FC = () => {
                 </span>
             </OsRow>
 
-            <OsSectionTitle>2 · Documento do frete</OsSectionTitle>
+            <OsSectionTitle>2 · Cubagem</OsSectionTitle>
+            <OsRow tone={cubageDone ? 'ok' : 'attention'} onClick={orderId ? () => setEditingPackages(true) : undefined}>
+                <span className="flex w-full items-center justify-between gap-2 font-semibold text-tower-900 dark:text-white">
+                    <span>
+                        {cubageDone ? `${Number(volumeM3).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} m³` : 'Cubagem não informada'}
+                    </span>
+                    <span className="text-[13px] font-bold text-brand-600 dark:text-brand-300">{cubageDone ? 'Editar medidas' : 'Informar medidas'}</span>
+                </span>
+            </OsRow>
+
+            <div ref={freightSection} />
+            <OsSectionTitle>3 · Documento do frete</OsSectionTitle>
             {freight.loading ? (
                 <OsSkeletonRows count={2} />
             ) : freight.error || !s || !orderId ? (
@@ -119,7 +158,7 @@ const OrderPage: React.FC = () => {
 
             {documented && !composing ? (
                 <>
-                    <OsSectionTitle>3 · Pronto para viajar</OsSectionTitle>
+                    <OsSectionTitle>4 · Pronto para viajar</OsSectionTitle>
                     <OsRow tone="ok" onClick={() => navigate('/hubs/viagens')}>
                         <span className="flex items-center gap-2 font-semibold text-tower-900 dark:text-white">
                             <IconCheck size={18} />
@@ -127,6 +166,18 @@ const OrderPage: React.FC = () => {
                         </span>
                     </OsRow>
                 </>
+            ) : null}
+
+            {editingPackages && orderId ? (
+                <PackagesEditor
+                    orderId={orderId}
+                    onClose={() => setEditingPackages(false)}
+                    onSaved={(volume) => {
+                        setSavedVolumeM3(volume);
+                        setEditingPackages(false);
+                        void reload();
+                    }}
+                />
             ) : null}
         </div>
     );

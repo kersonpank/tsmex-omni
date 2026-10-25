@@ -276,7 +276,8 @@ model VehicleType {
   maxVolume Float // m³
   maxValue  Float // R$ max cargo value (insurance)
 
-  // Dimensions (optional)
+  // Dimensions (optional): dimensões INTERNAS do espaço de carga, em metros.
+  // Base do encaixe 3D (simulação de carga por tipo de veículo).
   length Float? // meters
   width  Float? // meters
   height Float? // meters
@@ -1820,6 +1821,9 @@ model Order {
   // Notas fiscais do pedido (múltiplas NFs por pedido)
   invoicesRel OrderInvoice[]
 
+  // Medidas dos volumes (cubagem por volume: qtd × C×L×A em cm)
+  packages OrderPackage[]
+
   // Cálculos de frete (CT-e / Minuta)
   freightCalculations OrderFreightCalculation[]
 
@@ -2615,4 +2619,22 @@ model FiscalProviderRequestAudit {
   @@index([provider, action, createdAt])
   @@index([userId, createdAt])
   @@index([accessKey])
+}
+
+/// Medidas de um grupo de volumes do pedido (quantidade × comprimento × largura × altura, em cm).
+/// Base da cubagem (peso cubado), do "cabe no veículo" e da futura simulação 3D de carga.
+model OrderPackage {
+  id          String   @id @default(uuid())
+  orderId     String
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  quantity    Int
+  lengthCm    Float
+  widthCm     Float
+  heightCm    Float
+  weightKg    Float?
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([orderId])
 }
