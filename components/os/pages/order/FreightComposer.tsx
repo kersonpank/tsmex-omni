@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useId, useState } from 'react';
 import clsx from 'clsx';
 import type { BrandingForDocuments, FreightDocType, FreightSuggestion } from '../../../../types/index';
 import DactePrintPreview from '../../../ui/DactePrintPreview';
 import { emitFreightDocument, type EmitOutcome } from '../../freightActions';
-import { DOC_TYPE_LABEL, EMPTY_INFORMED, formatBRL, parseInformed, pricingSourceLabel, type InformedForm } from '../../lib/freight';
+import { DOC_TYPE_LABEL, EMPTY_INFORMED, formatBRL, freightTableOptionLabel, freightTableOptions, parseInformed, pricingSourceLabel, type InformedForm } from '../../lib/freight';
 import { OsActionBar, OsButton } from '../../ui/kit';
 import FreightIssues from './FreightIssues';
 import InformedFields from './InformedFields';
@@ -39,8 +39,12 @@ const FreightComposer: React.FC<{ orderId: string; suggestion: FreightSuggestion
     newDocument,
     onEmitted,
 }) => {
+    const tableOptions = freightTableOptions(suggestion);
+    const tablePickerId = useId();
     const [docType, setDocType] = useState<FreightDocType>(suggestion.docs.recommended);
-    const [informedMode, setInformedMode] = useState(!suggestion.pricing);
+    const [selectedTableId, setSelectedTableId] = useState<string | null>(suggestion.pricing?.tableId ?? null);
+    const [informedMode, setInformedMode] = useState(!suggestion.pricing && tableOptions.length === 0);
+    const [showTablePicker, setShowTablePicker] = useState(!suggestion.pricing && tableOptions.length > 0);
     const [form, setForm] = useState<InformedForm>(EMPTY_INFORMED);
     const [reason, setReason] = useState('');
     const [tax, setTax] = useState({ cfop: '', cst: '' });
@@ -49,7 +53,8 @@ const FreightComposer: React.FC<{ orderId: string; suggestion: FreightSuggestion
     const [print, setPrint] = useState<{ payload: unknown; branding: BrandingForDocuments | null } | null>(null);
 
     const informed = parseInformed(form);
-    const total = informedMode ? informed.total : suggestion.preview?.total ?? 0;
+    const selectedTable = tableOptions.find((option) => option.tableId === selectedTableId) ?? null;
+    const total = informedMode ? informed.total : selectedTable?.total ?? 0;
     const issues =
         docType === suggestion.docs.recommended ? suggestion.blockers.filter((b) => !b.startsWith(NO_TABLE)) : [];
     const showTax = docType === 'CTE' && (suggestion.missingFields.includes('cfop') || suggestion.missingFields.includes('cst'));
@@ -57,7 +62,7 @@ const FreightComposer: React.FC<{ orderId: string; suggestion: FreightSuggestion
     const taxOk =
         !showTax ||
         ((!suggestion.missingFields.includes('cfop') || Boolean(tax.cfop)) && (!suggestion.missingFields.includes('cst') || Boolean(tax.cst)));
-    const reasonOk = !informedMode || !suggestion.pricing || reason.trim().length > 0;
+    const reasonOk = !informedMode || tableOptions.length === 0 || reason.trim().length > 0;
     const canEmit = total > 0 && blocking.length === 0 && taxOk && reasonOk && !busy;
 
     const emit = async () => {
@@ -66,7 +71,9 @@ const FreightComposer: React.FC<{ orderId: string; suggestion: FreightSuggestion
         setMessage(null);
         const outcome = await emitFreightDocument(orderId, {
             documentType: docType,
-            ...(informedMode ? { informed: informed.values, ...(suggestion.pricing ? { reason: reason.trim() } : {}) } : {}),
+            ...(informedMode
+                ? { informed: informed.values, ...(tableOptions.length > 0 ? { reason: reason.trim() } : {}) }
+                : { pricingTableId: selectedTable?.tableId }),
             newDocument,
             ...(showTax ? { tax } : {}),
         });
@@ -99,17 +106,74 @@ const FreightComposer: React.FC<{ orderId: string; suggestion: FreightSuggestion
             <div className="mt-3 rounded-xl border border-tower-200 p-3 dark:border-tower-700">
                 {informedMode ? (
                     <p className="text-[13px] font-bold text-tower-600 dark:text-tower-300">Frete informado pelo hub</p>
-                ) : (
+                ) : selectedTable ? (
                     <>
+                        <p className="text-[12px] font-semibold text-tower-500 dark:text-tower-400">
+                            {selectedTable.tableId === suggestion.pricing?.tableId ? 'Tabela recomendada' : 'Tabela selecionada'}
+                        </p>
                         <p className="font-display text-[26px] font-extrabold text-tower-900 dark:text-white">{formatBRL(total)}</p>
-                        <p className="text-[12px] text-tower-500 dark:text-tower-400">{pricingSourceLabel(suggestion.pricing)}</p>
+                        <p className="text-[12px] text-tower-500 dark:text-tower-400">
+                            {pricingSourceLabel({ source: selectedTable.source, tableLabel: selectedTable.label })}
+                        </p>
+                        {selectedTable.routeLabel ? <p className="mt-1 text-[12px] text-tower-500 dark:text-tower-400">{selectedTable.routeLabel}</p> : null}
                     </>
+                ) : (
+                    <p className="text-[13px] font-bold text-tower-600 dark:text-tower-300">Escolha a tabela deste frete.</p>
                 )}
-                {informedMode ? <InformedFields value={form} onChange={setForm} reason={reason} onReason={setReason} requireReason={Boolean(suggestion.pricing)} /> : null}
-                {suggestion.pricing ? (
-                    <button type="button" onClick={() => setInformedMode((v) => !v)} className="mt-2 min-h-[36px] text-[13px] font-bold text-brand-600 dark:text-brand-300">
-                        {informedMode ? 'Usar o valor da tabela' : 'Informar outro valor'}
-                    </button>
+                {suggestion.routeSource === 'uf_fallback' ? (
+                    <p className="mt-2 text-[12px] font-semibold text-amber-700 dark:text-amber-300">rota pela UF do destino — confira</p>
+                ) : null}
+                {tableOptions.length === 0 && suggestion.noPricingReason ? (
+                    <p className="mt-2 text-[13px] leading-relaxed text-tower-500 dark:text-tower-400">{suggestion.noPricingReason}</p>
+                ) : null}
+                {informedMode ? <InformedFields value={form} onChange={setForm} reason={reason} onReason={setReason} requireReason={tableOptions.length > 0} /> : null}
+                {tableOptions.length > 0 ? (
+                    <>
+                        <button
+                            type="button"
+                            onClick={() => setShowTablePicker((value) => !value)}
+                            aria-expanded={showTablePicker}
+                            aria-controls={tablePickerId}
+                            className="mt-2 min-h-[48px] rounded-lg text-[13px] font-bold text-brand-600 focus-visible:outline-2 focus-visible:outline-brand-500 dark:text-brand-300"
+                        >
+                            Trocar tabela
+                        </button>
+                        {showTablePicker ? (
+                            <div id={tablePickerId} role="group" aria-label="Tabela do frete" className="border-t border-tower-200 pt-1 dark:border-tower-700">
+                                {tableOptions.map((option) => (
+                                    <button
+                                        key={option.tableId}
+                                        type="button"
+                                        aria-pressed={!informedMode && selectedTableId === option.tableId}
+                                        onClick={() => {
+                                            setSelectedTableId(option.tableId);
+                                            setInformedMode(false);
+                                            setShowTablePicker(false);
+                                        }}
+                                        className={clsx(
+                                            'mt-1 min-h-[48px] w-full rounded-lg px-2 py-3 text-left text-[13px] font-semibold focus-visible:outline-2 focus-visible:outline-brand-500',
+                                            !informedMode && selectedTableId === option.tableId
+                                                ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-200'
+                                                : 'text-tower-700 active:bg-tower-100 dark:text-tower-200 dark:active:bg-tower-800',
+                                        )}
+                                    >
+                                        {freightTableOptionLabel(option)}
+                                    </button>
+                                ))}
+                                <button
+                                    type="button"
+                                    aria-pressed={informedMode}
+                                    onClick={() => {
+                                        setInformedMode(true);
+                                        setShowTablePicker(false);
+                                    }}
+                                    className="mt-1 min-h-[48px] w-full rounded-lg px-2 py-3 text-left text-[13px] font-bold text-brand-600 focus-visible:outline-2 focus-visible:outline-brand-500 dark:text-brand-300"
+                                >
+                                    Informar outro valor
+                                </button>
+                            </div>
+                        ) : null}
+                    </>
                 ) : null}
             </div>
 

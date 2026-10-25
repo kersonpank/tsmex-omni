@@ -889,6 +889,18 @@ export interface HubCargoItem {
 
 // ========== DOCUMENTO DO FRETE (TSM O.S.) ==========
 
+/** Medidas de um grupo de volumes do pedido (cm). */
+export interface OrderPackage {
+    id?: string;
+    orderId?: string;
+    quantity: number;
+    lengthCm: number;
+    widthCm: number;
+    heightCm: number;
+    weightKg?: number | null;
+    description?: string | null;
+}
+
 export type FreightDocState = 'emitted' | 'in_flight' | 'rejected' | 'draft' | 'none';
 export type FreightTermValue = 'CIF' | 'FOB' | 'REDESPACHO';
 
@@ -925,6 +937,16 @@ export interface FreightPricingChoice {
     source: 'payer_special_route' | 'payer_special' | 'general_route' | 'general';
 }
 
+export interface FreightTableOption {
+    tableId: string;
+    label: string;
+    method: FreightPricingChoice['method'];
+    source: FreightPricingChoice['source'];
+    routeId: string | null;
+    routeLabel: string | null;
+    total: number;
+}
+
 export interface FreightSuggestion {
     orderId: string;
     orderNumber: number | null;
@@ -935,7 +957,10 @@ export interface FreightSuggestion {
     docs: { allowed: FreightDocType[]; recommended: FreightDocType; reason: string };
     emitter: { id: string; name: string; provider: string; environment: string } | null;
     route: { id: string; label: string } | null;
+    routeSource?: 'coverage' | 'uf_fallback' | 'order' | null;
     pricing: FreightPricingChoice | null;
+    tableOptions?: FreightTableOption[];
+    noPricingReason?: string | null;
     preview: { total: number; breakdown: FreightBreakdownValues; effectiveWeight: number } | null;
     params: { volumes: number; weight: number; nfValue: number };
     blockers: string[];

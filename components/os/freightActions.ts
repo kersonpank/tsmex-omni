@@ -18,6 +18,7 @@ export type EmitOutcome =
 
 export interface EmitOptions {
     documentType: FreightDocType;
+    pricingTableId?: string;
     informed?: Partial<FreightBreakdownValues>;
     reason?: string;
     newDocument?: boolean;
@@ -42,6 +43,7 @@ export async function emitFreightDocument(orderId: string, opts: EmitOptions): P
         const prepared = (
             await ordersFreightApi.prepare(orderId, {
                 documentType: opts.documentType,
+                pricingTableId: opts.pricingTableId,
                 informed: opts.informed,
                 reason: opts.reason,
                 newDocument: opts.newDocument,

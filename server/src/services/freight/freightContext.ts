@@ -17,6 +17,8 @@ export interface FreightContext {
     hub: Prisma.HubGetPayload<{ include: { person: true } }>;
     emitter: ContextEmitter | null;
     coverage: CoverageIndex;
+    hubs: { code: string; state: string; active: boolean }[];
+    citiesByIbge: Map<string, { name: string; state: string }>;
     routes: { id: string; name: string; originCode: string; destCode: string }[];
     tables: (TableCandidate & PricingTableLike)[];
 }
@@ -33,14 +35,14 @@ export function pickEmitter<T extends { hubId: string | null; defaultForHub: boo
 }
 
 export async function loadFreightContext(hubId: string): Promise<FreightContext> {
-    const [hub, emitters, hubs, coverage, routes, tables] = await Promise.all([
+    const [hub, emitters, hubs, coverage, routes, tables, cities] = await Promise.all([
         prisma.hub.findUniqueOrThrow({ where: { id: hubId }, include: { person: true } }),
         prisma.fiscalEmitter.findMany({
             where: { active: true, OR: [{ hubId }, { hubId: null }], person: { documentType: 'CNPJ' } },
             include: emitterInclude,
             orderBy: { createdAt: 'asc' },
         }),
-        prisma.hub.findMany({ select: { id: true, name: true, code: true, cityIbgeCode: true, active: true } }),
+        prisma.hub.findMany({ select: { id: true, name: true, code: true, state: true, cityIbgeCode: true, active: true } }),
         prisma.hubCoverage.findMany({
             where: { active: true },
             select: { hubId: true, cityIbgeCode: true, priority: true, leadTimeDays: true },
@@ -53,11 +55,14 @@ export async function loadFreightContext(hubId: string): Promise<FreightContext>
             where: { active: true },
             include: { minFreightRanges: { orderBy: { minWeight: 'asc' } } },
         }),
+        prisma.city.findMany({ select: { ibgeCode: true, name: true, state: { select: { code: true } } } }),
     ]);
     return {
         hub,
         emitter: pickEmitter(emitters, hubId),
         coverage: buildCoverageIndex(hubs, coverage),
+        hubs,
+        citiesByIbge: new Map(cities.map((city) => [city.ibgeCode, { name: city.name, state: city.state.code }])),
         routes,
         tables,
     };

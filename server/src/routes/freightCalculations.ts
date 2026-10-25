@@ -104,7 +104,7 @@ function extractQrCodeUrlFromXml(xml: string | null): string | null {
 const getOrderParams = orderFreightParams;
 
 /** Calcula e persiste frete (Especial / Tarifa Geral). Usado em POST /calculate e após salvar create/update. */
-async function persistAutoFreightCalculation(orderId: string, calcId: string): Promise<void> {
+export async function persistAutoFreightCalculation(orderId: string, calcId: string): Promise<void> {
     const order = await prisma.order.findUnique({
         where: { id: orderId },
         include: {
@@ -207,7 +207,7 @@ async function persistAutoFreightCalculation(orderId: string, calcId: string): P
             icmsValue: icms || null,
             status: 'CALCULATED',
             pricingTableId: calc.calculationMethod === 'TARIFA_GERAL' ? table!.id : calc.pricingTableId,
-            routeId: calc.calculationMethod === 'TARIFA_GERAL' ? (calc.routeId || order.routeId) : calc.routeId,
+            routeId: calc.calculationMethod === 'TARIFA_GERAL' ? table!.routeId : calc.routeId,
         },
     });
 }
@@ -1553,6 +1553,7 @@ const informedSchema = z.object(
 );
 const prepareSchema = z.object({
     documentType: z.enum(['CTE', 'DCE', 'MINUTA']),
+    pricingTableId: z.string().trim().min(1).max(128).optional(),
     informed: informedSchema.optional(),
     reason: z.string().trim().max(500).optional(),
     /** Outro documento além do já emitido (o pedido pode ter vários cálculos). */
@@ -1569,12 +1570,18 @@ router.post('/prepare', authenticate, authorize('ADMIN', 'HUB'), async (req: Aut
         const suggestion = await getFreightSuggestion(orderId);
 
         if (!suggestion.docs.allowed.includes(body.documentType)) throw new AppError(suggestion.docs.reason, 400);
+        const pricing = body.pricingTableId
+            ? suggestion.tableOptions?.find((option) => option.tableId === body.pricingTableId) ?? null
+            : suggestion.pricing;
+        if (body.pricingTableId && !pricing) {
+            throw new AppError('A tabela escolhida não está disponível para este pedido. Atualize as opções de frete.', 400);
+        }
         const informed = body.informed ? informedFreight(body.informed) : null;
         if (informed && informed.total <= 0) throw new AppError('Informe ao menos um valor do frete.', 400);
-        if (informed && suggestion.pricing && !body.reason) {
+        if (informed && (suggestion.pricing || suggestion.tableOptions?.length) && !body.reason) {
             throw new AppError('Diga o motivo para usar um valor diferente do da tabela.', 400);
         }
-        if (!informed && !suggestion.pricing) throw new AppError('Sem tabela de preço para este pedido: informe o valor do frete.', 400);
+        if (!informed && !pricing) throw new AppError('Sem tabela de preço para este pedido: informe o valor do frete.', 400);
         const fiscalEmitterId = suggestion.emitter?.id ?? null;
         if (body.documentType !== 'MINUTA' && !fiscalEmitterId) {
             throw new AppError('Este hub não tem emitente fiscal ativo para CT-e/DC-e. Fale com a torre.', 400);
@@ -1584,14 +1591,14 @@ router.post('/prepare', authenticate, authorize('ADMIN', 'HUB'), async (req: Aut
         const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { invoicesRel: true } });
         assertFreightDocTypeAllowedForOrder(body.documentType, order);
         const params = getOrderParams(order);
-        const method: 'INFORMADO' | 'ESPECIAL' | 'TARIFA_GERAL' = informed ? 'INFORMADO' : suggestion.pricing!.method;
+        const method: 'INFORMADO' | 'ESPECIAL' | 'TARIFA_GERAL' = informed ? 'INFORMADO' : pricing!.method;
         const fields = {
             documentType: body.documentType,
             emissorId: hubId,
             fiscalEmitterId,
             calculationMethod: method,
-            pricingTableId: informed ? null : suggestion.pricing!.tableId,
-            routeId: informed ? null : suggestion.pricing!.routeId,
+            pricingTableId: informed ? null : pricing!.tableId,
+            routeId: informed ? null : pricing!.routeId,
             ...(informed
                 ? { freightTotal: informed.total, breakdown: informed.breakdown as object, icmsValue: informed.breakdown.icms || null, status: 'DRAFT' as const }
                 : {}),

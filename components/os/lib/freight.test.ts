@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blockerAction, documentStatusView, EMPTY_INFORMED, parseInformed, payerFromModFrete, pricingSourceLabel, readyToEmit } from './freight';
+import { blockerAction, documentStatusView, EMPTY_INFORMED, formatBRL, freightTableOptionLabel, freightTableOptions, parseInformed, payerFromModFrete, pricingSourceLabel, readyToEmit, type FreightTableOption } from './freight';
 
 describe('payerFromModFrete', () => {
     it('0 = remetente (CIF), 1 = destinatário (FOB); o resto pergunta', () => {
@@ -57,5 +57,44 @@ describe('pendências e prontidão', () => {
         expect(readyToEmit({ blockers: [], preview: { total: 10, breakdown: {} as never, effectiveWeight: 1 } })).toBe(true);
         expect(readyToEmit({ blockers: [], preview: null })).toBe(false);
         expect(pricingSourceLabel(null)).toMatch(/informe/);
+    });
+});
+
+describe('tabelas do frete', () => {
+    const option: FreightTableOption = {
+        tableId: 'table-1',
+        label: 'Tarifa Nordeste',
+        method: 'TARIFA_GERAL',
+        source: 'general_route',
+        routeId: 'route-1',
+        routeLabel: 'SP-GRU → IMP-MA',
+        total: 420.5,
+    };
+    const pricing = {
+        method: option.method,
+        tableId: option.tableId,
+        tableLabel: option.label,
+        routeId: option.routeId,
+        source: option.source,
+    };
+    const preview = { total: option.total, breakdown: {} as never, effectiveWeight: 1 };
+
+    it('preserva as opções de várias rotas sem inventar uma recomendação', () => {
+        const options = [option, { ...option, tableId: 'table-2', routeId: 'route-2', routeLabel: 'SP-GRU → SLZ-MA', total: 450 }];
+        expect(freightTableOptions({ tableOptions: options, pricing: null, preview: null, route: null })).toBe(options);
+    });
+
+    it('compatibiliza a recomendação de um servidor sem lista de opções', () => {
+        expect(freightTableOptions({ pricing, preview, route: { id: option.routeId!, label: option.routeLabel! } })).toEqual([option]);
+    });
+
+    it('respeita uma lista vazia explícita e não inventa preço quando falta prévia', () => {
+        expect(freightTableOptions({ tableOptions: [], pricing, preview, route: null })).toEqual([]);
+        expect(freightTableOptions({ pricing, preview: null, route: null })).toEqual([]);
+    });
+
+    it('mostra nome, rota e total em reais, inclusive para tabela sem rota', () => {
+        expect(freightTableOptionLabel(option)).toBe(`Tarifa Nordeste · SP-GRU → IMP-MA · ${formatBRL(420.5)}`);
+        expect(freightTableOptionLabel({ ...option, routeId: null, routeLabel: null })).toContain('Sem rota específica');
     });
 });

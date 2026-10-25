@@ -32,7 +32,7 @@ export const FREIGHT_TERM_LABEL: Record<FreightTermValue, string> = {
 
 export const DOC_TYPE_LABEL: Record<FreightDocType, string> = { CTE: 'CT-e', DCE: 'DC-e', MINUTA: 'Minuta' };
 
-export function pricingSourceLabel(pricing: FreightPricingChoice | null): string {
+export function pricingSourceLabel(pricing: Pick<FreightPricingChoice, 'source' | 'tableLabel'> | null): string {
     if (!pricing) return 'Sem tabela de preço — informe o valor';
     switch (pricing.source) {
         case 'payer_special_route':
@@ -43,6 +43,27 @@ export function pricingSourceLabel(pricing: FreightPricingChoice | null): string
         default:
             return `Tabela geral · ${pricing.tableLabel}`;
     }
+}
+
+export type FreightTableOption = NonNullable<FreightSuggestion['tableOptions']>[number];
+
+/** Servidores anteriores ainda podem devolver apenas a tabela recomendada e sua prévia. */
+export function freightTableOptions(suggestion: Pick<FreightSuggestion, 'tableOptions' | 'pricing' | 'preview' | 'route'>): FreightTableOption[] {
+    if (suggestion.tableOptions !== undefined) return suggestion.tableOptions;
+    if (!suggestion.pricing || !suggestion.preview) return [];
+    return [{
+        tableId: suggestion.pricing.tableId,
+        label: suggestion.pricing.tableLabel,
+        method: suggestion.pricing.method,
+        source: suggestion.pricing.source,
+        routeId: suggestion.pricing.routeId,
+        routeLabel: suggestion.route?.label ?? null,
+        total: suggestion.preview.total,
+    }];
+}
+
+export function freightTableOptionLabel(option: FreightTableOption): string {
+    return `${option.label} · ${option.routeLabel ?? 'Sem rota específica'} · ${formatBRL(option.total)}`;
 }
 
 export const IN_FLIGHT: FreightCalcStatus[] = ['CTE_READY', 'CTE_SENT', 'CTE_PROCESSING', 'DCE_READY', 'DCE_SENT'];

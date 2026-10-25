@@ -47,7 +47,10 @@ export interface FreightSuggestion {
     docs: { allowed: FreightDocType[]; recommended: FreightDocType; reason: string };
     emitter: { id: string; name: string; provider: string; environment: string } | null;
     route: { id: string; label: string } | null;
+    routeSource: 'coverage' | 'uf_fallback' | 'order' | null;
     pricing: PricingChoice | null;
+    tableOptions: FreightTableOption[];
+    noPricingReason: string | null;
     preview: { total: number; breakdown: FreightBreakdown; effectiveWeight: number } | null;
     params: { volumes: number; weight: number; nfValue: number };
     /** O que impede emitir o documento recomendado agora (vazio = pronto para emitir). */
@@ -59,7 +62,27 @@ export interface FreightSuggestion {
     parties: { remetente: Person | null; destinatario: Person | null; consignatario: Person | null };
 }
 
+export interface FreightTableOption {
+    tableId: string;
+    label: string;
+    method: PricingChoice['method'];
+    source: PricingChoice['source'];
+    routeId: string | null;
+    routeLabel: string | null;
+    total: number;
+}
+
 const NO_FREIGHT_ISSUE = 'CT-e precisa de valor de frete maior que zero.';
+
+function destinationForPricing(order: FreightOrder, ctx: FreightContext): { state: string | null; label: string } {
+    const city = order.fimIbgeCode ? ctx.citiesByIbge?.get(order.fimIbgeCode) : undefined;
+    const parsed = order.fimPrestacao?.match(/^(.+),\s*([a-z]{2})\s*$/i);
+    const state = [city?.state, order.destinatarioPerson?.state, parsed?.[2]]
+        .map((value) => value?.trim().toUpperCase())
+        .find((value) => value != null && /^[A-Z]{2}$/.test(value)) ?? null;
+    const name = city?.name ?? parsed?.[1]?.trim() ?? order.fimPrestacao?.trim() ?? order.destinatarioPerson?.city ?? 'O destino';
+    return { state, label: state ? `${name}/${state}` : name };
+}
 
 function stripClients<T extends { clients?: unknown } | null>(person: T): Person | null {
     if (!person) return null;
@@ -97,17 +120,62 @@ export function suggestFreight(order: FreightOrder, ctx: FreightContext): Freigh
     const destIbge = order.fimIbgeCode ?? order.destinatarioPerson?.cityIbgeCode ?? null;
     const hop = resolveNextHop(ctx.coverage, destIbge, ctx.hub.id);
     const destCode = hop.kind === 'TRANSFER' ? hop.target.hubCode : hop.kind === 'LOCAL' ? ctx.hub.code : null;
-    const route =
-        (destCode ? ctx.routes.find((r) => r.originCode === ctx.hub.code && r.destCode === destCode) : undefined) ??
-        (order.routeId ? ctx.routes.find((r) => r.id === order.routeId) : undefined) ??
-        null;
+    const coverageRoute = destCode ? ctx.routes.find((r) => r.originCode === ctx.hub.code && r.destCode === destCode) : undefined;
+    const orderRoute = order.routeId ? ctx.routes.find((r) => r.id === order.routeId) : undefined;
+    const destination = destinationForPricing(order, ctx);
+    const destinationHubs = new Set(
+        (ctx.hubs ?? [])
+            .filter((hub) => hub.active && destination.state != null && hub.state.trim().toUpperCase() === destination.state)
+            .map((hub) => hub.code),
+    );
+    const ufRoutes = coverageRoute || orderRoute
+        ? []
+        : ctx.routes.filter((candidate) => candidate.originCode === ctx.hub.code && destinationHubs.has(candidate.destCode));
+    const route = coverageRoute ?? orderRoute ?? (ufRoutes.length === 1 ? ufRoutes[0] : null);
+    const routeSource: FreightSuggestion['routeSource'] = coverageRoute ? 'coverage' : orderRoute ? 'order' : ufRoutes.length > 0 ? 'uf_fallback' : null;
+    const candidateRoutes = route ? [route] : ufRoutes;
 
-    const pricing = choosePricingTable(ctx.tables, {
+    const pricingContext = {
         payerClientId: payerClient?.id ?? null,
         payerAccountId: payerClient?.accountId ?? null,
         routeId: route?.id ?? null,
-    });
+    };
+    const pricing = choosePricingTable(ctx.tables, pricingContext);
     const params = orderFreightParams(order);
+    const sourceOrder = { payer_special_route: 0, payer_special: 1, general_route: 2, general: 3 };
+    const tableOptions = ctx.tables
+        .map((table) => {
+            const tableRoute = table.routeId ? candidateRoutes.find((candidate) => candidate.id === table.routeId) : undefined;
+            if (table.routeId && !tableRoute) return null;
+            const choice = choosePricingTable([table], { ...pricingContext, routeId: tableRoute?.id ?? null });
+            if (!choice) return null;
+            return {
+                option: {
+                    tableId: table.id,
+                    label: table.description,
+                    method: choice.method,
+                    source: choice.source,
+                    routeId: choice.routeId,
+                    routeLabel: tableRoute?.name ?? null,
+                    total: computeFreightFromTable(table, params).total,
+                } satisfies FreightTableOption,
+                priority: table.priority,
+            };
+        })
+        .filter((entry) => entry !== null)
+        .sort((a, b) => sourceOrder[a.option.source] - sourceOrder[b.option.source] || b.priority - a.priority)
+        .map((entry) => entry.option);
+    const noPricingReason = tableOptions.length > 0
+        ? null
+        : route
+            ? `Não há tabela de preço aplicável à rota ${route.name}. Confira as tabelas ou informe o valor.`
+            : destination.state == null
+                ? 'Não foi possível identificar a UF do destino para procurar uma rota de preço. Confira o destino ou informe o valor.'
+                : ufRoutes.length > 0
+                    ? `Não há tabela de preço aplicável às rotas para ${destination.state} a partir deste hub. Confira as tabelas ou informe o valor.`
+                    : hop.kind === 'UNROUTED'
+                        ? `${destination.label} não tem hub na cobertura e não há rota de preço para ${destination.state} a partir deste hub. Defina a cobertura ou informe o valor.`
+                        : `Não há rota de preço para ${destination.state} a partir deste hub. Defina a rota ou informe o valor.`;
     const table = pricing ? ctx.tables.find((t) => t.id === pricing.tableId) : undefined;
     const computed = table ? computeFreightFromTable(table, params) : null;
 
@@ -163,7 +231,10 @@ export function suggestFreight(order: FreightOrder, ctx: FreightContext): Freigh
               }
             : null,
         route: route ? { id: route.id, label: route.name } : null,
+        routeSource,
         pricing,
+        tableOptions,
+        noPricingReason,
         preview: computed ? { total: computed.total, breakdown: computed.breakdown, effectiveWeight: computed.effectiveWeight } : null,
         params: { volumes: params.volumes, weight: params.weight, nfValue: params.nfValue },
         blockers: Array.from(new Set(blockers)),

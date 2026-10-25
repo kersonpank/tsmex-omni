@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { after, before, describe, it } from 'node:test';
+import { after, before, beforeEach, describe, it } from 'node:test';
 import jwt from 'jsonwebtoken';
 import express from 'express';
 
@@ -461,5 +461,181 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
 
         assert.equal(response.status, 400);
         assert.match(response.body.error, /emit-cte/);
+    });
+});
+
+describe('freightCalculations /prepare: seleção de tabela aplicável', () => {
+    const hubId = 'gru';
+    const orderId = 'order-pricing';
+    let baseUrl = '';
+    let token = '';
+    let server: ReturnType<express.Express['listen']> | null = null;
+    let ambiguousRoutes = false;
+    let transactions = 0;
+    const calcs = new Map<string, any>();
+    const restores: (() => void)[] = [];
+    const originalJwtSecret = process.env.JWT_SECRET;
+
+    const routes = [
+        { id: 'route-imp', name: 'GRU → Imperatriz', originCode: 'SP-GRU', destCode: 'IMP-MA', active: true },
+        { id: 'route-slz', name: 'GRU → São Luís', originCode: 'SP-GRU', destCode: 'SLZ-MA', active: true },
+    ];
+    const hub = {
+        id: hubId, name: 'Guarulhos', code: 'SP-GRU', state: 'SP', cityIbgeCode: '3518800', active: true,
+        personId: 'person-gru', person: { id: 'person-gru', legalName: 'TSM EX LTDA', document: '11222333000144' },
+    };
+    const order = {
+        id: orderId, currentHubId: hubId, freightTerm: 'CIF', routeId: 'route-imp', nfNumber: null,
+        origemPrestacao: 'Guarulhos, SP', fimPrestacao: 'Viana, MA', fimIbgeCode: '2112803',
+        remetentePerson: { id: 'payer', legalName: 'Pagador', document: '11222333000144', clients: [{ id: 'client-payer', accountId: null }] },
+        destinatarioPerson: { id: 'dest', legalName: 'Destino', document: '45568955000188', state: 'MA', cityIbgeCode: '2112803', clients: [] },
+        consignatarioPerson: null, expedidorPerson: null, invoicesRel: [], freightCalculations: [], invoices: [], invoiceItems: [], demand: null,
+        collectionData: { volumes: 1, weight: 10 },
+    };
+    const makeTable = (id: string, type: 'SPECIAL' | 'GENERAL', routeId: string | null, freightValue: number, priority = 0) => ({
+        id, type, routeId, freightValue, priority, description: id, active: true,
+        clientId: type === 'SPECIAL' ? 'client-payer' : null, accountId: null,
+        freightUnit: 'RS_KG', minFreightValue: 0, minFreightRanges: [], adValoremPercent: 0, grisPercent: 0,
+        tollValue: 0, tollUnit: 'RS_KG', dispatchFee: 0, otherFees: 0, icmsIncluded: false, icmsPercent: 0, cubeFactor: 300,
+    });
+    const allTables = [
+        makeTable('special-payer', 'SPECIAL', null, 1),
+        makeTable('general-imp', 'GENERAL', 'route-imp', 2, 10),
+        makeTable('general-slz', 'GENERAL', 'route-slz', 3),
+        makeTable('general-routeless', 'GENERAL', null, 4),
+    ];
+    const tables = () => ambiguousRoutes ? allTables.filter((t) => t.routeId !== null) : allTables;
+    const availableRoutes = () => ambiguousRoutes ? routes : routes.slice(0, 1);
+
+    function replace(target: object, method: string, replacement: (...args: any[]) => any): void {
+        const delegate = target as Record<string, unknown>;
+        const original = delegate[method];
+        delegate[method] = replacement;
+        restores.push(() => { delegate[method] = original; });
+    }
+
+    before(async () => {
+        process.env.JWT_SECRET = 'pricing-prepare-test-secret';
+        const { freightCalculationsRouter } = await import('./freightCalculations.js');
+        replace(prisma.user, 'findUnique', async () => ({ id: 'admin-pricing', roles: ['ADMIN'], active: true, hubId: null, permissions: [] }));
+        replace(prisma.order, 'findUnique', async () => ({ ...order, routeId: ambiguousRoutes ? null : order.routeId }));
+        replace(prisma.order, 'findUniqueOrThrow', async () => ({ ...order, routeId: ambiguousRoutes ? null : order.routeId }));
+        replace(prisma.hub, 'findUnique', async () => hub);
+        replace(prisma.hub, 'findUniqueOrThrow', async () => hub);
+        replace(prisma.hub, 'findMany', async () => [
+            hub,
+            { id: 'imp', name: 'Imperatriz', code: 'IMP-MA', state: 'MA', cityIbgeCode: '2105302', active: true },
+            { id: 'slz', name: 'São Luís', code: 'SLZ-MA', state: 'MA', cityIbgeCode: '2111300', active: true },
+        ]);
+        replace(prisma.city, 'findMany', async () => [{ ibgeCode: '2112803', name: 'Viana', state: { code: 'MA' } }]);
+        replace(prisma.fiscalEmitter, 'findMany', async () => []);
+        replace(prisma.hubCoverage, 'findMany', async () => []);
+        replace(prisma.pricingRoute, 'findMany', async () => availableRoutes());
+        replace(prisma.pricingRoute, 'findUnique', async (args) => routes.find((r) => r.id === args.where.id) ?? null);
+        replace(prisma.pricingTable, 'findMany', async () => tables());
+        replace(prisma.pricingTable, 'findFirst', async (args) => tables().find((table) => Object.entries(args.where).every(([key, value]) => table[key as keyof typeof table] === value)) ?? null);
+        replace(prisma.orderFreightCalculation, 'findFirst', async (args) => {
+            const calc = calcs.get(args.where.id);
+            return calc ? { ...calc, pricingTable: tables().find((t) => t.id === calc.pricingTableId) ?? null } : null;
+        });
+        replace(prisma.orderFreightCalculation, 'update', async (args) => {
+            const calc = calcs.get(args.where.id);
+            Object.assign(calc, args.data);
+            return calc;
+        });
+        replace(prisma.orderFreightCalculation, 'findUniqueOrThrow', async (args) => calcs.get(args.where.id));
+        replace(prisma, '$transaction', async (callback) => {
+            transactions++;
+            return callback({
+                $executeRaw: async () => 1,
+                orderFreightCalculation: {
+                    findMany: async () => [],
+                    create: async (args: any) => {
+                        const calc = { id: `calc-${calcs.size}`, status: 'DRAFT', ...args.data };
+                        calcs.set(calc.id, calc);
+                        return calc;
+                    },
+                },
+            });
+        });
+
+        const app = express();
+        app.use(express.json());
+        app.use('/api/orders/:orderId/freight-calculations', freightCalculationsRouter);
+        app.use(errorHandler);
+        server = app.listen(0);
+        await new Promise<void>((resolve) => server!.once('listening', resolve));
+        const addr = server.address();
+        if (!addr || typeof addr === 'string') throw new Error('Falha ao obter porta de teste.');
+        baseUrl = `http://127.0.0.1:${addr.port}`;
+        token = jwt.sign({ userId: 'admin-pricing' }, process.env.JWT_SECRET);
+    });
+
+    beforeEach(() => {
+        ambiguousRoutes = false;
+        transactions = 0;
+        calcs.clear();
+    });
+
+    after(async () => {
+        if (server) await new Promise<void>((resolve, reject) => server!.close((err) => err ? reject(err) : resolve()));
+        restores.reverse().forEach((restore) => restore());
+        if (originalJwtSecret === undefined) delete process.env.JWT_SECRET;
+        else process.env.JWT_SECRET = originalJwtSecret;
+    });
+
+    const prepare = (body: object) => httpJson<{ success: boolean; error?: string; data: { calc: any } }>(
+        baseUrl, `/api/orders/${orderId}/freight-calculations/prepare`, token,
+        { method: 'POST', body: JSON.stringify({ documentType: 'MINUTA', ...body }) },
+    );
+
+    it('mantém a recomendação quando nenhuma tabela é escolhida', async () => {
+        const response = await prepare({});
+        assert.equal(response.status, 201);
+        assert.equal(response.body.data.calc.pricingTableId, 'special-payer');
+        assert.equal(response.body.data.calc.calculationMethod, 'ESPECIAL');
+        assert.equal(response.body.data.calc.freightTotal, 10);
+    });
+
+    it('usa método, rota e valor da tabela alternativa em vez da especial recomendada', async () => {
+        const response = await prepare({ pricingTableId: 'general-imp', routeId: 'route-forged', calculationMethod: 'ESPECIAL' });
+        assert.equal(response.status, 201);
+        assert.equal(response.body.data.calc.pricingTableId, 'general-imp');
+        assert.equal(response.body.data.calc.calculationMethod, 'TARIFA_GERAL');
+        assert.equal(response.body.data.calc.routeId, 'route-imp');
+        assert.equal(response.body.data.calc.freightTotal, 20);
+    });
+
+    it('preserva rota nula da tarifa geral sem rota mesmo quando o pedido tem rota', async () => {
+        const response = await prepare({ pricingTableId: 'general-routeless' });
+        assert.equal(response.status, 201);
+        assert.equal(response.body.data.calc.pricingTableId, 'general-routeless');
+        assert.equal(response.body.data.calc.routeId, null);
+        assert.equal(response.body.data.calc.freightTotal, 40);
+    });
+
+    it('permite escolher tabela quando várias rotas por UF deixam a recomendação vazia', async () => {
+        ambiguousRoutes = true;
+        const response = await prepare({ pricingTableId: 'general-slz' });
+        assert.equal(response.status, 201);
+        assert.equal(response.body.data.calc.pricingTableId, 'general-slz');
+        assert.equal(response.body.data.calc.routeId, 'route-slz');
+        assert.equal(response.body.data.calc.freightTotal, 30);
+    });
+
+    it('rejeita tabela que não pertence às opções sem persistir um cálculo', async () => {
+        const response = await prepare({ pricingTableId: 'table-of-another-payer' });
+        assert.equal(response.status, 400);
+        assert.match(response.body.error ?? '', /tabela escolhida não está disponível/);
+        assert.equal(transactions, 0);
+        assert.equal(calcs.size, 0);
+    });
+
+    it('exige motivo para valor informado quando há opções e nenhuma recomendação', async () => {
+        ambiguousRoutes = true;
+        const response = await prepare({ informed: { freightBase: 25 } });
+        assert.equal(response.status, 400);
+        assert.match(response.body.error ?? '', /Diga o motivo/);
+        assert.equal(transactions, 0);
     });
 });

@@ -34,6 +34,7 @@ import type {
     PricingCalculateRequest,
     PricingCalculateResponse,
     OrderFreightCalculation,
+    OrderPackage,
     CtePreflightResult,
     FiscalAcbrDiagnostics,
     FiscalEmitter,
@@ -727,6 +728,21 @@ export const manifestsApi = {
 
     emitCiot: async (id: string, data: EmitCiotRequest) => {
         const response = await api.post<ApiResponse<CiotEmissionJob>>(`/manifests/${id}/emit-ciot`, data);
+        return response.data;
+    },
+
+    dispenseCiot: async (id: string, motivo: string) => {
+        const response = await api.post<ApiResponse<Manifest>>(`/manifests/${id}/ciot-dispensa`, { motivo });
+        return response.data;
+    },
+
+    undoCiotDispensa: async (id: string) => {
+        const response = await api.post<ApiResponse<Manifest>>(`/manifests/${id}/ciot-dispensa/desfazer`, {});
+        return response.data;
+    },
+
+    fiscalDocumentPdf: async (id: string, documentId: string) => {
+        const response = await api.get<{ downloadUrl: string; expiresInSeconds: number }>(`/manifests/${id}/fiscal-documents/${documentId}/pdf`);
         return response.data;
     },
 
@@ -1636,6 +1652,7 @@ export const ordersFreightApi = {
     /** TSM O.S.: deixa o cálculo pronto para emitir sem duplicar (ativo do mesmo tipo volta como está). */
     prepare: async (orderId: string, body: {
         documentType: FreightDocType;
+        pricingTableId?: string;
         informed?: Partial<FreightBreakdownValues>;
         reason?: string;
         newDocument?: boolean;
@@ -1654,6 +1671,19 @@ export const ordersFreightApi = {
             data?: { downloadUrl: string; expiresInSeconds: number };
             error?: string;
         }>(`/orders/${orderId}/freight-calculations/${calcId}/cte-document`, { params: { type } });
+        return response.data;
+    },
+};
+
+export const orderPackagesApi = {
+    get: async (orderId: string) => {
+        const response = await api.get<ApiResponse<{ packages: OrderPackage[]; volumeM3: number }>>(`/orders/${orderId}/packages`);
+        return response.data;
+    },
+
+    /** Substitui as medidas dos volumes (ou só o m³ total) e recalcula o frete automático do pedido. */
+    set: async (orderId: string, body: { packages: OrderPackage[]; totalM3?: number }) => {
+        const response = await api.put<ApiResponse<{ packages: OrderPackage[]; volumeM3: number }>>(`/orders/${orderId}/packages`, body);
         return response.data;
     },
 };
@@ -1767,6 +1797,14 @@ export const ordersApi = {
 // ========== HUB CARGO WORKSPACE API ==========
 
 export const hubCargoApi = {
+    convertAllTriage: async (hubId?: string) => {
+        const response = await api.post<ApiResponse<{
+            converted: number;
+            failed: Array<{ id: string; message: string }>;
+        }>>('/hub/cargo/triage/convert-all', hubId ? { hubId } : {});
+        return response.data;
+    },
+
     summary: async (hubId?: string) => {
         const response = await api.get<{
             success: true;
