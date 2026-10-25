@@ -17,6 +17,7 @@ import { putAcbrEmpresaCertificado, syncFiscalEmitterToAcbr } from '../services/
 import { buildAcbrRuntimeDiagnostics } from '../services/acbr/acbrDiagnostics.js';
 import { runEfreteDiagnostics } from '../services/efrete/efreteDiagnostics.js';
 import { getCteCfopOption, getCteCstRule } from '../services/fiscal/cteTaxRules.js';
+import { CertificateInfoError, readPkcs12Info } from '../services/fiscal/certificateInfo.js';
 import {
     getDistribuicaoCheckpointStatus,
     getDistribuicaoCheckpointStatusBatch,
@@ -29,6 +30,10 @@ const router = Router();
 
 function digitsOnly(s: string): string {
     return s.replace(/\D/g, '');
+}
+
+function formatCnpj(document: string): string {
+    return digitsOnly(document).replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
 }
 
 /** Sincroniza empresa + config CT-e na ACBr quando emitente é ACBR e credenciais globais existem. */
@@ -120,7 +125,6 @@ const certificateSchema = z.object({
     filename: z.string().min(1),
     mimeType: z.string().optional(),
     password: z.string().min(1),
-    expiresAt: z.string().datetime().nullable().optional(),
 });
 
 function distribuicaoAmbienteFromEnvironment(environment: string): DistribuicaoAmbiente {
@@ -354,12 +358,20 @@ router.post('/:id/certificate', authenticate, authorize('ADMIN'), async (req: Au
     try {
         const id = req.params.id as string;
         const data = certificateSchema.parse(req.body);
-        const emitter = await prisma.fiscalEmitter.findUnique({ where: { id } });
+        const emitter = await prisma.fiscalEmitter.findUnique({ where: { id }, include: { person: true } });
         if (!emitter) throw new AppError('Emitente credenciado não encontrado', 404);
 
         const lowerName = data.filename.toLowerCase();
         if (!lowerName.endsWith('.pfx') && !lowerName.endsWith('.p12')) {
             throw new AppError('Certificado A1 deve ser .pfx ou .p12', 400);
+        }
+
+        const certificateInfo = readPkcs12Info(data.file, data.password);
+        if (certificateInfo.cnpj && certificateInfo.cnpj !== digitsOnly(emitter.person.document)) {
+            throw new AppError(
+                `Este certificado é do CNPJ ${formatCnpj(certificateInfo.cnpj)}, mas o emitente é ${formatCnpj(emitter.person.document)}.`,
+                400,
+            );
         }
 
         const upload = await uploadBase64Object({
@@ -376,12 +388,12 @@ router.post('/:id/certificate', authenticate, authorize('ADMIN'), async (req: Au
                 certificateStorageKey: upload.storageKey,
                 certificateFileName: data.filename,
                 certificatePasswordEncrypted: passwordEncrypted,
-                certificateExpiresAt: data.expiresAt ? new Date(data.expiresAt) : null,
+                certificateExpiresAt: certificateInfo.notAfter,
                 certificateFingerprint: crypto.createHash('sha256').update(upload.checksum).digest('hex'),
                 certificateStatus: getCertificateStatus({
                     certificateStorageKey: upload.storageKey,
                     certificatePasswordEncrypted: passwordEncrypted,
-                    certificateExpiresAt: data.expiresAt ?? null,
+                    certificateExpiresAt: certificateInfo.notAfter,
                 }),
             },
             include: { person: true, hub: true },
@@ -409,6 +421,9 @@ router.post('/:id/certificate', authenticate, authorize('ADMIN'), async (req: Au
             ...(acbrCert ? { acbrCertificate: acbrCert } : {}),
         });
     } catch (error) {
+        if (error instanceof CertificateInfoError) {
+            return next(new AppError('Senha do certificado incorreta ou arquivo inválido.', 400));
+        }
         if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
         next(error);
     }
