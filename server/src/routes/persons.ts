@@ -23,6 +23,18 @@ function normalizeForSearch(s: string): string {
         .toLowerCase();
 }
 
+/** Papéis (relações) que a pessoa já tem — a busca olha a pessoa, não só um papel. */
+export function personRoles(person: { clients?: unknown[]; links?: unknown[]; drivers?: unknown[]; hubs?: unknown[] }): string[] {
+    const roles: string[] = [];
+    if (person.drivers?.length) roles.push('motorista');
+    if (person.links?.length) roles.push('transportador');
+    if (person.clients?.length) roles.push('cliente');
+    if (person.hubs?.length) roles.push('hub');
+    return roles;
+}
+
+const asDriverSchema = z.object({ linkId: z.string().min(1).optional() });
+
 const addClientSchema = z.object({
     email: z.string().email('Email inválido'),
     password: z.string().min(6, 'Senha deve ter no mínimo 6 caracteres'),
@@ -229,17 +241,29 @@ router.get('/search', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthR
             }
         }
 
+        const documentType = req.query.documentType as string | undefined;
+        const where: Prisma.PersonWhereInput = documentType === 'CPF' || documentType === 'CNPJ'
+            ? { AND: [{ OR: orConditions }, { documentType }] }
+            : { OR: orConditions };
+
         const persons = await prisma.person.findMany({
-            where: { OR: orConditions },
+            where,
             include: {
                 clients: { select: { id: true, companyName: true } },
                 links: { select: { id: true, name: true } },
+                drivers: {
+                    select: {
+                        id: true, active: true, name: true, phone: true, birthDate: true,
+                        cnhNumber: true, cnhCategory: true, cnhExpiry: true, cnhState: true,
+                    },
+                },
+                hubs: { select: { id: true, name: true } },
             },
             orderBy: { legalName: 'asc' },
             take: 15,
         });
 
-        res.json({ success: true, data: persons });
+        res.json({ success: true, data: persons.map((person) => ({ ...person, roles: personRoles(person) })) });
     } catch (error) {
         next(error);
     }
@@ -818,6 +842,66 @@ router.post('/:id/add-link', authenticate, authorize('ADMIN'), async (req: AuthR
 });
 
 // POST /api/persons/:id/add-hub - Add Person as Hub operator (create User HUB)
+// POST /api/persons/:id/as-driver - Usa a pessoa como motorista (cria o papel a partir dela)
+router.post('/:id/as-driver', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const id = getParamId(req.params);
+        const body = asDriverSchema.parse(req.body ?? {});
+
+        const person = await prisma.person.findUnique({
+            where: { id },
+            include: {
+                drivers: true,
+                contacts: { select: { phone: true } },
+            },
+        });
+        if (!person) throw new AppError('Pessoa não encontrada', 404);
+
+        if (body.linkId) {
+            const link = await prisma.link.findUnique({ where: { id: body.linkId }, select: { id: true } });
+            if (!link) throw new AppError('Transportador não encontrado', 404);
+        }
+
+        let driver = person.drivers[0] ?? null;
+        let created = false;
+        if (driver) {
+            if (!driver.active && !driver.blockedReason) {
+                driver = await prisma.driver.update({ where: { id: driver.id }, data: { active: true } });
+            }
+        } else {
+            const cpf = normalizeDocument(person.document);
+            if (person.documentType !== 'CPF' || cpf.length !== 11) {
+                throw new AppError('Só pessoa física (CPF) pode ser motorista', 400);
+            }
+            const phone = person.contacts.map((c) => c.phone).find((v): v is string => Boolean(v)) ?? '';
+            driver = await prisma.driver.create({
+                data: { name: person.legalName, document: cpf, phone, personId: person.id, active: true },
+            });
+            created = true;
+        }
+
+        if (body.linkId) {
+            await prisma.driverCarrier.upsert({
+                where: { driverId_linkId: { driverId: driver.id, linkId: body.linkId } },
+                create: { driverId: driver.id, linkId: body.linkId },
+                update: { active: true },
+            });
+        }
+
+        const missingForCiot: string[] = [];
+        if (!driver.cnhNumber) missingForCiot.push('número da CNH');
+        if (!driver.cnhCategory) missingForCiot.push('categoria da CNH');
+        if (!driver.cnhExpiry) missingForCiot.push('validade da CNH');
+        if (!driver.birthDate) missingForCiot.push('data de nascimento');
+        if (!driver.phone) missingForCiot.push('telefone');
+
+        res.status(created ? 201 : 200).json({ success: true, data: { driver, created, missingForCiot } });
+    } catch (error) {
+        if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
+        next(error);
+    }
+});
+
 router.post('/:id/add-hub', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const id = getParamId(req.params);

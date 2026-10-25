@@ -1139,9 +1139,20 @@ export const personsApi = {
         return response.data;
     },
 
-    search: async (q: string) => {
+    search: async (q: string, documentType?: 'CPF' | 'CNPJ') => {
         if (!q || q.trim().length < 2) return { data: [] as Person[] };
-        const response = await api.get<ApiResponse<Person[]>>('/persons/search', { params: { q: q.trim() } });
+        const response = await api.get<ApiResponse<Person[]>>('/persons/search', {
+            params: { q: q.trim(), ...(documentType ? { documentType } : {}) },
+        });
+        return response.data;
+    },
+
+    /** Usa a pessoa como motorista (cria o papel a partir dela) e, com linkId, vincula ao transportador. */
+    asDriver: async (personId: string, linkId?: string) => {
+        const response = await api.post<ApiResponse<{ driver: Driver; created: boolean; missingForCiot: string[] }>>(
+            `/persons/${personId}/as-driver`,
+            linkId ? { linkId } : {},
+        );
         return response.data;
     },
 

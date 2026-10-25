@@ -1,4 +1,5 @@
 import type { VehicleUnitInput } from '../../../lib/api';
+import type { Driver, Person } from '../../../types/index';
 
 /**
  * Lógica pura da ficha do transportador (cadastro para CIOT/MDF-e no TSM O.S.).
@@ -203,6 +204,7 @@ export interface SearchedPerson {
     city?: string | null;
     state?: string | null;
     links?: Array<{ id: string; name: string; document?: string }>;
+    roles?: string[];
 }
 
 export type CarrierLookup =
@@ -331,4 +333,58 @@ export function buildTripComposition(tractionPlate: string, trailerPlates: strin
         if (trailers.length === 3) break;
     }
     return { traction: { plate: traction }, trailers };
+}
+
+/** Papéis da pessoa para exibição: usa `roles` do backend ou deduz das relações. */
+export function roleLabels(person: Pick<Person, 'roles' | 'drivers' | 'links' | 'clients' | 'hubs'>): string[] {
+    if (person.roles?.length) return person.roles;
+    const roles: string[] = [];
+    if (person.drivers?.length) roles.push('motorista');
+    if (person.links?.length) roles.push('transportador');
+    if (person.clients?.length) roles.push('cliente');
+    if (person.hubs?.length) roles.push('hub');
+    return roles;
+}
+
+export interface DriverSearchRow {
+    /** Id da pessoa (quando veio da busca por pessoa). */
+    personId: string | null;
+    /** Motorista já existente (quando há). */
+    driver: Driver | null;
+    document: string;
+    name: string;
+    roles: string[];
+}
+
+/**
+ * Junta busca por pessoa (CPF) e busca de motoristas, sem duplicar o mesmo CPF.
+ * Pessoa sem motorista fica com `driver: null` (precisa de "usar como motorista").
+ */
+export function mergePersonDriverResults(persons: Person[], drivers: Driver[]): DriverSearchRow[] {
+    const rows = new Map<string, DriverSearchRow>();
+    for (const d of drivers) {
+        const key = digits(d.document);
+        rows.set(key, { personId: null, driver: d, document: d.document, name: d.name, roles: ['motorista'] });
+    }
+    for (const p of persons) {
+        if (p.documentType && p.documentType !== 'CPF') continue;
+        const key = digits(p.document);
+        if (key.length !== 11) continue;
+        const roles = roleLabels(p);
+        const existing = rows.get(key);
+        if (existing) {
+            existing.personId = p.id;
+            existing.roles = Array.from(new Set(['motorista', ...roles]));
+            continue;
+        }
+        const activeDriver = p.drivers?.find((x) => x.active) ?? p.drivers?.[0];
+        rows.set(key, {
+            personId: p.id,
+            driver: activeDriver ? ({ ...activeDriver, name: activeDriver.name ?? p.legalName, document: p.document, phone: activeDriver.phone ?? '', linkId: null } as Driver) : null,
+            document: p.document,
+            name: p.legalName,
+            roles,
+        });
+    }
+    return [...rows.values()];
 }

@@ -1,9 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
-import { linksApi, manifestsApi } from '../../../../lib/api';
-import type { Driver, Link } from '../../../../types/index';
-import { buildTripComposition, cnhStatus, driverBelongsToLink, sortDriversForLink } from '../../lib/carrier';
+import { linksApi, manifestsApi, personsApi } from '../../../../lib/api';
+import type { Driver, Link, Person } from '../../../../types/index';
+import {
+    buildTripComposition,
+    cnhStatus,
+    digits,
+    driverBelongsToLink,
+    mergePersonDriverResults,
+    sortDriversForLink,
+    type DriverSearchRow,
+} from '../../lib/carrier';
 import { linkCompositionPlates } from '../../lib/trip';
 import { OsButton, OsEmpty } from '../../ui/kit';
 import OsSheet, { apiErrorMessage, osFieldClass } from '../../ui/Sheet';
@@ -28,7 +36,9 @@ const ResponsibleEditor: React.FC<{
     const [q, setQ] = useState('');
     const [link, setLink] = useState<Link | null>(null);
     const [drivers, setDrivers] = useState<Driver[]>([]);
-    const [found, setFound] = useState<Driver[]>([]);
+    const [found, setFound] = useState<DriverSearchRow[]>([]);
+    const [pickingPerson, setPickingPerson] = useState<string | null>(null);
+    const [prefill, setPrefill] = useState<(Driver & { person?: Person }) | null>(null);
     const [driverQ, setDriverQ] = useState('');
     const [driverId, setDriverId] = useState<string | null>(null);
     const [newDriver, setNewDriver] = useState(false);
@@ -87,14 +97,19 @@ const ResponsibleEditor: React.FC<{
         }
         let cancelled = false;
         const timer = setTimeout(() => {
-            linksApi
-                .searchDrivers(term)
-                .then((body) => {
-                    if (!cancelled) setFound(Array.isArray(body.data) ? body.data : []);
-                })
-                .catch(() => {
-                    if (!cancelled) setFound([]);
-                });
+            // Busca pela PESSOA (CPF) e pelos motoristas; une sem duplicar o mesmo CPF.
+            Promise.all([
+                personsApi.search(term, 'CPF').catch(() => ({ data: [] as Person[] })),
+                linksApi.searchDrivers(term).catch(() => ({ data: [] as Driver[] })),
+            ]).then(([persons, drivers]) => {
+                if (cancelled) return;
+                setFound(
+                    mergePersonDriverResults(
+                        Array.isArray(persons.data) ? persons.data : [],
+                        Array.isArray(drivers.data) ? drivers.data : [],
+                    ),
+                );
+            });
         }, 250);
         return () => {
             cancelled = true;
@@ -102,16 +117,43 @@ const ResponsibleEditor: React.FC<{
         };
     }, [driverQ]);
 
-    const driverRows = useMemo(() => {
+    const driverRows = useMemo<DriverSearchRow[]>(() => {
         if (!link) return [];
         const searching = driverQ.trim().length >= 2;
-        const byId = new Map<string, Driver>();
-        for (const d of searching ? found : drivers) byId.set(d.id, d);
+        const asRow = (d: Driver): DriverSearchRow => ({ personId: null, driver: d, document: d.document, name: d.name, roles: ['motorista'] });
+        const rows = searching ? [...found] : sortDriversForLink(drivers, link.id).map(asRow);
         // O selecionado nunca some da lista, mesmo que a busca não o traga.
-        const selected = driverId ? [...drivers, ...found].find((d) => d.id === driverId) : undefined;
-        if (selected) byId.set(selected.id, selected);
-        return sortDriversForLink([...byId.values()], link.id);
+        const selected = driverId ? drivers.find((d) => d.id === driverId) : undefined;
+        if (selected && !rows.some((r) => r.driver?.id === selected.id)) rows.unshift(asRow(selected));
+        return rows;
     }, [link, drivers, found, driverQ, driverId]);
+
+    // Pessoa já cadastrada (cliente, transportador…) sem papel de motorista: cria o papel a partir dela.
+    const pickRow = async (row: DriverSearchRow) => {
+        if (!link) return;
+        if (row.driver && row.roles.includes('motorista')) {
+            setDriverId(row.driver.id);
+            return;
+        }
+        if (!row.personId || pickingPerson) return;
+        setPickingPerson(row.personId);
+        setError(null);
+        try {
+            const body = await personsApi.asDriver(row.personId, link.id);
+            const { driver, missingForCiot } = body.data;
+            await loadLinkDrivers(link, driver.id);
+            setDriverQ('');
+            if (missingForCiot.length > 0) {
+                const persons = await personsApi.search(digits(row.document), 'CPF').catch(() => ({ data: [] as Person[] }));
+                const person = persons.data.find((p) => p.id === row.personId);
+                setPrefill({ ...driver, person: person ?? driver.person } as Driver & { person?: Person });
+            }
+        } catch (cause) {
+            setError(apiErrorMessage(cause, 'Não foi possível usar esta pessoa como motorista.'));
+        } finally {
+            setPickingPerson(null);
+        }
+    };
 
     const filtered = useMemo(() => {
         const term = q.trim().toLowerCase();
@@ -139,6 +181,20 @@ const ResponsibleEditor: React.FC<{
             setBusy(false);
         }
     };
+
+    if (prefill && link) {
+        return (
+            <DriverEditor
+                linkId={link.id}
+                driver={prefill as never}
+                onClose={() => setPrefill(null)}
+                onSaved={(id) => {
+                    setPrefill(null);
+                    void loadLinkDrivers(link, id);
+                }}
+            />
+        );
+    }
 
     if (newDriver && link) {
         return (
@@ -258,29 +314,50 @@ const ResponsibleEditor: React.FC<{
                                     : 'Nenhum motorista neste transportador — busque por nome/CPF ou cadastre.'}
                             </p>
                         ) : null}
-                        {driverRows.map((d) => {
-                            const cnh = cnhStatus(d.cnhExpiry);
+                        {driverRows.map((row) => {
+                            const d = row.driver;
+                            const isDriver = Boolean(d) && row.roles.includes('motorista');
+                            const selected = Boolean(d) && driverId === d?.id;
+                            const cnh = cnhStatus(d?.cnhExpiry);
                             return (
                                 <label
-                                    key={d.id}
+                                    key={row.document}
                                     className={clsx(
                                         'flex min-h-[48px] cursor-pointer items-center gap-3 rounded-xl border-2 p-3',
-                                        driverId === d.id ? 'border-brand-500 bg-brand-500/8' : 'border-tower-200 dark:border-tower-700',
+                                        selected ? 'border-brand-500 bg-brand-500/8' : 'border-tower-200 dark:border-tower-700',
+                                        pickingPerson && pickingPerson === row.personId && 'opacity-60',
                                     )}
                                 >
                                     <input
                                         type="radio"
                                         name="driver"
-                                        checked={driverId === d.id}
-                                        onChange={() => setDriverId(d.id)}
+                                        checked={selected}
+                                        onChange={() => void pickRow(row)}
                                         className="h-5 w-5 accent-[#2e3192]"
                                     />
                                     <span className="flex min-w-0 flex-col">
-                                        <span className="text-[14px] font-semibold text-tower-900 dark:text-white">{d.name}</span>
+                                        <span className="text-[14px] font-semibold text-tower-900 dark:text-white">{row.name}</span>
                                         <span className="text-[12px] text-tower-500 dark:text-tower-400">
-                                            CPF {d.document}
-                                            {driverBelongsToLink(d, link.id) ? '' : ' · de outro transportador (será vinculado)'}
+                                            CPF {row.document}
+                                            {d && isDriver && !driverBelongsToLink(d, link.id) ? ' · de outro transportador (será vinculado)' : ''}
                                         </span>
+                                        {row.roles.length > 0 ? (
+                                            <span className="mt-0.5 flex flex-wrap gap-1">
+                                                {row.roles.map((role) => (
+                                                    <span
+                                                        key={role}
+                                                        className="rounded-full bg-tower-100 px-2 py-0.5 text-[11px] font-semibold text-tower-600 dark:bg-tower-800 dark:text-tower-300"
+                                                    >
+                                                        {role}
+                                                    </span>
+                                                ))}
+                                            </span>
+                                        ) : null}
+                                        {!isDriver ? (
+                                            <span className="text-[12px] font-semibold text-brand-600 dark:text-brand-300">
+                                                {pickingPerson === row.personId ? 'Cadastrando como motorista…' : 'Pessoa já cadastrada — usar como motorista'}
+                                            </span>
+                                        ) : null}
                                         <span
                                             className={clsx(
                                                 'text-[12px] font-semibold',

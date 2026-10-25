@@ -298,7 +298,20 @@ export interface Person {
     updatedAt: string;
     clients?: Array<{ id: string; companyName: string; document: string }>;
     links?: Array<{ id: string; name: string; document: string }>;
-    hubs?: Array<{ id: string; name: string; code: string }>;
+    hubs?: Array<{ id: string; name: string; code?: string }>;
+    /** Papéis da pessoa devolvidos pela busca (/persons/search). */
+    roles?: string[];
+    drivers?: Array<{
+        id: string;
+        active: boolean;
+        name?: string;
+        phone?: string | null;
+        birthDate?: string | null;
+        cnhNumber?: string | null;
+        cnhCategory?: string | null;
+        cnhExpiry?: string | null;
+        cnhState?: string | null;
+    }>;
     users?: Array<{
         id: string;
         email: string;

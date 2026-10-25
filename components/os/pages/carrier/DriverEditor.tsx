@@ -30,6 +30,7 @@ const DriverEditor: React.FC<{
     const [cnhState, setCnhState] = useState(driver?.cnhState ?? driver?.person?.state ?? '');
     const [address, setAddress] = useState<AddressValue>(() => addressFrom(driver?.person));
     const [reused, setReused] = useState(false);
+    const [reuseNote, setReuseNote] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -43,24 +44,37 @@ const DriverEditor: React.FC<{
         let cancelled = false;
         (async () => {
             try {
+                // Pessoa primeiro (entidade canônica), depois o papel de motorista.
+                const person = ((await personsApi.search(cpfDigits, 'CPF')).data ?? []).find((p) => digits(p.document) === cpfDigits);
                 const rows = ((await linksApi.searchDrivers(cpfDigits)).data ?? []) as Driver[];
-                const existing = rows.find((d) => digits(d.document) === cpfDigits);
-                if (cancelled || !existing) {
-                    if (!cancelled) setReused(false);
+                const existing = rows.find((d) => digits(d.document) === cpfDigits) ?? person?.drivers?.[0];
+                if (cancelled) return;
+                if (!person && !existing) {
+                    setReused(false);
+                    setReuseNote(null);
                     return;
                 }
-                const draft = driverToDraft(existing);
-                const person = ((await personsApi.search(cpfDigits)).data ?? []).find((p) => digits(p.document) === cpfDigits);
-                if (cancelled) return;
+                const draft = driverToDraft({
+                    ...(existing ?? {}),
+                    name: (existing as Driver | undefined)?.name ?? person?.legalName ?? '',
+                } as Parameters<typeof driverToDraft>[0]);
                 setName(draft.name);
-                setPhone(draft.phone);
-                setBirthDate(draft.birthDate);
-                setCnhNumber(draft.cnhNumber);
-                setCnhCategory(draft.cnhCategory);
-                setCnhExpiry(draft.cnhExpiry);
+                if (existing) {
+                    setPhone(draft.phone);
+                    setBirthDate(draft.birthDate);
+                    setCnhNumber(draft.cnhNumber);
+                    setCnhCategory(draft.cnhCategory);
+                    setCnhExpiry(draft.cnhExpiry);
+                }
                 setCnhState(draft.cnhState || person?.state || '');
                 if (person) setAddress(addressFrom(person));
                 setReused(true);
+                const otherRoles = (person?.roles ?? []).filter((r) => r !== 'motorista');
+                setReuseNote(
+                    existing
+                        ? 'Motorista já cadastrado — será reaproveitado.'
+                        : `Pessoa já cadastrada${otherRoles.length ? ` (${otherRoles.join(', ')})` : ''} — será usada como motorista.`,
+                );
             } catch {
                 if (!cancelled) setReused(false);
             }
@@ -146,7 +160,7 @@ const DriverEditor: React.FC<{
             {driver ? null : field('CPF', cpf, setCpf, { inputMode: 'numeric', placeholder: '000.000.000-00' })}
             {reused ? (
                 <p className="mt-2 rounded-lg bg-brand-500/10 p-2.5 text-[13px] font-semibold text-brand-600 dark:text-brand-300">
-                    Motorista já cadastrado — será reaproveitado.
+                    {reuseNote ?? 'Motorista já cadastrado — será reaproveitado.'}
                 </p>
             ) : null}
             {field('Nome completo', name, setName)}

@@ -135,7 +135,7 @@ const NewCarrierForm: React.FC<{
                 <>
                     {lookup?.kind === 'PERSON' ? (
                         <p className="mt-2 rounded-lg bg-tower-100 p-2.5 text-[12px] text-tower-600 dark:bg-tower-800 dark:text-tower-300">
-                            Pessoa já cadastrada no sistema — dados reaproveitados.
+                            Pessoa já cadastrada no sistema{lookup.person.roles?.length ? ` (${lookup.person.roles.join(', ')})` : ''} — dados reaproveitados.
                             {formatPersonAddress(lookup.person) ? ` ${formatPersonAddress(lookup.person)}` : ''}
                         </p>
                     ) : null}

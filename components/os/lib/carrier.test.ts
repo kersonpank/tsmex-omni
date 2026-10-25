@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { defaultOwnerType, formToUnitInput, unitFormErrors, unitToForm, type RegistryUnit } from './carrier';
+import type { Driver, Person } from '../../../types/index';
+import { defaultOwnerType, mergePersonDriverResults, roleLabels, formToUnitInput, unitFormErrors, unitToForm, type RegistryUnit } from './carrier';
 
 describe('defaultOwnerType', () => {
     it('CPF → TAC independente; CNPJ → outros', () => {
@@ -139,5 +140,41 @@ describe('buildTripComposition', () => {
         expect(out?.traction.plate).toBe('ABC1D23');
         expect(out?.trailers.map((t) => t.plate)).toEqual(['XYZ1A11', 'BBB2B22', 'CCC3C33']);
         expect(buildTripComposition('', [])).toBeNull();
+    });
+});
+
+describe('roleLabels', () => {
+    it('usa roles do backend; senão deduz das relações', () => {
+        expect(roleLabels({ roles: ['cliente'] })).toEqual(['cliente']);
+        expect(roleLabels({ drivers: [{ id: 'd', active: true }], clients: [{ id: 'c', companyName: 'X', document: '1' }] })).toEqual(['motorista', 'cliente']);
+        expect(roleLabels({})).toEqual([]);
+    });
+});
+
+describe('mergePersonDriverResults', () => {
+    const person = (over: Partial<Person>) => ({ id: 'p1', documentType: 'CPF', document: '52998224725', legalName: 'MARIA', ...over }) as Person;
+    const driver = { id: 'd1', name: 'MARIA', document: '529.982.247-25', phone: '1', active: true, linkId: null } as Driver;
+
+    it('dedupe por CPF e combina papéis', () => {
+        const rows = mergePersonDriverResults([person({ roles: ['cliente'] })], [driver]);
+        expect(rows).toHaveLength(1);
+        expect(rows[0].driver?.id).toBe('d1');
+        expect(rows[0].personId).toBe('p1');
+        expect(rows[0].roles).toEqual(['motorista', 'cliente']);
+    });
+
+    it('pessoa sem motorista fica com driver nulo; CNPJ é ignorado', () => {
+        const rows = mergePersonDriverResults(
+            [person({ roles: ['cliente'] }), person({ id: 'p2', documentType: 'CNPJ', document: '10256071000103' })],
+            [],
+        );
+        expect(rows).toHaveLength(1);
+        expect(rows[0].driver).toBeNull();
+        expect(rows[0].roles).toEqual(['cliente']);
+    });
+
+    it('pessoa que já é motorista usa o motorista da pessoa', () => {
+        const rows = mergePersonDriverResults([person({ roles: ['motorista'], drivers: [{ id: 'd7', active: true, cnhNumber: '9' }] })], []);
+        expect(rows[0].driver?.id).toBe('d7');
     });
 });
