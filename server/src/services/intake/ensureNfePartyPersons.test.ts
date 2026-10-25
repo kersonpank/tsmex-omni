@@ -94,4 +94,12 @@ describe('ensureNfePartyPersons', () => {
             prisma.person.findUnique = previous;
         }
     });
+    it('destinatário pessoa física (CPF) vira Pessoa CPF', async () => {
+        const c = cargo();
+        c.destinatario = { ...c.destinatario, cnpj: '', cpf: '12345678909', razaoSocial: 'MARIA DA SILVA' };
+        const { destinatario } = await ensureNfePartyPersons(c);
+        assert.equal(destinatario?.document, '12345678909');
+        assert.equal(destinatario?.documentType, 'CPF');
+        assert.equal(destinatario?.legalName, 'MARIA DA SILVA');
+    });
 });

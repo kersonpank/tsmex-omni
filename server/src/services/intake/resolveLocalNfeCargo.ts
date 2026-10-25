@@ -21,29 +21,33 @@ export async function resolveLocalNfeCargo(demandId: string): Promise<LocalNfeCa
     if (!demand) return { status: 'invalid', reason: 'Demanda não encontrada.' };
 
     const embedded = storedCargo(demand.rawInputData);
-    if (embedded) return { status: 'available', source: 'demand', cargo: embedded };
+    if (embedded && !lacksRecipientDocument(embedded)) return { status: 'available', source: 'demand', cargo: embedded };
+    // Cache antigo sem documento do destinatário (parser não lia `dest/CPF`): relê o XML guardado
+    // e, se não der, segue com o que já tinha.
+    const keep = (fallback: LocalNfeCargoResult): LocalNfeCargoResult =>
+        embedded ? { status: 'available', source: 'demand', cargo: embedded } : fallback;
     const accessKey = demand.documentKey?.replace(/\D/g, '') ?? '';
     const fromDistribution = demand.sourceType === 'DFE_ACBR';
     if (accessKey.length !== 44) {
-        if (fromDistribution) return { status: 'invalid', reason: 'Demanda da Distribuição sem chave NF-e válida.' };
-        return { status: 'pending', reason: 'Esta entrada não possui chave NF-e e deve ser preenchida manualmente.' };
+        if (fromDistribution) return keep({ status: 'invalid', reason: 'Demanda da Distribuição sem chave NF-e válida.' });
+        return keep({ status: 'pending', reason: 'Esta entrada não possui chave NF-e e deve ser preenchida manualmente.' });
     }
     const document = await prisma.nfeDistribuicaoDocumento.findUnique({
         where: { accessKey }, select: { tipo: true, xmlStorageKey: true },
     });
     if (!document?.xmlStorageKey) {
-        return {
+        return keep({
             status: 'pending',
             reason: fromDistribution
                 ? 'XML da Distribuição não disponível no armazenamento. Verifique a integração fiscal.'
                 : 'O XML desta NF-e ainda não está no sistema.',
-        };
+        });
     }
 
     try {
         const cargo = await getCargoDataFromDistribuicaoDocument(document);
         if (!cargo || cargo.chave.replace(/\D/g, '') !== accessKey) {
-            return { status: 'invalid', reason: 'O XML armazenado é inválido ou não corresponde à chave da demanda.' };
+            return keep({ status: 'invalid', reason: 'O XML armazenado é inválido ou não corresponde à chave da demanda.' });
         }
         const current = demand.rawInputData && typeof demand.rawInputData === 'object' && !Array.isArray(demand.rawInputData)
             ? demand.rawInputData as Prisma.JsonObject : {};
@@ -53,6 +57,12 @@ export async function resolveLocalNfeCargo(demandId: string): Promise<LocalNfeCa
         });
         return { status: 'available', source: 'distribution_storage', cargo };
     } catch (error) {
-        return { status: 'invalid', reason: `Falha ao ler o XML armazenado: ${error instanceof Error ? error.message : String(error)}` };
+        return keep({ status: 'invalid', reason: `Falha ao ler o XML armazenado: ${error instanceof Error ? error.message : String(error)}` });
     }
+}
+
+function lacksRecipientDocument(cargo: ParsedNfeCargo): boolean {
+    const dest = cargo.destinatario;
+    if (!dest?.razaoSocial) return false;
+    return !(dest.cnpj ?? '').replace(/\D/g, '') && !(dest.cpf ?? '').replace(/\D/g, '');
 }

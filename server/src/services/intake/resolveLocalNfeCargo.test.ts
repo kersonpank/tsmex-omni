@@ -46,4 +46,11 @@ describe('resolveLocalNfeCargo', () => {
         stub({ sourceType: 'NFE_KEY', documentKey: CHAVE44 }, { tipo: 'NFE_PROC', xmlStorageKey: null });
         assert.equal((await resolveLocalNfeCargo('d1')).status, 'pending');
     });
+    it('cache sem documento do destinatário e sem XML guardado → mantém o cache (available)', async () => {
+        const stale = { chave: CHAVE44, destinatario: { cnpj: '', razaoSocial: 'MARIA' } };
+        stub({ sourceType: 'DFE_ACBR', documentKey: CHAVE44, rawInputData: { nfeXmlData: stale } }, null);
+        const result = await resolveLocalNfeCargo('d1');
+        assert.equal(result.status, 'available');
+        if (result.status === 'available') assert.equal(result.source, 'demand');
+    });
 });

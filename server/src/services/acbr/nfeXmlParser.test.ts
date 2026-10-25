@@ -230,4 +230,15 @@ describe('parseNfeProcXml', () => {
         assert.equal(parsed.destinatario.ibge, '3550308');
         assert.equal(parsed.destinatario.bairro, 'Bela Vista');
     });
+    it('lê o CPF do destinatário pessoa física (dest/CPF)', () => {
+        const xml = `<nfeProc><NFe><infNFe Id="NFe35260712345678000199550010000012345678901234">
+          <emit><CNPJ>12345678000199</CNPJ><xNome>EMIT LTDA</xNome></emit>
+          <dest><CPF>12345678909</CPF><xNome>MARIA DA SILVA</xNome><indIEDest>9</indIEDest>
+            <enderDest><xMun>Bacabal</xMun><UF>MA</UF><cMun>2101202</cMun></enderDest>
+          </dest></infNFe></NFe></nfeProc>`;
+        const parsed = parseNfeProcXml(xml);
+        assert.equal(parsed.destinatario.cnpj, '');
+        assert.equal(parsed.destinatario.cpf, '12345678909');
+        assert.equal(parsed.destinatario.razaoSocial, 'MARIA DA SILVA');
+    });
 });

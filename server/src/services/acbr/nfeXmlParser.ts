@@ -27,6 +27,8 @@ export interface ParsedNfeEmitente {
 
 export interface ParsedNfeDestinatario {
     cnpj: string;
+    /** Destinatário pessoa física (`dest/CPF`) — `cnpj` fica vazio nesse caso. */
+    cpf?: string;
     razaoSocial: string;
     ie?: string;
     /** Diferente do emitente, o destinatário não tem enriquecimento externo (BrasilAPI) — o XML é a única fonte de endereço. */
@@ -175,7 +177,7 @@ export function parseNfeProcXml(xml: string): ParsedNfeCargo {
             ie: dest?.IE ? toText(dest.IE) : undefined,
             municipio: enderDest?.xMun ? toText(enderDest.xMun) : undefined,
             uf: enderDest?.UF ? toText(enderDest.UF) : undefined,
-            ...optionalText({ ibge: enderDest?.cMun, complemento: enderDest?.xCpl }),
+            ...optionalText({ cpf: dest?.CPF, ibge: enderDest?.cMun, complemento: enderDest?.xCpl }),
             cep: enderDest?.CEP ? toText(enderDest.CEP) : undefined,
             logradouro: enderDest?.xLgr ? toText(enderDest.xLgr) : undefined,
             numero: enderDest?.nro ? toText(enderDest.nro) : undefined,

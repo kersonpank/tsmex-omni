@@ -7,6 +7,7 @@ import type { ParsedNfeCargo } from '../acbr/nfeXmlParser.js';
 type PartyAddress = Partial<Pick<ParsedNfeCargo['destinatario'], 'municipio' | 'uf' | 'ibge'>>;
 
 export interface NormalizedParty {
+    documentType?: 'CNPJ' | 'CPF';
     document: string;
     legalName: string;
     tradeName?: string;
@@ -53,8 +54,11 @@ async function normalizeParty(
     cargo: ParsedNfeCargo,
 ): Promise<NormalizedParty | null> {
     const party = cargo[role];
-    const document = digits(party?.cnpj);
-    if (!party || document.length !== 14 || !clean(party.razaoSocial)) return null;
+    // Destinatário pessoa física vem em `dest/CPF` (venda ao consumidor final é comum na teia).
+    const cpf = role === 'destinatario' ? digits(cargo.destinatario?.cpf) : '';
+    const cnpj = digits(party?.cnpj);
+    const document = cnpj.length === 14 ? cnpj : cpf;
+    if (!party || (document.length !== 14 && document.length !== 11) || !clean(party.razaoSocial)) return null;
 
     const cep = digits(party.cep);
     let stateRegistration: string | undefined;
@@ -67,6 +71,7 @@ async function normalizeParty(
     }
 
     return {
+        documentType: document.length === 11 ? 'CPF' : 'CNPJ',
         document,
         legalName: party.razaoSocial.trim(),
         tradeName: role === 'emitente' ? clean(cargo.emitente.nomeFantasia) : undefined,
@@ -126,7 +131,7 @@ export async function upsertParty(party: NormalizedParty): Promise<Person> {
     try {
         return await prisma.person.create({
             data: {
-                documentType: 'CNPJ',
+                documentType: party.documentType ?? 'CNPJ',
                 document: party.document,
                 legalName: party.legalName,
                 tradeName: party.tradeName,
