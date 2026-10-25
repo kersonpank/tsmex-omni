@@ -8,6 +8,7 @@ import {
     parsePackageRows,
     parseTotalM3,
     rowsFromPackages,
+    volumeCountCheck,
     type PackageRow,
 } from '../../lib/packages';
 import { OsButton } from '../../ui/kit';
@@ -18,7 +19,7 @@ import PackageRows from './PackageRows';
  * MEDIDAS DOS VOLUMES — cubagem por volume (qtd × C × L × A em cm) ou, no atalho, só o m³ total.
  * Alimenta o preço (peso cubado), o "cabe no veículo" e a futura simulação 3D da carga.
  */
-const PackagesEditor: React.FC<{ orderId: string; onClose: () => void; onSaved: (volumeM3: number) => void }> = ({ orderId, onClose, onSaved }) => {
+const PackagesEditor: React.FC<{ orderId: string; expectedUnits?: number | null; onClose: () => void; onSaved: (volumeM3: number) => void }> = ({ orderId, expectedUnits, onClose, onSaved }) => {
     const [rows, setRows] = useState<PackageRow[]>([{ ...EMPTY_PACKAGE_ROW }]);
     const [onlyTotal, setOnlyTotal] = useState(false);
     const [total, setTotal] = useState('');
@@ -48,6 +49,9 @@ const PackagesEditor: React.FC<{ orderId: string; onClose: () => void; onSaved: 
     const parsed = parsePackageRows(rows);
     const volume = onlyTotal ? parseTotalM3(total) : packagesVolumeM3(parsed);
 
+    const check = onlyTotal ? null : volumeCountCheck(rows, expectedUnits);
+    const mismatch = check?.status === 'over' || check?.status === 'under';
+
     const save = async () => {
         if (volume <= 0 || busy) return;
         setBusy(true);
@@ -70,7 +74,7 @@ const PackagesEditor: React.FC<{ orderId: string; onClose: () => void; onSaved: 
                 <>
                     {error ? <p className="mb-3 rounded-lg bg-brand-red-500/10 p-3 text-[13px] font-semibold text-brand-red-600 dark:text-brand-red-400">{error}</p> : null}
                     <OsButton full disabled={loading || busy || volume <= 0} onClick={() => void save()}>
-                        {busy ? 'Salvando…' : 'Salvar medidas'}
+                        {busy ? 'Salvando…' : mismatch ? 'Salvar mesmo assim' : 'Salvar medidas'}
                     </OsButton>
                 </>
             }
@@ -101,7 +105,7 @@ const PackagesEditor: React.FC<{ orderId: string; onClose: () => void; onSaved: 
                             <p className="mt-2 text-[12px] text-tower-500 dark:text-tower-400">Peso cubado: {cubedWeightKg(volume)} kg</p>
                         </div>
                     ) : (
-                        <PackageRows rows={rows} onChange={setRows} />
+                        <PackageRows rows={rows} onChange={setRows} expectedUnits={expectedUnits} />
                     )}
                 </>
             )}

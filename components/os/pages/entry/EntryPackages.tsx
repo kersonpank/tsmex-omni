@@ -3,7 +3,7 @@ import type { PackageRow } from '../../lib/packages';
 import PackageRows from '../order/PackageRows';
 
 /** Medidas dos volumes na entrada — opcional e recolhido: não bloqueia confirmar a entrada. */
-const EntryPackages: React.FC<{ rows: PackageRow[]; onChange: (rows: PackageRow[]) => void }> = ({ rows, onChange }) => {
+const EntryPackages: React.FC<{ rows: PackageRow[]; onChange: (rows: PackageRow[]) => void; expectedUnits?: number | null }> = ({ rows, onChange, expectedUnits }) => {
     const [open, setOpen] = useState(false);
     return (
         <div className="mt-4">
@@ -19,7 +19,7 @@ const EntryPackages: React.FC<{ rows: PackageRow[]; onChange: (rows: PackageRow[
             {open ? (
                 <>
                     <p className="mb-2 text-[12px] text-tower-400">Quantidade × comprimento × largura × altura em cm. Dá o peso cubado do preço e o encaixe no veículo.</p>
-                    <PackageRows rows={rows} onChange={onChange} />
+                    <PackageRows rows={rows} onChange={onChange} expectedUnits={expectedUnits} />
                 </>
             ) : null}
         </div>

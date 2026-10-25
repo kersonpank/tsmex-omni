@@ -67,3 +67,27 @@ export function rowsFromPackages(packages: ParsedPackage[]): PackageRow[] {
 export function parseTotalM3(text: string): number {
     return Math.round(num(text) * 1000) / 1000;
 }
+
+export type VolumeCountStatus = 'match' | 'over' | 'under' | 'unknown';
+
+export interface VolumeCountCheck {
+    total: number;
+    expected: number | null;
+    status: VolumeCountStatus;
+    message: string | null;
+}
+
+const volumesLabel = (n: number) => `${n} ${n === 1 ? 'volume' : 'volumes'}`;
+
+/** Compara os volumes medidos com os da NF. Só avisa — nunca bloqueia o salvar. */
+export function volumeCountCheck(rows: PackageRow[], expectedUnits: number | null | undefined): VolumeCountCheck {
+    const total = parsePackageRows(rows).reduce((s, p) => s + p.quantity, 0);
+    const expected = expectedUnits && expectedUnits > 0 ? Math.round(expectedUnits) : null;
+    if (expected === null || total === 0) return { total, expected, status: 'unknown', message: null };
+    if (total === expected) return { total, expected, status: 'match', message: `Bate com a NF (${volumesLabel(expected)})` };
+    if (total > expected) {
+        return { total, expected, status: 'over', message: `As medidas somam ${volumesLabel(total)}; a NF tem ${expected}. Confira antes de salvar.` };
+    }
+    const missing = expected - total;
+    return { total, expected, status: 'under', message: `As medidas somam ${volumesLabel(total)}; a NF tem ${expected} — faltam ${volumesLabel(missing)} medidos.` };
+}

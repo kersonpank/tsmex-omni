@@ -171,6 +171,7 @@ const OrderPage: React.FC = () => {
             {editingPackages && orderId ? (
                 <PackagesEditor
                     orderId={orderId}
+                    expectedUnits={item?.units ?? null}
                     onClose={() => setEditingPackages(false)}
                     onSaved={(volume) => {
                         setSavedVolumeM3(volume);

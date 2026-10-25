@@ -17,6 +17,7 @@ import { payerFromModFrete } from '../../lib/freight';
 import { EMPTY_PACKAGE_ROW, parsePackageRows, type PackageRow } from '../../lib/packages';
 import CargoFields from './CargoFields';
 import EntryPackages from './EntryPackages';
+import { volumeCountCheck } from '../../lib/packages';
 import type { PartySource } from './PartyCard';
 import PartyPicker from './PartyPicker';
 import PayerChoice, { type PayerTerm } from './PayerChoice';
@@ -105,6 +106,8 @@ const EntrySheet: React.FC<{
     };
 
     const counter = xmlCargo ? { cargo: null, missing: [] } : parseCargoForm(cargoForm);
+    const expectedUnits = xmlCargo ? xmlCargo.units : (counter.cargo?.units ?? null);
+    const volumeMismatch = ['over', 'under'].includes(volumeCountCheck(packageRows, expectedUnits).status);
     const missing = entryMissing({
         hasRemetente: Boolean(remetente.person),
         hasDestinatario: Boolean(destinatario.person),
@@ -153,7 +156,7 @@ const EntrySheet: React.FC<{
                         <p className="mb-2 text-center text-[12px] font-semibold text-tower-500 dark:text-tower-400">{missingSentence(missing)}</p>
                     ) : null}
                     <OsButton full disabled={loading || missing.length > 0 || busy} onClick={() => void confirm()}>
-                        {busy ? 'Confirmando…' : 'Confirmar entrada'}
+                        {busy ? 'Confirmando…' : volumeMismatch ? 'Confirmar mesmo assim' : 'Confirmar entrada'}
                     </OsButton>
                 </>
             }
@@ -218,7 +221,7 @@ const EntrySheet: React.FC<{
                     ) : (
                         <CargoFields value={cargoForm} onChange={setCargoForm} />
                     )}
-                    <EntryPackages rows={packageRows} onChange={setPackageRows} />
+                    <EntryPackages rows={packageRows} onChange={setPackageRows} expectedUnits={expectedUnits} />
                 </>
             )}
         </OsSheet>

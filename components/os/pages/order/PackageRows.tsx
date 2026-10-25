@@ -1,6 +1,6 @@
 import React from 'react';
 import clsx from 'clsx';
-import { EMPTY_PACKAGE_ROW, cubedWeightKg, packagesVolumeM3, parsePackageRows, type PackageRow } from '../../lib/packages';
+import { EMPTY_PACKAGE_ROW, cubedWeightKg, packagesVolumeM3, parsePackageRows, volumeCountCheck, type PackageRow } from '../../lib/packages';
 import { osFieldClass } from '../../ui/Sheet';
 
 const m3 = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 3 });
@@ -11,10 +11,11 @@ const numeric = (value: string) => value.replace(/[^\d.,]/g, '').slice(0, 7);
 const GRID = 'grid grid-cols-[0.8fr_1fr_1fr_1fr_40px] gap-1.5';
 
 /** Linhas "Qtd × C × L × A (cm)" com total ao vivo em m³ e peso cubado (m³ × 300). */
-const PackageRows: React.FC<{ rows: PackageRow[]; onChange: (rows: PackageRow[]) => void }> = ({ rows, onChange }) => {
+const PackageRows: React.FC<{ rows: PackageRow[]; onChange: (rows: PackageRow[]) => void; expectedUnits?: number | null }> = ({ rows, onChange, expectedUnits }) => {
     const set = (index: number, patch: Partial<PackageRow>) => onChange(rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
     const remove = (index: number) => onChange(rows.length > 1 ? rows.filter((_, i) => i !== index) : [{ ...EMPTY_PACKAGE_ROW }]);
     const volume = packagesVolumeM3(parsePackageRows(rows));
+    const check = volumeCountCheck(rows, expectedUnits);
     const fieldClass = clsx(osFieldClass, 'h-[44px] px-2 text-center text-[15px]');
 
     return (
@@ -49,6 +50,19 @@ const PackageRows: React.FC<{ rows: PackageRow[]; onChange: (rows: PackageRow[])
                 Total: {m3.format(volume)} m³
                 <span className="ml-2 text-[12px] font-normal text-tower-500 dark:text-tower-400">peso cubado {kg.format(cubedWeightKg(volume))} kg</span>
             </p>
+            {check.message ? (
+                <p
+                    role={check.status === 'match' ? undefined : 'status'}
+                    className={clsx(
+                        'mt-2 text-[13px]',
+                        check.status === 'match'
+                            ? 'font-medium text-emerald-700 dark:text-emerald-400'
+                            : 'rounded-xl bg-amber-500/10 p-3 font-semibold text-amber-700 dark:text-amber-300',
+                    )}
+                >
+                    {check.message}
+                </p>
+            ) : null}
         </div>
     );
 };
