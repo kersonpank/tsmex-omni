@@ -38,6 +38,17 @@ describe('groupIssues', () => {
     });
 });
 
+describe('groupIssues — documentos', () => {
+    it('ordena CT-e → CIOT → MDF-e', () => {
+        const groups = groupIssues([
+            issue({ step: 'fiscal', code: 'MDFE_AUTHORIZATION_REQUIRED' }),
+            issue({ step: 'fiscal', code: 'CIOT_REQUIRED' }),
+            issue({ step: 'fiscal', code: 'CTE_AUTHORIZATION_REQUIRED' }),
+        ]);
+        expect(groups[0].blocking.map((i) => i.code)).toEqual(['CTE_AUTHORIZATION_REQUIRED', 'CIOT_REQUIRED', 'MDFE_AUTHORIZATION_REQUIRED']);
+    });
+});
+
 describe('primaryAction', () => {
     it('rascunho: confirmar transportador só sem bloqueios', () => {
         const blocked = primaryAction('DRAFT', readiness([issue({ code: 'LINK_REQUIRED' })]));

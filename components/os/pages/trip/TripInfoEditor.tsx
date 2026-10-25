@@ -1,51 +1,22 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { manifestsApi } from '../../../../lib/api';
 import type { TripGroup } from '../../lib/trip';
 import { OsBadge, OsButton } from '../../ui/kit';
-import OsSheet, { apiErrorMessage } from '../../ui/Sheet';
+import OsSheet from '../../ui/Sheet';
 
 /**
- * Grupos sem formulário próprio no O.S.: cadastro, documentos, carga e rota.
- * Cadastro abre a ficha do transportador no O.S. MDF-e emite daqui. CT-e abre o pedido no O.S.
- * (documento do frete é do pedido, NORTE #30). CIOT ainda abre a tela atual — transitório (A7b).
+ * Grupos sem formulário próprio no O.S.: cadastro, carga e rota.
+ * Cadastro abre a ficha do transportador no O.S. Documentos fiscais têm a folha própria TripDocumentsSheet.
  */
 
 const TripInfoEditor: React.FC<{
     manifestId: string;
     linkId?: string | null;
     group: TripGroup;
-    /** Rótulo legível por pedido (Pedido N · NF x), para dizer QUAL pedido falta documentar. */
-    orderLabels?: Record<string, string>;
     onClose: () => void;
-    onDone: () => void;
-}> = ({ manifestId, linkId, group, orderLabels, onClose, onDone }) => {
+}> = ({ manifestId, linkId, group, onClose }) => {
     const navigate = useNavigate();
-    const [busy, setBusy] = useState(false);
-    const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
     const all = [...group.blocking, ...group.warnings];
-    const codes = new Set(all.map((i) => i.code));
-    const cteOrders = all.filter((i) => i.code === 'CTE_AUTHORIZATION_REQUIRED' && i.field).map((i) => i.field as string);
-    const canEmitMdfe = codes.has('MDFE_AUTHORIZATION_REQUIRED') && cteOrders.length === 0;
-
-    const emitMdfe = async () => {
-        setBusy(true);
-        setNotice(null);
-        try {
-            const body = await manifestsApi.emitMdfe(manifestId);
-            setNotice({ ok: true, text: body.message ?? (body.pending ? 'MDF-e em processamento.' : 'MDF-e emitido.') });
-            window.setTimeout(onDone, 1500);
-        } catch (cause) {
-            setNotice({ ok: false, text: apiErrorMessage(cause, 'Não foi possível emitir o MDF-e.') });
-            setBusy(false);
-        }
-    };
-
-    const legacyNote = (
-        <p className="mt-3 text-[12px] leading-relaxed text-tower-400">
-            Abre a tela atual do sistema — transitório até a estação Documentos do O.S.
-        </p>
-    );
 
     return (
         <OsSheet title={group.title} onClose={onClose}>
@@ -60,42 +31,7 @@ const TripInfoEditor: React.FC<{
                 ))}
             </ul>
 
-            {notice ? (
-                <p
-                    className={`mt-3 rounded-lg p-3 text-[13px] font-semibold ${
-                        notice.ok ? 'bg-emerald-600/10 text-emerald-700 dark:text-emerald-300' : 'bg-brand-red-500/10 text-brand-red-600 dark:text-brand-red-400'
-                    }`}
-                >
-                    {notice.text}
-                </p>
-            ) : null}
-
             <div className="mt-4 flex flex-col gap-2">
-                {group.key === 'documents' && canEmitMdfe ? (
-                    <OsButton full disabled={busy} onClick={() => void emitMdfe()}>
-                        {busy ? 'Emitindo…' : 'Emitir MDF-e'}
-                    </OsButton>
-                ) : null}
-                {group.key === 'documents' && cteOrders.length > 0 ? (
-                    <>
-                        {cteOrders.map((orderId) => (
-                            <OsButton key={orderId} full variant="secondary" onClick={() => navigate(`/hubs/pedidos/${orderId}`)}>
-                                Emitir CT-e · {orderLabels?.[orderId] ?? `Pedido ${orderId.slice(0, 8)}`}
-                            </OsButton>
-                        ))}
-                        <p className="mt-1 text-[12px] leading-relaxed text-tower-400">
-                            O documento do frete é do pedido: o normal é emitir logo na entrada (fila “Sem CT-e/minuta” no Hoje).
-                        </p>
-                    </>
-                ) : null}
-                {group.key === 'documents' && codes.has('CIOT_REQUIRED') ? (
-                    <>
-                        <OsButton full variant="secondary" onClick={() => navigate(`/manifests/${manifestId}`)}>
-                            Emitir CIOT
-                        </OsButton>
-                        {legacyNote}
-                    </>
-                ) : null}
                 {group.key === 'registry' ? (
                     <>
                         <p className="text-[13px] leading-relaxed text-tower-500 dark:text-tower-300">

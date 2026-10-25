@@ -58,6 +58,8 @@ const BY_STEP: Record<ManifestReadinessIssue['step'], TripGroupKey> = {
     fiscal: 'documents',
 };
 
+const DOCUMENT_ORDER = ['ORDER_DOCUMENTATION_PENDING', 'CTE_AUTHORIZATION_REQUIRED', 'CIOT_REQUIRED', 'MDFE_AUTHORIZATION_REQUIRED'];
+
 export function groupOf(issue: ManifestReadinessIssue): TripGroupKey {
     if (BY_CODE[issue.code]) return BY_CODE[issue.code];
     // DRIVER_REQUIRED cobre "nenhum motorista" e "motorista inativo": ambos se resolvem escolhendo motorista.
@@ -80,6 +82,16 @@ export function groupIssues(issues: ManifestReadinessIssue[]): TripGroup[] {
         if (issue.severity === 'blocking') group.blocking.push(issue);
         else group.warnings.push(issue);
         map.set(key, group);
+    }
+    // Documentos seguem a ordem fiscal: CT-e dos pedidos → CIOT → MDF-e.
+    const documents = map.get('documents');
+    if (documents) {
+        const rank = (issue: ManifestReadinessIssue) => {
+            const index = DOCUMENT_ORDER.indexOf(issue.code);
+            return index === -1 ? DOCUMENT_ORDER.length : index;
+        };
+        documents.blocking.sort((a, b) => rank(a) - rank(b));
+        documents.warnings.sort((a, b) => rank(a) - rank(b));
     }
     // Bloqueios primeiro; dentro de cada faixa, a ordem natural da roda.
     return [...map.values()].sort(

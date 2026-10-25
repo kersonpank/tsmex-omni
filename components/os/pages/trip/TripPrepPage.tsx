@@ -5,11 +5,13 @@ import type { ManifestReadiness, ResolvedOrderSummary } from '../../../../types/
 import { useOs } from '../../OsContext';
 import type { ManifestWithLegs } from '../../lib/arrival';
 import { docBadge, legsWithoutDoc, orderLabel } from '../../lib/readiness';
+import { tripNextStep, type TripNextStepAction } from '../../lib/nextStep';
 import { groupIssues, occupancy, primaryAction, STATUS_LABEL, type TripGroupKey } from '../../lib/trip';
 import { OsActionBar, OsBadge, OsButton, OsEmpty, OsErrorNotice, OsRow, OsSectionTitle, OsSkeletonRows } from '../../ui/kit';
 import OsSheet, { apiErrorMessage, osFieldClass } from '../../ui/Sheet';
 import ResponsibleEditor from './ResponsibleEditor';
 import { DepartureEditor, EmitterEditor, FreightEditor } from './TripEditors';
+import TripDocumentsSheet, { type TripDocumentResolution, type TripDocumentStep } from './TripDocumentsSheet';
 import TripInfoEditor from './TripInfoEditor';
 
 /**
@@ -42,6 +44,7 @@ const TripPrepPage: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [open, setOpen] = useState<TripGroupKey | null>(null);
+    const [docStep, setDocStep] = useState<TripDocumentStep>('cte');
     const [startOpen, setStartOpen] = useState(false);
     const [km, setKm] = useState('');
     const [acting, setActing] = useState(false);
@@ -143,6 +146,28 @@ const TripPrepPage: React.FC = () => {
         }
     };
 
+    const next = tripNextStep(manifest, readiness);
+    const openNext = (action: TripNextStepAction = next.action) => {
+        if (action === 'responsible' || action === 'freight' || action === 'departure' || action === 'emitter' || action === 'registry') {
+            setOpen(action);
+        } else if (action === 'documents_cte' || action === 'documents_ciot' || action === 'documents_mdfe') {
+            setDocStep(action === 'documents_ciot' ? 'ciot' : action === 'documents_mdfe' ? 'mdfe' : 'cte');
+            setOpen('documents');
+        } else if (action === 'confirm' || action === 'start') {
+            onPrimary();
+        } else {
+            void load();
+        }
+    };
+    const resolveFromDocuments = (group: TripDocumentResolution) => {
+        if (group === 'confirm') {
+            setOpen(null);
+            onPrimary();
+        } else {
+            setOpen(group);
+        }
+    };
+
     const confirmStart = () => {
         const kmSaida = km.trim() ? Number(km.replace(/\D/g, '')) : undefined;
         setStartOpen(false);
@@ -173,6 +198,19 @@ const TripPrepPage: React.FC = () => {
             {error ? (
                 <div className="mb-3">
                     <OsErrorNotice message={error} />
+                </div>
+            ) : null}
+
+            {['DRAFT', 'PENDING_ACCEPT', 'ACCEPTED'].includes(manifest.status) ? (
+                <div className="mb-4 rounded-xl border-2 border-brand-400 bg-brand-50 p-3.5 dark:border-brand-500 dark:bg-tower-800" aria-label="Próximo passo">
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-brand-700 dark:text-brand-300">Próximo passo</p>
+                    <p className="mt-0.5 font-display text-[16px] font-bold text-tower-900 dark:text-white">{next.label}</p>
+                    <p className="mt-0.5 text-[13px] text-tower-600 dark:text-tower-300">{next.hint}</p>
+                    <div className="mt-2.5">
+                        <OsButton full disabled={acting} onClick={() => openNext()}>
+                            {next.action === 'none' ? 'Atualizar' : next.label}
+                        </OsButton>
+                    </div>
                 </div>
             ) : null}
 
@@ -300,9 +338,9 @@ const TripPrepPage: React.FC = () => {
                 </OsButton>
             </OsActionBar>
 
-            {openGroup?.key === 'responsible' && editable ? (
+            {open === 'responsible' && editable ? (
                 <ResponsibleEditor manifestId={manifest.id} currentLinkId={manifest.linkId} onClose={() => setOpen(null)} onSaved={closeAndReload} />
-            ) : openGroup?.key === 'departure' ? (
+            ) : open === 'departure' ? (
                 <DepartureEditor
                     manifestId={manifest.id}
                     departure={manifest.plannedDepartureAt}
@@ -310,9 +348,9 @@ const TripPrepPage: React.FC = () => {
                     onClose={() => setOpen(null)}
                     onSaved={closeAndReload}
                 />
-            ) : openGroup?.key === 'freight' ? (
+            ) : open === 'freight' ? (
                 <FreightEditor manifestId={manifest.id} onClose={() => setOpen(null)} onSaved={closeAndReload} />
-            ) : openGroup?.key === 'emitter' ? (
+            ) : open === 'emitter' ? (
                 <EmitterEditor
                     manifestId={manifest.id}
                     hubId={manifest.hubId ?? hubId ?? ''}
@@ -320,8 +358,17 @@ const TripPrepPage: React.FC = () => {
                     onClose={() => setOpen(null)}
                     onSaved={closeAndReload}
                 />
+            ) : open === 'documents' ? (
+                <TripDocumentsSheet
+                    manifest={manifest}
+                    readiness={readiness}
+                    initialStep={docStep}
+                    onClose={closeAndReload}
+                    onUpdated={load}
+                    onResolve={resolveFromDocuments}
+                />
             ) : openGroup ? (
-                <TripInfoEditor manifestId={manifest.id} linkId={manifest.linkId} group={openGroup} orderLabels={orderLabels} onClose={() => setOpen(null)} onDone={closeAndReload} />
+                <TripInfoEditor manifestId={manifest.id} linkId={manifest.linkId} group={openGroup} onClose={() => setOpen(null)} />
             ) : null}
 
             {startOpen ? (

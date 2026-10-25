@@ -19,6 +19,7 @@ import { getObjectDownloadUrl } from '../lib/objectStorage.js';
 import { enqueueCiotEmissionJob } from '../services/queues/ciotEmissionQueue.js';
 import type { StoredCiotRequestData } from '../services/queues/ciotEmissionJobInput.js';
 import { getManifestReadiness } from '../services/manifestReadinessService.js';
+import { dispenseManifestCiot, undoManifestCiotDispensa } from '../services/manifestCiotDispensa.js';
 import { createManifestDraft } from '../services/manifestCreate.js';
 import { manifestVehiclesSchema, setManifestVehicles, publishManifestOffer } from '../services/manifestVehicleService.js';
 import { cancelManifest, deleteEmptyManifest, getPlanningActions, reopenAcceptedManifest, requestManifestCorrection, resolveManifestCorrection } from '../services/manifestPlanningChanges.js';
@@ -1053,7 +1054,9 @@ const manifestAssignmentSchema = z.object({
     driverId: z.string().uuid().nullable().optional(),
 });
 
-async function replaceManifestDrivers(manifestId: string, driverIds: string[], expectedUpdatedAt: Date, linkId?: string | null) {
+// associateLinkId: o motorista é independente do transportador; ao escolhê-lo para a viagem, o vínculo
+// (DriverCarrier) é criado/reativado na mesma transação em vez de recusar o motorista.
+async function replaceManifestDrivers(manifestId: string, driverIds: string[], expectedUpdatedAt: Date, linkId?: string | null, associateLinkId?: string | null) {
     return prisma.$transaction(async (tx) => {
         const updated = await tx.manifest.updateMany({
             where: { id: manifestId, status: 'DRAFT', updatedAt: expectedUpdatedAt },
@@ -1061,6 +1064,15 @@ async function replaceManifestDrivers(manifestId: string, driverIds: string[], e
         });
         if (updated.count !== 1) throw new AppError('A viagem mudou durante a edição. Recarregue e tente novamente.', 409);
         await tx.manifestDriverAssignment.deleteMany({ where: { manifestId } });
+        if (associateLinkId) {
+            for (const driverId of driverIds) {
+                await tx.driverCarrier.upsert({
+                    where: { driverId_linkId: { driverId, linkId: associateLinkId } },
+                    create: { driverId, linkId: associateLinkId },
+                    update: { active: true },
+                });
+            }
+        }
         if (driverIds.length) {
             await tx.manifestDriverAssignment.createMany({ data: driverIds.map((driverId, index) => ({
                 manifestId, driverId, sequence: index + 1, isPrimary: index === 0,
@@ -1101,11 +1113,15 @@ router.patch('/:id/assignment', authenticate, async (req: AuthRequest, res: Resp
             where: { active: true, OR: [{ linkId: link.id }, { carriers: { some: { linkId: link.id, active: true } } }] },
             orderBy: { createdAt: 'asc' },
         });
+        // Motorista é global (por CPF): se o escolhido está ativo mas ainda sem vínculo com este transportador, vincula.
+        let selectedExternal: { id: string } | null = null;
 
         let driverId: string | null = null;
         if (data.driverId) {
-            const selectedDriver = linkDrivers.find((driver) => driver.id === data.driverId);
-            if (!selectedDriver) throw new AppError('Os dados fiscais selecionados não pertencem a este responsável.', 400);
+            const selectedDriver = linkDrivers.find((driver) => driver.id === data.driverId)
+                ?? await prisma.driver.findFirst({ where: { id: data.driverId, active: true }, select: { id: true } });
+            if (!selectedDriver) throw new AppError('Motorista não encontrado ou inativo.', 404);
+            if (!linkDrivers.some((driver) => driver.id === selectedDriver.id)) selectedExternal = selectedDriver;
             driverId = selectedDriver.id;
         } else if (linkDrivers.length === 1) {
             driverId = linkDrivers[0].id;
@@ -1115,7 +1131,7 @@ router.patch('/:id/assignment', authenticate, async (req: AuthRequest, res: Resp
 
         const existingAssignments = await prisma.manifestDriverAssignment.findMany({ where: { manifestId: id }, orderBy: { sequence: 'asc' } });
         const retained = existingAssignments.map((assignment) => assignment.driverId).filter((id) => linkDrivers.some((driver) => driver.id === id));
-        const updated = await replaceManifestDrivers(id, driverId ? [driverId, ...retained.filter((id) => id !== driverId)] : [], manifest.updatedAt, link.id);
+        const updated = await replaceManifestDrivers(id, driverId ? [driverId, ...retained.filter((id) => id !== driverId)] : [], manifest.updatedAt, link.id, selectedExternal ? link.id : null);
         res.json({
             success: true,
             data: updated,
@@ -1556,13 +1572,11 @@ router.patch('/:id/driver', authenticate, authorize('ADMIN', 'HUB'), async (req:
         if (!manifest.linkId) throw new AppError('Defina o Link (transportador) antes de definir o motorista.', 400);
         if (manifest.status !== 'DRAFT') throw new AppError('Reabra o planejamento ou registre uma correção antes de trocar o motorista.', 409);
 
-        const driver = await prisma.driver.findUnique({ where: { id: driverId }, include: { carriers: { where: { active: true }, select: { linkId: true } } } });
-        if (!driver || !driver.active || (driver.linkId !== manifest.linkId && !driver.carriers.some((carrier) => carrier.linkId === manifest.linkId))) {
-            throw new AppError('Motorista não encontrado ou não pertence ao Link deste manifesto.', 404);
-        }
+        const driver = await prisma.driver.findUnique({ where: { id: driverId }, select: { id: true, active: true } });
+        if (!driver || !driver.active) throw new AppError('Motorista não encontrado ou inativo.', 404);
 
         const current = await prisma.manifestDriverAssignment.findMany({ where: { manifestId: id }, orderBy: { sequence: 'asc' } });
-        const updated = await replaceManifestDrivers(id, [driverId, ...current.map((assignment) => assignment.driverId).filter((id) => id !== driverId)], manifest.updatedAt);
+        const updated = await replaceManifestDrivers(id, [driverId, ...current.map((assignment) => assignment.driverId).filter((id) => id !== driverId)], manifest.updatedAt, undefined, manifest.linkId);
         res.json({ success: true, data: updated, message: 'Motorista definido' });
     } catch (error) {
         next(error);
@@ -1580,14 +1594,34 @@ router.put('/:id/drivers', authenticate, authorize('ADMIN', 'HUB'), async (req: 
         if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && manifest.hubId !== req.user!.hubId) throw new AppError('Sem acesso a esta viagem.', 403);
         if (manifest.status !== 'DRAFT') throw new AppError('Retire a oferta ou registre correção antes de alterar os motoristas.', 409);
         if (!manifest.linkId) throw new AppError('Selecione primeiro o transportador.', 400);
-        const drivers = await prisma.driver.findMany({ where: { id: { in: driverIds }, active: true, OR: [
-            { linkId: manifest.linkId }, { carriers: { some: { linkId: manifest.linkId, active: true } } },
-        ] } });
-        if (drivers.length !== driverIds.length) throw new AppError('Associe todos os motoristas ativos ao transportador antes de selecioná-los.', 400);
-        const updated = await replaceManifestDrivers(id, driverIds, manifest.updatedAt);
+        const drivers = await prisma.driver.findMany({ where: { id: { in: driverIds }, active: true } });
+        if (drivers.length !== driverIds.length) throw new AppError('Motorista não encontrado ou inativo.', 400);
+        const updated = await replaceManifestDrivers(id, driverIds, manifest.updatedAt, undefined, manifest.linkId);
         res.json({ success: true, data: updated });
     } catch (error) {
         if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
+        next(error);
+    }
+});
+
+// POST /api/manifests/:id/ciot-dispensa — decisão fiscal justificada e auditada.
+router.post('/:id/ciot-dispensa', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const { motivo } = z.object({ motivo: z.string().trim().min(10, 'Informe o motivo da dispensa de CIOT com pelo menos 10 caracteres.') }).parse(req.body);
+        const updated = await dispenseManifestCiot(String(req.params.id), req.user!, motivo);
+        res.json({ success: true, data: updated, message: 'Dispensa de CIOT registrada.' });
+    } catch (error) {
+        if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
+        next(error);
+    }
+});
+
+// POST /api/manifests/:id/ciot-dispensa/desfazer — permitido até a autorização do MDF-e.
+router.post('/:id/ciot-dispensa/desfazer', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const updated = await undoManifestCiotDispensa(String(req.params.id), req.user!);
+        res.json({ success: true, data: updated, message: 'Dispensa de CIOT desfeita.' });
+    } catch (error) {
         next(error);
     }
 });
