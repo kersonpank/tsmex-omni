@@ -388,3 +388,58 @@ export function mergePersonDriverResults(persons: Person[], drivers: Driver[]): 
     }
     return [...rows.values()];
 }
+
+// ---------------------------------------------------------------------------
+// Responsável da viagem: transportador, motorista e composição são independentes
+// ---------------------------------------------------------------------------
+
+export interface TripCompositionPlates {
+    traction: string | null;
+    trailers: string[];
+}
+
+/**
+ * Ao escolher um transportador, o cadastro dele só SUGERE motorista/placas:
+ * `apply` = a viagem está vazia nesse ponto, pode preencher sem perguntar;
+ * `ask` = a viagem já tem outra escolha — só troca se a pessoa confirmar.
+ */
+export function compositionSuggestion(
+    suggested: TripCompositionPlates,
+    current: TripCompositionPlates,
+): { apply: boolean; ask: boolean } {
+    const plates = (c: TripCompositionPlates) => [c.traction, ...c.trailers].map((p) => normalizePlate(p)).filter(Boolean);
+    const wanted = plates(suggested);
+    if (wanted.length === 0) return { apply: false, ask: false };
+    const have = plates(current);
+    if (have.length === 0) return { apply: true, ask: false };
+    const same = normalizePlate(suggested.traction) === normalizePlate(current.traction)
+        && wanted.length === have.length
+        && wanted.every((p, i) => p === have[i]);
+    return { apply: false, ask: !same };
+}
+
+/** Mesma regra para o motorista: vazio → preenche; já escolhido e diferente → pergunta. */
+export function driverSuggestion(
+    suggestedDriverId: string | null | undefined,
+    currentDriverId: string | null | undefined,
+): { apply: boolean; ask: boolean } {
+    if (!suggestedDriverId) return { apply: false, ask: false };
+    if (!currentDriverId) return { apply: true, ask: false };
+    return { apply: false, ask: suggestedDriverId !== currentDriverId };
+}
+
+/** Placas da viagem a partir das unidades do manifesto (slot 0 = cavalo, 1..3 = implementos). */
+export function manifestPlates(assignments: Array<{ slot: number; vehicleUnit: { plate: string } }> | null | undefined): TripCompositionPlates {
+    const sorted = [...(assignments ?? [])].sort((a, b) => a.slot - b.slot);
+    const traction = sorted.find((a) => a.slot === 0)?.vehicleUnit.plate ?? null;
+    const trailers = sorted.filter((a) => a.slot > 0).map((a) => a.vehicleUnit.plate).slice(0, 3);
+    return { traction, trailers };
+}
+
+/** Novo conjunto de implementos ao trocar/remover um (limite de 3, sem repetir, sem vazios). */
+export function setTrailerAt(trailers: string[], index: number, plate: string | null): string[] {
+    const next = [...trailers];
+    if (plate === null || !normalizePlate(plate)) next.splice(index, 1);
+    else next[index] = normalizePlate(plate);
+    return next.filter((p, i) => Boolean(p) && next.indexOf(p) === i).slice(0, 3);
+}

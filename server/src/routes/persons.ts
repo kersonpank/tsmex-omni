@@ -11,6 +11,7 @@ import { getParamId } from '../lib/routeUtils.js';
 import { findOrCreateConcluirCadastroColumn } from './pipeline.js';
 import { validateSelectedCity, validateSelectedAddress } from '../services/selectedCity.js';
 import { ensurePublicCnpjPerson } from '../services/intake/publicCnpjParty.js';
+import { lookupCnpjSuggestion } from '../services/documentLookup.js';
 
 const router = Router();
 
@@ -264,6 +265,44 @@ router.get('/search', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthR
         });
 
         res.json({ success: true, data: persons.map((person) => ({ ...person, roles: personRoles(person) })) });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// GET /api/persons/lookup-document/:document - Consulta CPF/CNPJ antes de cadastrar (Admin, HUB).
+// Pessoa já cadastrada → devolve ela (sem consulta externa). CNPJ novo → Sintegra/Receita como sugestão.
+// Não cria nada.
+router.get('/lookup-document/:document', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const document = normalizeDocument(String(req.params.document ?? ''));
+        if (document.length !== 11 && document.length !== 14) {
+            throw new AppError('Informe um CPF (11 dígitos) ou CNPJ (14 dígitos).', 400);
+        }
+        const existing = await prisma.person.findUnique({
+            where: { document },
+            include: {
+                clients: { select: { id: true, companyName: true } },
+                links: { select: { id: true, name: true } },
+                drivers: {
+                    select: {
+                        id: true, active: true, name: true, phone: true, birthDate: true,
+                        cnhNumber: true, cnhCategory: true, cnhExpiry: true, cnhState: true,
+                    },
+                },
+                hubs: { select: { id: true, name: true } },
+            },
+        });
+        if (existing) {
+            return res.json({ success: true, data: { source: 'person', person: { ...existing, roles: personRoles(existing) }, suggestion: null } });
+        }
+        if (document.length === 14 && isValidCnpj(document)) {
+            const found = await lookupCnpjSuggestion(document);
+            if (found) {
+                return res.json({ success: true, data: { source: found.source, person: null, suggestion: found.suggestion } });
+            }
+        }
+        res.json({ success: true, data: { source: 'none', person: null, suggestion: null } });
     } catch (error) {
         next(error);
     }

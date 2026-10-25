@@ -1133,6 +1133,27 @@ export const nfSpeciesApi = {
 
 // ========== PERSONS API (Cadastro de Pessoas - Admin) ==========
 
+export interface DocumentSuggestion {
+    legalName: string;
+    tradeName: string | null;
+    stateRegistration: string | null;
+    phone: string | null;
+    cep: string | null;
+    address: string | null;
+    number: string | null;
+    complement: string | null;
+    neighborhood: string | null;
+    city: string | null;
+    state: string | null;
+    cityIbgeCode: string | null;
+}
+
+export interface DocumentLookupResult {
+    source: 'person' | 'sintegra' | 'receita' | 'none';
+    person: Person | null;
+    suggestion: DocumentSuggestion | null;
+}
+
 export const personsApi = {
     sync: async () => {
         const response = await api.post<ApiResponse<{ clientsLinked: number; linksLinked: number; message: string }>>('/persons/sync');
@@ -1174,6 +1195,15 @@ export const personsApi = {
 
     create: async (data: CreatePersonRequest) => {
         const response = await api.post<ApiResponse<Person>>('/persons', data);
+        return response.data;
+    },
+
+    /**
+     * Consulta CPF/CNPJ antes de cadastrar: pessoa já existente, ou (CNPJ novo) dados do Sintegra/Receita
+     * como sugestão. Não cria nada.
+     */
+    lookupDocument: async (document: string) => {
+        const response = await api.get<ApiResponse<DocumentLookupResult>>(`/persons/lookup-document/${encodeURIComponent(document.replace(/\D/g, ''))}`);
         return response.data;
     },
 

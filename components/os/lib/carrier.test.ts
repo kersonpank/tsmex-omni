@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Driver, Person } from '../../../types/index';
-import { defaultOwnerType, mergePersonDriverResults, roleLabels, formToUnitInput, unitFormErrors, unitToForm, type RegistryUnit } from './carrier';
+import { compositionSuggestion, defaultOwnerType, driverSuggestion, manifestPlates, mergePersonDriverResults, roleLabels, formToUnitInput, setTrailerAt, unitFormErrors, unitToForm, type RegistryUnit } from './carrier';
 
 describe('defaultOwnerType', () => {
     it('CPF → TAC independente; CNPJ → outros', () => {
@@ -176,5 +176,57 @@ describe('mergePersonDriverResults', () => {
     it('pessoa que já é motorista usa o motorista da pessoa', () => {
         const rows = mergePersonDriverResults([person({ roles: ['motorista'], drivers: [{ id: 'd7', active: true, cnhNumber: '9' }] })], []);
         expect(rows[0].driver?.id).toBe('d7');
+    });
+});
+
+describe('compositionSuggestion', () => {
+    const carrier = { traction: 'ABC1D23', trailers: ['DEF4G56'] };
+
+    it('viagem vazia → aplica sem perguntar', () => {
+        expect(compositionSuggestion(carrier, { traction: null, trailers: [] })).toEqual({ apply: true, ask: false });
+    });
+
+    it('viagem já com outra composição → só pergunta', () => {
+        expect(compositionSuggestion(carrier, { traction: 'ZZZ9Z99', trailers: [] })).toEqual({ apply: false, ask: true });
+    });
+
+    it('mesma composição (ignora formatação) → nada a fazer', () => {
+        expect(compositionSuggestion(carrier, { traction: 'abc-1d23', trailers: ['def4g56'] })).toEqual({ apply: false, ask: false });
+    });
+
+    it('transportador sem composição cadastrada → nada a sugerir', () => {
+        expect(compositionSuggestion({ traction: null, trailers: [] }, { traction: 'ZZZ9Z99', trailers: [] })).toEqual({ apply: false, ask: false });
+    });
+});
+
+describe('driverSuggestion', () => {
+    it('sem motorista na viagem → aplica', () => {
+        expect(driverSuggestion('d1', null)).toEqual({ apply: true, ask: false });
+    });
+    it('outro motorista já escolhido → pergunta', () => {
+        expect(driverSuggestion('d1', 'd2')).toEqual({ apply: false, ask: true });
+    });
+    it('mesmo motorista ou sem sugestão → nada', () => {
+        expect(driverSuggestion('d1', 'd1')).toEqual({ apply: false, ask: false });
+        expect(driverSuggestion(null, 'd2')).toEqual({ apply: false, ask: false });
+    });
+});
+
+describe('manifestPlates e setTrailerAt', () => {
+    it('separa cavalo (slot 0) e implementos em ordem', () => {
+        const rows = [
+            { slot: 2, vehicleUnit: { plate: 'CCC3C33' } },
+            { slot: 0, vehicleUnit: { plate: 'AAA1A11' } },
+            { slot: 1, vehicleUnit: { plate: 'BBB2B22' } },
+        ];
+        expect(manifestPlates(rows)).toEqual({ traction: 'AAA1A11', trailers: ['BBB2B22', 'CCC3C33'] });
+        expect(manifestPlates(undefined)).toEqual({ traction: null, trailers: [] });
+    });
+
+    it('troca, remove e limita a 3 implementos sem repetir', () => {
+        expect(setTrailerAt(['AAA1A11'], 1, 'bbb-2b22')).toEqual(['AAA1A11', 'BBB2B22']);
+        expect(setTrailerAt(['AAA1A11', 'BBB2B22'], 0, null)).toEqual(['BBB2B22']);
+        expect(setTrailerAt(['AAA1A11'], 1, 'AAA1A11')).toEqual(['AAA1A11']);
+        expect(setTrailerAt(['A1', 'B2', 'C3'], 3, 'D4')).toEqual(['A1', 'B2', 'C3']);
     });
 });
