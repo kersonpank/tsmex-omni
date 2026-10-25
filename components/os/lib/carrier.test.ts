@@ -65,3 +65,79 @@ describe('formToUnitInput', () => {
         });
     });
 });
+
+import {
+    buildTripComposition,
+    classifyDocument,
+    cnhStatus,
+    driverToDraft,
+    formatPersonAddress,
+    resolveCarrierLookup,
+    sortDriversForLink,
+    unitPrefillFromVehicle,
+} from './carrier';
+
+describe('classifyDocument / resolveCarrierLookup', () => {
+    it('classifica por quantidade de dígitos', () => {
+        expect(classifyDocument('123.456.789-09')).toBe('CPF');
+        expect(classifyDocument('12.345.678/0001-90')).toBe('CNPJ');
+        expect(classifyDocument('1234')).toBeNull();
+    });
+
+    const person = { id: 'p1', document: '12345678000190', legalName: 'ACME LTDA' };
+    it('transportador existente tem prioridade; só pessoa vira prefill; documento parcial não casa', () => {
+        expect(resolveCarrierLookup([{ ...person, links: [{ id: 'l1', name: 'Acme' }] }], '12.345.678/0001-90')).toEqual({ kind: 'LINK', linkId: 'l1', name: 'Acme' });
+        expect(resolveCarrierLookup([person], '12345678000190').kind).toBe('PERSON');
+        expect(resolveCarrierLookup([{ ...person, document: '99912345678000190' }], '12345678000190').kind).toBe('NONE');
+    });
+
+    it('formata endereço ignorando vazios', () => {
+        expect(formatPersonAddress({ address: 'Rua A', number: '10', city: 'São Luís', state: 'MA' })).toBe('Rua A, 10 · São Luís/MA');
+        expect(formatPersonAddress(null)).toBe('');
+    });
+});
+
+describe('cnhStatus', () => {
+    const now = new Date('2026-10-01T12:00:00');
+    it('vencida, a vencer, válida e ausente', () => {
+        expect(cnhStatus('2026-09-01', now).tone).toBe('bad');
+        expect(cnhStatus('2026-10-15', now).tone).toBe('warn');
+        expect(cnhStatus('2028-01-01', now).tone).toBe('ok');
+        expect(cnhStatus(null, now).tone).toBe('missing');
+    });
+});
+
+describe('sortDriversForLink', () => {
+    it('ligados ao transportador vêm primeiro', () => {
+        const rows = [
+            { id: 'a', name: 'Ana', document: '1', carriers: [] },
+            { id: 'b', name: 'Zé', document: '2', carriers: [{ linkId: 'L', active: true }] },
+            { id: 'c', name: 'Bia', document: '3', linkId: 'L' },
+        ];
+        expect(sortDriversForLink(rows, 'L').map((d) => d.id)).toEqual(['c', 'b', 'a']);
+    });
+});
+
+describe('prefill', () => {
+    it('driverToDraft normaliza datas e UF da CNH', () => {
+        const draft = driverToDraft({ name: 'João', birthDate: '1980-02-03T00:00:00.000Z', cnhExpiry: '2027-05-06T00:00:00.000Z', person: { state: 'MA' } });
+        expect(draft.birthDate).toBe('1980-02-03');
+        expect(draft.cnhExpiry).toBe('2027-05-06');
+        expect(draft.cnhState).toBe('MA');
+        expect(draft.cnhCategory).toBe('E');
+    });
+
+    it('unitPrefillFromVehicle só traz o que existe', () => {
+        const patch = unitPrefillFromVehicle({ renavam: '123456789', axles: 3, tareKg: null, rntrcHolderPerson: { rntrc: '12345678' } });
+        expect(patch).toEqual({ renavam: '123456789', axles: '3', rntrc: '12345678' });
+    });
+});
+
+describe('buildTripComposition', () => {
+    it('normaliza, remove repetidas/inválidas e limita a 3 implementos', () => {
+        const out = buildTripComposition('abc-1d23', ['xyz1a11', 'XYZ1A11', 'x', 'bbb2b22', 'ccc3c33', 'ddd4d44']);
+        expect(out?.traction.plate).toBe('ABC1D23');
+        expect(out?.trailers.map((t) => t.plate)).toEqual(['XYZ1A11', 'BBB2B22', 'CCC3C33']);
+        expect(buildTripComposition('', [])).toBeNull();
+    });
+});

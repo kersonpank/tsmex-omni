@@ -3,15 +3,19 @@ import { useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import { linksApi, manifestsApi } from '../../../../lib/api';
 import type { Driver, Link } from '../../../../types/index';
+import { buildTripComposition, cnhStatus, driverBelongsToLink, sortDriversForLink } from '../../lib/carrier';
 import { linkCompositionPlates } from '../../lib/trip';
 import { OsButton, OsEmpty } from '../../ui/kit';
 import OsSheet, { apiErrorMessage, osFieldClass } from '../../ui/Sheet';
+import DriverEditor from '../carrier/DriverEditor';
 import NewCarrierForm from './NewCarrierForm';
+import PlatePicker from './PlatePicker';
 
 /**
  * Transportador e motorista da viagem: escolhe (ou cadastra) o transportador, o motorista
- * dele e confirma o veículo cadastrado (só placas — dados de CIOT/MDF-e ficam na ficha).
- * Duas escritas pelo backend existente: responsável (transportador + motorista) e composição (placas).
+ * (qualquer motorista cadastrado — o vínculo com o transportador é criado pelo backend) e a
+ * composição da viagem (cavalo + até 3 implementos, por busca ou placa digitada).
+ * Dados de CIOT/MDF-e ficam na ficha. Duas escritas: responsável (transportador + motorista) e composição.
  */
 
 const ResponsibleEditor: React.FC<{
@@ -24,7 +28,12 @@ const ResponsibleEditor: React.FC<{
     const [q, setQ] = useState('');
     const [link, setLink] = useState<Link | null>(null);
     const [drivers, setDrivers] = useState<Driver[]>([]);
+    const [found, setFound] = useState<Driver[]>([]);
+    const [driverQ, setDriverQ] = useState('');
     const [driverId, setDriverId] = useState<string | null>(null);
+    const [newDriver, setNewDriver] = useState(false);
+    const [traction, setTraction] = useState('');
+    const [trailers, setTrailers] = useState<string[]>([]);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [creating, setCreating] = useState(false);
@@ -43,19 +52,66 @@ const ResponsibleEditor: React.FC<{
             .catch(() => setError('Não foi possível carregar os transportadores.'));
     }, [currentLinkId]);
 
+    const loadLinkDrivers = (target: Link, select?: string) =>
+        linksApi
+            .getDrivers(target.id)
+            .then((body) => {
+                const rows = (Array.isArray(body.data) ? body.data : [])
+                    .filter((d) => d.active !== false)
+                    .map((d) => ({ ...d, carriers: d.carriers ?? [{ linkId: target.id, active: true }] }));
+                setDrivers(rows);
+                if (select) setDriverId(select);
+                else if (rows.length === 1) setDriverId((current) => current ?? rows[0].id);
+            })
+            .catch(() => setDrivers([]));
+
     useEffect(() => {
         if (!link) return;
         setDrivers([]);
+        setFound([]);
+        setDriverQ('');
         setDriverId(null);
-        linksApi
-            .getDrivers(link.id)
-            .then((body) => {
-                const rows = (Array.isArray(body.data) ? body.data : []).filter((d) => d.active !== false);
-                setDrivers(rows);
-                if (rows.length === 1) setDriverId(rows[0].id);
-            })
-            .catch(() => setDrivers([]));
+        const plates = linkCompositionPlates(link);
+        setTraction(plates.traction ?? '');
+        setTrailers(plates.trailers.slice(0, 3));
+        void loadLinkDrivers(link);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [link]);
+
+    // Busca global (nome ou CPF): o motorista é independente do transportador e do veículo.
+    useEffect(() => {
+        const term = driverQ.trim();
+        if (term.length < 2) {
+            setFound([]);
+            return;
+        }
+        let cancelled = false;
+        const timer = setTimeout(() => {
+            linksApi
+                .searchDrivers(term)
+                .then((body) => {
+                    if (!cancelled) setFound(Array.isArray(body.data) ? body.data : []);
+                })
+                .catch(() => {
+                    if (!cancelled) setFound([]);
+                });
+        }, 250);
+        return () => {
+            cancelled = true;
+            clearTimeout(timer);
+        };
+    }, [driverQ]);
+
+    const driverRows = useMemo(() => {
+        if (!link) return [];
+        const searching = driverQ.trim().length >= 2;
+        const byId = new Map<string, Driver>();
+        for (const d of searching ? found : drivers) byId.set(d.id, d);
+        // O selecionado nunca some da lista, mesmo que a busca não o traga.
+        const selected = driverId ? [...drivers, ...found].find((d) => d.id === driverId) : undefined;
+        if (selected) byId.set(selected.id, selected);
+        return sortDriversForLink([...byId.values()], link.id);
+    }, [link, drivers, found, driverQ, driverId]);
 
     const filtered = useMemo(() => {
         const term = q.trim().toLowerCase();
@@ -65,8 +121,6 @@ const ResponsibleEditor: React.FC<{
             .slice(0, 30);
     }, [links, q]);
 
-    const plates = link ? linkCompositionPlates(link) : null;
-
     const save = async (thenOpenRegistry = false) => {
         if (!link || busy) return;
         setBusy(true);
@@ -74,13 +128,10 @@ const ResponsibleEditor: React.FC<{
         try {
             // Pendente cadastrado por este hub: aprovar é dele (o backend recusa se for de outro hub).
             if (link.approvalStatus === 'PENDING') await linksApi.approve(link.id);
+            // O backend vincula o motorista escolhido ao transportador, se ainda não estiver vinculado.
             await manifestsApi.setResponsible(manifestId, link.id, driverId);
-            if (plates?.traction) {
-                await manifestsApi.setVehicles(manifestId, {
-                    traction: { plate: plates.traction },
-                    trailers: plates.trailers.map((plate) => ({ plate })),
-                });
-            }
+            const composition = buildTripComposition(traction, trailers);
+            if (composition) await manifestsApi.setVehicles(manifestId, composition);
             if (thenOpenRegistry) openRegistry(link.id);
             else onSaved();
         } catch (cause) {
@@ -88,6 +139,21 @@ const ResponsibleEditor: React.FC<{
             setBusy(false);
         }
     };
+
+    if (newDriver && link) {
+        return (
+            <DriverEditor
+                linkId={link.id}
+                driver={null}
+                onClose={() => setNewDriver(false)}
+                onSaved={(id) => {
+                    setNewDriver(false);
+                    setDriverQ('');
+                    void loadLinkDrivers(link, id);
+                }}
+            />
+        );
+    }
 
     return (
         <OsSheet
@@ -117,7 +183,7 @@ const ResponsibleEditor: React.FC<{
             }
         >
             {creating ? (
-                <NewCarrierForm manifestId={manifestId} onCreated={openRegistry} onCancel={() => setCreating(false)} />
+                <NewCarrierForm manifestId={manifestId} onCreated={openRegistry} onUsed={onSaved} onCancel={() => setCreating(false)} />
             ) : !link ? (
                 <>
                     <OsButton full variant="secondary" className="mb-3" onClick={() => setCreating(true)}>
@@ -154,25 +220,47 @@ const ResponsibleEditor: React.FC<{
                         Trocar transportador
                     </button>
 
-                    <p className="mb-1.5 mt-4 text-[13px] font-bold text-tower-600 dark:text-tower-300">Veículo</p>
-                    {plates?.traction ? (
-                        <p className="rounded-xl bg-tower-100 p-3 font-mono text-[14px] text-tower-800 dark:bg-tower-800 dark:text-tower-100">
-                            {[plates.traction, ...plates.trailers].join(' + ')}
-                        </p>
-                    ) : (
-                        <p className="rounded-xl bg-brand-yellow-400/20 p-3 text-[13px] text-[#6b5900] dark:text-brand-yellow-400">
-                            Este transportador não tem placa cadastrada. Salve e complete o veículo em "Cadastro do veículo e motorista".
-                        </p>
-                    )}
+                    <p className="mb-1.5 mt-4 text-[13px] font-bold text-tower-600 dark:text-tower-300">Veículo desta viagem</p>
+                    <PlatePicker label="Cavalo" role="TRACTION" value={traction} onChange={setTraction} />
+                    {[0, 1, 2].slice(0, Math.min(3, trailers.length + 1)).map((index) => (
+                        <PlatePicker
+                            key={index}
+                            label={`Implemento ${index + 1}`}
+                            role="TRAILER"
+                            value={trailers[index] ?? ''}
+                            onChange={(plate) =>
+                                setTrailers((list) => {
+                                    const next = [...list];
+                                    next[index] = plate;
+                                    return next;
+                                })
+                            }
+                            onClear={trailers[index] ? () => setTrailers((list) => list.filter((_, i) => i !== index)) : undefined}
+                        />
+                    ))}
+                    <p className="mt-1.5 text-[12px] text-tower-500 dark:text-tower-400">
+                        Cavalo e implementos valem só para esta viagem; o motorista não depende deles.
+                    </p>
 
                     <p className="mb-1.5 mt-4 text-[13px] font-bold text-tower-600 dark:text-tower-300">Motorista</p>
-                    {drivers.length === 0 ? (
-                        <p className="text-[13px] text-tower-500 dark:text-tower-400">
-                            Nenhum motorista ativo neste transportador — cadastre em "Cadastro do veículo e motorista".
-                        </p>
-                    ) : (
-                        <div className="flex flex-col gap-2">
-                            {drivers.map((d) => (
+                    <input
+                        type="search"
+                        value={driverQ}
+                        onChange={(e) => setDriverQ(e.target.value)}
+                        placeholder="Buscar motorista por nome ou CPF…"
+                        className={osFieldClass}
+                    />
+                    <div className="mt-2 flex flex-col gap-2">
+                        {driverRows.length === 0 ? (
+                            <p className="text-[13px] text-tower-500 dark:text-tower-400">
+                                {driverQ.trim().length >= 2
+                                    ? 'Nenhum motorista encontrado.'
+                                    : 'Nenhum motorista neste transportador — busque por nome/CPF ou cadastre.'}
+                            </p>
+                        ) : null}
+                        {driverRows.map((d) => {
+                            const cnh = cnhStatus(d.cnhExpiry);
+                            return (
                                 <label
                                     key={d.id}
                                     className={clsx(
@@ -187,11 +275,30 @@ const ResponsibleEditor: React.FC<{
                                         onChange={() => setDriverId(d.id)}
                                         className="h-5 w-5 accent-[#2e3192]"
                                     />
-                                    <span className="text-[14px] font-semibold text-tower-900 dark:text-white">{d.name}</span>
+                                    <span className="flex min-w-0 flex-col">
+                                        <span className="text-[14px] font-semibold text-tower-900 dark:text-white">{d.name}</span>
+                                        <span className="text-[12px] text-tower-500 dark:text-tower-400">
+                                            CPF {d.document}
+                                            {driverBelongsToLink(d, link.id) ? '' : ' · de outro transportador (será vinculado)'}
+                                        </span>
+                                        <span
+                                            className={clsx(
+                                                'text-[12px] font-semibold',
+                                                cnh.tone === 'bad' && 'text-brand-red-600 dark:text-brand-red-400',
+                                                cnh.tone === 'warn' && 'text-[#6b5900] dark:text-brand-yellow-400',
+                                                (cnh.tone === 'ok' || cnh.tone === 'missing') && 'text-tower-500 dark:text-tower-400',
+                                            )}
+                                        >
+                                            {cnh.label}
+                                        </span>
+                                    </span>
                                 </label>
-                            ))}
-                        </div>
-                    )}
+                            );
+                        })}
+                    </div>
+                    <OsButton full variant="secondary" className="mt-3" onClick={() => setNewDriver(true)}>
+                        Cadastrar motorista
+                    </OsButton>
                 </>
             )}
         </OsSheet>

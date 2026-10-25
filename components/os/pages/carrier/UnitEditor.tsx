@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import clsx from 'clsx';
-import { linksApi, type VehicleUnitInput } from '../../../../lib/api';
+import { linksApi, vehicleUnitsApi, type VehicleUnitInput } from '../../../../lib/api';
 import {
     BODY_TYPES,
     OWNER_TYPES,
@@ -9,6 +9,7 @@ import {
     formToUnitInput,
     normalizePlate,
     unitFormErrors,
+    unitPrefillFromVehicle,
     unitToForm,
     type CarrierRegistry,
     type RegistryUnit,
@@ -38,6 +39,32 @@ const UnitEditor: React.FC<{
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const set = (k: keyof UnitForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setForm((f) => ({ ...f, [k]: e.target.value }));
+    const [known, setKnown] = useState(false);
+
+    // Placa já cadastrada (global): reaproveita RENAVAM, eixos, RNTRC, tara e capacidade.
+    useEffect(() => {
+        const plate = normalizePlate(form.plate);
+        if (unit || plate.length !== 7) {
+            setKnown(false);
+            return;
+        }
+        let cancelled = false;
+        vehicleUnitsApi
+            .search(plate, role)
+            .then((body) => {
+                const match = (Array.isArray(body.data) ? body.data : []).find((u) => normalizePlate(u.plate) === plate);
+                if (cancelled) return;
+                setKnown(Boolean(match));
+                if (match) setForm((f) => ({ ...f, ...unitPrefillFromVehicle(match) }));
+            })
+            .catch(() => {
+                if (!cancelled) setKnown(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [form.plate, unit, role]);
+
     const errors = unitFormErrors(form, role);
     const traction = registry.units.find((u) => u.role === 'TRACTION') ?? null;
     const trailers = registry.units.filter((u) => u.role === 'TRAILER');
@@ -125,6 +152,11 @@ const UnitEditor: React.FC<{
             }
         >
             {unit ? null : input('Placa', 'plate', { placeholder: 'ABC1D23', autoCapitalize: 'characters', onBlur: () => setForm((f) => ({ ...f, plate: normalizePlate(f.plate) })) })}
+            {known ? (
+                <p className="mt-2 rounded-lg bg-brand-500/10 p-2.5 text-[13px] font-semibold text-brand-600 dark:text-brand-300">
+                    Placa já cadastrada — dados reaproveitados.
+                </p>
+            ) : null}
             {input('RENAVAM', 'renavam', { inputMode: 'numeric' })}
             {input('Chassi (17 caracteres)', 'chassi', { autoCapitalize: 'characters' })}
             <div className="grid grid-cols-2 gap-2">

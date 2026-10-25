@@ -180,3 +180,155 @@ export function formToUnitInput(form: UnitForm): VehicleUnitInput {
 export function sectionTone(issues: string[]): 'ok' | 'bad' {
     return issues.length === 0 ? 'ok' : 'bad';
 }
+
+// ---------------------------------------------------------------------------
+// Reaproveitamento de cadastros (transportador, motorista, placa)
+// ---------------------------------------------------------------------------
+
+/** CPF (11 dígitos) → autônomo; CNPJ (14) → empresa; senão ainda incompleto. */
+export function classifyDocument(value: string | null | undefined): 'CPF' | 'CNPJ' | null {
+    const n = digits(value).length;
+    return n === 11 ? 'CPF' : n === 14 ? 'CNPJ' : null;
+}
+
+export interface SearchedPerson {
+    id: string;
+    document: string;
+    legalName: string;
+    tradeName?: string | null;
+    cep?: string | null;
+    address?: string | null;
+    number?: string | null;
+    neighborhood?: string | null;
+    city?: string | null;
+    state?: string | null;
+    links?: Array<{ id: string; name: string; document?: string }>;
+}
+
+export type CarrierLookup =
+    | { kind: 'LINK'; linkId: string; name: string }
+    | { kind: 'PERSON'; person: SearchedPerson }
+    | { kind: 'NONE' };
+
+/** Resultado de personsApi.search(doc): só vale o documento exato (a busca é por "contém"). */
+export function resolveCarrierLookup(persons: SearchedPerson[], document: string): CarrierLookup {
+    const doc = digits(document);
+    const person = persons.find((p) => digits(p.document) === doc);
+    if (!person) return { kind: 'NONE' };
+    const link = person.links?.[0];
+    if (link) return { kind: 'LINK', linkId: link.id, name: link.name };
+    return { kind: 'PERSON', person };
+}
+
+/** Linha de endereço legível para conferência (sem exigir todos os campos). */
+export function formatPersonAddress(p: Pick<SearchedPerson, 'address' | 'number' | 'neighborhood' | 'city' | 'state' | 'cep'> | null | undefined): string {
+    if (!p) return '';
+    const street = [p.address, p.number].filter(Boolean).join(', ');
+    const place = [p.city, p.state].filter(Boolean).join('/');
+    return [street, p.neighborhood, place, p.cep].filter(Boolean).join(' · ');
+}
+
+/** Validade da CNH para exibição ao escolher motorista. */
+export function cnhStatus(expiry: string | null | undefined, now: Date = new Date()): { tone: 'ok' | 'warn' | 'bad' | 'missing'; label: string } {
+    if (!expiry) return { tone: 'missing', label: 'CNH não informada' };
+    const date = new Date(String(expiry).slice(0, 10) + 'T12:00:00');
+    if (Number.isNaN(date.getTime())) return { tone: 'missing', label: 'CNH não informada' };
+    const shown = date.toLocaleDateString('pt-BR');
+    const days = Math.floor((date.getTime() - now.getTime()) / 86_400_000);
+    if (days < 0) return { tone: 'bad', label: `CNH vencida em ${shown}` };
+    if (days <= 30) return { tone: 'warn', label: `CNH vence em ${shown}` };
+    return { tone: 'ok', label: `CNH válida até ${shown}` };
+}
+
+interface DriverLike {
+    id: string;
+    name: string;
+    document: string;
+    linkId?: string | null;
+    carriers?: Array<{ linkId: string; active: boolean }>;
+}
+
+export function driverBelongsToLink(driver: DriverLike, linkId: string): boolean {
+    return driver.linkId === linkId || (driver.carriers ?? []).some((c) => c.linkId === linkId && c.active !== false);
+}
+
+/** Motoristas já ligados ao transportador primeiro; dentro de cada grupo, ordem alfabética. */
+export function sortDriversForLink<T extends DriverLike>(drivers: T[], linkId: string): T[] {
+    return [...drivers].sort((a, b) => {
+        const rank = Number(!driverBelongsToLink(a, linkId)) - Number(!driverBelongsToLink(b, linkId));
+        return rank || a.name.localeCompare(b.name, 'pt-BR');
+    });
+}
+
+/** Motorista já cadastrado (busca global por CPF) → valores iniciais do formulário. */
+export function driverToDraft(driver: {
+    name: string;
+    phone?: string | null;
+    birthDate?: string | null;
+    cnhNumber?: string | null;
+    cnhCategory?: string | null;
+    cnhExpiry?: string | null;
+    cnhState?: string | null;
+    person?: Partial<Record<'cep' | 'address' | 'number' | 'complement' | 'neighborhood' | 'city' | 'state' | 'cityIbgeCode', string | null>> | null;
+}) {
+    const date = (v?: string | null) => (v ? String(v).slice(0, 10) : '');
+    return {
+        name: driver.name,
+        phone: driver.phone ?? '',
+        birthDate: date(driver.birthDate),
+        cnhNumber: driver.cnhNumber ?? '',
+        cnhCategory: driver.cnhCategory ?? 'E',
+        cnhExpiry: date(driver.cnhExpiry),
+        cnhState: driver.cnhState ?? driver.person?.state ?? '',
+        person: driver.person ?? null,
+    };
+}
+
+/** Placa já cadastrada → campos do formulário (só o que a unidade tem; o resto fica como está). */
+export function unitPrefillFromVehicle(unit: {
+    renavam?: string | null;
+    chassi?: string | null;
+    axles?: number | null;
+    tareKg?: number | null;
+    capacityKg?: number | null;
+    capacityM3?: number | null;
+    bodyType?: string | null;
+    wheelType?: string | null;
+    licensedState?: string | null;
+    mdfeOwnerType?: '0' | '1' | '2' | null;
+    rntrc?: string | null;
+    rntrcHolderPerson?: { rntrc?: string | null } | null;
+}): Partial<UnitForm> {
+    const patch: Partial<UnitForm> = {};
+    const put = (key: keyof UnitForm, value: string | number | null | undefined) => {
+        if (value !== null && value !== undefined && String(value) !== '') patch[key] = String(value);
+    };
+    put('renavam', unit.renavam);
+    put('chassi', unit.chassi);
+    put('axles', unit.axles);
+    put('tareKg', unit.tareKg);
+    put('capacityKg', unit.capacityKg);
+    put('capacityM3', unit.capacityM3);
+    put('bodyType', unit.bodyType);
+    put('wheelType', unit.wheelType);
+    put('licensedState', unit.licensedState);
+    put('mdfeOwnerType', unit.mdfeOwnerType);
+    put('rntrc', unit.rntrcHolderPerson?.rntrc ?? unit.rntrc);
+    return patch;
+}
+
+/** Composição da viagem: cavalo + até 3 implementos, sem placas vazias/repetidas. */
+export function buildTripComposition(tractionPlate: string, trailerPlates: string[]): { traction: { plate: string }; trailers: Array<{ plate: string }> } | null {
+    const traction = normalizePlate(tractionPlate);
+    if (!/^[A-Z0-9]{7}$/.test(traction)) return null;
+    const seen = new Set<string>([traction]);
+    const trailers: Array<{ plate: string }> = [];
+    for (const raw of trailerPlates) {
+        const plate = normalizePlate(raw);
+        if (!/^[A-Z0-9]{7}$/.test(plate) || seen.has(plate)) continue;
+        seen.add(plate);
+        trailers.push({ plate });
+        if (trailers.length === 3) break;
+    }
+    return { traction: { plate: traction }, trailers };
+}

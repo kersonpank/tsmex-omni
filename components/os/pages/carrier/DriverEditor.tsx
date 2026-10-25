@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import clsx from 'clsx';
-import { linksApi } from '../../../../lib/api';
-import { digits, UFS, type RegistryDriver } from '../../lib/carrier';
+import { linksApi, personsApi } from '../../../../lib/api';
+import type { Driver } from '../../../../types/index';
+import { digits, driverToDraft, UFS, type RegistryDriver } from '../../lib/carrier';
 import AddressFields, { addressFrom, addressReady, type AddressValue } from '../../ui/AddressFields';
 import { OsButton } from '../../ui/kit';
 import OsSheet, { apiErrorMessage, osFieldClass } from '../../ui/Sheet';
@@ -28,8 +29,46 @@ const DriverEditor: React.FC<{
     const [cnhExpiry, setCnhExpiry] = useState(toDate(driver?.cnhExpiry));
     const [cnhState, setCnhState] = useState(driver?.cnhState ?? driver?.person?.state ?? '');
     const [address, setAddress] = useState<AddressValue>(() => addressFrom(driver?.person));
+    const [reused, setReused] = useState(false);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
+    // CPF completo: se o motorista já existe (cadastro global), reaproveita todos os dados.
+    useEffect(() => {
+        if (driver || digits(cpf).length !== 11) {
+            setReused(false);
+            return;
+        }
+        const cpfDigits = digits(cpf);
+        let cancelled = false;
+        (async () => {
+            try {
+                const rows = ((await linksApi.searchDrivers(cpfDigits)).data ?? []) as Driver[];
+                const existing = rows.find((d) => digits(d.document) === cpfDigits);
+                if (cancelled || !existing) {
+                    if (!cancelled) setReused(false);
+                    return;
+                }
+                const draft = driverToDraft(existing);
+                const person = ((await personsApi.search(cpfDigits)).data ?? []).find((p) => digits(p.document) === cpfDigits);
+                if (cancelled) return;
+                setName(draft.name);
+                setPhone(draft.phone);
+                setBirthDate(draft.birthDate);
+                setCnhNumber(draft.cnhNumber);
+                setCnhCategory(draft.cnhCategory);
+                setCnhExpiry(draft.cnhExpiry);
+                setCnhState(draft.cnhState || person?.state || '');
+                if (person) setAddress(addressFrom(person));
+                setReused(true);
+            } catch {
+                if (!cancelled) setReused(false);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [cpf, driver]);
 
     const missing = [
         !name.trim() && 'nome',
@@ -104,12 +143,14 @@ const DriverEditor: React.FC<{
                 </>
             }
         >
+            {driver ? null : field('CPF', cpf, setCpf, { inputMode: 'numeric', placeholder: '000.000.000-00' })}
+            {reused ? (
+                <p className="mt-2 rounded-lg bg-brand-500/10 p-2.5 text-[13px] font-semibold text-brand-600 dark:text-brand-300">
+                    Motorista já cadastrado — será reaproveitado.
+                </p>
+            ) : null}
             {field('Nome completo', name, setName)}
-            {driver ? (
-                <p className="mt-3 text-[13px] text-tower-500">CPF {driver.document}</p>
-            ) : (
-                field('CPF', cpf, setCpf, { inputMode: 'numeric', placeholder: '000.000.000-00' })
-            )}
+            {driver ? <p className="mt-3 text-[13px] text-tower-500">CPF {driver.document}</p> : null}
             {field('Telefone com DDD', phone, setPhone, { inputMode: 'tel' })}
             {field('Data de nascimento', birthDate, setBirthDate, { type: 'date' })}
             {field('Número da CNH', cnhNumber, setCnhNumber, { inputMode: 'numeric' })}
