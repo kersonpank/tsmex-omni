@@ -79,7 +79,7 @@ export const freightOrderInclude = {
             cteEmissionJobs: {
                 orderBy: { createdAt: 'desc' },
                 take: 1,
-                select: { phase: true, attemptCount: true, maxAttempts: true },
+                select: { phase: true, attemptCount: true, maxAttempts: true, providerDocId: true },
             },
         },
     },

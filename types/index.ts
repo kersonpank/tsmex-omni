@@ -911,6 +911,7 @@ export interface FreightDocumentSummary {
     calculationMethod: FreightCalcMethod;
     pricingLabel: string | null;
     statusReason: string | null;
+    canResend: boolean;
     accessKey: string | null;
     attempt: { count: number; max: number } | null;
     createdAt: string;

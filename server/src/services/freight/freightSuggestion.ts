@@ -7,6 +7,7 @@ import {
     allowedDocTypes,
     choosePricingTable,
     freightDocState,
+    isPendingReconciliationWithoutSubmission,
     payerChangeBlock,
     payerRole,
     type FreightDocState,
@@ -25,6 +26,7 @@ export interface FreightDocumentSummary {
     id: string;
     documentType: FreightDocType;
     status: FreightCalcStatus;
+    canResend: boolean;
     number: string | null;
     freightTotal: number;
     calculationMethod: string;
@@ -70,6 +72,7 @@ export function summarizeDocuments(order: FreightOrder): FreightDocumentSummary[
         id: c.id,
         documentType: c.documentType as FreightDocType,
         status: c.status,
+        canResend: c.documentType === 'CTE' && isPendingReconciliationWithoutSubmission(c),
         number: c.cteNumber ?? c.dceNumber ?? c.minutaNumber ?? null,
         freightTotal: c.freightTotal,
         calculationMethod: c.calculationMethod,

@@ -50,9 +50,10 @@ export const IN_FLIGHT: FreightCalcStatus[] = ['CTE_READY', 'CTE_SENT', 'CTE_PRO
 export type DocTone = 'ok' | 'route' | 'warn' | 'danger' | 'none';
 
 /** Como mostrar um documento do pedido: tom + frase curta. */
-export function documentStatusView(doc: { documentType: FreightDocType; status: FreightCalcStatus; number: string | null; statusReason: string | null }): {
+export function documentStatusView(doc: { documentType: FreightDocType; status: FreightCalcStatus; number: string | null; statusReason: string | null; canResend?: boolean }): {
     tone: DocTone;
     label: string;
+    hint?: string;
 } {
     const name = `${DOC_TYPE_LABEL[doc.documentType]}${doc.number ? ` nº ${doc.number}` : ''}`;
     switch (doc.status) {
@@ -68,7 +69,9 @@ export function documentStatusView(doc: { documentType: FreightDocType; status: 
         case 'DCE_SENT':
             return { tone: 'route', label: `${name} · enviando à SEFAZ…` };
         case 'CTE_PENDING_RECONCILIATION':
-            return { tone: 'warn', label: `${name} · aguardando conferência na SEFAZ (torre)` };
+            return doc.canResend
+                ? { tone: 'warn', label: `${name} · envio pendente` }
+                : { tone: 'warn', label: `${name} · aguardando conferência na SEFAZ (torre)`, hint: 'a torre confere na SEFAZ antes de reenviar' };
         case 'CTE_REJECTED':
         case 'DCE_REJECTED':
             return { tone: 'danger', label: `${name} rejeitado${doc.statusReason ? `: ${doc.statusReason}` : ''}` };

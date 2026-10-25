@@ -41,8 +41,8 @@ const OrderPage: React.FC = () => {
         };
     }, [orderId, hubId]);
 
-    const reload = () => {
-        void freight.reload();
+    const reload = async () => {
+        await freight.reload();
         void refresh();
     };
 
@@ -104,7 +104,7 @@ const OrderPage: React.FC = () => {
             ) : (
                 <>
                     <PayerRow orderId={orderId} suggestion={s} onChanged={reload} />
-                    <FreightDocuments orderId={orderId} documents={s.documents} />
+                    <FreightDocuments orderId={orderId} documents={s.documents} onResent={reload} />
                     {composing ? (
                         <div className="mt-3">
                             <FreightComposer key={`${s.freightTerm}-${another}`} orderId={orderId} suggestion={s} newDocument={another} onEmitted={reload} />

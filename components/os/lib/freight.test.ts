@@ -22,6 +22,21 @@ describe('documentStatusView', () => {
         );
         expect(documentStatusView({ documentType: 'MINUTA', status: 'MINUTA_EMITTED', number: '5', statusReason: null }).label).toBe('Minuta nº 5 emitida');
     });
+
+    it('envio pendente permite reenvio quando o servidor confirma que nada foi submetido', () => {
+        expect(documentStatusView({ documentType: 'CTE', status: 'CTE_PENDING_RECONCILIATION', number: '21794', statusReason: null, canResend: true })).toEqual({
+            tone: 'warn',
+            label: 'CT-e nº 21794 · envio pendente',
+        });
+    });
+
+    it('reconciliação sem reenvio orienta a conferência pela torre', () => {
+        expect(documentStatusView({ documentType: 'CTE', status: 'CTE_PENDING_RECONCILIATION', number: '21794', statusReason: null, canResend: false })).toEqual({
+            tone: 'warn',
+            label: 'CT-e nº 21794 · aguardando conferência na SEFAZ (torre)',
+            hint: 'a torre confere na SEFAZ antes de reenviar',
+        });
+    });
 });
 
 describe('pendências e prontidão', () => {

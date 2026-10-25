@@ -24,7 +24,7 @@ import { getAcbrProviderDecision } from '../services/acbr/acbrConfig.js';
 import { enqueueCteEmissionJob } from '../services/queues/cteEmissionQueue.js';
 import { getObjectDownloadUrl } from '../lib/objectStorage.js';
 import { BREAKDOWN_KEYS, computeFreightFromTable, informedFreight, orderFreightParams } from '../services/freight/freightPricing.js';
-import { ACTIVE_DOC_STATUSES, REUSABLE_STATUSES } from '../services/freight/freightDocRules.js';
+import { ACTIVE_DOC_STATUSES, REUSABLE_STATUSES, isPendingReconciliationWithoutSubmission } from '../services/freight/freightDocRules.js';
 import { getFreightSuggestion } from '../services/freight/freightQueries.js';
 import type { CtePreflightResult } from '../services/fiscal/ctePreflight.js';
 
@@ -94,22 +94,6 @@ const FISCAL_LOCKED_STATUSES = [
     'DCE_AUTHORIZED',
     'DCE_CANCELLED',
 ] as const;
-
-/**
- * CTE_PENDING_RECONCILIATION normalmente fica em FISCAL_LOCKED_STATUSES pela mesma razão de
- * CTE_SENT/CTE_PROCESSING: evita reenvio duplicado quando pode haver documento já submetido à
- * ACBr. Mas existe um caso em que o calc chega nesse status SEM nenhuma submissão real ter
- * acontecido — job morreu antes do primeiro submitCteToAcbr (exceção no preflight, timeout ao
- * enfileirar, ou o bug pré-retry automático onde uma exceção bem no início do processor escapava
- * sem tratamento). Nesse caso específico reemitir do zero é seguro: nada foi enviado à ACBr, não
- * há risco de duplicidade/cobrança dupla.
- */
-function isPendingReconciliationWithoutSubmission(calc: {
-    status: string;
-    cteEmissionJobs?: { providerDocId: string | null }[];
-}): boolean {
-    return calc.status === 'CTE_PENDING_RECONCILIATION' && !calc.cteEmissionJobs?.[0]?.providerDocId;
-}
 
 function extractQrCodeUrlFromXml(xml: string | null): string | null {
     if (!xml) return null;

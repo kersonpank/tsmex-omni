@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { computeFreightFromTable, informedFreight, orderFreightParams, type PricingTableLike } from './freightPricing.js';
 import { allowedDocTypes, choosePricingTable, freightDocState, payerChangeBlock, payerRole, type TableCandidate } from './freightDocRules.js';
 import { pickEmitter, type FreightContext, type FreightOrder } from './freightContext.js';
-import { suggestFreight } from './freightSuggestion.js';
+import { suggestFreight, summarizeDocuments } from './freightSuggestion.js';
 import { buildCoverageIndex } from '../hubCargo/consolidationQueue.js';
 
 const baseTable: PricingTableLike = {
@@ -184,6 +184,50 @@ function fixture(over: { freightTerm?: 'CIF' | 'FOB'; payerClient?: boolean } = 
     } as unknown as FreightContext;
     return { order, ctx };
 }
+
+describe('summarizeDocuments: reenvio do CT-e', () => {
+    function document(over: Partial<FreightOrder['freightCalculations'][number]> = {}) {
+        const { order } = fixture();
+        order.freightCalculations = [{
+            id: 'calc-1',
+            documentType: 'CTE',
+            status: 'CTE_PENDING_RECONCILIATION',
+            cteNumber: '21794',
+            freightTotal: 120,
+            calculationMethod: 'INFORMADO',
+            pricingTable: null,
+            cteStatusReason: 'Falha antes do envio.',
+            cteEmissionJobs: [],
+            createdAt: new Date('2026-10-20T12:00:00Z'),
+            ...over,
+        } as FreightOrder['freightCalculations'][number]];
+        return summarizeDocuments(order)[0];
+    }
+
+    const job = (providerDocId: string | null) => ({ phase: 'PENDING_RECONCILIATION' as const, attemptCount: 3, maxAttempts: 3, providerDocId });
+
+    it('permite reenviar CT-e em reconciliação sem job de submissão', () => {
+        const doc = document();
+        assert.equal(doc.canResend, true);
+        assert.equal(doc.statusReason, 'Falha antes do envio.');
+    });
+
+    it('permite reenviar quando o job mais recente não tem providerDocId', () => {
+        assert.equal(document({ cteEmissionJobs: [job(null), job('doc-antigo')] }).canResend, true);
+    });
+
+    it('bloqueia reenvio quando o job mais recente já foi submetido', () => {
+        assert.equal(document({ cteEmissionJobs: [job('doc-atual'), job(null)] }).canResend, false);
+    });
+
+    it('não oferece reenvio para outros tipos de documento ou estados', () => {
+        assert.equal(document({ documentType: 'MINUTA' }).canResend, false);
+        assert.equal(document({ documentType: 'DCE' }).canResend, false);
+        for (const status of ['CALCULATED', 'CTE_READY', 'CTE_SENT', 'CTE_PROCESSING', 'CTE_AUTHORIZED', 'CTE_REJECTED'] as const) {
+            assert.equal(document({ status }).canResend, false, status);
+        }
+    });
+});
 
 describe('suggestFreight', () => {
     it('rota pela cobertura do destino; geral da rota quando o pagador não tem tabela; CT-e pronto', () => {

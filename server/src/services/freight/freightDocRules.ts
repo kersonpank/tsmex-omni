@@ -24,6 +24,18 @@ export const ACTIVE_DOC_STATUSES: FreightCalcStatus[] = [...EMITTED_STATUSES, ..
 /** Cálculo ainda editável/reaproveitável pelo preparo automático. */
 export const REUSABLE_STATUSES: FreightCalcStatus[] = ['DRAFT', 'CALCULATED', 'CTE_REJECTED', 'DCE_REJECTED'];
 
+/**
+ * Reconciliação normalmente bloqueia reenvio para evitar duplicidade na ACBr. Se o job morreu
+ * antes da primeira submissão (preflight, falha ao enfileirar ou no início do processor), ainda
+ * pode ser reenviado. O primeiro job deve ser o mais recente, ordenado por createdAt desc.
+ */
+export function isPendingReconciliationWithoutSubmission(calc: {
+    status: string;
+    cteEmissionJobs?: { providerDocId: string | null }[];
+}): boolean {
+    return calc.status === 'CTE_PENDING_RECONCILIATION' && !calc.cteEmissionJobs?.[0]?.providerDocId;
+}
+
 export type FreightDocState = 'emitted' | 'in_flight' | 'rejected' | 'draft' | 'none';
 
 export function freightDocState(calcs: { status: FreightCalcStatus }[]): FreightDocState {
