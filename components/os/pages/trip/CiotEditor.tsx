@@ -5,19 +5,20 @@ import type { CiotEmissionJob, CiotTipoViagem, CiotTipoViagemSuggestion } from '
 import type { ManifestWithLegs } from '../../lib/arrival';
 import {
     buildCiotRequest,
+    CIOT_DISPENSA_REASONS,
     CIOT_FINAL_PHASES,
     CIOT_POLL_ATTEMPTS,
     CIOT_POLL_INTERVAL_MS,
     ciotFixGroup,
+    ciotDispensaError,
     initialCiotForm,
     type CiotAddressState,
     type CiotFixGroup,
     type CiotFormState,
+    type CiotDispensaReason,
 } from '../../lib/ciot';
 import { OsBadge, OsButton, OsErrorNotice } from '../../ui/kit';
 import OsSheet, { apiErrorMessage, osFieldClass } from '../../ui/Sheet';
-
-const REASON_EXAMPLES = ['Frota própria — motorista empregado', 'Transportador ETC sem subcontratação de TAC'];
 
 const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
     <label className="block text-[13px] font-bold text-tower-600 dark:text-tower-300">
@@ -47,7 +48,8 @@ const CiotEditor: React.FC<{
     const [busy, setBusy] = useState(false);
     const [formError, setFormError] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [motivo, setMotivo] = useState('');
+    const [motivo, setMotivo] = useState<CiotDispensaReason | ''>('');
+    const [observacao, setObservacao] = useState('');
     const timer = useRef<number | null>(null);
     const alive = useRef(true);
 
@@ -55,6 +57,7 @@ const CiotEditor: React.FC<{
     const mdfeAuthorized = Boolean(manifest.fiscalDocuments?.some((doc) => doc.documentType === 'MDFE' && doc.status === 'AUTHORIZED'));
     const dispensed = Boolean(manifest.ciotDispensado) && !authorized;
     const jobRunning = Boolean(job && !CIOT_FINAL_PHASES.includes(job.phase));
+    const selectedType = override || suggestion?.tipoViagem || 'PADRAO';
 
     const stopPolling = useCallback(() => {
         if (timer.current != null) window.clearTimeout(timer.current);
@@ -107,7 +110,7 @@ const CiotEditor: React.FC<{
     };
 
     const emit = async () => {
-        const built = buildCiotRequest(manifest.id, form, address, override, manifest.link?.document ?? '');
+        const built = buildCiotRequest(manifest.id, form, address, override, manifest.link?.document ?? '', new Date(), selectedType);
         if (built.error) {
             setFormError(built.error);
             return;
@@ -128,12 +131,18 @@ const CiotEditor: React.FC<{
     };
 
     const dispense = async () => {
+        const reasonError = ciotDispensaError(motivo, observacao);
+        if (reasonError || !motivo) {
+            setFormError(reasonError);
+            return;
+        }
         setBusy(true);
         setFormError(null);
         try {
-            await manifestsApi.dispenseCiot(manifest.id, motivo.trim());
+            await manifestsApi.dispenseCiot(manifest.id, motivo, observacao.trim() || undefined);
             setDispenseOpen(false);
             setMotivo('');
+            setObservacao('');
             await onUpdated();
         } catch (cause) {
             setFormError(apiErrorMessage(cause, 'Não foi possível dispensar o CIOT.'));
@@ -265,15 +274,31 @@ const CiotEditor: React.FC<{
                             </select>
                         </Field>
                         <Field label="Documento da viagem">{text('documentoViagem')}</Field>
-                        <Field label="Distância percorrida (km)*">{text('distanciaPercorrida', 'number')}</Field>
-                        {override !== 'TAC_AGREGADO' ? <Field label="Início da viagem">{text('dataInicioViagem', 'datetime-local')}</Field> : null}
+                        {selectedType !== 'TAC_AGREGADO' ? <Field label="Distância percorrida (km)*">{text('distanciaPercorrida', 'number')}</Field> : null}
+                        {selectedType !== 'TAC_AGREGADO' ? <Field label="Início da viagem*">{text('dataInicioViagem', 'datetime-local')}</Field> : null}
                         <Field label="Fim da viagem*">{text('dataFimViagem', 'datetime-local')}</Field>
-                        {override !== 'TAC_AGREGADO' ? (
+                        <p className="text-[12px] text-tower-500">{selectedType === 'TAC_AGREGADO' ? 'Até 30 dias da declaração.' : 'Início a partir de agora. Término em até 90 dias do início.'}</p>
+                        {selectedType !== 'TAC_AGREGADO' ? (
                             <>
-                                <Field label="NCM natureza da carga">{text('codigoNcmNaturezaCarga')}</Field>
-                                <Field label="Peso da carga (kg)">{text('pesoCarga', 'number')}</Field>
-                                <Field label="Código do tipo de carga (1-12)">{text('codigoTipoCarga', 'number')}</Field>
+                                <Field label="NCM da natureza da carga (4 dígitos)*">{text('codigoNcmNaturezaCarga')}</Field>
+                                <Field label="Peso da carga (kg)*">{text('pesoCarga', 'number')}</Field>
+                                <Field label="Código do tipo de carga (1-12)*">{text('codigoTipoCarga', 'number')}</Field>
                             </>
+                        ) : null}
+                        {selectedType === 'PADRAO' ? (
+                            <Field label="Tipo de embalagem*">
+                                <select value={form.tipoEmbalagem} onChange={(e) => set('tipoEmbalagem', e.target.value)} className={osFieldClass}>
+                                    <option value="">Selecione a embalagem</option>
+                                    <option value="Bigbag">Big bag</option>
+                                    <option value="Pallet">Pallet</option>
+                                    <option value="Granel">Granel</option>
+                                    <option value="Container">Contêiner</option>
+                                    <option value="Saco">Saco</option>
+                                    <option value="Caixa">Caixa</option>
+                                    <option value="Unitario">Unitário</option>
+                                    <option value="Fardo">Fardo</option>
+                                </select>
+                            </Field>
                         ) : null}
                         <Field label="Tipo de pagamento">
                             <select value={form.tipoPagamento} onChange={(e) => set('tipoPagamento', e.target.value as CiotFormState['tipoPagamento'])} className={osFieldClass}>
@@ -291,47 +316,51 @@ const CiotEditor: React.FC<{
                         <label className="flex min-h-[44px] items-center gap-2 text-[14px] text-tower-700 dark:text-tower-200">
                             <input type="checkbox" checked={form.altoDesempenho} onChange={(e) => set('altoDesempenho', e.target.checked)} className="h-5 w-5" /> Alto desempenho
                         </label>
-                        {override !== 'TAC_AGREGADO' ? (
+                        {selectedType !== 'TAC_AGREGADO' ? (
                             <label className="flex min-h-[44px] items-center gap-2 text-[14px] text-tower-700 dark:text-tower-200">
                                 <input type="checkbox" checked={form.retornoVazio} onChange={(e) => set('retornoVazio', e.target.checked)} className="h-5 w-5" /> Retorno vazio
                             </label>
                         ) : null}
-                        <label className="flex min-h-[44px] items-center gap-2 text-[14px] text-tower-700 dark:text-tower-200">
-                            <input type="checkbox" checked={form.composicaoVeicular} onChange={(e) => set('composicaoVeicular', e.target.checked)} className="h-5 w-5" /> Composição veicular (com carreta)
-                        </label>
+                        <p className="text-[12px] text-tower-500">Composição veicular: {form.composicaoVeicular ? 'cavalo com implemento' : 'veículo simples'}. Calculada pelos veículos atribuídos à viagem.</p>
                     </div>
 
-                    <Legend>Conta real do beneficiário</Legend>
-                    <p className="mb-2 text-[12px] text-tower-500">Confirme os dados de pagamento com o contratado. O CPF/CNPJ não será presumido como chave PIX.</p>
-                    <div className="mb-3 flex gap-5 text-[14px]">
-                        <label className="flex min-h-[44px] items-center gap-2"><input type="radio" checked={form.paymentMethod === 'BANK'} onChange={() => set('paymentMethod', 'BANK')} /> Conta bancária</label>
-                        <label className="flex min-h-[44px] items-center gap-2"><input type="radio" checked={form.paymentMethod === 'PIX'} onChange={() => set('paymentMethod', 'PIX')} /> PIX</label>
-                    </div>
-                    {form.paymentMethod === 'PIX' ? (
-                        <div className="flex flex-col gap-3">
-                            <Field label="Tipo de chave">
-                                <select value={form.pixKeyType} onChange={(e) => set('pixKeyType', e.target.value as CiotFormState['pixKeyType'])} className={osFieldClass}>
-                                    <option value="CpfOuCnpj">CPF/CNPJ</option>
-                                    <option value="Email">E-mail</option>
-                                    <option value="TelefoneCelular">Celular</option>
-                                    <option value="ChaveAleatoria">Chave aleatória</option>
-                                </select>
-                            </Field>
-                            <Field label="Chave PIX confirmada">{text('pixKey')}</Field>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col gap-3">
-                            <Field label="Código do banco">{text('paymentBankCode')}</Field>
-                            <Field label="Agência">{text('paymentAgency')}</Field>
-                            <Field label="Conta">{text('paymentAccount')}</Field>
-                            <Field label="Tipo de conta">
-                                <select value={form.paymentAccountType} onChange={(e) => set('paymentAccountType', e.target.value)} className={osFieldClass}>
-                                    <option value="Corrente">Corrente</option>
-                                    <option value="Poupanca">Poupança</option>
-                                </select>
-                            </Field>
-                        </div>
-                    )}
+                    {form.tipoPagamento !== 'eFRETE' ? (
+                        <>
+                            <Legend>Conta real do beneficiário</Legend>
+                            <p className="mb-2 text-[12px] text-tower-500">Confirme os dados de pagamento com o contratado. O CPF/CNPJ não será presumido como chave PIX.</p>
+                            <div className="mb-3 flex gap-5 text-[14px]">
+                                <label className="flex min-h-[44px] items-center gap-2"><input type="radio" checked={form.paymentMethod === 'BANK'} onChange={() => set('paymentMethod', 'BANK')} /> Conta bancária</label>
+                                <label className="flex min-h-[44px] items-center gap-2"><input type="radio" checked={form.paymentMethod === 'PIX'} onChange={() => set('paymentMethod', 'PIX')} /> PIX</label>
+                            </div>
+                            {form.paymentMethod === 'PIX' ? (
+                                <div className="flex flex-col gap-3">
+                                    <Field label="Tipo de chave">
+                                        <select value={form.pixKeyType} onChange={(e) => set('pixKeyType', e.target.value as CiotFormState['pixKeyType'])} className={osFieldClass}>
+                                            <option value="CpfOuCnpj">CPF/CNPJ</option>
+                                            <option value="Email">E-mail</option>
+                                            <option value="TelefoneCelular">Celular</option>
+                                            <option value="ChaveAleatoria">Chave aleatória</option>
+                                        </select>
+                                    </Field>
+                                    <Field label="Chave PIX confirmada">{text('pixKey')}</Field>
+                                </div>
+                            ) : (
+                                <div className="flex flex-col gap-3">
+                                    <Field label="Código do banco">{text('paymentBankCode')}</Field>
+                                    <Field label="Agência (número-dígito, quando houver)">{text('paymentAgency')}</Field>
+                                    <Field label="Conta (número-dígito)">{text('paymentAccount')}</Field>
+                                    <Field label="Tipo de conta">
+                                        <select value={form.paymentAccountType} onChange={(e) => set('paymentAccountType', e.target.value)} className={osFieldClass}>
+                                            <option value="ContaCorrente">Corrente</option>
+                                            <option value="ContaPoupanca">Poupança</option>
+                                            <option value="ContaPagamento">Pagamento</option>
+                                        </select>
+                                    </Field>
+                                </div>
+                            )}
+
+                        </>
+                    ) : <p className="mt-4 text-[13px] text-tower-600 dark:text-tower-300">Pagamento pela e-Frete. Dados bancários e chave PIX não são necessários.</p>}
 
                     <Legend>Valores (Carta Frete)</Legend>
                     <div className="flex flex-col gap-3">
@@ -339,6 +368,14 @@ const CiotEditor: React.FC<{
                         <Field label="Adiantamento">{text('totalAdiantamento', 'number')}</Field>
                         <Field label="Quitação">{text('totalQuitacao', 'number')}</Field>
                         <Field label="Pedágio">{text('pedagio', 'number')}</Field>
+                        <Field label="Pagamento">
+                            <select value={form.indicadorPagamento} onChange={(e) => set('indicadorPagamento', e.target.value as CiotFormState['indicadorPagamento'])} className={osFieldClass}>
+                                <option value="Avista">À vista</option>
+                                <option value="Aprazo">A prazo</option>
+                            </select>
+                        </Field>
+                        {form.indicadorPagamento === 'Aprazo' ? <Field label="Número da parcela*">{text('numeroParcela', 'number')}</Field> : null}
+                        <p className="text-[12px] text-tower-500">Adiantamento + quitação devem fechar o total. Será registrado um pagamento sem categoria pelo valor total da viagem.</p>
                     </div>
 
                     <Legend>Destinatário</Legend>
@@ -358,25 +395,22 @@ const CiotEditor: React.FC<{
                     footer={
                         <div className="flex flex-col gap-2">
                             {formError ? <div role="alert"><OsErrorNotice message={formError} /></div> : null}
-                            <OsButton full disabled={busy || motivo.trim().length < 10} onClick={() => void dispense()}>{busy ? 'Registrando…' : 'Dispensar CIOT'}</OsButton>
+                            <OsButton full disabled={busy || Boolean(ciotDispensaError(motivo, observacao))} onClick={() => void dispense()}>{busy ? 'Registrando…' : 'Dispensar CIOT'}</OsButton>
                         </div>
                     }
                 >
-                    <Field label="Motivo da dispensa (mín. 10 caracteres)*">
-                        <textarea value={motivo} onChange={(e) => setMotivo(e.target.value)} rows={3} className={`${osFieldClass} h-auto py-3`} />
+                    <Field label="Motivo da dispensa*">
+                        <select value={motivo} onChange={(e) => setMotivo(e.target.value as CiotDispensaReason | '')} className={osFieldClass}>
+                            <option value="">Selecione o motivo</option>
+                            {CIOT_DISPENSA_REASONS.map((reason) => <option key={reason.value} value={reason.value}>{reason.label}</option>)}
+                        </select>
                     </Field>
-                    <div className="mt-3 flex flex-col gap-2">
-                        {REASON_EXAMPLES.map((example) => (
-                            <button
-                                key={example}
-                                type="button"
-                                onClick={() => setMotivo(example)}
-                                className="min-h-[44px] rounded-xl border border-tower-200 px-3 text-left text-[13px] text-tower-700 dark:border-tower-700 dark:text-tower-200"
-                            >
-                                {example}
-                            </button>
-                        ))}
+                    <div className="mt-3">
+                        <Field label={motivo === 'OUTRO_VALIDADO_TORRE' ? 'Validação da torre (mín. 20 caracteres)*' : 'Observação (opcional)'}>
+                            <textarea value={observacao} onChange={(e) => setObservacao(e.target.value)} rows={3} className={`${osFieldClass} h-auto py-3`} />
+                        </Field>
                     </div>
+                    <p className="mt-3 text-[12px] text-tower-500">Ser ETC com motorista empregado, por si só, não dispensa o CIOT.</p>
                 </OsSheet>
             ) : null}
         </div>

@@ -62,6 +62,8 @@ describe('buildCiotPayload', () => {
         assert.equal(payload.CodigoTipoCarga, 2);
         assert.equal(payload.DataInicioViagem, '2026-07-25T08:00:00');
         assert.equal(payload.RetornoVazio, false);
+        assert.equal(payload.AltoDesempenho, false);
+        assert.equal(payload.ComposicaoVeicular, false);
         assert.equal(payload.ContratantesCargaFracionada, undefined);
     });
 
@@ -88,6 +90,9 @@ describe('buildCiotPayload', () => {
         assert.equal(payload.DataInicioViagem, undefined);
         assert.equal(payload.RetornoVazio, undefined);
         assert.equal(payload.Contratante.RNTRC, '987654321');
+        assert.equal(payload.Viagens, undefined);
+        assert.equal(payload.AltoDesempenho, undefined);
+        assert.equal(payload.ComposicaoVeicular, undefined);
     });
 
     it('TAC_Agregado sem RNTRC do Contratante lança erro', () => {
@@ -102,5 +107,60 @@ describe('buildCiotPayload', () => {
     it('Contratante sempre ResponsavelPeloPagamento: true', () => {
         const payload = buildCiotPayload(baseInput());
         assert.equal(payload.Contratante.ResponsavelPeloPagamento, true);
+    });
+
+    it('normaliza todos os números dos endereços e conserva zeros iniciais do CEP sem inventar dígitos', () => {
+        const input = baseInput();
+        input.contratante.endereco.numero = '12-A';
+        input.contratante.endereco.cep = '01310-930';
+        input.requestData.destinatario.endereco.numero = 'S/N';
+        const payload = buildCiotPayload(input);
+        assert.equal(payload.Contratante.Endereco.Numero, '12');
+        assert.equal(payload.Contratante.Endereco.CEP, '01310930');
+        assert.equal(payload.Destinatario?.Endereco.Numero, '0');
+        input.contratante.endereco.cep = '1310930';
+        assert.throws(() => buildCiotPayload(input), /CEP válido com 8 dígitos/);
+        input.contratante.endereco.cep = '01310930';
+        input.requestData.destinatario.endereco.cep = '';
+        assert.throws(() => buildCiotPayload(input), /CEP válido com 8 dígitos/);
+    });
+
+    it('IdentificadorPix é campo separado e os quatro tipos de chave são os documentados', () => {
+        for (const tipoChave of ['CpfOuCnpj', 'Email', 'TelefoneCelular', 'ChaveAleatoria'] as const) {
+            const input = baseInput();
+            input.requestData.pagamentos[0].pix = { tipoChave, valorChave: 'chave', identificadorPix: 'rastreio' };
+            const payment = buildCiotPayload(input).Pagamentos[0];
+            assert.equal(payment.TipoChavePix, tipoChave);
+            assert.equal(payment.IdentificadorPix, 'rastreio');
+        }
+    });
+
+    it('AP81 Documento acompanha cada pagamento usando a referência da carta frete', () => {
+        const input = baseInput();
+        input.requestData.pagamentos.push({ ...input.requestData.pagamentos[0], idPagamentoCliente: 'PAG-2' });
+        const payload = buildCiotPayload(input);
+        assert.equal(payload.Viagens?.DocumentoViagem, 'OS-14573');
+        assert.deepEqual(payload.Pagamentos.map((payment) => payment.Documento), ['OS-14573', 'OS-14573']);
+    });
+
+    it('Fracionado exige contratante adicional distinto, normaliza e deduplica os documentos', () => {
+        const input = baseInput({ tipoViagem: 'Fracionado', contratantesCargaFracionada: ['11.222.333/0001-81'] });
+        assert.throws(() => buildCiotPayload(input), /mínimo de 2 contratantes/);
+        input.contratantesCargaFracionada?.push('12.345.678/0001-99', '12345678000199');
+        assert.deepEqual(buildCiotPayload(input).ContratantesCargaFracionada, ['12345678000199']);
+    });
+
+    it('TipoEmbalagem só é enviado para Padrão e Destinatario não é enviado no TAC Agregado', () => {
+        const input = baseInput({ contratantesCargaFracionada: ['12345678000199'] });
+        input.requestData.tipoEmbalagem = 'Granel';
+        assert.equal(buildCiotPayload(input).TipoEmbalagem, 'Granel');
+        input.tipoViagem = 'Fracionado';
+        assert.equal(buildCiotPayload(input).TipoEmbalagem, undefined);
+        input.tipoViagem = 'TAC_Agregado';
+        input.contratante.rntrc = '123456789';
+        input.requestData.destinatario.endereco.cep = '';
+        const payload = buildCiotPayload(input);
+        assert.equal(payload.TipoEmbalagem, undefined);
+        assert.equal(payload.Destinatario, undefined);
     });
 });

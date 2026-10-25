@@ -125,8 +125,8 @@ export async function cancelarCiot(codigoIdentificacaoOperacao: string, justific
     if (environment !== 'PRODUCAO' && environment !== 'HOMOLOGACAO') throw new Error('Ambiente original do CIOT desconhecido; confira o documento antes de cancelar.');
     await efreteAuthedPost<CancelarEncerrarResponse>('/Services/Pef/CancelarOperacaoTransporte', {
         CodigoIdentificacaoOperacao: codigoIdentificacaoOperacao,
-        Justificativa: justificativa,
-    }, { environment: environment === 'PRODUCAO' ? 'producao' : 'homologacao' });
+        Motivo: justificativa,
+    }, { versao: 1, environment: environment === 'PRODUCAO' ? 'producao' : 'homologacao' });
 }
 
 export async function encerrarCiot(codigoIdentificacaoOperacao: string, environment: string | null): Promise<void> {

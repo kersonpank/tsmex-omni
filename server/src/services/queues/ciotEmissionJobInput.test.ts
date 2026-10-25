@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { afterEach, beforeEach, describe, it } from 'node:test';
 import { buildCiotEmissionInputForJob } from './ciotEmissionJobInput.js';
 
 function createBaseEntities() {
@@ -129,6 +129,51 @@ function makeDeps(jobRecord: any, manifestRecord: any, emitter: any, resolveIbge
 }
 
 describe('buildCiotEmissionInputForJob fiscal emitter resolution and eFrete environment', () => {
+    const originalEnv = { ...process.env };
+    beforeEach(() => {
+        delete process.env.EFRETE_HOMOLOGACAO_INTEGRADOR_CNPJ;
+        delete process.env.EFRETE_INTEGRADOR_CNPJ;
+    });
+    afterEach(() => { process.env = { ...originalEnv }; });
+
+    it('homologação usa documento, razão social e endereço da pessoa do integrador para Contratante e Matriz', async () => {
+        const { jobRecord, manifestRecord, explicitEmitter } = createBaseEntities();
+        process.env.EFRETE_HOMOLOGACAO_INTEGRADOR_CNPJ = '11.222.333/0001-81';
+        const integrator = { ...explicitEmitter.person, document: '11222333000181', legalName: 'Integrador Ltda', address: 'Rua do Integrador', number: 'S/N', cep: '01310-930', city: 'São Paulo', cityIbgeCode: '3550308' };
+        const deps = makeDeps(jobRecord, manifestRecord, explicitEmitter) as any;
+        deps.prisma.person = { findFirst: async (args: any) => {
+            assert.deepEqual(args.where.document.in, ['11222333000181', '11.222.333/0001-81']);
+            return integrator;
+        } };
+        const { mapperInput } = await buildCiotEmissionInputForJob('job-1', deps);
+        assert.equal(mapperInput.matrizCnpj, integrator.document);
+        assert.equal(mapperInput.contratante.cpfOuCnpj, integrator.document);
+        assert.equal(mapperInput.contratante.nomeOuRazaoSocial, integrator.legalName);
+        assert.deepEqual(mapperInput.contratante.endereco, { bairro: 'Centro', cep: '01310930', codigoMunicipio: 3550308, rua: 'Rua do Integrador', numero: '0' });
+    });
+
+    it('sem pessoa do integrador ou CEP completo falha antes da emissão', async () => {
+        const { jobRecord, manifestRecord, explicitEmitter } = createBaseEntities();
+        process.env.EFRETE_HOMOLOGACAO_INTEGRADOR_CNPJ = '11222333000181';
+        await assert.rejects(() => buildCiotEmissionInputForJob('job-1', makeDeps(jobRecord, manifestRecord, explicitEmitter) as any), /Cadastre a pessoa do CNPJ do integrador/);
+        delete process.env.EFRETE_HOMOLOGACAO_INTEGRADOR_CNPJ;
+        explicitEmitter.person.cep = '';
+        await assert.rejects(() => buildCiotEmissionInputForJob('job-1', makeDeps(jobRecord, manifestRecord, explicitEmitter) as any), /Contratante do CIOT.*CEP válido com 8 dígitos/);
+    });
+
+    it('ComposicaoVeicular é derivada das unidades da viagem, ignorando o booleano digitado', async () => {
+        const { jobRecord, manifestRecord, hubDefaultEmitter } = createBaseEntities();
+        manifestRecord.vehicleAssignments = [
+            { slot: 0, vehicleUnit: { role: 'TRACTION', wheelType: 'Cavalo', plate: 'ABC1D23', rntrc: '12345678' } },
+            { slot: 1, vehicleUnit: { role: 'TRAILER', plate: 'DEF4G56' } },
+        ];
+        const deps = makeDeps(jobRecord, manifestRecord, hubDefaultEmitter) as any;
+        assert.equal((await buildCiotEmissionInputForJob('job-1', deps)).mapperInput.requestData.composicaoVeicular, true);
+        manifestRecord.vehicleAssignments[0].vehicleUnit.wheelType = 'Truck';
+        jobRecord.requestData.composicaoVeicular = true;
+        assert.equal((await buildCiotEmissionInputForJob('job-1', deps)).mapperInput.requestData.composicaoVeicular, false);
+    });
+
     it('uses the selected physical origin and the contractor own address as independent municipalities', async () => {
         const { jobRecord, manifestRecord, hubDefaultEmitter } = createBaseEntities();
         Object.assign(manifestRecord, { originCity: 'São Paulo', originState: 'SP', originCityIbgeCode: '3550308' });

@@ -1,7 +1,7 @@
 import type { Driver, Link, Person } from '@prisma/client';
 import { requireSelectedIbge } from '../selectedCity.js';
 import { efreteAuthedPost } from './efreteAuth.js';
-import { digits, splitPhone } from './efreteUtil.js';
+import { digits, normalizeEfreteAddressNumber, normalizeEfreteCep, splitPhone } from './efreteUtil.js';
 import type { EfreteEnvironment } from './efreteConfig.js';
 
 async function buildEndereco(person: Person | null | undefined): Promise<Record<string, unknown>> {
@@ -9,10 +9,10 @@ async function buildEndereco(person: Person | null | undefined): Promise<Record<
     const cMun = await requireSelectedIbge(person.city, person.state, person.cityIbgeCode);
     return {
         Bairro: person.neighborhood || 'Centro',
-        CEP: digits(person.cep).padStart(8, '0').slice(0, 8),
+        CEP: normalizeEfreteCep(person.cep, 'Endereço cadastrado'),
         CodigoMunicipio: Number(cMun),
         Rua: person.address || 'S/N',
-        Numero: person.number || 'S/N',
+        Numero: normalizeEfreteAddressNumber(person.number),
         ...(person.complement ? { Complemento: person.complement } : {}),
     };
 }
@@ -22,7 +22,10 @@ interface EfreteGravarResponse {
     Excecao?: { Mensagem?: string; Codigo?: string };
 }
 
-/** Gravar Motorista — idempotente (existe → atualiza; não existe → cria). Sempre antes de emitir operação. */
+/**
+ * Gravar Motorista — idempotente (existe → atualiza; não existe → cria). Sempre antes de emitir operação.
+ * v8.2 MP08 exige endereço no cadastro; o bloco Motorista da operação (AP99) só leva CPF/CNH/celular.
+ */
 export async function ensureMotoristaRegistrado(driver: Driver & { person: Person | null }, environment: EfreteEnvironment): Promise<void> {
     if (!driver.cnhNumber) throw new Error(`Motorista ${driver.name}: CNH obrigatória para registro na eFrete.`);
     if (!driver.birthDate) throw new Error(`Motorista ${driver.name}: data de nascimento obrigatória para registro na eFrete.`);
@@ -68,10 +71,11 @@ export async function ensureProprietarioRegistrado(proprietario: EfreteProprieta
         {
             CNPJ: digits(proprietario.document), // campo se chama CNPJ no manual, mas aceita CPF (11) ou CNPJ (14)
             Endereco: await buildEndereco(proprietario.person),
+            // TODO: validar em sandbox os 9 dígitos do manual eFrete versus 8 dígitos ANTT/massa de teste.
             RNTRC: digits(proprietario.rntrc).padStart(9, '0').slice(0, 9),
             RazaoSocial: proprietario.name,
         },
-        { versao: 3, environment },
+        { versao: 4, environment },
     );
 }
 
@@ -104,6 +108,7 @@ export async function ensureVeiculoRegistrado(unit: EfreteVeiculoInput, environm
                 Chassi: unit.chassi,
                 NumeroDeEixos: unit.axles,
                 Placa: plate,
+                // TODO: validar em sandbox os 9 dígitos do manual eFrete versus 8 dígitos ANTT/massa de teste.
                 RNTRC: digits(unit.rntrc).padStart(9, '0').slice(0, 9),
                 Renavam: Number(digits(unit.renavam)),
                 TipoCarroceria: unit.bodyType || 'NaoAplicavel',

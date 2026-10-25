@@ -3,8 +3,8 @@ import { resolveManifestComposition, tractionRntrc } from '../vehicleUnitRules.j
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { requireSelectedIbge } from '../selectedCity.js';
-import { resolveMatrizCnpj, type EfreteEnvironment } from '../efrete/efreteConfig.js';
-import { digits, splitPhone } from '../efrete/efreteUtil.js';
+import { resolveCiotContratante, resolveMatrizCnpj, type EfreteEnvironment } from '../efrete/efreteConfig.js';
+import { digits, normalizeEfreteAddressNumber, normalizeEfreteCep, splitPhone } from '../efrete/efreteUtil.js';
 import type { CiotMapperInput, CiotRequestData, CiotTipoViagemApi } from '../efrete/efreteCiotMapper.js';
 
 /** Formato persistido em `CiotEmissionJob.requestData` — Carta Frete + campos que só existem no Fracionado. */
@@ -24,6 +24,7 @@ export interface BuildCiotEmissionInputDeps {
             findUnique: (...args: any[]) => Promise<any>;
             findFirst: (...args: any[]) => Promise<any>;
         };
+        person?: { findFirst: (...args: any[]) => Promise<any> };
     };
     resolveIbgeMunicipio?: typeof requireSelectedIbge;
 }
@@ -84,12 +85,17 @@ export async function buildCiotEmissionInputForJob(
     const environment: EfreteEnvironment = efreteEnv === 'PRODUCAO' ? 'producao' : 'homologacao';
     const contratanteDoc = digits(fiscalEmitter.person.document).padStart(14, '0').slice(0, 14);
     const matrizCnpj = resolveMatrizCnpj(contratanteDoc, environment);
+    const formattedCnpj = matrizCnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+    const integradorPerson = matrizCnpj !== contratanteDoc
+        ? await db.person?.findFirst({ where: { document: { in: [matrizCnpj, formattedCnpj] } } })
+        : null;
+    const contratantePerson = resolveCiotContratante(fiscalEmitter.person, integradorPerson, environment);
 
     const origin = manifest.originCity || manifest.originCityIbgeCode
         ? { city: manifest.originCity, state: manifest.originState, code: manifest.originCityIbgeCode }
         : { city: manifest.hub.city, state: manifest.hub.state, code: manifest.hub.cityIbgeCode };
     const origemMunicipio = await resolveIbge(origin.city, origin.state, origin.code);
-    const contratanteMunicipio = await resolveIbge(fiscalEmitter.person.city, fiscalEmitter.person.state, fiscalEmitter.person.cityIbgeCode);
+    const contratanteMunicipio = await resolveIbge(contratantePerson.city, contratantePerson.state, contratantePerson.cityIbgeCode);
     const stops = [...(manifest.tripStops ?? [])].sort((a: any, b: any) => a.sequence - b.sequence);
     const destination = [...stops].reverse().map((stop: any) => ({
         city: stop.destHub?.city ?? stop.destCity,
@@ -118,25 +124,27 @@ export async function buildCiotEmissionInputForJob(
         idOperacaoCliente: job.idOperacaoCliente,
         matrizCnpj,
         contratante: {
-            nomeOuRazaoSocial: fiscalEmitter.person.legalName,
-            cpfOuCnpj: contratanteDoc,
+            nomeOuRazaoSocial: contratantePerson.legalName,
+            cpfOuCnpj: digits(contratantePerson.document),
             endereco: {
-                bairro: fiscalEmitter.person.neighborhood || 'Centro',
-                cep: digits(fiscalEmitter.person.cep).padStart(8, '0').slice(0, 8),
+                bairro: contratantePerson.neighborhood || 'Centro',
+                cep: normalizeEfreteCep(contratantePerson.cep, 'Contratante do CIOT'),
                 codigoMunicipio: Number(contratanteMunicipio),
-                rua: fiscalEmitter.person.address || 'S/N',
-                numero: fiscalEmitter.person.number || 'S/N',
-                ...(fiscalEmitter.person.complement ? { complemento: fiscalEmitter.person.complement } : {}),
+                rua: contratantePerson.address || 'S/N',
+                numero: normalizeEfreteAddressNumber(contratantePerson.number),
+                ...(contratantePerson.complement ? { complemento: contratantePerson.complement } : {}),
             },
-            ...(tipoViagem === 'TAC_Agregado' ? { rntrc: digits(fiscalEmitter.rntrc ?? '').padStart(9, '0').slice(0, 9) } : {}),
+            // TODO: validar em sandbox os 9 dígitos do manual eFrete versus 8 dígitos ANTT/massa de teste.
+            ...(tipoViagem === 'TAC_Agregado' ? { rntrc: digits(contratantePerson === fiscalEmitter.person ? fiscalEmitter.rntrc : contratantePerson.rntrc).padStart(9, '0').slice(0, 9) } : {}),
         },
+        // TODO: validar em sandbox os 9 dígitos do manual eFrete versus 8 dígitos ANTT/massa de teste.
         contratado: { cpfOuCnpj: linkDoc, rntrc: contratadoRntrc.padStart(9, '0').slice(0, 9) },
         motorista: { cpfOuCnpj: driverDoc, cnh: manifest.driver.cnhNumber, celular: { ddd: driverPhone.ddd, numero: driverPhone.numero } },
         codigoMunicipioOrigem: Number(origemMunicipio),
         codigoMunicipioDestino: Number(destinoMunicipio),
         veiculos,
         ...(tipoViagem === 'Fracionado' ? { contratantesCargaFracionada: requestData.contratantesCargaFracionada ?? [] } : {}),
-        requestData,
+        requestData: { ...requestData, composicaoVeicular: composition.traction?.wheelType === 'Cavalo' && composition.trailers.length > 0 },
     };
 
     return { mapperInput, environment };

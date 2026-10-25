@@ -733,6 +733,9 @@ export interface Manifest {
 export interface ManifestReadinessIssue {
     step: ManifestJourneyStep;
     field?: string;
+    plate?: string;
+    vehicleUnitId?: string;
+    driverId?: string;
     code: string;
     severity: 'blocking' | 'warning';
     message: string;
@@ -1133,7 +1136,7 @@ export interface CiotPagamentoInput {
     cpfCnpjCreditado: string;
     indicadorPagamento: 'Avista' | 'Aprazo';
     numeroParcela?: number;
-    pix?: { tipoChave: 'CpfOuCnpj' | 'Email' | 'TelefoneCelular' | 'ChaveAleatoria' | 'IdentificadorPix'; valorChave: string; identificadorPix?: string };
+    pix?: { tipoChave: 'CpfOuCnpj' | 'Email' | 'TelefoneCelular' | 'ChaveAleatoria'; valorChave: string; identificadorPix?: string };
     informacoesBancarias?: { instituicaoBancaria: string; agencia: string; conta: string; tipoConta: string };
 }
 

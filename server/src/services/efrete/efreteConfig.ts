@@ -1,3 +1,5 @@
+import { digits } from './efreteUtil.js';
+
 export type EfreteEnvironment = 'homologacao' | 'producao';
 
 export function normalizeEfreteEnvironment(env?: string | null): EfreteEnvironment {
@@ -103,10 +105,30 @@ export function resolveMatrizCnpj(fiscalEmitterCnpj: string, env?: EfreteEnviron
         const cnpj =
             process.env.EFRETE_HOMOLOGACAO_INTEGRADOR_CNPJ?.trim() || process.env.EFRETE_INTEGRADOR_CNPJ?.trim();
         if (cnpj) {
-            return cnpj;
+            const normalized = digits(cnpj);
+            if (normalized.length !== 14) throw new Error('CNPJ do integrador eFrete inválido: configure 14 dígitos em EFRETE_HOMOLOGACAO_INTEGRADOR_CNPJ.');
+            return normalized;
         }
     }
     return fiscalEmitterCnpj;
+}
+
+/**
+ * v8.2, §2.5.1: homologação usa o integrador tanto na matriz quanto no contratante.
+ * Troca a pessoa inteira para preservar razão social/endereço do titular do CNPJ de teste.
+ */
+export function resolveCiotContratante<T extends { document: string }>(
+    fiscalEmitterPerson: T,
+    integradorPerson: T | null | undefined,
+    env?: EfreteEnvironment | string,
+): T {
+    const document = digits(fiscalEmitterPerson.document);
+    const cnpj = resolveMatrizCnpj(document, env);
+    if (cnpj === document) return fiscalEmitterPerson;
+    if (!integradorPerson || digits(integradorPerson.document) !== cnpj) {
+        throw new Error('Cadastre a pessoa do CNPJ do integrador eFrete com razão social e endereço completos para o CIOT em homologação.');
+    }
+    return integradorPerson;
 }
 
 export function getEfreteCredentials(env?: EfreteEnvironment | string): { usuario: string; senha: string; integrador: string } {

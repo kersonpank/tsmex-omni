@@ -4,6 +4,7 @@ import {
     getEfreteCredentials,
     isEfreteCredentialsConfigured,
     resolveMatrizCnpj,
+    resolveCiotContratante,
     resolveEfreteConfig,
     resolveEfreteCredentials,
     type EfreteEnvironment,
@@ -132,5 +133,31 @@ describe('efreteConfig credential & context resolver', () => {
 
         // Producao uses fiscal emitter CNPJ
         assert.equal(resolveMatrizCnpj(emitterCnpj, 'producao'), emitterCnpj);
+    });
+
+    it('homologação troca CPF/CNPJ, razão social e endereço pela pessoa canônica do integrador', () => {
+        process.env.EFRETE_HOMOLOGACAO_INTEGRADOR_CNPJ = '99.999.999/0001-99';
+        const emitter = { document: '12345678000100', legalName: 'Emitente', address: 'Rua do emitente' };
+        const integrator = { document: '99999999000199', legalName: 'Integrador', address: 'Rua do integrador' };
+        assert.equal(resolveMatrizCnpj(emitter.document, 'homologacao'), integrator.document);
+        assert.strictEqual(resolveCiotContratante(emitter, integrator, 'homologacao'), integrator);
+        assert.strictEqual(resolveCiotContratante(emitter, integrator, 'producao'), emitter);
+    });
+
+    it('recusa misturar documento do integrador com nome/endereço do emitente', () => {
+        process.env.EFRETE_INTEGRADOR_CNPJ = '99999999000199';
+        const emitter = { document: '12345678000100' };
+        assert.throws(() => resolveCiotContratante(emitter, null, 'homologacao'), /Cadastre a pessoa do CNPJ do integrador/);
+        assert.throws(() => resolveCiotContratante(emitter, emitter, 'homologacao'), /Cadastre a pessoa do CNPJ do integrador/);
+    });
+
+    it('preserva a pessoa quando o integrador é o próprio emitente ou não há override e rejeita CNPJ incompleto', () => {
+        const emitter = { document: '12345678000100' };
+        assert.strictEqual(resolveCiotContratante(emitter, null, 'homologacao'), emitter);
+        process.env.EFRETE_HOMOLOGACAO_INTEGRADOR_CNPJ = emitter.document;
+        assert.strictEqual(resolveCiotContratante(emitter, null, 'homologacao'), emitter);
+        process.env.EFRETE_HOMOLOGACAO_INTEGRADOR_CNPJ = '123';
+        assert.throws(() => resolveMatrizCnpj(emitter.document, 'homologacao'), /14 dígitos/);
+        assert.strictEqual(resolveCiotContratante(emitter, null, 'producao'), emitter);
     });
 });

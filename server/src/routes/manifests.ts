@@ -12,14 +12,16 @@ import { emitMdfeViaAcbr, reconcileMdfeDocument } from '../services/acbr/acbrMdf
 import { getManifestMargin } from '../services/pricingService.js';
 import { upsertFreightAgreement } from '../services/manifestFreightAgreementService.js';
 import { getManifestTripPriceEstimate } from '../services/manifestTripPriceEstimateService.js';
-import { isEfreteCredentialsConfigured } from '../services/efrete/efreteConfig.js';
+import { isEfreteCredentialsConfigured, resolveCiotContratante, resolveMatrizCnpj } from '../services/efrete/efreteConfig.js';
+import { ciotCompositionFlag, emitCiotSchema, validateCiotPersonAddress, validateCiotPreflight } from '../services/efrete/ciotPreflight.js';
+import { splitPhone } from '../services/efrete/efreteUtil.js';
 import { suggestCiotTipoViagem } from '../services/efrete/ciotTipoViagemRule.js';
 import { cancelarCiot } from '../services/efrete/efreteCiotEmit.js';
 import { getObjectDownloadUrl } from '../lib/objectStorage.js';
 import { enqueueCiotEmissionJob } from '../services/queues/ciotEmissionQueue.js';
 import type { StoredCiotRequestData } from '../services/queues/ciotEmissionJobInput.js';
 import { getManifestReadiness } from '../services/manifestReadinessService.js';
-import { dispenseManifestCiot, undoManifestCiotDispensa } from '../services/manifestCiotDispensa.js';
+import { ciotDispensaSchema, dispenseManifestCiot, undoManifestCiotDispensa } from '../services/manifestCiotDispensa.js';
 import { createManifestDraft } from '../services/manifestCreate.js';
 import { manifestVehiclesSchema, setManifestVehicles, publishManifestOffer } from '../services/manifestVehicleService.js';
 import { cancelManifest, deleteEmptyManifest, getPlanningActions, reopenAcceptedManifest, requestManifestCorrection, resolveManifestCorrection } from '../services/manifestPlanningChanges.js';
@@ -125,87 +127,6 @@ const manifestSchema = z
             });
         }
     });
-
-const ciotEnderecoSchema = z.object({
-    bairro: z.string().min(1),
-    cep: z.string().min(8),
-    codigoMunicipio: z.number().int(),
-    rua: z.string().min(1),
-    numero: z.string().min(1),
-    complemento: z.string().optional(),
-});
-
-const ciotPagamentoSchema = z
-    .object({
-        idPagamentoCliente: z.string().min(1),
-        dataLiberacao: z.string().min(1),
-        valor: z.number().nonnegative(),
-        tipoPagamento: z.enum(['TransferenciaBancaria', 'eFRETE', 'DepositoAgendado']),
-        categoria: z.enum(['Adiantamento', 'Estadia', 'Quitacao', 'SemCategoria']),
-        cpfCnpjCreditado: z.string().min(11),
-        indicadorPagamento: z.enum(['Avista', 'Aprazo']),
-        numeroParcela: z.number().int().optional(),
-        pix: z
-            .object({
-                tipoChave: z.enum(['CpfOuCnpj', 'Email', 'TelefoneCelular', 'ChaveAleatoria', 'IdentificadorPix']),
-                valorChave: z.string().min(1),
-                identificadorPix: z.string().optional(),
-            })
-            .optional(),
-        informacoesBancarias: z
-            .object({ instituicaoBancaria: z.string(), agencia: z.string(), conta: z.string(), tipoConta: z.string() })
-            .optional(),
-    })
-    .refine((p) => Boolean(p.pix) !== Boolean(p.informacoesBancarias), {
-        message: 'Pagamento exige ou pix ou informacoesBancarias, nunca os dois nem nenhum.',
-    });
-
-// Espelha CiotRequestData (efreteCiotMapper.ts) — validação na borda antes de persistir em CiotEmissionJob.requestData.
-const ciotRequestDataSchema = z.object({
-    documentoViagem: z.string().min(1),
-    distanciaPercorrida: z.number().positive('Distância percorrida (km) é obrigatória.'),
-    dataInicioViagem: z.string().optional(),
-    dataFimViagem: z.string().min(1),
-    codigoNcmNaturezaCarga: z.string().optional(),
-    pesoCarga: z.number().nonnegative().optional(),
-    codigoTipoCarga: z.number().int().min(1).max(12).optional(),
-    tipoEmbalagem: z.string().optional(),
-    altoDesempenho: z.boolean(),
-    retornoVazio: z.boolean().optional(),
-    composicaoVeicular: z.boolean(),
-    tipoPagamento: z.enum(['TransferenciaBancaria', 'eFRETE', 'DepositoAgendado']),
-    entregaDocumentacao: z.enum(['RedeCredenciada', 'Cliente']),
-    valores: z.object({
-        totalOperacao: z.number().nonnegative(),
-        totalViagem: z.number().nonnegative(),
-        totalAdiantamento: z.number().nonnegative(),
-        totalQuitacao: z.number().nonnegative(),
-        combustivel: z.number().nonnegative().optional(),
-        pedagio: z.number().nonnegative().optional(),
-        seguro: z.number().nonnegative().optional(),
-    }),
-    impostos: z.object({
-        irrf: z.number().nonnegative().optional(),
-        sestSenat: z.number().nonnegative().optional(),
-        inss: z.number().nonnegative().optional(),
-        issqn: z.number().nonnegative().optional(),
-        outrosImpostos: z.number().nonnegative().optional(),
-        descricaoOutrosImpostos: z.string().optional(),
-    }),
-    pagamentos: z.array(ciotPagamentoSchema).min(1, 'Ao menos 1 pagamento é obrigatório.'),
-    destinatario: z.object({
-        nomeOuRazaoSocial: z.string().min(1),
-        cpfOuCnpj: z.string().min(11),
-        endereco: ciotEnderecoSchema,
-        responsavelPeloPagamento: z.boolean().optional(),
-    }),
-});
-
-const emitCiotSchema = z.object({
-    tipoViagemOverride: z.enum(['PADRAO', 'FRACIONADO', 'TAC_AGREGADO']).optional(),
-    contratantesCargaFracionada: z.array(z.string().min(11)).optional(),
-    requestData: ciotRequestDataSchema,
-});
 
 // GET /api/manifests - List manifests
 router.get('/', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -1607,8 +1528,8 @@ router.put('/:id/drivers', authenticate, authorize('ADMIN', 'HUB'), async (req: 
 // POST /api/manifests/:id/ciot-dispensa — decisão fiscal justificada e auditada.
 router.post('/:id/ciot-dispensa', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const { motivo } = z.object({ motivo: z.string().trim().min(10, 'Informe o motivo da dispensa de CIOT com pelo menos 10 caracteres.') }).parse(req.body);
-        const updated = await dispenseManifestCiot(String(req.params.id), req.user!, motivo);
+        const data = ciotDispensaSchema.parse(req.body);
+        const updated = await dispenseManifestCiot(String(req.params.id), req.user!, data);
         res.json({ success: true, data: updated, message: 'Dispensa de CIOT registrada.' });
     } catch (error) {
         if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
@@ -1676,12 +1597,9 @@ router.get('/:id/fiscal-documents/:documentId/pdf', authenticate, authorize('ADM
 router.post('/:id/emit-ciot', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const id = req.params.id as string;
-        if (!isEfreteCredentialsConfigured()) {
-            throw new AppError('CIOT via eFrete requer EFRETE_USUARIO, EFRETE_SENHA e EFRETE_INTEGRADOR.', 503);
-        }
         const body = emitCiotSchema.parse(req.body);
 
-        const manifest = await prisma.manifest.findUnique({ where: { id }, include: { link: { include: linkVehicleInclude }, driver: true, fiscalEmitter: { select: { efreteEnvironment: true } }, vehicleAssignments: manifestVehicleAssignmentsInclude } });
+        const manifest = await prisma.manifest.findUnique({ where: { id }, include: { link: { include: { ...linkVehicleInclude, person: true } }, driver: { include: { person: true } }, fiscalEmitter: { include: { person: true } }, vehicleAssignments: manifestVehicleAssignmentsInclude } });
         if (!manifest) throw new AppError('Manifest not found', 404);
         if (req.user!.roles.includes('HUB') && req.user!.hubId && manifest.hubId !== req.user!.hubId) {
             throw new AppError('Not authorized', 403);
@@ -1692,6 +1610,7 @@ router.post('/:id/emit-ciot', authenticate, authorize('ADMIN', 'HUB'), async (re
         if (!manifest.driverId || !manifest.driver) throw new AppError('Defina o motorista da viagem antes de emitir o CIOT ("Definir Motorista").', 400);
         if (!manifest.link) throw new AppError('Manifesto sem Link (transportador) atribuído.', 400);
         const composition = resolveManifestComposition(manifest);
+        ciotCompositionFlag(composition);
         const contratadoRntrc = tractionRntrc(composition, manifest.link.rntrc);
         if (!contratadoRntrc || !manifest.link.carrierType) throw new AppError('Cadastre o RNTRC do cavalo e o tipo de transportador (TAC/ETC/CTC/FROTA) do Link antes de emitir o CIOT.', 400);
         const unitIssues = compositionIssues(composition);
@@ -1699,10 +1618,14 @@ router.post('/:id/emit-ciot', authenticate, authorize('ADMIN', 'HUB'), async (re
             throw new AppError(`Complete os dados do veículo antes de emitir o CIOT: ${unitIssues.map((i) => `${i.plate ?? 'cavalo'} (${describeUnitIssues(i)})`).join('; ')}.`, 400);
         }
         if (!manifest.driver.cnhNumber || !manifest.driver.birthDate) throw new AppError('Motorista sem CNH/data de nascimento cadastrados.', 400);
-
-        const readiness = await getManifestReadiness(id);
-        if (readiness.issues.some((issue) => issue.step !== 'fiscal' && issue.severity === 'blocking')) {
-            throw new AppError('A viagem ainda possui pendências operacionais para emissão do CIOT.', 400);
+        validateCiotPersonAddress(manifest.driver.person, 'Motorista');
+        if (!splitPhone(manifest.driver.phone)) throw new AppError('Motorista sem celular válido (DDD + número) cadastrado para o CIOT.', 400);
+        // Espelha os proprietários efetivamente cadastrados no worker (retrato RNTRC, com fallback legado).
+        if (composition.traction?.rntrcHolder === undefined) validateCiotPersonAddress(manifest.link.person, 'Proprietário do veículo');
+        const holders = new Map(composition.units.filter((unit) => unit.rntrcHolder).map((unit) => [unit.rntrcHolder!.personId, unit.rntrcHolder!]));
+        for (const holder of holders.values()) {
+            const person = await prisma.person.findUnique({ where: { id: holder.personId } });
+            validateCiotPersonAddress(person, `Responsável RNTRC ${holder.name}`);
         }
 
         const activeDoc = await prisma.manifestFiscalDocument.findFirst({ where: { manifestId: id, documentType: 'CIOT', status: 'AUTHORIZED' } });
@@ -1713,27 +1636,61 @@ router.post('/:id/emit-ciot', authenticate, authorize('ADMIN', 'HUB'), async (re
             throw new AppError('Já existe uma emissão de CIOT em processamento para este manifesto.', 409);
         }
 
-        const recipientAddress = body.requestData.destinatario.endereco;
-        const recipientCity = await prisma.city.findUnique({ where: { ibgeCode: String(recipientAddress.codigoMunicipio) }, include: { state: true } });
-        if (!recipientCity) throw new AppError('Selecione a cidade do destinatário pela busca ou pelo CEP.', 400);
-        await validateSelectedAddress({ cep: recipientAddress.cep, city: recipientCity.name, state: recipientCity.state.code, cityIbgeCode: recipientCity.ibgeCode });
+        const fiscalEmitter = manifest.fiscalEmitterId != null ? manifest.fiscalEmitter : await prisma.fiscalEmitter.findFirst({
+            where: { hubId: manifest.hubId ?? undefined, active: true },
+            orderBy: [{ defaultForHub: 'desc' }, { updatedAt: 'desc' }],
+            include: { person: true },
+        });
+        if (!fiscalEmitter?.person) throw new AppError('Defina um emitente fiscal ativo com pessoa e endereço para o CIOT.', 400);
+        const environment = fiscalEmitter.efreteEnvironment === 'PRODUCAO' ? 'producao' : 'homologacao';
+        if (!isEfreteCredentialsConfigured(environment)) throw new AppError('Configure as credenciais eFrete do ambiente do emitente antes de emitir o CIOT.', 503);
+        const emitterDocument = fiscalEmitter.person.document.replace(/\D/g, '');
+        let contratanteDocument: string;
+        try {
+            contratanteDocument = resolveMatrizCnpj(emitterDocument, environment);
+        } catch (error) {
+            throw new AppError(error instanceof Error ? error.message : 'CNPJ do integrador eFrete inválido.', 400);
+        }
+        const formattedCnpj = contratanteDocument.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+        const integradorPerson = contratanteDocument === emitterDocument ? null : await prisma.person.findFirst({
+            where: { document: { in: [contratanteDocument, formattedCnpj] } },
+        });
+        let contratante;
+        try {
+            contratante = resolveCiotContratante(fiscalEmitter.person, integradorPerson, environment);
+        } catch (error) {
+            throw new AppError(error instanceof Error ? error.message : 'Complete o cadastro do integrador eFrete para homologação.', 400);
+        }
+        validateCiotPersonAddress(contratante, 'Contratante');
 
         const suggestion = await suggestCiotTipoViagem(id);
         const tipoViagem = body.tipoViagemOverride ?? manifest.ciotTipoViagemOverride ?? suggestion.tipoViagem;
-        const contratantesCargaFracionada =
-            tipoViagem === 'FRACIONADO' ? (body.contratantesCargaFracionada ?? suggestion.clientDocuments) : undefined;
-        if (tipoViagem === 'FRACIONADO' && (!contratantesCargaFracionada || contratantesCargaFracionada.length < 1)) {
-            throw new AppError('Fracionado exige ao menos 1 CNPJ em contratantesCargaFracionada.', 400);
+        const { contratantesCargaFracionada, composicaoVeicular } = validateCiotPreflight({
+            tipoViagem,
+            requestData: body.requestData,
+            composition,
+            contratanteDocument,
+            contratantesCargaFracionada: body.contratantesCargaFracionada ?? suggestion.clientDocuments,
+        });
+        if (tipoViagem === 'TAC_AGREGADO' && !(contratanteDocument === emitterDocument ? fiscalEmitter.rntrc : contratante.rntrc)) {
+            throw new AppError('TAC Agregado exige RNTRC do contratante (emitente fiscal ou integrador em homologação).', 400);
         }
-        if (tipoViagem === 'TAC_AGREGADO' && !contratadoRntrc) {
-            throw new AppError('TAC_AGREGADO exige RNTRC do Contratante (FiscalEmitter do Hub).', 400);
+        const readiness = await getManifestReadiness(id);
+        if (readiness.issues.some((issue) => issue.step !== 'fiscal' && issue.severity === 'blocking')) {
+            throw new AppError('A viagem ainda possui pendências operacionais para emissão do CIOT.', 400);
+        }
+        if (tipoViagem !== 'TAC_AGREGADO') {
+            const recipientAddress = body.requestData.destinatario.endereco;
+            const recipientCity = await prisma.city.findUnique({ where: { ibgeCode: String(recipientAddress.codigoMunicipio) }, include: { state: true } });
+            if (!recipientCity) throw new AppError('Selecione a cidade do destinatário pela busca ou pelo CEP.', 400);
+            await validateSelectedAddress({ cep: recipientAddress.cep, city: recipientCity.name, state: recipientCity.state.code, cityIbgeCode: recipientCity.ibgeCode });
         }
 
         if (body.tipoViagemOverride && body.tipoViagemOverride !== manifest.ciotTipoViagemOverride) {
             await prisma.manifest.update({ where: { id }, data: { ciotTipoViagemOverride: body.tipoViagemOverride } });
         }
 
-        const requestData: StoredCiotRequestData = { ...body.requestData, contratantesCargaFracionada };
+        const requestData: StoredCiotRequestData = { ...body.requestData, composicaoVeicular, contratantesCargaFracionada };
 
         let job: { id: string };
         if (existingJob && ['FAILED', 'PENDING_RECONCILIATION'].includes(existingJob.phase)) {
@@ -1750,7 +1707,7 @@ router.post('/:id/emit-ciot', authenticate, authorize('ADMIN', 'HUB'), async (re
                     idOperacaoCliente: `CIOT-${id}-${suffix}`,
                     tipoViagem,
                     requestData: requestData as object,
-                    environment: manifest.fiscalEmitter?.efreteEnvironment ?? 'HOMOLOGACAO',
+                    environment: fiscalEmitter.efreteEnvironment ?? 'HOMOLOGACAO',
                 },
             });
         }

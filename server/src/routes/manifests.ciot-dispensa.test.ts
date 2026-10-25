@@ -7,7 +7,9 @@ import { errorHandler } from '../middleware/errorHandler.js';
 
 const manifestId = '11111111-1111-4111-8111-111111111111';
 const secret = 'isolated-manifest-ciot-dispensa-test';
-const motivo = 'Frota própria — motorista empregado';
+const motivo = 'FROTA_PROPRIA_CARGA_PROPRIA';
+const motivoRegistrado = 'Embarcador com frota própria transportando carga própria (sem contratação de transporte)';
+const motivoLegado = 'Frota própria — motorista empregado';
 const original = {
     user: prisma.user.findUnique,
     manifestAccess: prisma.manifest.findFirst,
@@ -103,24 +105,24 @@ async function request(body: unknown = { motivo }, undo = false, authenticated =
 
 function dispensed() {
     manifest.ciotDispensado = true;
-    manifest.ciotDispensadoMotivo = motivo;
+    manifest.ciotDispensadoMotivo = motivoRegistrado;
 }
 
-it('ADMIN dispensa com motivo normalizado e auditoria da viagem com ator', async () => {
-    const response = await request({ motivo: `  ${motivo}  ` });
+it('ADMIN dispensa com motivo da lista fechada e auditoria da viagem com ator', async () => {
+    const response = await request({ motivo });
     assert.equal(response.status, 200, await response.clone().text());
     const payload = await response.json() as any;
     assert.equal(payload.data.ciotDispensado, true);
-    assert.equal(payload.data.ciotDispensadoMotivo, motivo);
+    assert.equal(payload.data.ciotDispensadoMotivo, motivoRegistrado);
     assert.equal(events.length, 1);
     assert.equal(events[0].actorUserId, actor.id);
     assert.equal(events[0].manifestId, manifestId);
-    assert.equal(events[0].reason, `[CIOT dispensado] ${motivo}`);
+    assert.equal(events[0].reason, `[CIOT dispensado] ${motivoRegistrado}`);
     assert.equal(events[0].kind, 'CIOT_DISPENSA');
     assert.equal(events[0].status, 'APPLIED');
     assert.ok(events[0].resolvedAt instanceof Date);
     assert.deepEqual(events[0].before, { ciotDispensado: false, ciotDispensadoMotivo: null });
-    assert.deepEqual(events[0].after, { ciotDispensado: true, ciotDispensadoMotivo: motivo });
+    assert.deepEqual(events[0].after, { ciotDispensado: true, ciotDispensadoMotivo: motivoRegistrado });
     assert.equal(transactionOptions.isolationLevel, 'Serializable');
 });
 
@@ -164,8 +166,8 @@ it('exige autenticação nas duas rotas', async () => {
     assert.equal((await request({}, true, false)).status, 401);
 });
 
-it('rejeita motivo ausente, inválido ou com menos de 10 caracteres após trim', async () => {
-    for (const body of [{}, { motivo: null }, { motivo: 1234567890 }, { motivo: '' }, { motivo: ' 123456789  ' }, { motivo: '            ' }]) {
+it('rejeita motivo ausente, inválido ou texto livre, inclusive a antiga sugestão de ETC', async () => {
+    for (const body of [{}, { motivo: null }, { motivo: 1234567890 }, { motivo: '' }, { motivo: '1234567890' }, { motivo: motivoLegado }, { motivo: 'Transportador ETC sem subcontratação de TAC' }]) {
         assert.equal((await request(body)).status, 400);
     }
     assert.equal(manifest.ciotDispensado, false);
@@ -173,8 +175,26 @@ it('rejeita motivo ausente, inválido ou com menos de 10 caracteres após trim',
     assert.equal(locked, false);
 });
 
-it('aceita motivo com exatamente 10 caracteres', async () => {
-    assert.equal((await request({ motivo: '1234567890' })).status, 200);
+it('outro motivo exige observação com pelo menos 20 caracteres após trim', async () => {
+    for (const observacao of [undefined, '', '                    ', ' 1234567890123456789 ']) {
+        const response = await request({ motivo: 'OUTRO_VALIDADO_TORRE', observacao });
+        assert.equal(response.status, 400);
+        assert.match((await response.json() as any).error, /pelo menos 20 caracteres/);
+    }
+    assert.equal(events.length, 0);
+    assert.equal(locked, false);
+});
+
+it('outro motivo aceita exatamente 20 caracteres e normaliza a observação', async () => {
+    assert.equal((await request({ motivo: 'OUTRO_VALIDADO_TORRE', observacao: ' 12345678901234567890 ' })).status, 200);
+    assert.equal(manifest.ciotDispensadoMotivo, 'Outro — validado pela torre: 12345678901234567890');
+    assert.equal(events[0].after.ciotDispensadoMotivo, manifest.ciotDispensadoMotivo);
+});
+
+it('frota própria aceita observação opcional, preservando a justificativa no histórico', async () => {
+    assert.equal((await request({ motivo, observacao: '  Carga do embarcador.  ' })).status, 200);
+    assert.equal(manifest.ciotDispensadoMotivo, `${motivoRegistrado}: Carga do embarcador.`);
+    assert.equal(events[0].reason, `[CIOT dispensado] ${manifest.ciotDispensadoMotivo}`);
 });
 
 it('viagem inexistente retorna 404', async () => {
@@ -226,10 +246,11 @@ it('repetir a mesma dispensa não duplica o histórico', async () => {
 
 it('alterar o motivo preserva o anterior na auditoria', async () => {
     dispensed();
-    const novoMotivo = 'Transportador ETC sem subcontratação de TAC';
-    assert.equal((await request({ motivo: novoMotivo })).status, 200);
-    assert.equal(events[0].before.ciotDispensadoMotivo, motivo);
-    assert.equal(events[0].after.ciotDispensadoMotivo, novoMotivo);
+    manifest.ciotDispensadoMotivo = motivoLegado;
+    const observacao = 'Hipótese conferida pela torre responsável.';
+    assert.equal((await request({ motivo: 'OUTRO_VALIDADO_TORRE', observacao })).status, 200);
+    assert.equal(events[0].before.ciotDispensadoMotivo, motivoLegado);
+    assert.equal(events[0].after.ciotDispensadoMotivo, `Outro — validado pela torre: ${observacao}`);
 });
 
 it('desfazer limpa a dispensa e registra ator e motivo original', async () => {
@@ -239,9 +260,18 @@ it('desfazer limpa a dispensa e registra ator e motivo original', async () => {
     assert.equal(manifest.ciotDispensadoMotivo, null);
     assert.equal(events[0].actorUserId, actor.id);
     assert.equal(events[0].kind, 'CIOT_DISPENSA_DESFEITA');
-    assert.equal(events[0].reason, `[CIOT dispensa desfeita] ${motivo}`);
-    assert.deepEqual(events[0].before, { ciotDispensado: true, ciotDispensadoMotivo: motivo });
+    assert.equal(events[0].reason, `[CIOT dispensa desfeita] ${motivoRegistrado}`);
+    assert.deepEqual(events[0].before, { ciotDispensado: true, ciotDispensadoMotivo: motivoRegistrado });
     assert.deepEqual(events[0].after, { ciotDispensado: false, ciotDispensadoMotivo: null });
+});
+
+it('texto legado armazenado pode ser desfeito sem migração e permanece na auditoria', async () => {
+    dispensed();
+    manifest.ciotDispensadoMotivo = motivoLegado;
+    assert.equal((await request({}, true)).status, 200);
+    assert.equal(manifest.ciotDispensadoMotivo, null);
+    assert.equal(events[0].before.ciotDispensadoMotivo, motivoLegado);
+    assert.equal(events[0].reason, `[CIOT dispensa desfeita] ${motivoLegado}`);
 });
 
 it('MDF-e autorizado impede desfazer sem alterar o histórico', async () => {
