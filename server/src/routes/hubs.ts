@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
-import { validateSelectedCity } from '../services/selectedCity.js';
+import { resolveCatalogCity } from '../services/selectedCity.js';
 import { getNextOrderNumber } from '../services/orderSequence.js';
 import { assertHubInvite, signHubInvite } from '../services/hubInvite.js';
 
@@ -525,7 +525,7 @@ router.post('/', authenticate, authorize('ADMIN'), async (req: AuthRequest, res:
         }
 
         if (data.city || data.state || data.cityIbgeCode) {
-            Object.assign(data, await validateSelectedCity(data));
+            Object.assign(data, await resolveCatalogCity(data));
         }
 
         const hub = await prisma.hub.create({
@@ -554,11 +554,15 @@ router.patch('/:id', authenticate, authorize('ADMIN'), async (req: AuthRequest, 
         if (!current) throw new AppError('Hub not found', 404);
 
         if (data.city !== undefined || data.state !== undefined || data.cityIbgeCode !== undefined) {
-            Object.assign(data, await validateSelectedCity({
+            Object.assign(data, await resolveCatalogCity({
                 city: data.city ?? current.city,
                 state: data.state ?? current.state,
-                cityIbgeCode: data.cityIbgeCode,
+                cityIbgeCode: data.cityIbgeCode || null,
             }));
+        } else if (!current.cityIbgeCode) {
+            // Hub antigo sem IBGE: qualquer edição completa a cidade pelo catálogo, sem travar a edição.
+            const filled = await resolveCatalogCity({ city: current.city, state: current.state }).catch(() => null);
+            if (filled) Object.assign(data, filled);
         }
 
         const hub = await prisma.hub.update({

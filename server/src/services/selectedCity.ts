@@ -20,6 +20,25 @@ export async function validateSelectedCity(input: {
     return { city: selected.name, state: selected.state.code, cityIbgeCode: selected.ibgeCode };
 }
 
+/**
+ * Cadastro de hub: o operador escolhe a cidade e o IBGE vem do catálogo. Sem código enviado,
+ * aceita apenas correspondência exata (nome sem acento/caixa + UF) a uma única cidade do
+ * catálogo — o nome dentro da UF identifica o município; nada de aproximação.
+ */
+export async function resolveCatalogCity(input: {
+    city?: string | null; state?: string | null; cityIbgeCode?: string | null;
+}, label = 'Cidade') {
+    if (input.cityIbgeCode || !input.city || !input.state) return validateSelectedCity(input, label);
+    const state = input.state.trim().toUpperCase();
+    const target = normalizeCityName(input.city);
+    const cities = await prisma.city.findMany({ where: { state: { code: state } }, include: { state: true } });
+    const matches = cities.filter((c) => normalizeCityName(c.name) === target);
+    if (matches.length !== 1) {
+        throw new AppError(`${label}: "${input.city}/${state}" não está no catálogo do IBGE. Selecione uma sugestão da busca.`, 400);
+    }
+    return { city: matches[0].name, state: matches[0].state.code, cityIbgeCode: matches[0].ibgeCode };
+}
+
 export async function requireSelectedIbge(city: string | null | undefined, state: string | null | undefined, cityIbgeCode?: string | null): Promise<string> {
     return (await validateSelectedCity({ city, state, cityIbgeCode })).cityIbgeCode;
 }
