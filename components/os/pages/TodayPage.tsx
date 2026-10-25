@@ -74,6 +74,15 @@ const TodayPage: React.FC = () => {
                         onClick={() => navigate('/hubs/cargas')}
                     />
                 ) : null}
+                {capabilities.canCreateTrip ? (
+                    <OsStatTile
+                        label="Montar viagem"
+                        value={summary.stock.withoutActiveTrip}
+                        hint="pedidos em estoque sem viagem"
+                        tone={summary.stock.withoutActiveTrip > 0 ? 'attention' : 'ok'}
+                        onClick={() => navigate('/hubs/cargas?select=1')}
+                    />
+                ) : null}
                 {capabilities.canViewOrders ? (
                     <OsStatTile
                         label="Sem CT-e/minuta"

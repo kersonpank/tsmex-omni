@@ -9,6 +9,7 @@ import type { RowTone } from '../ui/kit';
 export interface BucketMeta {
     bucket: HubCargoBucket;
     label: string;
+    subtitle: string;
     tone: RowTone;
     emptyTitle: string;
     emptyDetail: string;
@@ -18,20 +19,23 @@ export const CARGO_BUCKETS: BucketMeta[] = [
     {
         bucket: 'stock',
         label: 'Estoque',
+        subtitle: 'No hub, pronto para virar viagem',
         tone: 'ok',
         emptyTitle: 'Nenhuma carga em estoque',
         emptyDetail: 'O que for recebido neste hub aparece aqui até embarcar numa viagem.',
     },
     {
         bucket: 'awaiting',
-        label: 'Aguardando',
+        label: 'Aguardando chegada',
+        subtitle: 'NF anunciada ou descoberta na SEFAZ — a carga ainda não chegou. Toque para dar entrada quando chegar.',
         tone: 'attention',
         emptyTitle: 'Nada aguardando entrada',
         emptyDetail: 'Mercadoria anunciada (NF-e descoberta ou coleta a caminho) entra nesta fila.',
     },
     {
         bucket: 'triage',
-        label: 'Triagem',
+        label: 'NF-e para conferir',
+        subtitle: 'Notas descobertas na SEFAZ que o sistema não conseguiu preparar sozinho.',
         tone: 'route',
         emptyTitle: 'Triagem vazia',
         emptyDetail: 'Documentos fiscais descobertos que ainda precisam de decisão.',

@@ -14,6 +14,7 @@ import {
 import { resolveHubCargoCode } from '../services/hubCargo/resolveHubCargoCode.js';
 import { getConsolidationQueues } from '../services/hubCargo/consolidationQueue.js';
 import { consolidateFromQueue } from '../services/hubCargo/consolidateFromQueue.js';
+import { convertHubCargoTriage } from '../services/hubCargo/convertHubCargoTriage.js';
 import { listFreightQueue } from '../services/freight/freightQueries.js';
 import prisma from '../lib/prisma.js';
 
@@ -38,6 +39,9 @@ const listSchema = z.object({
 });
 const resolveSchema = z.object({
     code: z.string().min(1).max(1000),
+    hubId: z.string().uuid().optional(),
+});
+const convertTriageSchema = z.object({
     hubId: z.string().uuid().optional(),
 });
 
@@ -200,6 +204,24 @@ router.post('/resolve', async (req: AuthRequest, res: Response, next: NextFuncti
     } catch (error) {
         if (error instanceof z.ZodError) {
             return next(new AppError(error.errors[0]?.message ?? 'Código inválido.', 400));
+        }
+        next(error);
+    }
+});
+
+router.post('/triage/convert-all', async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const body = convertTriageSchema.parse(req.body ?? {});
+        const hubId = resolveActingHubId(req, body.hubId);
+        const capabilities = hubCargoCapabilities(req.user!.roles, req.user!.permissions);
+        if (!capabilities.canReceive) {
+            throw new AppError('Sem permissão para preparar as NF-e deste Hub.', 403);
+        }
+        const data = await convertHubCargoTriage({ hubId, actingRoles: req.user!.roles });
+        res.json({ success: true, data });
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return next(new AppError(error.errors[0]?.message ?? 'Dados inválidos.', 400));
         }
         next(error);
     }

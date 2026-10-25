@@ -5,6 +5,7 @@ import { hasOperationalPermission } from '../../lib/operationalPermissions.js';
 import { HUB_CARGO_ACTIVE_MANIFEST_STATUSES } from './hubCargoPolicy.js';
 import { intakePartyNames } from '../intake/intakeDemandPolicy.js';
 import { ACTIVE_DOC_STATUSES, freightDocState, type FreightDocState } from '../freight/freightDocRules.js';
+import { getCargoDataFromDistribuicaoDocument } from '../fiscal/nfeDistribuicaoCargoData.js';
 
 export type HubCargoBucket = 'stock' | 'incoming' | 'awaiting' | 'triage' | 'other';
 
@@ -94,6 +95,32 @@ const statusLabels: Record<string, string> = {
 const activeTripWhere: Prisma.OrderLegWhereInput = {
     manifest: { status: { in: HUB_CARGO_ACTIVE_MANIFEST_STATUSES } },
 };
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+    return value && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : undefined;
+}
+
+function fiscalSummaryData(resumoRaw: Prisma.JsonValue, cnpjEmitente: string) {
+    const raw = asRecord(resumoRaw);
+    const resNFe = asRecord(raw?.resNFe);
+    const infNFe = asRecord(asRecord(asRecord(raw?.nfeProc)?.NFe)?.infNFe)
+        ?? asRecord(asRecord(raw?.NFe)?.infNFe);
+    const emit = asRecord(infNFe?.emit) ?? asRecord(raw?.emit) ?? asRecord(raw?.emitente);
+    const senderName = [raw?.emitente_nome_razao_social, raw?.xNome, raw?.xnome, resNFe?.xNome, emit?.xNome]
+        .find((name): name is string => typeof name === 'string' && Boolean(name.trim()));
+    const cnpj = cnpjEmitente.replace(/\D/g, '');
+    const formattedCnpj = cnpj.length === 14
+        ? cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
+        : cnpjEmitente;
+    const value = raw?.valor_nfe;
+    const fiscalValue = typeof value === 'number' || typeof value === 'string' ? Number(value) : NaN;
+    return {
+        senderName: senderName?.trim() || `CNPJ ${formattedCnpj}`,
+        fiscalValueBRL: Number.isFinite(fiscalValue) ? fiscalValue : 0,
+    };
+}
 
 export function hubCargoCapabilities(
     roles: string[],
@@ -497,7 +524,7 @@ export async function listHubCargoItems(
                 statusLabel: statusLabels[doc.status] ?? doc.status,
                 nfKeySuffix: doc.accessKey.slice(-8),
                 invoiceCount: 1,
-                senderName: `CNPJ ${doc.cnpjEmitente}`,
+                ...fiscalSummaryData(doc.resumoRaw, doc.cnpjEmitente),
                 recipientName: null,
                 origin: null,
                 destination: null,
@@ -507,7 +534,6 @@ export async function listHubCargoItems(
                 effectiveWeightKg: 0,
                 volumeM3: 0,
                 units: 0,
-                fiscalValueBRL: 0,
                 activeTrip: null,
                 allowedActions: {
                     view: true,
@@ -629,6 +655,8 @@ export async function getHubCargoFiscalItem(
         },
     });
     if (!doc) return null;
+    const cargo = doc.xmlStorageKey ? await getCargoDataFromDistribuicaoDocument(doc).catch(() => null) : null;
+    const weightKg = cargo?.pesoBruto ?? cargo?.pesoLiquido ?? 0;
     return {
         id: doc.id,
         kind: 'fiscal_document',
@@ -638,17 +666,16 @@ export async function getHubCargoFiscalItem(
         statusLabel: statusLabels[doc.status] ?? doc.status,
         nfKeySuffix: doc.accessKey.slice(-8),
         invoiceCount: 1,
-        senderName: `CNPJ ${doc.cnpjEmitente}`,
-        recipientName: null,
+        ...fiscalSummaryData(doc.resumoRaw, doc.cnpjEmitente),
+        recipientName: cargo?.destinatario.razaoSocial || null,
         origin: null,
         destination: null,
         currentHubName: null,
-        weightKg: 0,
+        weightKg,
         cubedWeightKg: 0,
-        effectiveWeightKg: 0,
+        effectiveWeightKg: weightKg,
         volumeM3: 0,
-        units: 0,
-        fiscalValueBRL: 0,
+        units: cargo?.quantidadeVolumes ?? 0,
         activeTrip: null,
         allowedActions: {
             view: true,

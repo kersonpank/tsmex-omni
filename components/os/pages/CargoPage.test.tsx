@@ -5,19 +5,24 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ConsolidationQueueGroup, HubCargoItem } from '../../../types/index';
 import CargoPage from './CargoPage';
 
-const { hubCargoApi, navigate, osState, sharedSheet } = vi.hoisted(() => ({
-    hubCargoApi: { list: vi.fn(), queues: vi.fn() },
+const { hubCargoApi, navigate, osState, sharedSheet, routeState } = vi.hoisted(() => ({
+    routeState: { search: '' },
+    hubCargoApi: { list: vi.fn(), queues: vi.fn(), convertAllTriage: vi.fn() },
     navigate: vi.fn(),
     osState: {
         hubId: 'hub-origin',
         capabilities: { canViewOrders: true, canReceive: true, canCreateTrip: true },
+        summary: { triage: { documents: 0 } },
         refresh: vi.fn(),
     },
     sharedSheet: vi.fn(),
 }));
 
 vi.mock('../../../lib/api', () => ({ hubCargoApi }));
-vi.mock('react-router-dom', () => ({ useNavigate: () => navigate }));
+vi.mock('react-router-dom', () => ({
+    useNavigate: () => navigate,
+    useSearchParams: () => [new URLSearchParams(routeState.search)],
+}));
 vi.mock('../OsContext', () => ({ useOs: () => osState }));
 vi.mock('../useScanController', () => ({
     useScanController: () => ({ busy: false, message: null, overlays: null, openScanner: vi.fn(), openItem: vi.fn() }),
@@ -76,6 +81,8 @@ describe('CargoPage — montar viagem do estoque', () => {
     beforeEach(() => {
         vi.resetAllMocks();
         osState.capabilities.canCreateTrip = true;
+        osState.summary.triage.documents = 0;
+        routeState.search = '';
         hubCargoApi.list.mockResolvedValue({ data: [STOCK_ORDER] });
         hubCargoApi.queues.mockResolvedValue({ data: [QUEUE] });
     });
@@ -138,5 +145,31 @@ describe('CargoPage — montar viagem do estoque', () => {
         expect(screen.queryByRole('button', { name: 'Selecionar para viagem' })).not.toBeInTheDocument();
         expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
         expect(hubCargoApi.queues).not.toHaveBeenCalled();
+    });
+
+    it('abre já em modo de seleção com ?select=1', async () => {
+        routeState.search = 'select=1';
+        render(<CargoPage />);
+        await screen.findByText('Pedido 1');
+        expect(screen.getByRole('checkbox', { name: 'Selecionar pedido 1' })).toBeInTheDocument();
+    });
+
+    it('esconde a aba de NF-e para conferir quando não há notas', async () => {
+        render(<CargoPage />);
+        await screen.findByText('Pedido 1');
+        expect(screen.queryByRole('button', { name: /NF-e para conferir/ })).not.toBeInTheDocument();
+        expect(screen.getByText('No hub, pronto para virar viagem')).toBeInTheDocument();
+    });
+
+    it('prepara todas as notas da triagem e mostra o resultado', async () => {
+        osState.summary.triage.documents = 2;
+        hubCargoApi.convertAllTriage.mockResolvedValue({ data: { converted: 1, failed: [{ id: 'doc-9', message: 'XML inválido' }] } });
+        const user = userEvent.setup();
+        render(<CargoPage />);
+        await screen.findByText('Pedido 1');
+        await user.click(screen.getByRole('button', { name: /NF-e para conferir/ }));
+        await user.click(screen.getByRole('button', { name: 'Preparar todas' }));
+        expect(hubCargoApi.convertAllTriage).toHaveBeenCalledWith('hub-origin');
+        expect(await screen.findByText(/1 nota preparada\. 1 nota ainda precisa de conferência/)).toBeInTheDocument();
     });
 });

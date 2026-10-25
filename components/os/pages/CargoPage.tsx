@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { hubCargoApi } from '../../../lib/api';
 import type { ConsolidationQueueGroup, HubCargoBucket, HubCargoItem } from '../../../types/index';
 import { useOs } from '../OsContext';
@@ -8,7 +8,9 @@ import { CARGO_BUCKETS, cargoFacts } from '../lib/cargo';
 import { buildStockTripSelection } from '../lib/cargoTripSelection';
 import { looksLikeAccessKey } from '../lib/intake';
 import { useScanController } from '../useScanController';
+import { useLongPress } from '../useLongPress';
 import { OsActionBar, OsBadge, OsButton, OsEmpty, OsErrorNotice, OsRow, OsSectionTitle, OsSkeletonRows } from '../ui/kit';
+import { apiErrorMessage } from '../ui/Sheet';
 import { IconReceive } from '../ui/icons';
 import QueueGroupSheet from './QueueGroupSheet';
 
@@ -20,9 +22,16 @@ import QueueGroupSheet from './QueueGroupSheet';
 
 const PAGE = 30;
 
+const CargoRow: React.FC<React.ComponentProps<typeof OsRow> & { onLongPress?: () => void }> = ({ onLongPress, ...props }) => {
+    const press = useLongPress(() => onLongPress?.(), Boolean(onLongPress));
+    return <OsRow {...props} {...press} />;
+};
+
 const CargoPage: React.FC = () => {
     const navigate = useNavigate();
-    const { hubId, capabilities, refresh } = useOs();
+    const [searchParams] = useSearchParams();
+    const selectRequested = searchParams.get('select') === '1';
+    const { hubId, capabilities, summary, refresh } = useOs();
     const [bucket, setBucket] = useState<HubCargoBucket>('stock');
     const [q, setQ] = useState('');
     const [items, setItems] = useState<HubCargoItem[]>([]);
@@ -34,8 +43,12 @@ const CargoPage: React.FC = () => {
     const [preparing, setPreparing] = useState(false);
     const [tripError, setTripError] = useState<string | null>(null);
     const [tripGroup, setTripGroup] = useState<ConsolidationQueueGroup | null>(null);
+    const [preparingTriage, setPreparingTriage] = useState(false);
+    const [triageError, setTriageError] = useState<string | null>(null);
+    const [triageResult, setTriageResult] = useState<{ converted: number; failed: Array<{ id: string; message: string }> } | null>(null);
     const debounceRef = useRef<number | undefined>(undefined);
     const selectionVersionRef = useRef(0);
+    const triageVersionRef = useRef(0);
 
     const resetSelection = useCallback(() => {
         selectionVersionRef.current += 1;
@@ -48,7 +61,25 @@ const CargoPage: React.FC = () => {
 
     useEffect(() => {
         resetSelection();
-    }, [hubId, resetSelection]);
+        if (selectRequested && capabilities.canCreateTrip) {
+            setBucket('stock');
+            setSelecting(true);
+        }
+    }, [hubId, selectRequested, capabilities.canCreateTrip, resetSelection]);
+
+    useEffect(() => {
+        triageVersionRef.current += 1;
+        setPreparingTriage(false);
+        setTriageError(null);
+        setTriageResult(null);
+        return () => { triageVersionRef.current += 1; };
+    }, [hubId]);
+
+    useEffect(() => {
+        if (bucket === 'triage' && summary.triage.documents === 0) {
+            setBucket(capabilities.canViewOrders ? 'stock' : 'awaiting');
+        }
+    }, [bucket, summary.triage.documents, capabilities.canViewOrders]);
 
     const load = useCallback(
         async (offset = 0) => {
@@ -116,10 +147,32 @@ const CargoPage: React.FC = () => {
         }
     };
 
+    const prepareAllTriage = async () => {
+        if (!hubId || !capabilities.canReceive || preparingTriage) return;
+        const version = triageVersionRef.current;
+        setPreparingTriage(true);
+        setTriageError(null);
+        setTriageResult(null);
+        try {
+            const body = await hubCargoApi.convertAllTriage(hubId);
+            if (version !== triageVersionRef.current) return;
+            setTriageResult(body.data);
+            void load(0);
+            void refresh();
+        } catch (cause) {
+            if (version === triageVersionRef.current) {
+                setTriageError(apiErrorMessage(cause, 'Não foi possível preparar as notas. Tente de novo.'));
+            }
+        } finally {
+            if (version === triageVersionRef.current) setPreparingTriage(false);
+        }
+    };
+
     const meta = CARGO_BUCKETS.find((b) => b.bucket === bucket)!;
-    const visible = capabilities.canViewOrders
-        ? CARGO_BUCKETS
-        : CARGO_BUCKETS.filter((b) => b.bucket !== 'stock');
+    const visible = CARGO_BUCKETS.filter((b) =>
+        b.bucket === 'stock' ? capabilities.canViewOrders
+            : capabilities.canReceive && (b.bucket !== 'triage' || summary.triage.documents > 0),
+    );
 
     return (
         <div className={selecting ? 'pb-28' : 'pb-6'}>
@@ -176,17 +229,21 @@ const CargoPage: React.FC = () => {
                 </p>
             ) : null}
 
-            <div className="mt-3 grid grid-cols-3 rounded-xl border border-tower-200 bg-tower-100/70 p-1 dark:border-tower-700 dark:bg-tower-900">
+            <div
+                className="mt-3 grid rounded-xl border border-tower-200 bg-tower-100/70 p-1 dark:border-tower-700 dark:bg-tower-900"
+                style={{ gridTemplateColumns: `repeat(${Math.max(1, visible.length)}, minmax(0, 1fr))` }}
+            >
                 {visible.map((b) => (
                     <button
                         key={b.bucket}
                         type="button"
+                        aria-pressed={bucket === b.bucket}
                         onClick={() => {
                             if (bucket !== b.bucket) resetSelection();
                             setBucket(b.bucket);
                         }}
                         className={clsx(
-                            'min-h-[40px] rounded-lg text-[13px] font-bold transition-colors',
+                            'min-h-[48px] rounded-lg px-2 text-[13px] font-bold leading-tight transition-colors',
                             bucket === b.bucket
                                 ? 'bg-white text-tower-900 shadow-sm dark:bg-tower-800 dark:text-white'
                                 : 'text-tower-500 dark:text-tower-400',
@@ -196,6 +253,29 @@ const CargoPage: React.FC = () => {
                     </button>
                 ))}
             </div>
+
+            <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
+                <p className="max-w-prose flex-1 text-[13px] text-tower-500 dark:text-tower-300">{meta.subtitle}</p>
+                {bucket === 'triage' && capabilities.canReceive ? (
+                    <OsButton variant="secondary" disabled={preparingTriage || loading} onClick={() => void prepareAllTriage()}>
+                        {preparingTriage ? 'Preparando notas…' : 'Preparar todas'}
+                    </OsButton>
+                ) : null}
+            </div>
+            {triageError ? <div className="mt-3"><OsErrorNotice message={triageError} onRetry={() => void prepareAllTriage()} /></div> : null}
+            {triageResult ? (
+                <div role="status" className="mt-3 rounded-xl border border-tower-200 bg-tower-50 p-3 text-[13px] text-tower-700 dark:border-tower-700 dark:bg-tower-800 dark:text-tower-200">
+                    <p>{triageResult.converted} {triageResult.converted === 1 ? 'nota preparada' : 'notas preparadas'}. {triageResult.failed.length} {triageResult.failed.length === 1 ? 'nota ainda precisa de conferência' : 'notas ainda precisam de conferência'}.</p>
+                    {triageResult.failed.length > 0 ? (
+                        <details className="mt-2">
+                            <summary className="min-h-[44px] cursor-pointer py-2 font-semibold">Ver o que falta conferir</summary>
+                            <ul className="space-y-2">
+                                {triageResult.failed.map((failure) => <li key={failure.id}>Documento {failure.id}: {failure.message}</li>)}
+                            </ul>
+                        </details>
+                    ) : null}
+                </div>
+            ) : null}
 
             {selecting ? (
                 <p className="mt-3 text-[13px] text-tower-500 dark:text-tower-300">
@@ -223,10 +303,15 @@ const CargoPage: React.FC = () => {
                                     ? item.orderId ?? item.id
                                     : null;
                             return (
-                                <OsRow
+                                <CargoRow
                                     key={`${item.kind}-${item.id}`}
                                     tone={meta.tone}
                                     onClick={() => selecting && selectableId ? toggleOrder(selectableId) : void scan.openItem(item)}
+                                    onLongPress={selectableId && capabilities.canCreateTrip && !selecting ? () => {
+                                        setTripError(null);
+                                        setSelecting(true);
+                                        setPicked(new Set([selectableId]));
+                                    } : undefined}
                                     chevron={!selecting || !selectableId}
                                 >
                                     <div className="flex items-center gap-3">
@@ -264,7 +349,7 @@ const CargoPage: React.FC = () => {
                                             </p>
                                         </div>
                                     </div>
-                                </OsRow>
+                                </CargoRow>
                             );
                         })}
                         {items.length < total ? (

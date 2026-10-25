@@ -62,18 +62,23 @@ const ROW_EDGE: Record<RowTone, string> = {
 };
 
 /** Item de fila — etiqueta de doca: borda-esquerda espessa diz o estado antes do texto. */
-export const OsRow: React.FC<{
+export const OsRow: React.FC<React.HTMLAttributes<HTMLDivElement> & {
     tone?: RowTone;
-    onClick?: () => void;
     chevron?: boolean;
     children: React.ReactNode;
-    className?: string;
-}> = ({ tone = 'none', onClick, chevron = Boolean(onClick), children, className }) => (
+}> = ({ tone = 'none', onClick, onKeyDown, chevron = Boolean(onClick), children, className, ...props }) => (
     <div
+        {...props}
         onClick={onClick}
-        role={onClick ? 'button' : undefined}
-        tabIndex={onClick ? 0 : undefined}
-        onKeyDown={onClick ? (e) => (e.key === 'Enter' || e.key === ' ') && onClick() : undefined}
+        role={props.role ?? (onClick ? 'button' : undefined)}
+        tabIndex={props.tabIndex ?? (onClick ? 0 : undefined)}
+        onKeyDown={(e) => {
+            onKeyDown?.(e);
+            if (!e.defaultPrevented && onClick && e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+                e.preventDefault();
+                e.currentTarget.click();
+            }
+        }}
         className={clsx(
             'flex min-h-[64px] items-center gap-3 rounded-r-xl border border-l-4 border-tower-200 bg-white py-3 pl-3 pr-2 dark:border-tower-700/70 dark:bg-tower-900',
             ROW_EDGE[tone],

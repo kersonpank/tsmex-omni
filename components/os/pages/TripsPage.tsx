@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { hubCargoApi, manifestsApi } from '../../../lib/api';
 import type { ConsolidationQueueGroup, Manifest } from '../../../types/index';
 import { useOs } from '../OsContext';
-import { OsBadge, OsEmpty, OsErrorNotice, OsRow, OsSectionTitle, OsSkeletonRows } from '../ui/kit';
+import { OsBadge, OsButton, OsEmpty, OsErrorNotice, OsRow, OsSectionTitle, OsSkeletonRows } from '../ui/kit';
 import QueueGroupSheet from './QueueGroupSheet';
 
 /**
@@ -63,21 +63,23 @@ const TripsPage: React.FC = () => {
 
     return (
         <div className="pb-6">
-            <OsSectionTitle
-                action={
-                    isAdmin ? (
-                        <button
-                            type="button"
-                            onClick={() => navigate('/hubs/cobertura')}
-                            className="text-[13px] font-bold text-brand-600 dark:text-brand-300"
-                        >
-                            Cobertura do hub
-                        </button>
-                    ) : undefined
-                }
-            >
-                Prontos para viajar
-            </OsSectionTitle>
+            <div className="mb-2.5 mt-2 flex flex-wrap items-center justify-between gap-2.5">
+                <h2 className="font-display text-[17px] font-bold text-tower-900 dark:text-white">Prontos para viajar</h2>
+                {capabilities.canCreateTrip ? (
+                    <OsButton onClick={() => navigate('/hubs/cargas?select=1')}>Criar viagem</OsButton>
+                ) : null}
+            </div>
+            {isAdmin ? (
+                <div className="mb-2.5 flex justify-end">
+                    <button
+                        type="button"
+                        onClick={() => navigate('/hubs/cobertura')}
+                        className="min-h-[48px] text-[13px] font-bold text-brand-600 dark:text-brand-300"
+                    >
+                        Cobertura do hub
+                    </button>
+                </div>
+            ) : null}
             {loading ? (
                 <OsSkeletonRows />
             ) : error ? (
