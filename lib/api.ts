@@ -1818,7 +1818,14 @@ export const hubCargoApi = {
     },
 
     /** Monta a viagem a partir da fila; o servidor grava sugerido × final no ConsolidationFeedback. */
-    consolidate: async (body: { groupKey: string; orderIds: string[]; vehicleTypeId: string; hubId?: string }) => {
+    consolidate: async (body: {
+        groupKey: string;
+        orderIds: string[];
+        vehicleTypeId: string;
+        hubId?: string;
+        destHubId?: string;
+        local?: boolean;
+    }) => {
         const response = await api.post<ApiResponse<{
             manifestId: string;
             added: string[];

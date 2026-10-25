@@ -143,7 +143,12 @@ const consolidateSchema = z.object({
     groupKey: z.string().min(1).max(200),
     orderIds: z.array(z.string().uuid()).min(1).max(500),
     vehicleTypeId: z.string().uuid(),
+    destHubId: z.string().uuid().optional(),
+    local: z.literal(true).optional(),
     hubId: z.string().uuid().optional(),
+}).refine((body) => !(body.destHubId && body.local), {
+    message: 'Escolha um hub destino ou entrega local, apenas uma opção.',
+    path: ['destHubId'],
 });
 
 // POST /api/hub/cargo/queues/consolidate — monta a viagem a partir da fila (sugerido × final no feedback).
@@ -161,6 +166,8 @@ router.post('/queues/consolidate', async (req: AuthRequest, res: Response, next:
             groupKey: body.groupKey,
             orderIds: body.orderIds,
             vehicleTypeId: body.vehicleTypeId,
+            destHubId: body.destHubId,
+            local: body.local,
             actor: { userId: req.user!.id, role: req.user!.roles[0], adminId: admin?.id },
         });
         res.status(201).json({ success: true, data });

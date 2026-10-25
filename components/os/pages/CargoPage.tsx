@@ -1,13 +1,16 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
+import { useNavigate } from 'react-router-dom';
 import { hubCargoApi } from '../../../lib/api';
-import type { HubCargoBucket, HubCargoItem } from '../../../types/index';
+import type { ConsolidationQueueGroup, HubCargoBucket, HubCargoItem } from '../../../types/index';
 import { useOs } from '../OsContext';
 import { CARGO_BUCKETS, cargoFacts } from '../lib/cargo';
+import { buildStockTripSelection } from '../lib/cargoTripSelection';
 import { looksLikeAccessKey } from '../lib/intake';
 import { useScanController } from '../useScanController';
-import { OsBadge, OsEmpty, OsErrorNotice, OsRow, OsSectionTitle, OsSkeletonRows } from '../ui/kit';
+import { OsActionBar, OsBadge, OsButton, OsEmpty, OsErrorNotice, OsRow, OsSectionTitle, OsSkeletonRows } from '../ui/kit';
 import { IconReceive } from '../ui/icons';
+import QueueGroupSheet from './QueueGroupSheet';
 
 
 /**
@@ -18,6 +21,7 @@ import { IconReceive } from '../ui/icons';
 const PAGE = 30;
 
 const CargoPage: React.FC = () => {
+    const navigate = useNavigate();
     const { hubId, capabilities, refresh } = useOs();
     const [bucket, setBucket] = useState<HubCargoBucket>('stock');
     const [q, setQ] = useState('');
@@ -25,7 +29,26 @@ const CargoPage: React.FC = () => {
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [selecting, setSelecting] = useState(false);
+    const [picked, setPicked] = useState<Set<string>>(new Set());
+    const [preparing, setPreparing] = useState(false);
+    const [tripError, setTripError] = useState<string | null>(null);
+    const [tripGroup, setTripGroup] = useState<ConsolidationQueueGroup | null>(null);
     const debounceRef = useRef<number | undefined>(undefined);
+    const selectionVersionRef = useRef(0);
+
+    const resetSelection = useCallback(() => {
+        selectionVersionRef.current += 1;
+        setSelecting(false);
+        setPicked(new Set());
+        setPreparing(false);
+        setTripError(null);
+        setTripGroup(null);
+    }, []);
+
+    useEffect(() => {
+        resetSelection();
+    }, [hubId, resetSelection]);
 
     const load = useCallback(
         async (offset = 0) => {
@@ -57,14 +80,62 @@ const CargoPage: React.FC = () => {
         void refresh();
     });
 
+    const toggleOrder = (orderId: string) => {
+        if (preparing) return;
+        setTripError(null);
+        setPicked((prev) => {
+            const next = new Set(prev);
+            if (next.has(orderId)) next.delete(orderId);
+            else next.add(orderId);
+            return next;
+        });
+    };
+
+    const prepareTrip = async () => {
+        if (!hubId || !capabilities.canCreateTrip || preparing || picked.size === 0) return;
+        const version = selectionVersionRef.current;
+        setPreparing(true);
+        setTripError(null);
+        try {
+            const body = await hubCargoApi.queues(hubId);
+            if (version !== selectionVersionRef.current) return;
+            const { group, missingOrderIds } = buildStockTripSelection(Array.isArray(body.data) ? body.data : [], [...picked]);
+            if (missingOrderIds.length > 0) {
+                setTripError(`${missingOrderIds.length} pedido(s) saíram da fila de estoque. Revise a seleção e tente de novo.`);
+                setPicked((prev) => new Set([...prev].filter((id) => !missingOrderIds.includes(id))));
+                void load(0);
+                return;
+            }
+            setTripGroup(group);
+        } catch {
+            if (version === selectionVersionRef.current) {
+                setTripError('Não foi possível preparar a montagem da viagem. Tente de novo.');
+            }
+        } finally {
+            if (version === selectionVersionRef.current) setPreparing(false);
+        }
+    };
+
     const meta = CARGO_BUCKETS.find((b) => b.bucket === bucket)!;
     const visible = capabilities.canViewOrders
         ? CARGO_BUCKETS
         : CARGO_BUCKETS.filter((b) => b.bucket !== 'stock');
 
     return (
-        <div className="pb-6">
-            <OsSectionTitle>Cargas</OsSectionTitle>
+        <div className={selecting ? 'pb-28' : 'pb-6'}>
+            <OsSectionTitle
+                action={bucket === 'stock' && capabilities.canCreateTrip ? (
+                    <button
+                        type="button"
+                        onClick={() => selecting ? resetSelection() : setSelecting(true)}
+                        className="min-h-[40px] text-[13px] font-bold text-brand-600 dark:text-brand-300"
+                    >
+                        {selecting ? 'Cancelar seleção' : 'Selecionar para viagem'}
+                    </button>
+                ) : undefined}
+            >
+                Cargas
+            </OsSectionTitle>
 
             <div className="flex gap-2">
                 <input
@@ -110,7 +181,10 @@ const CargoPage: React.FC = () => {
                     <button
                         key={b.bucket}
                         type="button"
-                        onClick={() => setBucket(b.bucket)}
+                        onClick={() => {
+                            if (bucket !== b.bucket) resetSelection();
+                            setBucket(b.bucket);
+                        }}
                         className={clsx(
                             'min-h-[40px] rounded-lg text-[13px] font-bold transition-colors',
                             bucket === b.bucket
@@ -123,6 +197,17 @@ const CargoPage: React.FC = () => {
                 ))}
             </div>
 
+            {selecting ? (
+                <p className="mt-3 text-[13px] text-tower-500 dark:text-tower-300">
+                    Selecione os pedidos para montar a viagem. Na montagem, pedidos sem CT-e/minuta ficam desmarcados.
+                </p>
+            ) : null}
+            {tripError ? (
+                <div className="mt-3">
+                    <OsErrorNotice message={tripError} />
+                </div>
+            ) : null}
+
             <div className="mt-3">
                 {loading ? (
                     <OsSkeletonRows />
@@ -132,29 +217,56 @@ const CargoPage: React.FC = () => {
                     <OsEmpty title={q ? 'Nada responde por essa busca' : meta.emptyTitle} detail={q ? undefined : meta.emptyDetail} />
                 ) : (
                     <div className="flex flex-col gap-2.5">
-                        {items.map((item) => (
-                            <OsRow key={`${item.kind}-${item.id}`} tone={meta.tone} onClick={() => void scan.openItem(item)}>
-                                <div className="flex items-center justify-between gap-2 pr-1">
-                                    <p className="truncate font-semibold text-tower-900 dark:text-white">
-                                        {item.orderNumber ? `Pedido ${item.orderNumber}` : item.statusLabel}
-                                        {item.nfNumber ? (
-                                            <span className="font-mono text-[13px] font-medium text-tower-500 dark:text-tower-300">
-                                                {' '}
-                                                · NF {item.nfNumber}
-                                            </span>
+                        {items.map((item) => {
+                            const selectableId =
+                                bucket === 'stock' && item.kind === 'order' && item.allowedActions.selectForTrip && !item.activeTrip
+                                    ? item.orderId ?? item.id
+                                    : null;
+                            return (
+                                <OsRow
+                                    key={`${item.kind}-${item.id}`}
+                                    tone={meta.tone}
+                                    onClick={() => selecting && selectableId ? toggleOrder(selectableId) : void scan.openItem(item)}
+                                    chevron={!selecting || !selectableId}
+                                >
+                                    <div className="flex items-center gap-3">
+                                        {selecting && selectableId ? (
+                                            <input
+                                                type="checkbox"
+                                                aria-label={`Selecionar pedido ${item.orderNumber ?? selectableId}`}
+                                                checked={picked.has(selectableId)}
+                                                disabled={preparing}
+                                                onClick={(e) => e.stopPropagation()}
+                                                onKeyDown={(e) => e.stopPropagation()}
+                                                onChange={() => toggleOrder(selectableId)}
+                                                className="h-5 w-5 shrink-0 accent-[#2e3192]"
+                                            />
                                         ) : null}
-                                    </p>
-                                    {item.activeTrip ? (
-                                        <OsBadge tone="route">em viagem</OsBadge>
-                                    ) : item.kind === 'order' && item.freightDocState && !['emitted', 'in_flight'].includes(item.freightDocState) ? (
-                                        <OsBadge tone="warn">sem CT-e</OsBadge>
-                                    ) : null}
-                                </div>
-                                <p className="mt-0.5 truncate text-[13px] text-tower-500 dark:text-tower-400">
-                                    {cargoFacts(item) || item.statusLabel}
-                                </p>
-                            </OsRow>
-                        ))}
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex items-center justify-between gap-2 pr-1">
+                                                <p className="truncate font-semibold text-tower-900 dark:text-white">
+                                                    {item.orderNumber ? `Pedido ${item.orderNumber}` : item.statusLabel}
+                                                    {item.nfNumber ? (
+                                                        <span className="font-mono text-[13px] font-medium text-tower-500 dark:text-tower-300">
+                                                            {' '}
+                                                            · NF {item.nfNumber}
+                                                        </span>
+                                                    ) : null}
+                                                </p>
+                                                {item.activeTrip ? (
+                                                    <OsBadge tone="route">em viagem</OsBadge>
+                                                ) : item.kind === 'order' && item.freightDocState && !['emitted', 'in_flight'].includes(item.freightDocState) ? (
+                                                    <OsBadge tone="warn">sem CT-e</OsBadge>
+                                                ) : null}
+                                            </div>
+                                            <p className="mt-0.5 truncate text-[13px] text-tower-500 dark:text-tower-400">
+                                                {cargoFacts(item) || item.statusLabel}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </OsRow>
+                            );
+                        })}
                         {items.length < total ? (
                             <button
                                 type="button"
@@ -167,6 +279,28 @@ const CargoPage: React.FC = () => {
                     </div>
                 )}
             </div>
+
+            {selecting && capabilities.canCreateTrip ? (
+                <OsActionBar>
+                    <OsButton full disabled={preparing || picked.size === 0} onClick={() => void prepareTrip()}>
+                        {preparing ? 'Preparando montagem…' : `Montar viagem (${picked.size})`}
+                    </OsButton>
+                </OsActionBar>
+            ) : null}
+
+            {tripGroup && hubId ? (
+                <QueueGroupSheet
+                    group={tripGroup}
+                    hubId={hubId}
+                    canCreateTrip={capabilities.canCreateTrip}
+                    onClose={() => setTripGroup(null)}
+                    onCreated={(manifestId) => {
+                        resetSelection();
+                        void refresh();
+                        navigate(`/hubs/viagens/${manifestId}`);
+                    }}
+                />
+            ) : null}
 
             {scan.overlays}
         </div>

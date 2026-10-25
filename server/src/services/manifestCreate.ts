@@ -22,7 +22,42 @@ export interface ManifestDraftInput {
     stops?: { city: string; order: number }[];
 }
 
-export async function createManifestDraft(data: ManifestDraftInput, hubId: string | undefined) {
+interface ManifestDraftOptions {
+    /** Rascunho operacional: o IBGE ausente continua como pendência bloqueante da viagem. */
+    allowIncompleteHubCity?: boolean;
+}
+
+async function selectDraftCity(
+    data: ManifestDraftInput,
+    prefix: 'origin' | 'destination',
+    hubId: string | undefined,
+    allowIncompleteHubCity: boolean,
+) {
+    const cityKey = `${prefix}City` as const;
+    const stateKey = `${prefix}State` as const;
+    const codeKey = `${prefix}CityIbgeCode` as const;
+    if (allowIncompleteHubCity && hubId && !data[cityKey] && !data[stateKey] && !data[codeKey]) {
+        const hub = await prisma.hub.findUnique({
+            where: { id: hubId },
+            select: { city: true, state: true, cityIbgeCode: true },
+        });
+        if (hub && !hub.cityIbgeCode && hub.city && hub.state) {
+            return {
+                [prefix]: `${hub.city}, ${hub.state}`,
+                [cityKey]: hub.city,
+                [stateKey]: hub.state,
+                [codeKey]: null,
+            };
+        }
+    }
+    return selectedManifestCity(data, prefix, hubId);
+}
+
+export async function createManifestDraft(
+    data: ManifestDraftInput,
+    hubId: string | undefined,
+    options: ManifestDraftOptions = {},
+) {
     await validateCreateManifestInput({
         vehicleTypeId: data.vehicleTypeId,
         origin: data.origin,
@@ -33,11 +68,13 @@ export async function createManifestDraft(data: ManifestDraftInput, hubId: strin
         stops: data.stops,
     });
 
-    const originSelection = await selectedManifestCity(data, 'origin', hubId);
-    const destinationSelection = await selectedManifestCity(
+    const allowIncompleteHubCity = options.allowIncompleteHubCity === true;
+    const originSelection = await selectDraftCity(data, 'origin', hubId, allowIncompleteHubCity);
+    const destinationSelection = await selectDraftCity(
         data,
         'destination',
-        data.tripType === 'TRANSFER' ? data.destHubId : undefined,
+        data.tripType === 'TRANSFER' ? data.destHubId : allowIncompleteHubCity && data.tripType === 'DELIVERY' ? hubId : undefined,
+        allowIncompleteHubCity,
     );
     return prisma.manifest.create({
         data: {
