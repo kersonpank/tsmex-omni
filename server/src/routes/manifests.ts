@@ -1,4 +1,5 @@
 import { validateSelectedAddress } from '../services/selectedCity.js';
+import { freightDocState, type FreightDocState } from '../services/freight/freightDocRules.js';
 import { selectedManifestCity } from '../services/manifestSelectedCity.js';
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
@@ -368,6 +369,9 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
                                         value: true,
                                     },
                                 },
+                                freightCalculations: {
+                                    select: { status: true, documentType: true, cteNumber: true, minutaNumber: true },
+                                },
                                 demand: {
                                     include: {
                                         client: {
@@ -386,6 +390,12 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
             throw new AppError('Manifest not found', 404);
         }
 
+        // Estado do documento do frete por pedido (aditivo): a viagem mostra quem ainda não viaja documentado.
+        for (const leg of manifest.legs) {
+            const calcs = leg.order?.freightCalculations ?? [];
+            (leg.order as unknown as { freightDocState?: FreightDocState }).freightDocState = freightDocState(calcs);
+        }
+
         // Check access for links when the active account is not also an operational manager.
         if (req.user!.roles.includes('LINK') && !req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('HUB')) {
             const link = await prisma.link.findFirst({
@@ -402,6 +412,27 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
             success: true,
             data: {
                 ...mapManifestLegsToDemands(manifest),
+                // Pernas enxutas para o O.S. (Carga da viagem): o mapper acima descarta `legs`.
+                legs: manifest.legs.map((leg) => ({
+                    id: leg.id,
+                    orderId: leg.orderId,
+                    legType: leg.legType,
+                    destHubId: leg.destHubId,
+                    stopId: leg.stopId,
+                    completedAt: leg.completedAt,
+                    order: leg.order
+                        ? {
+                              id: leg.order.id,
+                              status: leg.order.status,
+                              nfNumber: leg.order.nfNumber,
+                              freightDocState: (leg.order as unknown as { freightDocState?: FreightDocState }).freightDocState ?? 'none',
+                              freightCalculations: leg.order.freightCalculations,
+                              demand: leg.order.demand
+                                  ? { id: leg.order.demand.id, orderNumber: leg.order.demand.orderNumber, destination: leg.order.demand.destination }
+                                  : null,
+                          }
+                        : null,
+                })),
                 ...marginInfo,
             },
         });

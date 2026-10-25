@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
-import { manifestsApi } from '../../../../lib/api';
-import type { ManifestReadiness } from '../../../../types/index';
+import { useNavigate, useParams } from 'react-router-dom';
+import { manifestsApi, ordersApi } from '../../../../lib/api';
+import type { ManifestReadiness, ResolvedOrderSummary } from '../../../../types/index';
 import { useOs } from '../../OsContext';
 import type { ManifestWithLegs } from '../../lib/arrival';
+import { docBadge, legsWithoutDoc, orderLabel } from '../../lib/readiness';
 import { groupIssues, occupancy, primaryAction, STATUS_LABEL, type TripGroupKey } from '../../lib/trip';
 import { OsActionBar, OsBadge, OsButton, OsEmpty, OsErrorNotice, OsRow, OsSectionTitle, OsSkeletonRows } from '../../ui/kit';
 import OsSheet, { apiErrorMessage, osFieldClass } from '../../ui/Sheet';
@@ -35,6 +36,7 @@ const Bar: React.FC<{ label: string; pct: number | null }> = ({ label, pct }) =>
 const TripPrepPage: React.FC = () => {
     const { manifestId = '' } = useParams<{ manifestId: string }>();
     const { hubId } = useOs();
+    const navigate = useNavigate();
     const [manifest, setManifest] = useState<ManifestWithLegs | null>(null);
     const [readiness, setReadiness] = useState<ManifestReadiness | null>(null);
     const [loading, setLoading] = useState(true);
@@ -43,6 +45,8 @@ const TripPrepPage: React.FC = () => {
     const [startOpen, setStartOpen] = useState(false);
     const [km, setKm] = useState('');
     const [acting, setActing] = useState(false);
+    const [addCode, setAddCode] = useState('');
+    const [candidates, setCandidates] = useState<ResolvedOrderSummary[]>([]);
 
     const load = useCallback(async () => {
         setError(null);
@@ -90,6 +94,42 @@ const TripPrepPage: React.FC = () => {
         }
     };
 
+    const addOrder = (orderId: string) =>
+        run(async () => {
+            await manifestsApi.addDemand(manifest.id, { orderId });
+            setAddCode('');
+            setCandidates([]);
+        }, 'Não foi possível adicionar o pedido.');
+
+    const resolveAndAdd = async () => {
+        const code = addCode.trim();
+        if (!code || acting) return;
+        setActing(true);
+        setError(null);
+        try {
+            const found = await ordersApi.resolve(code, manifest.id);
+            if (found.match === 'single') {
+                await manifestsApi.addDemand(manifest.id, { orderId: found.order.id });
+                setAddCode('');
+                setCandidates([]);
+                await load();
+            } else if (found.match === 'multiple') {
+                setCandidates(found.candidates);
+            } else {
+                setError('Nenhum pedido encontrado para este número ou chave.');
+            }
+        } catch (cause) {
+            setError(apiErrorMessage(cause, 'Não foi possível adicionar o pedido.'));
+        } finally {
+            setActing(false);
+        }
+    };
+
+    const removeOrder = (demandId: string | undefined, label: string) => {
+        if (!demandId || !window.confirm(`Remover ${label} da viagem?`)) return;
+        void run(() => manifestsApi.removeDemand(manifest.id, demandId), 'Não foi possível remover o pedido.');
+    };
+
     const onPrimary = () => {
         if (primary.kind === 'confirm') {
             void run(async () => {
@@ -111,6 +151,8 @@ const TripPrepPage: React.FC = () => {
 
     const legs = manifest.legs ?? [];
     const editable = manifest.status === 'DRAFT';
+    const noDocLegs = legsWithoutDoc(legs);
+    const orderLabels = Object.fromEntries(legs.map((l) => [l.orderId, orderLabel(l.order, l.orderId)]));
 
     return (
         <div className="pb-44">
@@ -149,9 +191,26 @@ const TripPrepPage: React.FC = () => {
                                             {g.blocking.length ? `${g.blocking.length} bloqueio(s)` : 'aviso'}
                                         </OsBadge>
                                     </div>
-                                    <p className="mt-0.5 truncate text-[13px] text-tower-500 dark:text-tower-400">
+                                    <p className="mt-0.5 line-clamp-2 text-[13px] text-tower-500 dark:text-tower-400">
                                         {(g.blocking[0] ?? g.warnings[0]).message}
                                     </p>
+                                    {g.key === 'documents' && noDocLegs.length > 0 ? (
+                                        <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                            {noDocLegs.map((leg) => (
+                                                <button
+                                                    key={leg.orderId}
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        navigate(`/hubs/pedidos/${leg.orderId}`);
+                                                    }}
+                                                    className="min-h-[32px] rounded-md bg-brand-red-500/10 px-2 text-[12px] font-bold text-brand-red-600 dark:text-brand-red-400"
+                                                >
+                                                    {orderLabels[leg.orderId]}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    ) : null}
                                 </OsRow>
                             ))}
                         </div>
@@ -164,22 +223,75 @@ const TripPrepPage: React.FC = () => {
                 <OsEmpty title="Sem pedidos" detail="Monte a viagem a partir da fila em Viagens." />
             ) : (
                 <div className="flex flex-col gap-2">
-                    {legs.map((leg) => (
-                        <div key={leg.id} className="rounded-xl border border-tower-200 bg-white px-3.5 py-2.5 dark:border-tower-700 dark:bg-tower-900">
-                            <p className="truncate text-[14px] font-semibold text-tower-900 dark:text-white">
-                                {leg.order?.demand?.orderNumber ? `Pedido ${leg.order.demand.orderNumber}` : 'Pedido'}
-                                {leg.order?.nfNumber ? <span className="font-mono text-[13px] font-medium text-tower-500"> · NF {leg.order.nfNumber}</span> : null}
-                            </p>
-                            {leg.order?.demand?.destination ? (
-                                <p className="truncate text-[12px] text-tower-500 dark:text-tower-400">{leg.order.demand.destination}</p>
-                            ) : null}
-                        </div>
-                    ))}
+                    {legs.map((leg) => {
+                        const doc = docBadge(leg.order?.freightDocState);
+                        return (
+                            <OsRow key={leg.id} tone={doc.tone === 'ok' ? 'ok' : 'attention'} onClick={() => navigate(`/hubs/pedidos/${leg.orderId}`)}>
+                                <div className="flex items-center justify-between gap-2">
+                                    <p className="truncate text-[14px] font-semibold text-tower-900 dark:text-white">
+                                        {leg.order?.demand?.orderNumber ? `Pedido ${leg.order.demand.orderNumber}` : 'Pedido'}
+                                        {leg.order?.nfNumber ? <span className="font-mono text-[13px] font-medium text-tower-500"> · NF {leg.order.nfNumber}</span> : null}
+                                    </p>
+                                    <OsBadge tone={doc.tone}>{doc.label}</OsBadge>
+                                </div>
+                                {leg.order?.demand?.destination ? (
+                                    <p className="truncate text-[12px] text-tower-500 dark:text-tower-400">{leg.order.demand.destination}</p>
+                                ) : null}
+                                {editable ? (
+                                    <button
+                                        type="button"
+                                        disabled={acting}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            removeOrder(leg.order?.demand?.id, orderLabels[leg.orderId]);
+                                        }}
+                                        className="mt-1 min-h-[36px] text-[13px] font-bold text-brand-red-600 disabled:opacity-50 dark:text-brand-red-400"
+                                    >
+                                        Remover
+                                    </button>
+                                ) : null}
+                            </OsRow>
+                        );
+                    })}
                 </div>
             )}
             <p className="mt-2 text-[12px] text-tower-400">
                 {nf0.format(manifest.totalWeight)} kg · {nf0.format(manifest.totalVolume)} m³
             </p>
+
+            {editable ? (
+                <div className="mt-3">
+                    <label className="block text-[13px] font-bold text-tower-600 dark:text-tower-300">
+                        Adicionar pedido
+                        <div className="mt-1.5 flex gap-2">
+                            <input
+                                value={addCode}
+                                onChange={(e) => setAddCode(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && void resolveAndAdd()}
+                                placeholder="Número do pedido ou chave da NF-e"
+                                inputMode="search"
+                                className={osFieldClass}
+                            />
+                            <OsButton disabled={acting || !addCode.trim()} onClick={() => void resolveAndAdd()}>
+                                Adicionar
+                            </OsButton>
+                        </div>
+                    </label>
+                    {candidates.length > 0 ? (
+                        <div className="mt-2 flex flex-col gap-2">
+                            <p className="text-[12px] text-tower-500">Mais de um pedido encontrado. Toque no correto:</p>
+                            {candidates.map((c) => (
+                                <OsRow key={c.id} onClick={() => void addOrder(c.id)}>
+                                    <p className="truncate text-[14px] font-semibold text-tower-900 dark:text-white">
+                                        {orderLabel({ nfNumber: c.nfNumber, demand: { orderNumber: c.orderNumber } }, c.id)}
+                                    </p>
+                                    {c.destination ? <p className="truncate text-[12px] text-tower-500">{c.destination}</p> : null}
+                                </OsRow>
+                            ))}
+                        </div>
+                    ) : null}
+                </div>
+            ) : null}
 
             <OsActionBar>
                 {primary.hint ? <p className="mb-2 text-center text-[12px] font-semibold text-tower-500 dark:text-tower-300">{primary.hint}</p> : null}
@@ -209,7 +321,7 @@ const TripPrepPage: React.FC = () => {
                     onSaved={closeAndReload}
                 />
             ) : openGroup ? (
-                <TripInfoEditor manifestId={manifest.id} linkId={manifest.linkId} group={openGroup} onClose={() => setOpen(null)} onDone={closeAndReload} />
+                <TripInfoEditor manifestId={manifest.id} linkId={manifest.linkId} group={openGroup} orderLabels={orderLabels} onClose={() => setOpen(null)} onDone={closeAndReload} />
             ) : null}
 
             {startOpen ? (

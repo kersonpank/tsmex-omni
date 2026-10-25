@@ -966,6 +966,8 @@ export interface ConsolidationQueueOrder {
     weightKg: number;
     volumeM3: number;
     valueBRL: number;
+    /** Estado do documento do frete do pedido (CT-e/DC-e/minuta). */
+    freightDocState?: FreightDocState;
     sinceAt: string;
 }
 

@@ -112,3 +112,23 @@ describe('groupOrdersByNextHop', () => {
         assert.equal(groups[0].destHubId, null);
     });
 });
+
+describe('freightDocState na fila', () => {
+    const index = buildCoverageIndex([GRU, IMP], [
+        { hubId: 'imp', cityIbgeCode: ACAILANDIA, priority: 1, leadTimeDays: 2 },
+    ]);
+
+    it('item carrega o estado do documento do frete; ausente vira none', () => {
+        const groups = groupOrdersByNextHop(
+            [
+                order({ id: 'a', fimIbgeCode: ACAILANDIA, freightDocState: 'emitted' }),
+                order({ id: 'b', fimIbgeCode: ACAILANDIA, freightDocState: 'rejected' }),
+                order({ id: 'c', fimIbgeCode: ACAILANDIA }),
+            ],
+            index,
+            'gru',
+        );
+        const byId = Object.fromEntries(groups[0].orders.map((o) => [o.orderId, o.freightDocState]));
+        assert.deepEqual(byId, { a: 'emitted', b: 'rejected', c: 'none' });
+    });
+});

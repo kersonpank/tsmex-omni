@@ -1,5 +1,6 @@
 import prisma from '../../lib/prisma.js';
 import { HUB_CARGO_ACTIVE_MANIFEST_STATUSES } from './hubCargoPolicy.js';
+import { freightDocState, type FreightDocState } from '../freight/freightDocRules.js';
 
 /**
  * Fila de consolidação por próximo salto (G1 — ver kersonpank/ex, TEIA-E-RODA.md).
@@ -99,6 +100,8 @@ export interface QueueOrderInput {
     weightKg: number;
     volumeM3: number;
     valueBRL: number;
+    /** Estado do documento do frete (CT-e/DC-e/minuta). Ausente = sem documento. */
+    freightDocState?: FreightDocState;
 }
 
 export interface QueueOrderItem {
@@ -109,6 +112,7 @@ export interface QueueOrderItem {
     weightKg: number;
     volumeM3: number;
     valueBRL: number;
+    freightDocState: FreightDocState;
     sinceAt: string;
 }
 
@@ -158,6 +162,7 @@ export function groupOrdersByNextHop(
             weightKg: order.weightKg,
             volumeM3: order.volumeM3,
             valueBRL: order.valueBRL,
+            freightDocState: order.freightDocState ?? 'none',
             sinceAt: order.sinceAt.toISOString(),
         });
         group.totalWeightKg += order.weightKg;
@@ -186,6 +191,7 @@ export async function getConsolidationQueues(hubId: string): Promise<Consolidati
                 enteredAtHubAt: true,
                 createdAt: true,
                 nfNumber: true,
+                freightCalculations: { select: { status: true } },
                 demand: {
                     select: { orderNumber: true, destination: true, weight: true, volume: true, nfValue: true },
                 },
@@ -209,6 +215,7 @@ export async function getConsolidationQueues(hubId: string): Promise<Consolidati
         weightKg: o.demand?.weight ?? 0,
         volumeM3: o.demand?.volume ?? 0,
         valueBRL: o.demand?.nfValue ?? 0,
+        freightDocState: freightDocState(o.freightCalculations),
     }));
     return groupOrdersByNextHop(inputs, index, hubId);
 }

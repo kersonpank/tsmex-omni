@@ -5,7 +5,8 @@ import type { HubCargoItem } from '../../../../types/index';
 import { useOs } from '../../OsContext';
 import { useFreightDoc } from '../../useFreightDoc';
 import { buildVolumeLabels, cargoFacts } from '../../lib/cargo';
-import { OsCard, OsErrorNotice, OsRow, OsSectionTitle, OsSkeletonRows } from '../../ui/kit';
+import { orderReadiness } from '../../lib/readiness';
+import { OsBadge, OsCard, OsErrorNotice, OsRow, OsSectionTitle, OsSkeletonRows } from '../../ui/kit';
 import { IconCheck, IconTag } from '../../ui/icons';
 import FreightComposer from './FreightComposer';
 import FreightDocuments from './FreightDocuments';
@@ -52,6 +53,7 @@ const OrderPage: React.FC = () => {
     const labels = item ? buildVolumeLabels(item) : [];
     const s = freight.suggestion;
     const documented = s?.state === 'emitted';
+    const readiness = orderReadiness({ inStock: item ? item.bucket === 'stock' : null, docState: s?.state ?? null });
     const composing = s && (!['emitted', 'in_flight'].includes(s.state) || another);
 
     return (
@@ -70,6 +72,21 @@ const OrderPage: React.FC = () => {
                 {item ? <p className="mt-0.5 text-[13px] text-tower-500 dark:text-tower-400">{cargoFacts(item) || item.statusLabel}</p> : null}
                 {item?.destination ? <p className="text-[13px] text-tower-400">Destino: {item.destination}</p> : null}
             </OsCard>
+
+            {readiness.items.length > 0 ? (
+                <div
+                    className={`mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border-l-4 px-3 py-2.5 ${
+                        readiness.ready ? 'border-emerald-500 bg-emerald-600/8' : 'border-brand-yellow-400 bg-brand-yellow-400/15'
+                    }`}
+                >
+                    <span className="text-[13px] font-bold text-tower-900 dark:text-white">Pronto para viajar?</span>
+                    {readiness.items.map((i) => (
+                        <OsBadge key={i.key} tone={i.ok ? 'ok' : 'warn'}>
+                            {i.ok ? '✓' : '•'} {i.label}
+                        </OsBadge>
+                    ))}
+                </div>
+            ) : null}
 
             <OsSectionTitle>1 · Etiquetas</OsSectionTitle>
             <OsRow tone="none" onClick={item ? () => navigate(`/hubs/etiquetas/${orderId}`, { state: { item } }) : undefined}>

@@ -15,9 +15,11 @@ const TripInfoEditor: React.FC<{
     manifestId: string;
     linkId?: string | null;
     group: TripGroup;
+    /** Rótulo legível por pedido (Pedido N · NF x), para dizer QUAL pedido falta documentar. */
+    orderLabels?: Record<string, string>;
     onClose: () => void;
     onDone: () => void;
-}> = ({ manifestId, linkId, group, onClose, onDone }) => {
+}> = ({ manifestId, linkId, group, orderLabels, onClose, onDone }) => {
     const navigate = useNavigate();
     const [busy, setBusy] = useState(false);
     const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
@@ -78,7 +80,7 @@ const TripInfoEditor: React.FC<{
                     <>
                         {cteOrders.map((orderId) => (
                             <OsButton key={orderId} full variant="secondary" onClick={() => navigate(`/hubs/pedidos/${orderId}`)}>
-                                Emitir CT-e do pedido {orderId.slice(0, 8)}
+                                Emitir CT-e · {orderLabels?.[orderId] ?? `Pedido ${orderId.slice(0, 8)}`}
                             </OsButton>
                         ))}
                         <p className="mt-1 text-[12px] leading-relaxed text-tower-400">
