@@ -19,23 +19,26 @@ import { OsButton } from '../../ui/kit';
 import OsSheet, { apiErrorMessage, osFieldClass } from '../../ui/Sheet';
 
 /**
- * Uma placa (cavalo ou reboque) com o que CIOT e MDF-e exigem. Salva a composição inteira
- * do transportador: a placa editada com todos os campos; as demais só pela placa (o backend
- * só altera o que é enviado). O responsável RNTRC padrão é o próprio transportador.
+ * Uma placa (cavalo ou reboque) com o que CIOT e MDF-e exigem. No cadastro do transportador,
+ * salva a composição padrão. Na viagem, altera somente a unidade escolhida, pelo id.
  */
 
 const UnitEditor: React.FC<{
     registry: CarrierRegistry;
     unit: RegistryUnit | null;
     role: 'TRACTION' | 'TRAILER';
+    mode?: 'composition' | 'unit';
     onClose: () => void;
     onSaved: () => void;
-}> = ({ registry, unit, role, onClose, onSaved }) => {
+}> = ({ registry, unit, role, mode = 'composition', onClose, onSaved }) => {
+    const unitMode = mode === 'unit';
     const [form, setForm] = useState<UnitForm>(() => {
-        const initial = unitToForm(unit, registry.link.document, registry.link.person?.state);
+        const initial = unitToForm(unit, unitMode ? '' : registry.link.document, unitMode ? undefined : registry.link.person?.state);
+        if (unitMode) return { ...initial, mdfeOwnerType: unit?.mdfeOwnerType ?? '' };
         // Placa nova: o responsável ANTT padrão é o transportador, então o RNTRC dele já vem preenchido.
         return initial.rntrc ? initial : { ...initial, rntrc: registry.link.person?.rntrc ?? '' };
     });
+    const [useCarrierHolder, setUseCarrierHolder] = useState(false);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const set = (k: keyof UnitForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -68,7 +71,27 @@ const UnitEditor: React.FC<{
     const errors = unitFormErrors(form, role);
     const traction = registry.units.find((u) => u.role === 'TRACTION') ?? null;
     const trailers = registry.units.filter((u) => u.role === 'TRAILER');
-    const holderName = unit?.rntrcHolder?.name ?? registry.link.name;
+    const holderName = useCarrierHolder ? registry.link.name : unit?.rntrcHolder?.name ?? (unitMode ? 'Responsável ANTT não informado' : registry.link.name);
+
+    const saveUnit = async (edited: VehicleUnitInput) => {
+        if (!unit?.id) {
+            setError('A unidade da viagem não foi encontrada. Reabra o cadastro e tente novamente.');
+            return;
+        }
+        setBusy(true);
+        setError(null);
+        try {
+            const { plate: _plate, ...input } = edited;
+            await vehicleUnitsApi.update(unit.id, {
+                ...input,
+                ...(useCarrierHolder && registry.link.personId ? { rntrcHolderPersonId: registry.link.personId } : {}),
+            });
+            onSaved();
+        } catch (cause) {
+            setError(apiErrorMessage(cause, 'Não foi possível salvar o veículo.'));
+            setBusy(false);
+        }
+    };
 
     const saveComposition = async (next: { traction: VehicleUnitInput; trailers: VehicleUnitInput[] }) => {
         setBusy(true);
@@ -84,6 +107,10 @@ const UnitEditor: React.FC<{
 
     const save = () => {
         const edited = formToUnitInput(form);
+        if (unitMode) {
+            void saveUnit(edited);
+            return;
+        }
         if (role === 'TRACTION') {
             void saveComposition({ traction: edited, trailers: trailers.map((t) => ({ plate: t.plate })) });
             return;
@@ -143,7 +170,7 @@ const UnitEditor: React.FC<{
                     <OsButton full disabled={errors.length > 0 || busy} onClick={save}>
                         {busy ? 'Salvando…' : 'Salvar placa'}
                     </OsButton>
-                    {unit && role === 'TRAILER' ? (
+                    {!unitMode && unit && role === 'TRAILER' ? (
                         <OsButton full variant="ghost" className="mt-1" disabled={busy} onClick={remove}>
                             Tirar este reboque da composição
                         </OsButton>
@@ -173,6 +200,21 @@ const UnitEditor: React.FC<{
 
             <p className="mb-1 mt-5 font-display text-[15px] font-bold text-tower-900 dark:text-white">Responsável na ANTT</p>
             <p className="text-[13px] text-tower-500 dark:text-tower-400">{holderName}</p>
+            {unitMode && !unit?.rntrcHolder && registry.link.personId ? (
+                <label className="mt-3 flex items-start gap-2.5 text-[13px] text-tower-600 dark:text-tower-300">
+                    <input
+                        type="checkbox"
+                        checked={useCarrierHolder}
+                        onChange={(event) => {
+                            const checked = event.target.checked;
+                            setUseCarrierHolder(checked);
+                            setForm((current) => ({ ...current, rntrc: checked ? registry.link.person?.rntrc ?? '' : unit?.rntrcHolder?.rntrc ?? '' }));
+                        }}
+                        className="mt-0.5 h-4 w-4 accent-brand-500"
+                    />
+                    Usar {registry.link.name} como responsável na ANTT
+                </label>
+            ) : null}
             {input('RNTRC (8 dígitos)', 'rntrc', { inputMode: 'numeric' })}
             {select('Vínculo no MDF-e', 'mdfeOwnerType', OWNER_TYPES)}
         </OsSheet>

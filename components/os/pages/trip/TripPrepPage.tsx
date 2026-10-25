@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { manifestsApi, ordersApi } from '../../../../lib/api';
 import type { ManifestReadiness, ResolvedOrderSummary } from '../../../../types/index';
 import { useOs } from '../../OsContext';
 import type { ManifestWithLegs } from '../../lib/arrival';
 import { docBadge, legsWithoutDoc, orderLabel } from '../../lib/readiness';
 import { tripNextStep, type TripNextStepAction } from '../../lib/nextStep';
-import { groupIssues, occupancy, primaryAction, STATUS_LABEL, type TripGroupKey } from '../../lib/trip';
+import { GROUP_TITLES, groupIssues, occupancy, primaryAction, STATUS_LABEL, type TripGroupKey } from '../../lib/trip';
 import { OsActionBar, OsBadge, OsButton, OsEmpty, OsErrorNotice, OsRow, OsSectionTitle, OsSkeletonRows } from '../../ui/kit';
 import OsSheet, { apiErrorMessage, osFieldClass } from '../../ui/Sheet';
 import ResponsibleEditor from './ResponsibleEditor';
@@ -39,6 +39,7 @@ const TripPrepPage: React.FC = () => {
     const { manifestId = '' } = useParams<{ manifestId: string }>();
     const { hubId } = useOs();
     const navigate = useNavigate();
+    const [params, setParams] = useSearchParams();
     const [manifest, setManifest] = useState<ManifestWithLegs | null>(null);
     const [readiness, setReadiness] = useState<ManifestReadiness | null>(null);
     const [loading, setLoading] = useState(true);
@@ -71,15 +72,25 @@ const TripPrepPage: React.FC = () => {
         void load();
     }, [load]);
 
+    useEffect(() => {
+        if (params.get('cadastro') === '1') setOpen('registry');
+    }, [params]);
+
     if (loading) return <OsSkeletonRows count={4} />;
     if (!manifest) return <OsErrorNotice message={error ?? 'Viagem não encontrada.'} onRetry={() => void load()} />;
 
     const groups = groupIssues(readiness?.issues ?? []);
     const primary = primaryAction(manifest.status, readiness);
     const occ = occupancy(manifest.totalWeight, manifest.totalVolume, manifest.vehicleType?.maxWeight, manifest.vehicleType?.maxVolume);
-    const openGroup = groups.find((g) => g.key === open) ?? null;
+    const openGroup = groups.find((g) => g.key === open)
+        ?? (open === 'registry' ? { key: 'registry' as const, title: GROUP_TITLES.registry, blocking: [], warnings: [] } : null);
     const closeAndReload = () => {
         setOpen(null);
+        if (params.has('cadastro')) {
+            const nextParams = new URLSearchParams(params);
+            nextParams.delete('cadastro');
+            setParams(nextParams, { replace: true });
+        }
         void load();
     };
 
@@ -368,7 +379,7 @@ const TripPrepPage: React.FC = () => {
                     onResolve={resolveFromDocuments}
                 />
             ) : openGroup ? (
-                <TripInfoEditor manifestId={manifest.id} linkId={manifest.linkId} group={openGroup} onClose={() => setOpen(null)} />
+                <TripInfoEditor manifestId={manifest.id} group={openGroup} onClose={closeAndReload} onUpdated={load} />
             ) : null}
 
             {startOpen ? (

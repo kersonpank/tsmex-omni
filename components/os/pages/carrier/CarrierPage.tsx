@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { linksApi, manifestsApi } from '../../../../lib/api';
+import type { Manifest, ManifestReadiness } from '../../../../types/index';
 import type { CarrierRegistry, RegistryDriver, RegistryUnit } from '../../lib/carrier';
+import { tripRegistryUnits } from '../../lib/tripRegistry';
 import { OsActionBar, OsBadge, OsButton, OsEmpty, OsErrorNotice, OsRow, OsSectionTitle, OsSkeletonRows } from '../../ui/kit';
 import CarrierInfoEditor from './CarrierInfoEditor';
 import DriverEditor from './DriverEditor';
@@ -10,8 +12,8 @@ import UnitEditor from './UnitEditor';
 /**
  * FICHA DO TRANSPORTADOR — "o que falta para este transportador rodar com CIOT e MDF-e?"
  * Transportador, cada placa e cada motorista, com as pendências calculadas pelo backend
- * (mesmas regras do motor de pendências e da emissão). Aberta a partir da viagem
- * (?viagem=id), reaplica placas e motorista nela ao salvar, se ela ainda está em montagem.
+ * (mesmas regras do motor de pendências e da emissão). A composição padrão do transportador
+ * é independente das placas e dos motoristas escolhidos em cada viagem.
  */
 
 type Editing =
@@ -32,8 +34,24 @@ const CarrierPage: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [editing, setEditing] = useState<Editing>(null);
+    const [trip, setTrip] = useState<Manifest | null>(null);
+    const [readiness, setReadiness] = useState<ManifestReadiness | null>(null);
+    const [tripError, setTripError] = useState(false);
 
     const load = useCallback(async () => {
+        const tripData = tripId
+            ? Promise.all([manifestsApi.getById(tripId), manifestsApi.readiness(tripId)])
+                .then(([manifestBody, readinessBody]) => {
+                    setTrip(manifestBody.data);
+                    setReadiness(readinessBody.data);
+                    setTripError(false);
+                })
+                .catch(() => {
+                    setTrip(null);
+                    setReadiness(null);
+                    setTripError(true);
+                })
+            : Promise.resolve();
         try {
             const body = await linksApi.registry(linkId);
             setRegistry(body.data);
@@ -43,37 +61,18 @@ const CarrierPage: React.FC = () => {
             setError('Não foi possível carregar o transportador.');
             return null;
         } finally {
+            await tripData;
             setLoading(false);
         }
-    }, [linkId]);
+    }, [linkId, tripId]);
 
     useEffect(() => {
         void load();
     }, [load]);
 
-    /** Leva placas (e o motorista recém-cadastrado) para a viagem de origem, se ainda em montagem. */
-    const syncTrip = async (fresh: CarrierRegistry | null, driverId?: string) => {
-        if (!tripId || !fresh) return;
-        const traction = fresh.units.find((u) => u.role === 'TRACTION');
-        try {
-            const trip = (await manifestsApi.getById(tripId)).data;
-            if (!trip || trip.status !== 'DRAFT' || trip.linkId !== fresh.link.id) return;
-            if (driverId && !trip.driverId) await manifestsApi.setResponsible(tripId, fresh.link.id, driverId);
-            if (traction) {
-                await manifestsApi.setVehicles(tripId, {
-                    traction: { plate: traction.plate },
-                    trailers: fresh.units.filter((u) => u.role === 'TRAILER').map((u) => ({ plate: u.plate })),
-                });
-            }
-        } catch {
-            // Viagem já confirmada: a composição dela só muda reabrindo o planejamento.
-        }
-    };
-
-    const afterSave = async (driverId?: string) => {
+    const afterSave = async () => {
         setEditing(null);
-        const fresh = await load();
-        await syncTrip(fresh, driverId);
+        await load();
     };
 
     if (loading) return <OsSkeletonRows count={4} />;
@@ -81,6 +80,7 @@ const CarrierPage: React.FC = () => {
 
     const traction = registry.units.find((u) => u.role === 'TRACTION') ?? null;
     const trailers = registry.units.filter((u) => u.role === 'TRAILER');
+    const tripTraction = trip ? tripRegistryUnits(trip, readiness?.issues ?? []).find((unit) => unit.slot === 0) : null;
     const total =
         registry.carrierIssues.length +
         registry.units.reduce((n, u) => n + u.issues.length, 0) +
@@ -90,11 +90,24 @@ const CarrierPage: React.FC = () => {
     return (
         <div className="pb-36">
             <div className="mb-2 rounded-xl bg-brand-500 p-4 text-white dark:bg-brand-600">
+                <p className="mb-1 text-[12px] font-semibold text-brand-100">Cadastro do transportador (composição padrão)</p>
                 <p className="font-display text-[17px] font-bold">{registry.link.name}</p>
                 <p className="text-[13px] text-brand-100">
-                    {registry.link.document} · {total === 0 ? 'pronto para CIOT e MDF-e' : `${total} pendência(s) para CIOT/MDF-e`}
+                    {registry.link.document} · {total === 0 ? 'cadastro padrão completo' : `${total} pendência(s) no cadastro padrão`}
                 </p>
             </div>
+            {tripId ? (
+                <div className="mb-3 rounded-xl bg-tower-100 p-3 text-[13px] text-tower-600 dark:bg-tower-800 dark:text-tower-300">
+                    <p>
+                        {tripTraction
+                            ? `Nesta viagem: cavalo ${tripTraction.plate} — ${tripTraction.issues.length ? 'dados incompletos' : 'cadastro completo'}`
+                            : tripError ? 'Não foi possível conferir o cadastro desta viagem.' : 'Nesta viagem: cavalo ainda não definido.'}
+                    </p>
+                    <button type="button" className="mt-1.5 font-bold text-brand-600 underline underline-offset-2 dark:text-brand-300" onClick={() => navigate(`/hubs/viagens/${tripId}?cadastro=1`)}>
+                        Ver cadastro desta viagem
+                    </button>
+                </div>
+            ) : null}
             {!registry.canEdit ? (
                 <p className="mb-2 rounded-lg bg-tower-100 p-3 text-[13px] text-tower-600 dark:bg-tower-800 dark:text-tower-300">
                     Cadastrado por outro hub: somente leitura. Use-o numa viagem deste hub para poder completar.
@@ -102,7 +115,7 @@ const CarrierPage: React.FC = () => {
             ) : null}
             {error ? <OsErrorNotice message={error} /> : null}
 
-            <OsSectionTitle>Transportador</OsSectionTitle>
+            <OsSectionTitle>Dados do transportador</OsSectionTitle>
             <OsRow tone={registry.carrierIssues.length ? 'bad' : 'ok'} onClick={() => edit({ kind: 'carrier' })}>
                 <div className="flex items-center justify-between gap-2 pr-1">
                     <p className="truncate font-semibold text-tower-900 dark:text-white">Dados e endereço</p>
@@ -113,7 +126,7 @@ const CarrierPage: React.FC = () => {
                 </p>
             </OsRow>
 
-            <OsSectionTitle>Veículo</OsSectionTitle>
+            <OsSectionTitle>Veículos da composição padrão</OsSectionTitle>
             <div className="flex flex-col gap-2.5">
                 {registry.units.map((u) => (
                     <OsRow key={u.plate} tone={u.issues.length ? 'bad' : 'ok'} onClick={() => edit({ kind: 'unit', role: u.role, unit: u })}>
@@ -138,7 +151,7 @@ const CarrierPage: React.FC = () => {
                 ) : null}
             </div>
 
-            <OsSectionTitle>Motoristas</OsSectionTitle>
+            <OsSectionTitle>Motoristas do transportador</OsSectionTitle>
             <div className="flex flex-col gap-2.5">
                 {registry.drivers.length === 0 ? <OsEmpty title="Nenhum motorista" detail="Cadastre quem vai dirigir — obrigatório para CIOT e MDF-e." /> : null}
                 {registry.drivers.map((d) => (
@@ -174,7 +187,7 @@ const CarrierPage: React.FC = () => {
                     linkId={registry.link.id}
                     driver={editing.driver}
                     onClose={() => setEditing(null)}
-                    onSaved={(driverId) => void afterSave(editing.driver ? undefined : driverId)}
+                    onSaved={() => void afterSave()}
                 />
             ) : null}
         </div>

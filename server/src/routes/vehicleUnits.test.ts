@@ -220,6 +220,76 @@ describe('Vehicle units API', () => {
         assert.deepEqual(res.body.data.missingFields, []);
     });
 
+    it('PATCH completa a unidade da viagem sem trocar a composição padrão do transportador', async () => {
+        const standard = await call('PUT', '/api/links/link-1/composition', 'admin-1', {
+            traction: { plate: 'GHN1C91', ...FULL },
+            trailers: [{ plate: 'REB1A11' }],
+        });
+        assert.equal(standard.status, 200);
+        const standardComposition = structuredClone(links['link-1']);
+        const tripUnit = await call('POST', '/api/vehicle-units', 'hub-1', { role: 'TRACTION', plate: 'NXP0710' });
+        const id = tripUnit.body.data.id;
+
+        const saved = await call('PATCH', `/api/vehicle-units/${id}`, 'hub-1', {
+            ...FULL,
+            chassi: '9bwzzz377vt004999',
+            renavam: '123.456.789-01',
+            axles: 2,
+            plate: 'GHN1C91',
+            role: 'TRAILER',
+        });
+
+        assert.equal(saved.status, 200, JSON.stringify(saved.body));
+        assert.equal(saved.body.data.id, id);
+        assert.equal(saved.body.data.plate, 'NXP0710');
+        assert.equal(saved.body.data.role, 'TRACTION');
+        assert.equal(saved.body.data.chassi, '9BWZZZ377VT004999');
+        assert.equal(saved.body.data.renavam, FULL.renavam);
+        assert.equal(saved.body.data.axles, 2);
+        assert.deepEqual(saved.body.data.missingFields, []);
+        assert.deepEqual(links['link-1'], standardComposition);
+        assert.equal(units.find((unit) => unit.plate === 'GHN1C91')!.chassi, FULL.chassi);
+    });
+
+    it('PATCH aplica a mesma validação da composição e não grava campos inválidos', async () => {
+        const created = await call('POST', '/api/vehicle-units', 'admin-1', { role: 'TRAILER', plate: 'REB1A11', ...FULL });
+        const id = created.body.data.id;
+        for (const input of [{ chassi: 'CURTO' }, { renavam: '123' }, { axles: 0 }, { axles: 1.5 }, { rntrc: '123' }]) {
+            const patch = await call('PATCH', `/api/vehicle-units/${id}`, 'hub-1', input);
+            const composition = await call('PUT', '/api/links/link-1/composition', 'hub-1', {
+                traction: { plate: 'ABC1D23', ...input },
+                trailers: [],
+            });
+            assert.equal(patch.status, 400, JSON.stringify(input));
+            assert.equal(composition.status, 400, JSON.stringify(input));
+            assert.equal(patch.body.error, composition.body.error);
+        }
+        const unit = await call('GET', `/api/vehicle-units/${id}`, 'hub-1');
+        assert.equal(unit.body.data.chassi, FULL.chassi);
+        assert.equal(unit.body.data.renavam, FULL.renavam);
+        assert.equal(unit.body.data.axles, FULL.axles);
+        assert.deepEqual(unit.body.data.missingFields, []);
+    });
+
+    it('PATCH preserva campos omitidos, permite limpar um campo e devolve suas pendências', async () => {
+        const created = await call('POST', '/api/vehicle-units', 'admin-1', { role: 'TRACTION', plate: 'NXP0710', ...FULL });
+        const saved = await call('PATCH', `/api/vehicle-units/${created.body.data.id}`, 'admin-1', { chassi: null });
+        assert.equal(saved.status, 200);
+        assert.equal(saved.body.data.chassi, null);
+        assert.equal(saved.body.data.renavam, FULL.renavam);
+        assert.equal(saved.body.data.axles, FULL.axles);
+        assert.deepEqual(saved.body.data.missingFields.map((field: any) => field.field), ['chassi']);
+    });
+
+    it('PATCH bloqueia LINK e retorna 404 para unidade inexistente', async () => {
+        const created = await call('POST', '/api/vehicle-units', 'admin-1', { role: 'TRACTION', plate: 'NXP0710' });
+        const forbidden = await call('PATCH', `/api/vehicle-units/${created.body.data.id}`, 'link-user', { axles: 2 });
+        assert.equal(forbidden.status, 403);
+        assert.equal(units[0].axles, null);
+        const missing = await call('PATCH', '/api/vehicle-units/not-found', 'hub-1', { axles: 2 });
+        assert.equal(missing.status, 404);
+    });
+
     it('PUT composition: cria cavalo + reboques, liga o Link e espelha as colunas legadas', async () => {
         const res = await call('PUT', '/api/links/link-1/composition', 'hub-1', {
             traction: { plate: 'abc-1d23', ...FULL },

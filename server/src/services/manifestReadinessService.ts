@@ -20,6 +20,9 @@ export type ManifestStepState = 'complete' | 'current' | 'attention' | 'locked' 
 export interface ManifestReadinessIssue {
     step: ManifestJourneyStep;
     field?: string;
+    plate?: string;
+    vehicleUnitId?: string;
+    driverId?: string;
     code: string;
     severity: 'blocking' | 'warning';
     message: string;
@@ -51,16 +54,17 @@ function issue(
     message: string,
     field?: string,
     severity: 'blocking' | 'warning' = 'blocking',
+    subject: Pick<ManifestReadinessIssue, 'plate' | 'vehicleUnitId' | 'driverId'> = {},
 ): ManifestReadinessIssue {
-    return { step, code, message, field, severity };
+    return { step, code, message, field, severity, ...subject };
 }
 
 const TRACTION_FIELD_ISSUES: Record<VehicleUnitField, { code: string; message: string; field: string }> = {
-    plate: { code: 'VEHICLE_PLATE_PENDING', message: 'Placa do cavalo obrigatória para emissão do CIOT.', field: 'vehiclePlate' },
-    chassi: { code: 'VEHICLE_CHASSI_PENDING', message: 'Chassi do veículo obrigatório para emissão do CIOT.', field: 'vehicleChassi' },
-    axles: { code: 'VEHICLE_AXLES_PENDING', message: 'Número de eixos obrigatório para cálculo de piso ANTT.', field: 'vehicleAxles' },
-    rntrc: { code: 'VEHICLE_RNTRC_PENDING', message: 'Defina o responsável RNTRC do cavalo e o RNTRC dele — obrigatório para CIOT e MDF-e.', field: 'rntrc' },
-    renavam: { code: 'VEHICLE_RENAVAM_PENDING', message: 'RENAVAM do veículo obrigatório para emissão do CIOT e MDF-e.', field: 'vehicleRenavam' },
+    plate: { code: 'VEHICLE_PLATE_PENDING', message: 'placa obrigatória para emissão do CIOT.', field: 'vehiclePlate' },
+    chassi: { code: 'VEHICLE_CHASSI_PENDING', message: 'chassi obrigatório para emissão do CIOT.', field: 'vehicleChassi' },
+    axles: { code: 'VEHICLE_AXLES_PENDING', message: 'número de eixos obrigatório para cálculo de piso ANTT.', field: 'vehicleAxles' },
+    rntrc: { code: 'VEHICLE_RNTRC_PENDING', message: 'defina o responsável RNTRC e o RNTRC dele — obrigatório para CIOT e MDF-e.', field: 'rntrc' },
+    renavam: { code: 'VEHICLE_RENAVAM_PENDING', message: 'RENAVAM obrigatório para emissão do CIOT e MDF-e.', field: 'vehicleRenavam' },
 };
 
 function isPlanningLocked(status: ManifestStatus) {
@@ -96,6 +100,7 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
             driver: {
                 select: {
                     id: true,
+                    name: true,
                     linkId: true,
                     carriers: { where: { active: true }, select: { linkId: true } },
                     cnhNumber: true,
@@ -189,35 +194,44 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
         // (cavalo e reboques) carrega chassi, RENAVAM, eixos e RNTRC obrigatórios.
         const composition = resolveManifestComposition(manifest);
         for (const unitIssue of compositionIssues(composition)) {
+            const unit = composition.units.find((item) => item.plate === unitIssue.plate && item.role === unitIssue.unit);
+            const subject = { plate: unitIssue.plate ?? undefined, vehicleUnitId: unit?.id ?? undefined };
             if (unitIssue.unit === 'TRAILER') {
-                add(issue('responsible', 'TRAILER_UNIT_PENDING', `Reboque ${unitIssue.plate}: complete ${describeUnitIssues(unitIssue)}.`, `trailerUnit:${unitIssue.plate}`));
+                add(issue('responsible', 'TRAILER_UNIT_PENDING', `Reboque ${unitIssue.plate}: complete ${describeUnitIssues(unitIssue)}.`, `trailerUnit:${unitIssue.plate}`, 'blocking', subject));
                 continue;
             }
             for (const f of unitIssue.fields) {
                 const spec = TRACTION_FIELD_ISSUES[f.field];
-                add(issue('responsible', spec.code, f.reason === 'invalid' ? `${f.label} do cavalo inválido.` : spec.message, spec.field));
+                const label = unitIssue.plate ? `Cavalo ${unitIssue.plate}` : 'Cavalo';
+                add(issue('responsible', spec.code, `${label}: ${f.reason === 'invalid' ? `${f.label} inválido.` : spec.message}`, spec.field, 'blocking', subject));
             }
         }
         for (const unit of composition.units) {
+            const label = `${unit.role === 'TRACTION' ? 'Cavalo' : 'Reboque'} ${unit.plate}`;
+            const subject = { plate: unit.plate, vehicleUnitId: unit.id ?? undefined };
             // Dados que só a emissão do MDF-e cobrava: agora aparecem antes, como pendência de cadastro.
             const mdfeMissing = mdfeUnitDataIssues(unit, manifest.fiscalEmitter?.person?.document);
             if (mdfeMissing.length) {
-                add(issue('responsible', 'MDFE_VEHICLE_DATA_PENDING', `${unit.plate}: informe ${mdfeMissing.join(', ')}.`, `vehicleUnit:${unit.plate}`, manifest.status === 'ACCEPTED' ? 'blocking' : 'warning'));
+                add(issue('responsible', 'MDFE_VEHICLE_DATA_PENDING', `${label}: informe ${mdfeMissing.join(', ')}.`, `vehicleUnit:${unit.plate}`, manifest.status === 'ACCEPTED' ? 'blocking' : 'warning', subject));
             }
             if (!unit.tareKg || !unit.capacityKg) {
-                add(issue('fiscal', 'MDFE_VEHICLE_CAPACITY_PENDING', `Informe tara e capacidade em kg reais para ${unit.plate}.`, `vehicleUnit:${unit.plate}`, manifest.status === 'ACCEPTED' ? 'blocking' : 'warning'));
+                add(issue('fiscal', 'MDFE_VEHICLE_CAPACITY_PENDING', `${label}: informe tara e capacidade em kg reais.`, `vehicleUnit:${unit.plate}`, manifest.status === 'ACCEPTED' ? 'blocking' : 'warning', subject));
             }
         }
         const addressComplete = (p: { neighborhood?: string | null; cep?: string | null; address?: string | null; number?: string | null; city?: string | null; state?: string | null; cityIbgeCode?: string | null } | null | undefined) =>
             Boolean(p?.neighborhood && p.cep && p.address && p.number && p.city && p.state && p.cityIbgeCode);
         if (composition.traction?.rntrcHolder !== undefined) {
             // eFrete grava como Proprietário cada responsável RNTRC da composição, com o endereço dele.
-            const holders = new Map((manifest.vehicleAssignments ?? []).flatMap((a) => (a.vehicleUnit.rntrcHolderPerson ? [[a.vehicleUnit.rntrcHolderPerson.id, a.vehicleUnit.rntrcHolderPerson] as const] : [])));
-            for (const holder of holders.values()) {
-                if (!addressComplete(holder)) add(issue('responsible', 'RNTRC_HOLDER_ADDRESS_PENDING', `Endereço de ${holder.legalName} (responsável RNTRC) incompleto para Gravar Proprietário na eFrete.`, `rntrcHolder:${holder.id}`));
+            for (const assignment of manifest.vehicleAssignments ?? []) {
+                const unit = assignment.vehicleUnit;
+                const holder = unit.rntrcHolderPerson;
+                if (holder && !addressComplete(holder)) {
+                    const label = `${unit.role === 'TRACTION' ? 'Cavalo' : 'Reboque'} ${unit.plate}`;
+                    add(issue('responsible', 'RNTRC_HOLDER_ADDRESS_PENDING', `${label}: endereço de ${holder.legalName} (responsável RNTRC) incompleto para Gravar Proprietário na eFrete.`, `rntrcHolder:${holder.id}`, 'blocking', { plate: unit.plate, vehicleUnitId: unit.id }));
+                }
             }
             if (tractionHolderDiffersFromCarrier(composition, manifest.link.personId)) {
-                add(issue('responsible', 'RNTRC_HOLDER_NOT_CARRIER', `O CIOT sairá no RNTRC de ${composition.traction!.rntrcHolder!.name}, responsável pelo cavalo, e não do transportador que recebe a oferta. Confirme que é frota agregada.`, 'rntrcHolder', 'warning'));
+                add(issue('responsible', 'RNTRC_HOLDER_NOT_CARRIER', `Cavalo ${composition.traction!.plate}: o CIOT sairá no RNTRC de ${composition.traction!.rntrcHolder!.name}, responsável pelo cavalo, e não do transportador que recebe a oferta. Confirme que é frota agregada.`, 'rntrcHolder', 'warning', { plate: composition.traction!.plate, vehicleUnitId: composition.traction!.id ?? undefined }));
             }
         } else {
             const lp = manifest.link.person;
@@ -226,33 +240,35 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
             }
         }
     }
+    const driverSubject = { driverId: manifest.driver?.id ?? manifest.driverId ?? undefined };
+    const driverLabel = manifest.driver?.name ? `Motorista ${manifest.driver.name}` : 'Motorista';
     if (!manifest.driverId || !manifest.driver) {
-        add(issue('responsible', 'DRIVER_REQUIRED', 'Complete os dados fiscais do motorista responsável.', 'driverId'));
+        add(issue('responsible', 'DRIVER_REQUIRED', 'Complete os dados fiscais do motorista responsável.', 'driverId', 'blocking', driverSubject));
     } else if (manifest.driver.active === false) {
-        add(issue('responsible', 'DRIVER_REQUIRED', 'O motorista está inativo. Selecione um motorista ativo.', 'driverId'));
+        add(issue('responsible', 'DRIVER_REQUIRED', `${driverLabel}: cadastro inativo. Selecione um motorista ativo.`, 'driverId', 'blocking', driverSubject));
     } else if (manifest.driver.linkId !== manifest.linkId && !(manifest.driver.carriers ?? []).some((carrier) => carrier.linkId === manifest.linkId)) {
-        add(issue('responsible', 'DRIVER_LINK_MISMATCH', 'Os dados fiscais não pertencem ao responsável selecionado.', 'driverId'));
+        add(issue('responsible', 'DRIVER_LINK_MISMATCH', `${driverLabel}: os dados fiscais não pertencem ao responsável selecionado.`, 'driverId', 'blocking', driverSubject));
     } else {
         if (!manifest.driver.cnhNumber) {
-            add(issue('responsible', 'DRIVER_CNH_PENDING', 'CNH pendente para emissão do CIOT.', 'driverId'));
+            add(issue('responsible', 'DRIVER_CNH_PENDING', `${driverLabel}: CNH pendente para emissão do CIOT.`, 'driverId', 'blocking', driverSubject));
         }
         if (!manifest.driver.birthDate) {
-            add(issue('responsible', 'DRIVER_BIRTH_DATE_PENDING', 'Data de nascimento pendente para emissão do CIOT.', 'driverId'));
+            add(issue('responsible', 'DRIVER_BIRTH_DATE_PENDING', `${driverLabel}: data de nascimento pendente para emissão do CIOT.`, 'driverId', 'blocking', driverSubject));
         }
         const dp = manifest.driver.person;
         if (!dp?.neighborhood || !dp?.cep || !dp?.address || !dp?.number || !dp?.city || !dp?.state || !dp?.cityIbgeCode) {
-            add(issue('responsible', 'DRIVER_ADDRESS_PENDING', 'Endereço do motorista obrigatório para Gravar Motorista no e-Frete.', 'driverAddress'));
+            add(issue('responsible', 'DRIVER_ADDRESS_PENDING', `${driverLabel}: endereço obrigatório para Gravar Motorista no e-Frete.`, 'driverAddress', 'blocking', driverSubject));
         }
         if (manifest.driver.cnhExpiry && manifest.driver.cnhExpiry < new Date()) {
-            add(issue('responsible', 'DRIVER_CNH_EXPIRED', 'CNH do motorista está vencida.', 'cnhExpiry', 'warning'));
+            add(issue('responsible', 'DRIVER_CNH_EXPIRED', `${driverLabel}: CNH vencida.`, 'cnhExpiry', 'warning', driverSubject));
         }
     }
     for (const assignment of (manifest.driverAssignments ?? []).filter((item) => !item.isPrimary)) {
         const additional = assignment.driver;
         if (!additional.active || (additional.linkId !== manifest.linkId && !additional.carriers.some((carrier) => carrier.linkId === manifest.linkId))) {
-            add(issue('responsible', 'ADDITIONAL_DRIVER_INVALID', `Motorista adicional ${additional.name} inativo ou sem vínculo com o transportador.`, additional.id));
+            add(issue('responsible', 'ADDITIONAL_DRIVER_INVALID', `Motorista adicional ${additional.name} inativo ou sem vínculo com o transportador.`, additional.id, 'blocking', { driverId: additional.id }));
         } else if (!additional.cnhNumber || (additional.cnhExpiry && additional.cnhExpiry < new Date())) {
-            add(issue('responsible', 'ADDITIONAL_DRIVER_CNH_PENDING', `Confira a CNH do motorista adicional ${additional.name}.`, additional.id));
+            add(issue('responsible', 'ADDITIONAL_DRIVER_CNH_PENDING', `Confira a CNH do motorista adicional ${additional.name}.`, additional.id, 'blocking', { driverId: additional.id }));
         }
     }
 
