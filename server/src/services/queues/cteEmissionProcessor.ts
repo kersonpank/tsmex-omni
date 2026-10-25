@@ -115,6 +115,60 @@ async function markPendingReconciliation(
     ]);
 }
 
+/** Extrai `{error:{code,message}}` do corpo embutido em `AcbrHttpError.message` (best-effort; o corpo pode vir truncado). */
+function parseAcbrErrorBody(err: AcbrHttpError): { code: string | null; message: string | null } {
+    const start = err.message.indexOf('{');
+    const raw = start >= 0 ? err.message.slice(start) : '';
+    try {
+        const json = JSON.parse(raw) as { error?: { code?: unknown; message?: unknown }; code?: unknown; message?: unknown };
+        const node = json.error && typeof json.error === 'object' ? json.error : json;
+        return {
+            code: typeof node.code === 'string' ? node.code : null,
+            message: typeof node.message === 'string' ? node.message : null,
+        };
+    } catch {
+        return {
+            code: /"code"\s*:\s*"([^"]+)"/.exec(raw)?.[1] ?? null,
+            message: /"message"\s*:\s*"([^"]*)/.exec(raw)?.[1] ?? null,
+        };
+    }
+}
+
+/**
+ * Recusa definitiva da ACBr no envio (4xx sem documento submetido): nada chegou à SEFAZ, então
+ * não é caso de retry nem de conferência — vira CTE_REJECTED (reaproveitável) e avisa a torre.
+ */
+async function handleSubmitRefused(
+    deps: CteEmissionProcessorDeps,
+    calcId: string,
+    emissionJobId: string,
+    err: AcbrHttpError,
+): Promise<void> {
+    const { code, message } = parseAcbrErrorBody(err);
+    const isCertificate = code === 'CertificateValidityError';
+    const reason = isCertificate
+        ? 'Certificado A1 do emitente vencido ou ainda não válido. A torre precisa enviar o certificado novo e depois é só emitir de novo.'
+        : `A ACBr recusou o envio (HTTP ${err.httpStatus}): ${message ?? err.message}. Nada foi enviado à SEFAZ; corrija e emita de novo.`;
+    await deps.prisma.$transaction([
+        deps.prisma.orderFreightCalculation.update({
+            where: { id: calcId },
+            data: { status: 'CTE_REJECTED', cteStatusReason: reason, cteRejectedAt: new Date() },
+        }),
+        deps.prisma.cteEmissionJob.update({
+            where: { id: emissionJobId },
+            data: { phase: 'FAILED', lastError: err.message, lastHttpStatus: err.httpStatus },
+        }),
+    ]);
+    await deps.createOrMergeSystemAlert({
+        category: 'FISCAL_PROVIDER_ERROR',
+        severity: isCertificate ? 'CRITICAL' : 'WARNING',
+        title: isCertificate ? 'Emissão de CT-e bloqueada — certificado A1 vencido' : 'Emissão de CT-e recusada pela ACBr',
+        message: `Cálculo ${calcId}: ${reason}`,
+        context: { calcId, emissionJobId, httpStatus: err.httpStatus, acbrErrorCode: code },
+        dedupMatch: (context) => context.calcId === calcId,
+    });
+}
+
 async function handlePaymentRequired(
     deps: CteEmissionProcessorDeps,
     calcId: string,
@@ -342,6 +396,20 @@ export async function processCteEmissionJob(
         }
         if (err instanceof AcbrHttpError && err.httpStatus === 402) {
             await handlePaymentRequired(deps, calcId, cteEmissionJobId, err, emissionJob?.providerDocId ?? null);
+            return;
+        }
+
+        // 4xx (exceto 402/404/409/429) no envio, sem documento submetido: recusa definitiva.
+        if (
+            err instanceof AcbrHttpError &&
+            err.httpStatus >= 400 &&
+            err.httpStatus < 500 &&
+            ![402, 404, 409, 429].includes(err.httpStatus) &&
+            emissionJob &&
+            !emissionJob.providerDocId &&
+            !job.data.providerDocIdPending
+        ) {
+            await handleSubmitRefused(deps, calcId, cteEmissionJobId, err);
             return;
         }
 

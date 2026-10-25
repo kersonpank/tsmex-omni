@@ -331,6 +331,54 @@ describe('processCteEmissionJob', () => {
         assert.equal(pollMock.mock.callCount(), 0, 'nada a fazer polling — o submit foi rejeitado, não há documento na ACBr');
     });
 
+    it('7d. submit com 400 CertificateValidityError → CTE_REJECTED definitivo, job FAILED, 1 tentativa, sem reagendar, alerta CRITICAL', async () => {
+        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: null, phase: 'QUEUED', attemptCount: 0, maxAttempts: 5 }));
+        const { job, moveToDelayed } = makeJob({ calcId: 'calc-1', cteEmissionJobId: 'job-1', phaseHint: 'submit' });
+        const submitMock = mock.fn(async () => {
+            throw new AcbrHttpError(
+                'ACBr /cte HTTP 400: {"error":{"code":"CertificateValidityError","message":"O certificado está expirado ou ainda não é válido"}}',
+                400,
+            );
+        });
+        const deps = makeDeps({ submitCteToAcbr: submitMock as unknown as CteEmissionProcessorDeps['submitCteToAcbr'] }, prismaBundle);
+
+        await processCteEmissionJob(job, deps);
+
+        assert.equal(submitMock.mock.callCount(), 1);
+        assert.equal(moveToDelayed.mock.callCount(), 0);
+        assert.equal(prismaBundle.calcState.status, 'CTE_REJECTED');
+        assert.match(String(prismaBundle.calcState.cteStatusReason), /Certificado A1 do emitente vencido/);
+        assert.ok(prismaBundle.calcState.cteRejectedAt instanceof Date);
+        assert.equal(prismaBundle.jobState.phase, 'FAILED');
+        assert.equal(prismaBundle.jobState.lastHttpStatus, 400);
+        assert.equal(prismaBundle.jobState.attemptCount, 0);
+        const alertMock = deps.createOrMergeSystemAlert as unknown as { mock: { callCount: () => number; calls: { arguments: [{ severity: string }] }[] } };
+        assert.equal(alertMock.mock.callCount(), 1);
+        assert.equal(alertMock.mock.calls[0].arguments[0].severity, 'CRITICAL');
+    });
+
+    it('7e. submit com 400 genérico → CTE_REJECTED com mensagem da ACBr; 5xx continua no caminho de retry', async () => {
+        const bundle400 = makeFakePrisma(makeJobRecord({ providerDocId: null, phase: 'QUEUED', attemptCount: 0, maxAttempts: 5 }));
+        const deps400 = makeDeps(
+            { submitCteToAcbr: mock.fn(async () => { throw new AcbrHttpError('ACBr /cte HTTP 400: {"error":{"code":"X","message":"campo inválido"}}', 400); }) as unknown as CteEmissionProcessorDeps['submitCteToAcbr'] },
+            bundle400,
+        );
+        await processCteEmissionJob(makeJob({ calcId: 'calc-1', cteEmissionJobId: 'job-1' }).job, deps400);
+        assert.equal(bundle400.calcState.status, 'CTE_REJECTED');
+        assert.match(String(bundle400.calcState.cteStatusReason), /HTTP 400\): campo inválido\. Nada foi enviado/);
+
+        const bundle500 = makeFakePrisma(makeJobRecord({ providerDocId: null, phase: 'QUEUED', attemptCount: 0, maxAttempts: 5 }));
+        const { job, moveToDelayed } = makeJob({ calcId: 'calc-1', cteEmissionJobId: 'job-1' });
+        const deps500 = makeDeps(
+            { submitCteToAcbr: mock.fn(async () => { throw new AcbrHttpError('ACBr /cte HTTP 503: indisponível', 503); }) as unknown as CteEmissionProcessorDeps['submitCteToAcbr'] },
+            bundle500,
+        );
+        await assert.rejects(processCteEmissionJob(job, deps500), (err) => err instanceof DelayedError);
+        assert.equal(moveToDelayed.mock.callCount(), 1);
+        assert.equal(bundle500.jobState.attemptCount, 1);
+        assert.notEqual(bundle500.calcState.status, 'CTE_REJECTED');
+    });
+
     it('7c. phaseHint poll-only sem providerDocId (estado inconsistente que o código detecta e rejeita) — nem submit nem poll são chamados, erro é registrado e reagendado', async () => {
         const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: null, phase: 'QUEUED', attemptCount: 0, maxAttempts: 5 }));
         const { job, moveToDelayed } = makeJob({ calcId: 'calc-1', cteEmissionJobId: 'job-1', phaseHint: 'poll-only' });

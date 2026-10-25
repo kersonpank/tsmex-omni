@@ -7,11 +7,26 @@ export type CteInputBuildResult = {
     preflight: CtePreflightResult;
 };
 
+/** Mensagem começa com "Emitente" para o frontend (`blockerAction`) rotear para a torre. */
+function certificateExpiredIssue(
+    emitter: { certificateExpiresAt?: Date | string | null; certificateStatus?: string | null } | null | undefined,
+    now: Date,
+): string | null {
+    if (!emitter) return null;
+    const expiresAt = emitter.certificateExpiresAt ? new Date(emitter.certificateExpiresAt) : null;
+    const dateExpired = expiresAt !== null && !Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() < now.getTime();
+    if (!dateExpired && emitter.certificateStatus !== 'EXPIRED') return null;
+    const when = dateExpired && expiresAt ? ` em ${expiresAt.toLocaleDateString('pt-BR', { timeZone: 'UTC' })}` : '';
+    return `Emitente: certificado A1 vencido${when} — a torre precisa enviar o certificado novo.`;
+}
+
 export function buildCteEmissionInputFromRecords(params: {
     order: any;
     calc: any;
     hub: any;
     numero?: number;
+    /** Injetável para teste; padrão: agora. */
+    now?: Date;
 }): CteInputBuildResult {
     const { order, calc, hub } = params;
     const ambiente = (calc.fiscalEmitter?.environment ?? calc.cteEnvironment ?? 'HOMOLOGACAO') as CteEnvironment;
@@ -34,6 +49,9 @@ export function buildCteEmissionInputFromRecords(params: {
         additionalIssues.push('Emitente credenciado sem pessoa jurídica vinculada.');
         additionalMissingFields.push('fiscalEmitterId');
     }
+
+    const certIssue = certificateExpiredIssue(calc.fiscalEmitter, params.now ?? new Date());
+    if (certIssue) additionalIssues.push(certIssue);
 
     const emitterPerson = calc.fiscalEmitter?.person ?? hub?.person ?? null;
     const rntrc = calc.fiscalEmitter?.rntrc ?? hub?.rntrc ?? null;
