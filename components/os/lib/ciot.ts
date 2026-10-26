@@ -91,7 +91,8 @@ export function initialCiotForm(manifest: Manifest, now = new Date()): { form: C
         dataFimViagem: plannedEnd,
         codigoNcmNaturezaCarga: firstOrderNcm(manifest),
         pesoCarga: manifest.totalWeight > 0 ? String(manifest.totalWeight) : '',
-        codigoTipoCarga: '2',
+        // Tabela ANTT (Res. 5.867/2020): 5 = carga geral — o caso comum da teia.
+        codigoTipoCarga: '5',
         tipoEmbalagem: '',
         altoDesempenho: false,
         retornoVazio: false,

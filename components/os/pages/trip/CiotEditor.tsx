@@ -282,7 +282,7 @@ const CiotEditor: React.FC<{
                             <>
                                 <Field label="NCM da natureza da carga (4 dígitos)*">{text('codigoNcmNaturezaCarga')}</Field>
                                 <Field label="Peso da carga (kg)*">{text('pesoCarga', 'number')}</Field>
-                                <Field label="Código do tipo de carga (1-12)*">{text('codigoTipoCarga', 'number')}</Field>
+                                <Field label="Tipo de carga ANTT (1-12)* · 5 = carga geral">{text('codigoTipoCarga', 'number')}</Field>
                             </>
                         ) : null}
                         {selectedType === 'PADRAO' ? (
