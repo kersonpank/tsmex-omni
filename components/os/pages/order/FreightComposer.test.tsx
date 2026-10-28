@@ -9,7 +9,8 @@ import FreightComposer from './FreightComposer';
 const { emitFreightDocument } = vi.hoisted(() => ({ emitFreightDocument: vi.fn() }));
 
 vi.mock('../../freightActions', () => ({ emitFreightDocument }));
-vi.mock('./FreightIssues', () => ({ default: () => null }));
+vi.mock('../../../ui/PersonFormModal', () => ({ PersonFormModal: () => null }));
+vi.mock('../entry/PartyCard', () => ({ personFormValues: vi.fn() }));
 vi.mock('../../../ui/DactePrintPreview', () => ({ default: () => null }));
 
 const OPTIONS: FreightTableOption[] = [
@@ -91,5 +92,24 @@ describe('FreightComposer — tabela do frete', () => {
         expect(screen.getByLabelText('Frete-peso (R$)')).toBeInTheDocument();
         expect(screen.queryByLabelText('Motivo para não usar a tabela')).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Trocar tabela' })).not.toBeInTheDocument();
+    });
+
+    it('permite substituir o CFOP padrão incompatível antes da primeira emissão', async () => {
+        const user = userEvent.setup();
+        render(<FreightComposer orderId="order-1" suggestion={suggestion({
+            docs: { allowed: ['CTE'], recommended: 'CTE', reason: 'NF-e' },
+            blockers: ['SEFAZ 519: para a prestação MA → MA, o CFOP deve começar por 5.'],
+            missingFields: ['cfop'],
+        })} newDocument={false} onEmitted={vi.fn()} />);
+
+        expect(screen.getByText(/SEFAZ 519/)).toBeInTheDocument();
+        const submit = screen.getByRole('button', { name: `Emitir CT-e · ${formatBRL(120)}` });
+        expect(submit).toBeDisabled();
+        await user.selectOptions(screen.getByLabelText('CFOP'), '5352');
+        expect(submit).toBeEnabled();
+        await user.click(submit);
+        expect(emitFreightDocument).toHaveBeenCalledExactlyOnceWith('order-1', {
+            documentType: 'CTE', pricingTableId: 'general-1', newDocument: false, tax: { cfop: '5352', cst: '' },
+        });
     });
 });

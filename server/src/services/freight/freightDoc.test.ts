@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { computeFreightFromTable, informedFreight, orderFreightParams, type PricingTableLike } from './freightPricing.js';
-import { allowedDocTypes, choosePricingTable, freightDocState, payerChangeBlock, payerRole, type TableCandidate } from './freightDocRules.js';
+import { allowedDocTypes, choosePricingTable, freightDocState, isPendingReconciliationWithoutSubmission, payerChangeBlock, payerRole, type TableCandidate } from './freightDocRules.js';
 import { pickEmitter, type FreightContext, type FreightOrder } from './freightContext.js';
 import { suggestFreight, summarizeDocuments } from './freightSuggestion.js';
 import { buildCoverageIndex } from '../hubCargo/consolidationQueue.js';
@@ -206,14 +206,14 @@ describe('summarizeDocuments: reenvio do CT-e', () => {
 
     const job = (providerDocId: string | null) => ({ phase: 'PENDING_RECONCILIATION' as const, attemptCount: 3, maxAttempts: 3, providerDocId });
 
-    it('permite reenviar CT-e em reconciliação sem job de submissão', () => {
+    it('bloqueia reenvio em reconciliação sem job comprovadamente seguro', () => {
         const doc = document();
-        assert.equal(doc.canResend, true);
+        assert.equal(doc.canResend, false);
         assert.equal(doc.statusReason, 'Falha antes do envio.');
     });
 
-    it('permite reenviar quando o job mais recente não tem providerDocId', () => {
-        assert.equal(document({ cteEmissionJobs: [job(null), job('doc-antigo')] }).canResend, true);
+    it('bloqueia reenvio quando o job mais recente não tem providerDocId mas não tem guarda', () => {
+        assert.equal(document({ cteEmissionJobs: [job(null), job('doc-antigo')] }).canResend, false);
     });
 
     it('bloqueia reenvio quando o job mais recente já foi submetido', () => {
@@ -227,9 +227,32 @@ describe('summarizeDocuments: reenvio do CT-e', () => {
             assert.equal(document({ status }).canResend, false, status);
         }
     });
+
+    it('exige guarda v1, submit nulo, fase terminal e prova independente de ausência de worker', () => {
+        const guarded: { providerDocId: string | null; phase: string; submissionGuardVersion: number | null; submitStartedAt: Date | null } = {
+            providerDocId: null, phase: 'PENDING_RECONCILIATION', submissionGuardVersion: 1, submitStartedAt: null,
+        };
+        const calc = (changes: Partial<typeof guarded> = {}) => ({ status: 'CTE_PENDING_RECONCILIATION', cteEmissionJobs: [{ ...guarded, ...changes }] });
+        assert.equal(isPendingReconciliationWithoutSubmission(calc()), false);
+        assert.equal(isPendingReconciliationWithoutSubmission(calc(), true), true);
+        assert.equal(isPendingReconciliationWithoutSubmission(calc({ submissionGuardVersion: null }), true), false);
+        assert.equal(isPendingReconciliationWithoutSubmission(calc({ submitStartedAt: new Date() }), true), false);
+        assert.equal(isPendingReconciliationWithoutSubmission(calc({ phase: 'QUEUED' }), true), false);
+        assert.equal(isPendingReconciliationWithoutSubmission(calc({ providerDocId: 'doc-1' }), true), false);
+        assert.equal(isPendingReconciliationWithoutSubmission({ status: 'CTE_PENDING_RECONCILIATION', cteEmissionJobs: [] }, true), false);
+    });
 });
 
 describe('suggestFreight', () => {
+    it('pede escolha de CFOP quando o padrão do emitente não corresponde às UFs da prestação', () => {
+        const { order, ctx } = fixture();
+        ctx.emitter!.defaultCteCfop = '5353';
+        const suggestion = suggestFreight(order, ctx);
+        assert.ok(suggestion.blockers.some((issue) => issue.includes('SEFAZ 519')));
+        assert.ok(suggestion.missingFields.includes('cfop'));
+        assert.equal(ctx.emitter!.defaultCteCfop, '5353');
+    });
+
     it('rota pela cobertura do destino; geral da rota quando o pagador não tem tabela; CT-e pronto', () => {
         const { order, ctx } = fixture();
         const s = suggestFreight(order, ctx);

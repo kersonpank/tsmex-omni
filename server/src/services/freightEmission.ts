@@ -351,7 +351,7 @@ export function buildCtePayload(params: Parameters<typeof buildMinutaPayload>[0]
         numero: m.numero,
         serie: m.serie,
         documentLabel: 'DACTE',
-        watermark: undefined,
+        watermark: m.watermark,
         modelo: m.modelo,
         chaveAcesso: m.chaveAcesso,
         codigoBarras: m.codigoBarras,

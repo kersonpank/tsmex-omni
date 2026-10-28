@@ -1,529 +1,373 @@
 import assert from 'node:assert/strict';
 import { describe, it, mock } from 'node:test';
 import { DelayedError, type Job } from 'bullmq';
-
-import { processCteEmissionJob, handleCteJobExhausted, type CteEmissionProcessorDeps } from './cteEmissionProcessor.js';
+import { processCteEmissionJob, handleCteJobExhausted, xmlConfirmsCteAuthorization, type CteEmissionProcessorDeps } from './cteEmissionProcessor.js';
 import type { CteEmissionJobData } from './cteEmissionQueue.js';
 import { AcbrHttpError } from '../acbr/acbrHttp.js';
-import type { CteEmissionInput, CteProviderResult } from '../cteService.js';
-import type { CtePollOutcome, FiscalEmitterContext } from '../acbr/acbrCteEmit.js';
+import { pollCteStatusOnce, type CtePollOutcome, type CteSubmitDeps } from '../acbr/acbrCteEmit.js';
 
-// Todos os testes abaixo injetam `deps` com mocks (ver `cteEmissionQueue: { pause: ... }`
-// nos casos de teste) — nunca tocam a fila/Redis reais nem `defaultCteEmissionProcessorDeps`.
-// `getCteEmissionQueue()` (cteEmissionQueue.ts) só constrói a Queue/conexão real sob demanda,
-// então simplesmente importar `cteEmissionProcessor.ts` aqui não abre nenhum socket — não há
-// handle real pra fechar neste arquivo.
-
-type FakeJobRecord = {
-    id: string;
-    calcId: string;
-    providerDocId: string | null;
-    phase: string;
-    attemptCount: number;
-    maxAttempts: number;
-    lastHttpStatus: number | null;
-    lastError: string | null;
-    pausedForQuota: boolean;
-    xmlDownloadedAt: Date | null;
-    pdfDownloadedAt: Date | null;
+type FakeRecord = {
+    id: string; calcId: string; queueJobId: string | null; providerDocId: string | null;
+    phase: string; submissionGuardVersion: number | null; submitStartedAt: Date | null;
+    attemptCount: number; maxAttempts: number; lastError: string | null; lastHttpStatus: number | null;
+    pausedForQuota: boolean; xmlDownloadedAt: Date | null; pdfDownloadedAt: Date | null;
+    rejectionCode: string | null; rejectionReason: string | null;
 };
 
-function makeJobRecord(overrides: Partial<FakeJobRecord> = {}): FakeJobRecord {
-    return {
-        id: 'job-1',
-        calcId: 'calc-1',
-        providerDocId: null,
-        phase: 'QUEUED',
-        attemptCount: 0,
-        maxAttempts: 5,
-        lastHttpStatus: null,
-        lastError: null,
-        pausedForQuota: false,
-        xmlDownloadedAt: null,
-        pdfDownloadedAt: null,
+const key = '1'.repeat(44);
+const protocol = '123456789';
+const authorizedXml = `<cteProc><CTe><infCte Id="CTe${key}"/></CTe><protCTe><infProt><chCTe>${key}</chCTe><nProt>${protocol}</nProt><dhRecbto>2026-10-27T09:30:00-03:00</dhRecbto><cStat>100</cStat></infProt></protCTe></cteProc>`;
+
+function fakeDatabase(overrides: Partial<FakeRecord> = {}, calcOverrides: Record<string, unknown> = {}) {
+    const record: FakeRecord = {
+        id: 'job-1', calcId: 'calc-1', queueJobId: null, providerDocId: null, phase: 'QUEUED',
+        submissionGuardVersion: 1, submitStartedAt: null, attemptCount: 0, maxAttempts: 5,
+        lastError: null, lastHttpStatus: null, pausedForQuota: false, xmlDownloadedAt: null, pdfDownloadedAt: null,
+        rejectionCode: null, rejectionReason: null,
         ...overrides,
     };
-}
-
-/** Prisma falso: mantém o mesmo formato de chamada ($transaction([...]) / model.update({data})) sem falar com Postgres. */
-function makeFakePrisma(initialJob: FakeJobRecord, initialCalc: Record<string, unknown> = {}) {
-    const jobState = { ...initialJob };
-    const calcState = { ...initialCalc };
-
-    const findUniqueOrThrow = mock.fn(async () => ({ ...jobState }));
-    const jobUpdate = mock.fn(async ({ data }: { data: Record<string, unknown> }) => {
-        Object.assign(jobState, data);
-        return { ...jobState };
+    const calc: Record<string, unknown> = { id: 'calc-1', status: 'CTE_SENT', cteXml: null, ...calcOverrides };
+    let tail = Promise.resolve();
+    let failProviderIdOnce = false;
+    const equal = (a: unknown, b: unknown) => a instanceof Date && b instanceof Date ? a.getTime() === b.getTime() : a === b;
+    const matches = (state: Record<string, unknown>, where: Record<string, unknown>) => Object.entries(where).every(([name, value]) => {
+        if (value && typeof value === 'object' && !(value instanceof Date) && 'in' in value) return (value as { in: unknown[] }).in.includes(state[name]);
+        return equal(state[name], value);
     });
-    const calcUpdate = mock.fn(async ({ data }: { data: Record<string, unknown> }) => {
-        Object.assign(calcState, data);
-        return { ...calcState };
-    });
-    const $transaction = mock.fn(async (ops: Array<Promise<unknown>>) => Promise.all(ops));
-
-    const prisma: CteEmissionProcessorDeps['prisma'] = {
-        cteEmissionJob: { findUniqueOrThrow, update: jobUpdate } as unknown as CteEmissionProcessorDeps['prisma']['cteEmissionJob'],
-        orderFreightCalculation: { update: calcUpdate } as unknown as CteEmissionProcessorDeps['prisma']['orderFreightCalculation'],
-        $transaction,
+    const tx = {
+        cteEmissionJob: {
+            updateMany: async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+                if (failProviderIdOnce && data.providerDocId) { failProviderIdOnce = false; throw new Error('falha transitória ao persistir ID'); }
+                if (!matches(record, where)) return { count: 0 };
+                Object.assign(record, data);
+                return { count: 1 };
+            },
+        },
+        orderFreightCalculation: {
+            updateMany: async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+                if (!matches(calc, where)) return { count: 0 };
+                Object.assign(calc, data);
+                return { count: 1 };
+            },
+        },
     };
-
-    return { prisma, jobState, calcState, findUniqueOrThrow, jobUpdate, calcUpdate, $transaction };
+    const db = {
+        cteEmissionJob: { ...tx.cteEmissionJob, findUniqueOrThrow: async () => ({ ...record }) },
+        orderFreightCalculation: { ...tx.orderFreightCalculation, findUniqueOrThrow: async () => ({ ...calc }) },
+        $transaction: async <T>(fn: (client: typeof tx) => Promise<T>) => {
+            const previous = tail;
+            let release!: () => void;
+            tail = new Promise<void>((resolve) => { release = resolve; });
+            await previous;
+            const oldRecord = { ...record };
+            const oldCalc = { ...calc };
+            try { return await fn(tx); }
+            catch (err) { Object.assign(record, oldRecord); Object.assign(calc, oldCalc); throw err; }
+            finally { release(); }
+        },
+    } as unknown as CteEmissionProcessorDeps['prisma'];
+    return { record, calc, db, failNextIdWrite: () => { failProviderIdOnce = true; } };
 }
 
-function makeJob(data: CteEmissionJobData): { job: Job<CteEmissionJobData>; moveToDelayed: ReturnType<typeof mock.fn>; updateData: ReturnType<typeof mock.fn> } {
-    const moveToDelayed = mock.fn(async (_ts: number, _token?: string) => {});
-    // Espelha o comportamento real do BullMQ: `job.updateData(...)` persiste no Redis e
-    // atualiza `job.data` in-place (o processor lê `job.data.providerDocIdPending` depois).
-    const updateData = mock.fn(async (newData: CteEmissionJobData) => {
-        Object.assign(job.data, newData);
-    });
-    const job = {
-        data,
-        token: 'lock-token-1',
-        moveToDelayed,
-        updateData,
-    } as unknown as Job<CteEmissionJobData>;
-    return { job, moveToDelayed, updateData };
+function bullJob(data: Partial<CteEmissionJobData> = {}, id?: string) {
+    const updateData = mock.fn(async (newData: CteEmissionJobData) => { job.data = newData; });
+    const moveToDelayed = mock.fn(async () => {});
+    const job = { id, data: { calcId: 'calc-1', cteEmissionJobId: 'job-1', ...data }, token: 'token', updateData, moveToDelayed } as unknown as Job<CteEmissionJobData>;
+    return { job, updateData, moveToDelayed };
 }
 
-function makeInput(): CteEmissionInput {
-    return { ambiente: 'HOMOLOGACAO' } as unknown as CteEmissionInput;
-}
-
-function makeDeps(overrides: Partial<CteEmissionProcessorDeps> = {}, prismaBundle: ReturnType<typeof makeFakePrisma>): CteEmissionProcessorDeps {
+function depsFor(db: ReturnType<typeof fakeDatabase>, overrides: Partial<CteEmissionProcessorDeps> = {}): CteEmissionProcessorDeps {
     return {
-        prisma: prismaBundle.prisma,
-        submitCteToAcbr: mock.fn(async () => {
-            throw new Error('submitCteToAcbr não deveria ser chamado neste teste (providerDocId já existe).');
-        }),
+        prisma: db.db,
+        submitCteToAcbr: mock.fn(async () => { throw new Error('POST inesperado'); }),
         pollCteStatusOnce: mock.fn(async (): Promise<CtePollOutcome> => ({ kind: 'PENDING' })),
-        downloadCteXml: mock.fn(async () => '<xml/>'),
+        downloadCteXml: mock.fn(async () => authorizedXml),
         downloadCtePdf: mock.fn(async () => Buffer.from('pdf')),
-        buildCteEmissionInputForJob: mock.fn(async () => ({
-            input: makeInput(),
-            fiscalEmitterContext: null as FiscalEmitterContext | null,
-        })),
-        uploadBase64Object: mock.fn(async ({ keyPrefix }: { keyPrefix: string }) => ({ storageKey: `${keyPrefix}/stored` })) as unknown as CteEmissionProcessorDeps['uploadBase64Object'],
+        buildCteEmissionInputForJob: mock.fn(async () => ({ input: { ambiente: 'HOMOLOGACAO' }, fiscalEmitterContext: null })) as unknown as CteEmissionProcessorDeps['buildCteEmissionInputForJob'],
+        uploadBase64Object: mock.fn(async () => ({ storageKey: 'stored' })) as unknown as CteEmissionProcessorDeps['uploadBase64Object'],
         cteEmissionQueue: { pause: mock.fn(async () => {}) },
-        createOrMergeSystemAlert: mock.fn(
-            async (_params: Parameters<CteEmissionProcessorDeps['createOrMergeSystemAlert']>[0]) => {},
-        ) as unknown as CteEmissionProcessorDeps['createOrMergeSystemAlert'],
+        createSystemAlert: mock.fn(async () => {}) as unknown as CteEmissionProcessorDeps['createSystemAlert'],
+        createOrMergeSystemAlert: mock.fn(async () => {}) as unknown as CteEmissionProcessorDeps['createOrMergeSystemAlert'],
         ...overrides,
-    } as CteEmissionProcessorDeps;
+    };
 }
 
-const jobData: CteEmissionJobData = { calcId: 'calc-1', cteEmissionJobId: 'job-1' };
+function guardedSubmit(fn: () => Promise<{ providerDocId: string }>): CteEmissionProcessorDeps['submitCteToAcbr'] {
+    return async (_input, _ref, _emitter, beforePost) => {
+        if (!beforePost || !(await beforePost())) return { skipped: true };
+        return fn();
+    };
+}
 
-describe('processCteEmissionJob', () => {
-    it('1. poll PENDING com tentativas restantes → reagenda via moveToDelayed(~POLL_DELAY_MS) e rejeita com DelayedError', async () => {
-        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: 'doc-1', attemptCount: 0, maxAttempts: 5 }));
-        const { job, moveToDelayed } = makeJob(jobData);
-        const deps = makeDeps(
-            { pollCteStatusOnce: mock.fn(async (): Promise<CtePollOutcome> => ({ kind: 'PENDING' })) },
-            prismaBundle,
-        );
-
-        const before = Date.now();
-        await assert.rejects(processCteEmissionJob(job, deps), (err) => err instanceof DelayedError);
-
-        assert.equal(moveToDelayed.mock.callCount(), 1);
-        const [ts, token] = moveToDelayed.mock.calls[0].arguments as [number, string];
-        assert.equal(token, 'lock-token-1');
-        assert.ok(ts - before >= 1000 && ts - before <= 3000, `delay deveria ficar perto de 1500ms, ficou ${ts - before}ms`);
-        assert.equal((deps.submitCteToAcbr as unknown as { mock: { callCount: () => number } }).mock.callCount(), 0, 'não deve reenviar submit — providerDocId já existe');
-        assert.equal(prismaBundle.jobState.attemptCount, 1);
-        assert.equal(prismaBundle.jobState.phase, 'POLLING');
+describe('proteção do worker CT-e', () => {
+    it('CAS serializa dois workers após o preflight e grava o marcador antes do único POST', async () => {
+        const db = fakeDatabase();
+        let arrived = 0;
+        let release!: () => void;
+        const bothArrived = new Promise<void>((resolve) => { release = resolve; });
+        let posts = 0;
+        const submit: CteEmissionProcessorDeps['submitCteToAcbr'] = async (_input, _ref, _emitter, beforePost) => {
+            if (++arrived === 2) release();
+            await bothArrived;
+            if (!beforePost || !(await beforePost())) return { skipped: true };
+            assert.ok(db.record.submitStartedAt instanceof Date);
+            assert.equal(db.calc.status, 'CTE_PROCESSING');
+            posts++;
+            return { providerDocId: 'doc-1' };
+        };
+        const deps = depsFor(db, { submitCteToAcbr: submit });
+        const results = await Promise.allSettled([processCteEmissionJob(bullJob().job, deps), processCteEmissionJob(bullJob().job, deps)]);
+        assert.equal(posts, 1);
+        assert.equal(db.record.providerDocId, 'doc-1');
+        assert.equal(results.filter((r) => r.status === 'rejected' && r.reason instanceof DelayedError).length, 1);
     });
 
-    it('2. poll PENDING no limite de tentativas → markPendingReconciliation (CTE_PENDING_RECONCILIATION, nunca CTE_REJECTED)', async () => {
-        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: 'doc-1', attemptCount: 4, maxAttempts: 5 }));
-        const { job } = makeJob(jobData);
-        const deps = makeDeps(
-            { pollCteStatusOnce: mock.fn(async (): Promise<CtePollOutcome> => ({ kind: 'PENDING' })) },
-            prismaBundle,
-        );
-
-        await processCteEmissionJob(job, deps);
-
-        assert.equal(prismaBundle.calcState.status, 'CTE_PENDING_RECONCILIATION');
-        assert.notEqual(prismaBundle.calcState.status, 'CTE_REJECTED');
-        assert.equal(prismaBundle.jobState.phase, 'PENDING_RECONCILIATION');
-        assert.match(
-            prismaBundle.calcState.cteStatusReason as string,
-            /só reconciliação/,
-            '(Onda 3) providerDocId já existia (doc-1) — hint deve dizer que só reconciliação é permitida, não reemissão',
-        );
+    it('timeout, 429, 400 e 503 após o marcador são incertos e nunca repetem o POST', async () => {
+        for (const err of [new Error('timeout'), new AcbrHttpError('limite', 429), new AcbrHttpError('recusa HTTP', 400), new AcbrHttpError('erro servidor', 503)]) {
+            const db = fakeDatabase();
+            let posts = 0;
+            const deps = depsFor(db, { submitCteToAcbr: guardedSubmit(async () => { posts++; throw err; }) });
+            await processCteEmissionJob(bullJob().job, deps);
+            await processCteEmissionJob(bullJob().job, deps);
+            assert.equal(posts, 1);
+            assert.ok(db.record.submitStartedAt);
+            assert.equal(db.record.phase, 'PENDING_RECONCILIATION');
+            assert.equal(db.calc.status, 'CTE_PENDING_RECONCILIATION');
+            assert.match(String(db.calc.cteStatusReason), /pode ter ocorrido/i);
+            assert.doesNotMatch(String(db.calc.cteStatusReason), /é seguro|nenhum documento foi submetido/i);
+        }
     });
 
-    it('3. AcbrHttpError 402 durante o poll → fila pausada, SystemAlert criado, calc CTE_PENDING_RECONCILIATION', async () => {
-        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: 'doc-1', attemptCount: 0, maxAttempts: 5 }));
-        const { job } = makeJob(jobData);
-        const pauseMock = mock.fn(async () => {});
-        const alertMock = mock.fn(async (_params: { category: string; severity: string; title: string; message: string; context?: Record<string, unknown> }) => {});
-        const deps = makeDeps(
-            {
-                pollCteStatusOnce: mock.fn(async (): Promise<CtePollOutcome> => {
-                    throw new AcbrHttpError('sem créditos', 402, { quotaErrorCode: 'INSUFFICIENT_CREDITS' });
-                }),
-                cteEmissionQueue: { pause: pauseMock },
-                createSystemAlert: alertMock,
-            },
-            prismaBundle,
-        );
-
-        await processCteEmissionJob(job, deps);
-
-        assert.equal(pauseMock.mock.callCount(), 1);
-        assert.equal(alertMock.mock.callCount(), 1);
-        const alertArgs = alertMock.mock.calls[0].arguments[0] as { category: string };
-        assert.equal(alertArgs.category, 'FISCAL_PROVIDER_QUOTA');
-        assert.equal(prismaBundle.calcState.status, 'CTE_PENDING_RECONCILIATION');
-        assert.equal(prismaBundle.jobState.pausedForQuota, true);
+    it('crash após o marcador e jobs legados sem ID nunca chamam POST', async () => {
+        for (const overrides of [
+            { phase: 'EMPRESA_ENSURING', submitStartedAt: new Date() },
+            { phase: 'QUEUED', submissionGuardVersion: null },
+            { phase: 'EMPRESA_ENSURING', submissionGuardVersion: null },
+        ] as Partial<FakeRecord>[]) {
+            const db = fakeDatabase(overrides, { status: overrides.submitStartedAt ? 'CTE_PROCESSING' : 'CTE_SENT' });
+            const submit = mock.fn(async () => ({ providerDocId: 'indevido' }));
+            await processCteEmissionJob(bullJob().job, depsFor(db, { submitCteToAcbr: submit }));
+            assert.equal(submit.mock.callCount(), 0);
+            assert.equal(db.record.phase, 'PENDING_RECONCILIATION');
+        }
     });
 
-    it('4. AcbrHttpError 429 com retryAfterSeconds/retryInSeconds → reagenda com delay dos headers, capado em 5min', async () => {
-        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: 'doc-1', attemptCount: 0, maxAttempts: 5 }));
-        const { job, moveToDelayed } = makeJob(jobData);
-        const deps = makeDeps(
-            {
-                pollCteStatusOnce: mock.fn(async (): Promise<CtePollOutcome> => {
-                    throw new AcbrHttpError('rate limited', 429, { retryInSeconds: 12 });
-                }),
-            },
-            prismaBundle,
-        );
-
-        const before = Date.now();
-        await assert.rejects(processCteEmissionJob(job, deps), (err) => err instanceof DelayedError);
-        const [ts] = moveToDelayed.mock.calls[0].arguments as [number, string];
-        assert.ok(ts - before >= 11_000 && ts - before <= 13_000, `delay deveria refletir retryInSeconds=12s, ficou ${ts - before}ms`);
+    it('erro de montagem antes do callback permite retry sem marcar submissão', async () => {
+        const db = fakeDatabase();
+        const submit = mock.fn(async () => { throw new Error('município desconhecido'); });
+        const { job } = bullJob();
+        await assert.rejects(processCteEmissionJob(job, depsFor(db, { submitCteToAcbr: submit })), DelayedError);
+        assert.equal(db.record.submitStartedAt, null);
+        assert.equal(db.record.phase, 'QUEUED');
+        assert.equal(db.record.attemptCount, 1);
+        assert.equal(db.calc.status, 'CTE_SENT');
     });
 
-    it('4b. AcbrHttpError 429 com retryInSeconds gigante → delay capado em 5 minutos (300000ms)', async () => {
-        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: 'doc-1', attemptCount: 0, maxAttempts: 5 }));
-        const { job, moveToDelayed } = makeJob(jobData);
-        const deps = makeDeps(
-            {
-                pollCteStatusOnce: mock.fn(async (): Promise<CtePollOutcome> => {
-                    throw new AcbrHttpError('rate limited', 429, { retryInSeconds: 999_999 });
-                }),
-            },
-            prismaBundle,
-        );
-
-        const before = Date.now();
-        await assert.rejects(processCteEmissionJob(job, deps), (err) => err instanceof DelayedError);
-        const [ts] = moveToDelayed.mock.calls[0].arguments as [number, string];
-        const delay = ts - before;
-        assert.ok(delay <= 300_000 + 2000, `delay não deveria passar do cap de 5min, ficou ${delay}ms`);
-        assert.ok(delay >= 299_000, `delay deveria bater no cap de 5min, ficou ${delay}ms`);
+    it('cálculo não elegível perde o CAS e não inicia POST', async () => {
+        const db = fakeDatabase({}, { status: 'CTE_PENDING_RECONCILIATION' });
+        let posts = 0;
+        const deps = depsFor(db, { submitCteToAcbr: guardedSubmit(async () => { posts++; return { providerDocId: 'doc' }; }) });
+        await processCteEmissionJob(bullJob().job, deps);
+        assert.equal(posts, 0);
+        assert.equal(db.record.submitStartedAt, null);
     });
 
-    it('5a. poll AUTHORIZED com nada baixado ainda → baixa XML e PDF e persiste', async () => {
-        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: 'doc-1', attemptCount: 0, maxAttempts: 5 }));
-        const { job } = makeJob(jobData);
-        const downloadXml = mock.fn(async () => '<xml>ok</xml>');
-        const downloadPdf = mock.fn(async () => Buffer.from('pdf-bytes'));
-        const result: CteProviderResult = { status: 'AUTHORIZED', accessKey: '1'.repeat(44), protocol: 'proto-1', rawResponse: {} };
-        const deps = makeDeps(
-            {
-                pollCteStatusOnce: mock.fn(async (): Promise<CtePollOutcome> => ({ kind: 'AUTHORIZED', result, providerDocId: 'doc-1' })),
-                downloadCteXml: downloadXml,
-                downloadCtePdf: downloadPdf,
-            },
-            prismaBundle,
-        );
-
-        await processCteEmissionJob(job, deps);
-
-        assert.equal(downloadXml.mock.callCount(), 1);
-        assert.equal(downloadPdf.mock.callCount(), 1);
-        assert.equal(prismaBundle.calcState.status, 'CTE_AUTHORIZED');
-        assert.equal(prismaBundle.jobState.phase, 'DONE');
+    it('falha ao confirmar o CAS após commit mantém marcador e não chama POST', async () => {
+        const db = fakeDatabase();
+        const originalTransaction = db.db.$transaction;
+        let once = true;
+        db.db.$transaction = async (fn) => {
+            const result = await originalTransaction(fn);
+            if (once) { once = false; throw new Error('confirmação do commit perdida'); }
+            return result;
+        };
+        let posts = 0;
+        const deps = depsFor(db, { submitCteToAcbr: guardedSubmit(async () => { posts++; return { providerDocId: 'doc' }; }) });
+        await processCteEmissionJob(bullJob().job, deps);
+        assert.equal(posts, 0);
+        assert.ok(db.record.submitStartedAt);
+        assert.equal(db.record.phase, 'PENDING_RECONCILIATION');
     });
 
-    it('5b. poll AUTHORIZED com XML/PDF já baixados → não baixa de novo (idempotência)', async () => {
-        const prismaBundle = makeFakePrisma(
-            makeJobRecord({ providerDocId: 'doc-1', attemptCount: 0, maxAttempts: 5, xmlDownloadedAt: new Date(), pdfDownloadedAt: new Date() }),
-        );
-        const { job } = makeJob(jobData);
-        const downloadXml = mock.fn(async () => '<xml>ok</xml>');
-        const downloadPdf = mock.fn(async () => Buffer.from('pdf-bytes'));
-        const result: CteProviderResult = { status: 'AUTHORIZED', accessKey: '1'.repeat(44), protocol: 'proto-1', rawResponse: {} };
-        const deps = makeDeps(
-            {
-                pollCteStatusOnce: mock.fn(async (): Promise<CtePollOutcome> => ({ kind: 'AUTHORIZED', result, providerDocId: 'doc-1' })),
-                downloadCteXml: downloadXml,
-                downloadCtePdf: downloadPdf,
-            },
-            prismaBundle,
-        );
-
-        await processCteEmissionJob(job, deps);
-
-        assert.equal(downloadXml.mock.callCount(), 0, 'XML já tinha sido baixado — não deve baixar de novo');
-        assert.equal(downloadPdf.mock.callCount(), 0, 'PDF já tinha sido baixado — não deve baixar de novo');
-        assert.equal(prismaBundle.calcState.status, 'CTE_AUTHORIZED');
+    it('recupera ID do Redis após falha transitória do banco sem repetir POST', async () => {
+        const db = fakeDatabase();
+        db.failNextIdWrite();
+        let posts = 0;
+        const deps = depsFor(db, { submitCteToAcbr: guardedSubmit(async () => { posts++; return { providerDocId: 'doc-1' }; }) });
+        const { job } = bullJob();
+        await assert.rejects(processCteEmissionJob(job, deps), DelayedError);
+        assert.equal(db.record.providerDocId, 'doc-1');
+        assert.equal(job.data.providerDocIdPending, 'doc-1');
+        await assert.rejects(processCteEmissionJob(job, deps), DelayedError);
+        assert.equal(posts, 1);
     });
 
-    it('6. poll REJECTED (SEFAZ) → calc marcado CTE_REJECTED', async () => {
-        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: 'doc-1', attemptCount: 0, maxAttempts: 5 }));
-        const { job } = makeJob(jobData);
-        const result: CteProviderResult = { status: 'REJECTED', rejectionCode: '999', rejectionReason: 'Chave duplicada', rawResponse: {} };
-        const deps = makeDeps(
-            { pollCteStatusOnce: mock.fn(async (): Promise<CtePollOutcome> => ({ kind: 'REJECTED', result })) },
-            prismaBundle,
-        );
-
-        await processCteEmissionJob(job, deps);
-
-        assert.equal(prismaBundle.calcState.status, 'CTE_REJECTED');
-        assert.equal(prismaBundle.jobState.phase, 'FAILED');
+    it('persiste ID no banco mesmo que a gravação no Redis falhe', async () => {
+        const db = fakeDatabase();
+        const deps = depsFor(db, { submitCteToAcbr: guardedSubmit(async () => ({ providerDocId: 'doc-1' })) });
+        const { job, updateData } = bullJob();
+        updateData.mock.mockImplementation(async () => { throw new Error('Redis indisponível'); });
+        await assert.rejects(processCteEmissionJob(job, deps), DelayedError);
+        assert.equal(db.record.providerDocId, 'doc-1');
     });
 
-    it('7a. sem providerDocId ainda, submitCteToAcbr resolve com sucesso → persiste providerDocId, calc CTE_PROCESSING, e cai no mesmo tick para o polling', async () => {
-        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: null, phase: 'QUEUED', attemptCount: 0, maxAttempts: 5 }));
-        const { job, moveToDelayed } = makeJob({ calcId: 'calc-1', cteEmissionJobId: 'job-1', phaseHint: 'submit' });
-        const submitMock = mock.fn(async () => ({ providerDocId: 'new-doc-id' }));
-        const pollMock = mock.fn(async (_providerDocId: string, _ambiente: string, _attempt: number): Promise<CtePollOutcome> => ({ kind: 'PENDING' }));
-        const deps = makeDeps(
-            {
-                submitCteToAcbr: submitMock as unknown as CteEmissionProcessorDeps['submitCteToAcbr'],
-                pollCteStatusOnce: pollMock as unknown as CteEmissionProcessorDeps['pollCteStatusOnce'],
-            },
-            prismaBundle,
-        );
-
-        // A tentativa 0 → 1 ainda está abaixo de maxAttempts(5), então o poll PENDING desta
-        // mesma execução reagenda via DelayedError — não é uma falha, é o fluxo normal de poll.
-        await assert.rejects(processCteEmissionJob(job, deps), (err) => err instanceof DelayedError);
-
-        assert.equal(submitMock.mock.callCount(), 1, 'deve submeter exatamente 1 vez (não havia providerDocId ainda)');
-        assert.equal(prismaBundle.jobState.providerDocId, 'new-doc-id', 'providerDocId retornado pelo submit deve ser persistido');
-        assert.equal(prismaBundle.jobState.phase, 'POLLING', 'após o submit bem-sucedido e um poll PENDING, a fase avança para POLLING (reagendado)');
-        assert.equal(prismaBundle.calcState.status, 'CTE_PROCESSING', 'calc deve virar CTE_PROCESSING assim que o submit é aceito pela ACBr');
-        assert.equal(pollMock.mock.callCount(), 1, 'no mesmo tick, após o submit, deve cair para o polling (não é um job run separado)');
-        assert.equal(pollMock.mock.calls[0].arguments[0], 'new-doc-id', 'o poll deve usar o providerDocId recém-obtido do submit');
-        assert.equal(moveToDelayed.mock.callCount(), 1);
+    it('reconciliação sem ID e resultado desconhecido não enviam nem consultam', async () => {
+        const db = fakeDatabase({ phase: 'POLLING', submitStartedAt: new Date() }, { status: 'CTE_PROCESSING' });
+        const deps = depsFor(db);
+        await processCteEmissionJob(bullJob({ phaseHint: 'poll-only' }).job, deps);
+        assert.equal(db.record.phase, 'PENDING_RECONCILIATION');
+        assert.equal((deps.submitCteToAcbr as any).mock.callCount(), 0);
+        assert.equal((deps.pollCteStatusOnce as any).mock.callCount(), 0);
     });
 
-    it('7b. sem providerDocId ainda, submitCteToAcbr resolve com rejeição → calc CTE_REJECTED, job FAILED, pollCteStatusOnce NUNCA chamado', async () => {
-        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: null, phase: 'QUEUED', attemptCount: 0, maxAttempts: 5 }));
-        const { job } = makeJob({ calcId: 'calc-1', cteEmissionJobId: 'job-1', phaseHint: 'submit' });
-        const rejection: CteProviderResult = { status: 'REJECTED', rejectionCode: '204', rejectionReason: 'CT-e já emitido para esta referência', rawResponse: {} };
-        const submitMock = mock.fn(async () => ({ rejected: rejection }));
-        const pollMock = mock.fn(async (): Promise<CtePollOutcome> => ({ kind: 'PENDING' }));
-        const deps = makeDeps(
-            {
-                submitCteToAcbr: submitMock as unknown as CteEmissionProcessorDeps['submitCteToAcbr'],
-                pollCteStatusOnce: pollMock,
-            },
-            prismaBundle,
-        );
-
-        await processCteEmissionJob(job, deps);
-
-        assert.equal(submitMock.mock.callCount(), 1);
-        assert.equal(prismaBundle.calcState.status, 'CTE_REJECTED');
-        assert.equal(prismaBundle.calcState.cteStatusReason, 'CT-e já emitido para esta referência');
-        assert.equal(prismaBundle.jobState.phase, 'FAILED');
-        assert.equal(prismaBundle.jobState.providerDocId, null, 'documento rejeitado não deve ganhar um providerDocId');
-        assert.equal(pollMock.mock.callCount(), 0, 'nada a fazer polling — o submit foi rejeitado, não há documento na ACBr');
+    it('rejeição efetiva permite reenvio e preserva código no motivo e lastError', async () => {
+        const db = fakeDatabase({ providerDocId: 'doc-1', phase: 'POLLING', submitStartedAt: new Date() }, { status: 'CTE_PROCESSING' });
+        const deps = depsFor(db, { pollCteStatusOnce: mock.fn(async (): Promise<CtePollOutcome> => ({ kind: 'REJECTED', result: { status: 'REJECTED', rejectionCode: '999', rejectionReason: 'Dados inválidos', rawResponse: {} } })) });
+        await processCteEmissionJob(bullJob({ phaseHint: 'poll-only' }).job, deps);
+        assert.equal(db.calc.status, 'CTE_REJECTED');
+        assert.equal(db.record.phase, 'FAILED');
+        assert.equal(db.record.rejectionCode, '999');
+        assert.equal(db.record.rejectionReason, 'Dados inválidos');
+        assert.match(String(db.calc.cteStatusReason), /999.*Dados inválidos/);
+        assert.match(db.record.lastError!, /999/);
     });
 
-    it('7d. submit com 400 CertificateValidityError → CTE_REJECTED definitivo, job FAILED, 1 tentativa, sem reagendar, alerta CRITICAL', async () => {
-        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: null, phase: 'QUEUED', attemptCount: 0, maxAttempts: 5 }));
-        const { job, moveToDelayed } = makeJob({ calcId: 'calc-1', cteEmissionJobId: 'job-1', phaseHint: 'submit' });
-        const submitMock = mock.fn(async () => {
-            throw new AcbrHttpError(
-                'ACBr /cte HTTP 400: {"error":{"code":"CertificateValidityError","message":"O certificado está expirado ou ainda não é válido"}}',
-                400,
-            );
-        });
-        const deps = makeDeps({ submitCteToAcbr: submitMock as unknown as CteEmissionProcessorDeps['submitCteToAcbr'] }, prismaBundle);
-
-        await processCteEmissionJob(job, deps);
-
-        assert.equal(submitMock.mock.callCount(), 1);
-        assert.equal(moveToDelayed.mock.callCount(), 0);
-        assert.equal(prismaBundle.calcState.status, 'CTE_REJECTED');
-        assert.match(String(prismaBundle.calcState.cteStatusReason), /Certificado A1 do emitente vencido/);
-        assert.ok(prismaBundle.calcState.cteRejectedAt instanceof Date);
-        assert.equal(prismaBundle.jobState.phase, 'FAILED');
-        assert.equal(prismaBundle.jobState.lastHttpStatus, 400);
-        assert.equal(prismaBundle.jobState.attemptCount, 0);
-        const alertMock = deps.createOrMergeSystemAlert as unknown as { mock: { callCount: () => number; calls: { arguments: [{ severity: string }] }[] } };
-        assert.equal(alertMock.mock.callCount(), 1);
-        assert.equal(alertMock.mock.calls[0].arguments[0].severity, 'CRITICAL');
+    it('rejeição fiscal 524 do adapter chega ao histórico e libera correção', async () => {
+        const db = fakeDatabase({ providerDocId: 'doc-1', phase: 'POLLING', submitStartedAt: new Date() }, { status: 'CTE_PROCESSING' });
+        const fakeFetch = (async () => ({ status: 'erro', codigo_status: 500, autorizacao: { codigo_status: 524, motivo_status: 'Rejeição: CFOP inválido' } })) as CteSubmitDeps['acbrFetchJson'];
+        const deps = depsFor(db, { pollCteStatusOnce: mock.fn(async () => pollCteStatusOnce('doc-1', 'HOMOLOGACAO', 0, fakeFetch)) });
+        await processCteEmissionJob(bullJob({ phaseHint: 'poll-only' }).job, deps);
+        assert.equal(db.calc.status, 'CTE_REJECTED');
+        assert.equal(db.record.rejectionCode, '524');
+        assert.equal(db.record.rejectionReason, 'Rejeição: CFOP inválido');
     });
 
-    it('7e. submit com 400 genérico → CTE_REJECTED com mensagem da ACBr; 5xx continua no caminho de retry', async () => {
-        const bundle400 = makeFakePrisma(makeJobRecord({ providerDocId: null, phase: 'QUEUED', attemptCount: 0, maxAttempts: 5 }));
-        const deps400 = makeDeps(
-            { submitCteToAcbr: mock.fn(async () => { throw new AcbrHttpError('ACBr /cte HTTP 400: {"error":{"code":"X","message":"campo inválido"}}', 400); }) as unknown as CteEmissionProcessorDeps['submitCteToAcbr'] },
-            bundle400,
-        );
-        await processCteEmissionJob(makeJob({ calcId: 'calc-1', cteEmissionJobId: 'job-1' }).job, deps400);
-        assert.equal(bundle400.calcState.status, 'CTE_REJECTED');
-        assert.match(String(bundle400.calcState.cteStatusReason), /HTTP 400\): campo inválido\. Nada foi enviado/);
-
-        const bundle500 = makeFakePrisma(makeJobRecord({ providerDocId: null, phase: 'QUEUED', attemptCount: 0, maxAttempts: 5 }));
-        const { job, moveToDelayed } = makeJob({ calcId: 'calc-1', cteEmissionJobId: 'job-1' });
-        const deps500 = makeDeps(
-            { submitCteToAcbr: mock.fn(async () => { throw new AcbrHttpError('ACBr /cte HTTP 503: indisponível', 503); }) as unknown as CteEmissionProcessorDeps['submitCteToAcbr'] },
-            bundle500,
-        );
-        await assert.rejects(processCteEmissionJob(job, deps500), (err) => err instanceof DelayedError);
-        assert.equal(moveToDelayed.mock.callCount(), 1);
-        assert.equal(bundle500.jobState.attemptCount, 1);
-        assert.notEqual(bundle500.calcState.status, 'CTE_REJECTED');
+    it('duplicidade mantém o bloqueio de reenvio e conserva o código para investigação', async () => {
+        const db = fakeDatabase({ providerDocId: 'doc-1', phase: 'POLLING', submitStartedAt: new Date() }, { status: 'CTE_PROCESSING' });
+        const deps = depsFor(db, { pollCteStatusOnce: mock.fn(async (): Promise<CtePollOutcome> => ({
+            kind: 'RECONCILIATION_REQUIRED', reason: 'Duplicidade de CT-e', rejectionCode: '204', rejectionReason: 'Rejeição: Duplicidade de CT-e',
+        })) });
+        await processCteEmissionJob(bullJob({ phaseHint: 'poll-only' }).job, deps);
+        assert.equal(db.calc.status, 'CTE_PENDING_RECONCILIATION');
+        assert.equal(db.record.phase, 'PENDING_RECONCILIATION');
+        assert.equal(db.record.rejectionCode, '204');
+        assert.equal(db.record.rejectionReason, 'Rejeição: Duplicidade de CT-e');
     });
 
-    it('7c. phaseHint poll-only sem providerDocId (estado inconsistente que o código detecta e rejeita) — nem submit nem poll são chamados, erro é registrado e reagendado', async () => {
-        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: null, phase: 'QUEUED', attemptCount: 0, maxAttempts: 5 }));
-        const { job, moveToDelayed } = makeJob({ calcId: 'calc-1', cteEmissionJobId: 'job-1', phaseHint: 'poll-only' });
-        const submitMock = mock.fn(async () => {
-            throw new Error('submitCteToAcbr não deveria ser chamado em poll-only');
-        });
-        const pollMock = mock.fn(async (): Promise<CtePollOutcome> => ({ kind: 'PENDING' }));
-        const deps = makeDeps(
-            {
-                submitCteToAcbr: submitMock as unknown as CteEmissionProcessorDeps['submitCteToAcbr'],
-                pollCteStatusOnce: pollMock,
-            },
-            prismaBundle,
-        );
-
-        // O código atual detecta esse estado inconsistente (`poll-only` sem providerDocId) e
-        // lança um Error explícito dentro do try principal; como não é DelayedError nem
-        // AcbrHttpError, cai no ramo genérico do catch — que, com tentativas ainda disponíveis
-        // (attemptCount 0 < maxAttempts 5), registra o erro em `lastError` e reagenda o job em
-        // vez de deixá-lo travado silenciosamente. Este teste documenta esse comportamento
-        // existente (não o altera).
-        await assert.rejects(processCteEmissionJob(job, deps), (err) => err instanceof DelayedError);
-
-        assert.equal(submitMock.mock.callCount(), 0, 'poll-only nunca deve chamar submit');
-        assert.equal(pollMock.mock.callCount(), 0, 'sem providerDocId não há o que consultar — poll nunca deveria ser chamado');
-        assert.match(prismaBundle.jobState.lastError ?? '', /poll-only sem providerDocId/, 'o erro de estado inconsistente deve ficar registrado em lastError');
-        assert.equal(prismaBundle.jobState.attemptCount, 1);
-        assert.equal(moveToDelayed.mock.callCount(), 1);
+    it('passa o ID do job ao builder também durante a reconciliação', async () => {
+        const db = fakeDatabase({ providerDocId: 'doc-1', phase: 'POLLING' }, { status: 'CTE_PROCESSING' });
+        const deps = depsFor(db);
+        await assert.rejects(processCteEmissionJob(bullJob({ phaseHint: 'poll-only' }).job, deps), DelayedError);
+        assert.deepEqual((deps.buildCteEmissionInputForJob as any).mock.calls[0].arguments, ['calc-1', 'job-1']);
     });
 
-    it('bônus (issue 1): falha ao carregar o CteEmissionJob (findUniqueOrThrow) antes do try não escapa — cai em reconciliação sem crashar', async () => {
-        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: 'doc-1' }));
-        prismaBundle.findUniqueOrThrow.mock.mockImplementationOnce(async () => {
-            throw new Error('blip transitório de conexão com o banco');
-        });
-        const { job } = makeJob(jobData);
-        const deps = makeDeps({}, prismaBundle);
-
-        await assert.doesNotReject(processCteEmissionJob(job, deps));
-
-        assert.equal(prismaBundle.calcState.status, 'CTE_PENDING_RECONCILIATION');
+    it('poll com 429 retenta consulta; 402 pausa a fila', async () => {
+        for (const status of [429, 402]) {
+            const db = fakeDatabase({ providerDocId: 'doc-1', phase: 'POLLING', submitStartedAt: new Date() }, { status: 'CTE_PROCESSING' });
+            const pause = mock.fn(async () => {});
+            const deps = depsFor(db, { cteEmissionQueue: { pause }, pollCteStatusOnce: mock.fn(async () => { throw new AcbrHttpError('erro', status, { retryInSeconds: 12 }); }) });
+            if (status === 429) {
+                await assert.rejects(processCteEmissionJob(bullJob().job, deps), DelayedError);
+                assert.equal(db.record.lastHttpStatus, 429);
+                assert.equal(pause.mock.callCount(), 0);
+            } else {
+                await processCteEmissionJob(bullJob().job, deps);
+                assert.equal(db.record.phase, 'PENDING_RECONCILIATION');
+                assert.equal(pause.mock.callCount(), 1);
+            }
+        }
     });
 
-    it('Onda 0 — retry com providerDocIdPending já gravado no job.data (Redis) NUNCA rechama submitCteToAcbr, só completa a persistência no Postgres', async () => {
-        // Simula exatamente o cenário do risco de duplicidade: uma tentativa anterior já
-        // recebeu sucesso da ACBr (providerDocId obtido) e gravou em job.data via
-        // job.updateData, mas a escrita no Postgres falhou antes de persistir — o Postgres
-        // segue sem providerDocId (null). Uma nova tentativa (retry automático do BullMQ ou
-        // reconciliação) precisa achar o valor em job.data e pular o submit inteiramente.
-        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: null, phase: 'QUEUED', attemptCount: 0, maxAttempts: 5 }));
-        const { job } = makeJob({ calcId: 'calc-1', cteEmissionJobId: 'job-1', phaseHint: 'submit', providerDocIdPending: 'doc-from-previous-attempt' });
-        const submitMock = mock.fn(async () => {
-            throw new Error('submitCteToAcbr NUNCA deve ser chamado quando providerDocIdPending já está presente — duplicaria a emissão/cobrança na ACBr.');
-        });
-        const pollMock = mock.fn(async (_providerDocId: string, _ambiente: string, _attempt: number): Promise<CtePollOutcome> => ({ kind: 'PENDING' }));
-        const deps = makeDeps(
-            {
-                submitCteToAcbr: submitMock as unknown as CteEmissionProcessorDeps['submitCteToAcbr'],
-                pollCteStatusOnce: pollMock as unknown as CteEmissionProcessorDeps['pollCteStatusOnce'],
-            },
-            prismaBundle,
-        );
-
-        await assert.rejects(processCteEmissionJob(job, deps), (err) => err instanceof DelayedError);
-
-        assert.equal(submitMock.mock.callCount(), 0, 'não deve rechamar a ACBr — o doc já tinha sido confirmado antes do blip do Postgres');
-        assert.equal(prismaBundle.jobState.providerDocId, 'doc-from-previous-attempt');
-        assert.equal(prismaBundle.calcState.status, 'CTE_PROCESSING');
+    it('somente autoriza com chave, protocolo e XML coerente', async () => {
+        for (const xml of [authorizedXml, '<cteProc/>']) {
+            const db = fakeDatabase({ providerDocId: 'doc-1', phase: 'POLLING', submitStartedAt: new Date() }, { status: 'CTE_PROCESSING' });
+            const deps = depsFor(db, {
+                downloadCteXml: mock.fn(async () => xml),
+                pollCteStatusOnce: mock.fn(async (): Promise<CtePollOutcome> => ({ kind: 'AUTHORIZED', providerDocId: 'doc-1', result: { status: 'AUTHORIZED', accessKey: key, protocol, rawResponse: {} } })),
+            });
+            await processCteEmissionJob(bullJob().job, deps);
+            assert.equal(db.calc.status, xml === authorizedXml ? 'CTE_AUTHORIZED' : 'CTE_PENDING_RECONCILIATION');
+            if (xml === authorizedXml) {
+                assert.equal(db.calc.cteXml, authorizedXml);
+                assert.equal((db.calc.cteAuthorizedAt as Date).toISOString(), '2026-10-27T12:30:00.000Z');
+            }
+        }
+        assert.equal(xmlConfirmsCteAuthorization(authorizedXml, key, protocol), true);
+        assert.equal(xmlConfirmsCteAuthorization(authorizedXml, key, 'outro'), false);
+        assert.equal(xmlConfirmsCteAuthorization(authorizedXml.replace('100', '204'), key, protocol), false);
+        assert.equal(xmlConfirmsCteAuthorization(authorizedXml.replace(`CTe${key}`, `CTe${'2'.repeat(44)}`), key, protocol), false);
+        assert.equal(xmlConfirmsCteAuthorization(authorizedXml.replace('2026-10-27T09:30:00-03:00', 'inválida'), key, protocol), false);
     });
 
-    it('(Onda 3) markPendingReconciliation anota que reemissão é segura quando o job nunca teve providerDocId (reproduz o cenário dos jobs mortos pré-submit)', async () => {
-        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: null, phase: 'QUEUED', attemptCount: 4, maxAttempts: 5 }));
-        const { job } = makeJob(jobData);
-        const deps = makeDeps({
-            buildCteEmissionInputForJob: mock.fn(async () => {
-                throw new Error('preflight fiscal indisponível');
-            }),
-        }, prismaBundle);
-
-        await processCteEmissionJob(job, deps);
-
-        assert.equal(prismaBundle.calcState.status, 'CTE_PENDING_RECONCILIATION');
-        assert.match(prismaBundle.calcState.cteStatusReason as string, /reemissão/i);
-    });
-});
-
-describe('handleCteJobExhausted', () => {
-    const jobDataExhausted: CteEmissionJobData = { calcId: 'calc-1', cteEmissionJobId: 'job-1' };
-
-    it('marca PENDING_RECONCILIATION e cria um SystemAlert na primeira ocorrência', async () => {
-        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: 'doc-1', phase: 'POLLING' }));
-        const alertMock = mock.fn(async (_params: Parameters<CteEmissionProcessorDeps['createOrMergeSystemAlert']>[0]) => {});
-        const deps = makeDeps({ createOrMergeSystemAlert: alertMock as unknown as CteEmissionProcessorDeps['createOrMergeSystemAlert'] }, prismaBundle);
-
-        await handleCteJobExhausted(jobDataExhausted, new Error('todas as tentativas do BullMQ esgotadas'), deps);
-
-        assert.equal(prismaBundle.jobState.phase, 'PENDING_RECONCILIATION');
-        assert.equal(prismaBundle.calcState.status, 'CTE_PENDING_RECONCILIATION');
-        assert.equal(alertMock.mock.callCount(), 1);
-        const alertArgs = alertMock.mock.calls[0].arguments[0] as { category: string; context?: { calcId?: string; providerDocId?: string | null } };
-        assert.equal(alertArgs.category, 'FISCAL_PROVIDER_ERROR');
-        assert.equal(alertArgs.context?.calcId, 'calc-1');
-        assert.equal(alertArgs.context?.providerDocId, 'doc-1', '(Onda 3) providerDocId deve aparecer no context do alerta pra admin ver sem abrir o calc');
-        assert.match(
-            prismaBundle.calcState.cteStatusReason as string,
-            /só reconciliação/,
-            '(Onda 3) providerDocId já existia (doc-1) — hint deve dizer que só reconciliação é permitida',
-        );
+    it('usa data do retorno quando o XML não a traz; sem data não fabrica autorização', async () => {
+        const xmlWithoutDate = authorizedXml.replace('<dhRecbto>2026-10-27T09:30:00-03:00</dhRecbto>', '');
+        for (const responseDate of ['2026-10-26T13:25:00-03:00', null]) {
+            const db = fakeDatabase({ providerDocId: 'doc-1', phase: 'POLLING' }, { status: 'CTE_PROCESSING' });
+            const deps = depsFor(db, {
+                downloadCteXml: mock.fn(async () => xmlWithoutDate),
+                pollCteStatusOnce: mock.fn(async (): Promise<CtePollOutcome> => ({
+                    kind: 'AUTHORIZED', providerDocId: 'doc-1', result: { status: 'AUTHORIZED', accessKey: key, protocol, rawResponse: { autorizacao: { data_autorizacao: responseDate } } },
+                })),
+            });
+            await processCteEmissionJob(bullJob().job, deps);
+            assert.equal(db.calc.status, responseDate ? 'CTE_AUTHORIZED' : 'CTE_PENDING_RECONCILIATION');
+            if (responseDate) assert.equal((db.calc.cteAuthorizedAt as Date).toISOString(), '2026-10-26T16:25:00.000Z');
+            else assert.equal(db.calc.cteAuthorizedAt, undefined);
+        }
     });
 
-    it('não faz nada se o job já está em fase terminal (DONE) — evita sobrescrever um resultado já concluído', async () => {
-        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: 'doc-1', phase: 'DONE' }), { status: 'CTE_AUTHORIZED' });
-        const alertMock = mock.fn(async (_params: Parameters<CteEmissionProcessorDeps['createOrMergeSystemAlert']>[0]) => {});
-        const deps = makeDeps({ createOrMergeSystemAlert: alertMock as unknown as CteEmissionProcessorDeps['createOrMergeSystemAlert'] }, prismaBundle);
-
-        await handleCteJobExhausted(jobDataExhausted, new Error('não deveria importar'), deps);
-
-        assert.equal(prismaBundle.jobState.phase, 'DONE');
-        assert.equal(prismaBundle.calcState.status, 'CTE_AUTHORIZED');
-        assert.equal(alertMock.mock.callCount(), 0);
+    it('evento atrasado de execução anterior não sobrescreve reconciliação atual ou resultado terminal', async () => {
+        const db = fakeDatabase({ queueJobId: 'reconcile-novo', providerDocId: 'doc-1', phase: 'POLLING' }, { status: 'CTE_PROCESSING' });
+        const deps = depsFor(db);
+        await handleCteJobExhausted({ calcId: 'calc-1', cteEmissionJobId: 'job-1' }, new Error('antigo'), deps, 'job-antigo');
+        assert.equal(db.record.phase, 'POLLING');
+        db.record.phase = 'DONE';
+        db.calc.status = 'CTE_AUTHORIZED';
+        await handleCteJobExhausted({ calcId: 'calc-1', cteEmissionJobId: 'job-1' }, new Error('tardio'), deps, 'reconcile-novo');
+        assert.equal(db.calc.status, 'CTE_AUTHORIZED');
     });
 
-    it('marca CTE_PENDING_RECONCILIATION e cria/atualiza um SystemAlert quando o job ainda não está em fase terminal', async () => {
-        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: 'doc-1', phase: 'POLLING' }));
-        const createOrMergeSystemAlert = mock.fn(async (_params: Parameters<CteEmissionProcessorDeps['createOrMergeSystemAlert']>[0]) => {});
-        const deps = makeDeps({ createOrMergeSystemAlert: createOrMergeSystemAlert as unknown as CteEmissionProcessorDeps['createOrMergeSystemAlert'] }, prismaBundle);
-
-        await handleCteJobExhausted({ calcId: 'calc-1', cteEmissionJobId: 'job-1' }, new Error('connection reset'), deps);
-
-        assert.equal(prismaBundle.calcState.status, 'CTE_PENDING_RECONCILIATION');
-        assert.equal(prismaBundle.jobState.phase, 'PENDING_RECONCILIATION');
-        assert.equal(createOrMergeSystemAlert.mock.callCount(), 1);
-        const alertArgs = createOrMergeSystemAlert.mock.calls[0].arguments[0] as { category: string; context?: Record<string, unknown> };
-        assert.equal(alertArgs.category, 'FISCAL_PROVIDER_ERROR');
-        assert.equal((alertArgs.context as { calcId: string }).calcId, 'calc-1');
+    it('consulta iniciada antes da atualização de queueJobId espera sem consultar ou submeter', async () => {
+        const db = fakeDatabase({ queueJobId: 'emissao-antiga', providerDocId: 'doc-1', phase: 'POLLING' }, { status: 'CTE_PROCESSING' });
+        const deps = depsFor(db);
+        const { job } = bullJob({ phaseHint: 'poll-only' }, 'consulta-nova');
+        await assert.rejects(processCteEmissionJob(job, deps), DelayedError);
+        assert.equal(job.data.queueIdWaitCount, 1);
+        assert.equal((deps.pollCteStatusOnce as any).mock.callCount(), 0);
+        db.record.queueJobId = 'consulta-nova';
+        await assert.rejects(processCteEmissionJob(job, deps), DelayedError);
+        assert.equal((deps.pollCteStatusOnce as any).mock.callCount(), 1);
     });
 
-    it('não sobrescreve um job que já está em fase terminal (ex.: uma tentativa mais antiga concluiu DONE fora de ordem) — não regride estado', async () => {
-        const prismaBundle = makeFakePrisma(makeJobRecord({ providerDocId: 'doc-1', phase: 'DONE' }));
-        const createOrMergeSystemAlert = mock.fn(async () => {});
-        const deps = makeDeps({ createOrMergeSystemAlert }, prismaBundle);
+    it('resposta de consulta antiga perde CAS após troca de queueJobId', async () => {
+        const db = fakeDatabase({ queueJobId: 'consulta-antiga', providerDocId: 'doc-1', phase: 'POLLING' }, { status: 'CTE_PROCESSING' });
+        const deps = depsFor(db, { pollCteStatusOnce: mock.fn(async (): Promise<CtePollOutcome> => {
+            db.record.queueJobId = 'consulta-nova';
+            return { kind: 'REJECTED', result: { status: 'REJECTED', rejectionCode: '999', rawResponse: {} } };
+        }) });
+        await processCteEmissionJob(bullJob({ phaseHint: 'poll-only' }, 'consulta-antiga').job, deps);
+        assert.equal(db.record.phase, 'POLLING');
+        assert.equal(db.calc.status, 'CTE_PROCESSING');
+        assert.equal(db.record.rejectionCode, null);
+    });
 
-        await handleCteJobExhausted({ calcId: 'calc-1', cteEmissionJobId: 'job-1' }, new Error('tarde demais'), deps);
+    it('resposta antiga não altera cálculo que voltou a CTE_SENT para outra tentativa', async () => {
+        const db = fakeDatabase({ providerDocId: 'doc-1', phase: 'POLLING', submitStartedAt: new Date() }, { status: 'CTE_PROCESSING' });
+        const deps = depsFor(db, { pollCteStatusOnce: mock.fn(async (): Promise<CtePollOutcome> => {
+            db.calc.status = 'CTE_SENT';
+            return { kind: 'REJECTED', result: { status: 'REJECTED', rejectionCode: '999', rawResponse: {} } };
+        }) });
+        await processCteEmissionJob(bullJob().job, deps);
+        assert.equal(db.calc.status, 'CTE_SENT');
+        assert.equal(db.record.phase, 'POLLING');
+    });
 
-        assert.equal(prismaBundle.jobState.phase, 'DONE', 'fase terminal não deve ser sobrescrita');
-        assert.equal(createOrMergeSystemAlert.mock.callCount(), 0, 'não deve criar alerta para um job que já terminou com sucesso');
+    it('guarda ID recuperado sem alterar cálculo já substituído por outra tentativa', async () => {
+        const db = fakeDatabase({ phase: 'EMPRESA_ENSURING', submitStartedAt: new Date() }, { status: 'CTE_SENT' });
+        const deps = depsFor(db);
+        await processCteEmissionJob(bullJob({ providerDocIdPending: 'doc-antigo' }).job, deps);
+        assert.equal(db.record.providerDocId, 'doc-antigo');
+        assert.equal(db.calc.status, 'CTE_SENT');
+        assert.equal((deps.pollCteStatusOnce as any).mock.callCount(), 0);
     });
 });

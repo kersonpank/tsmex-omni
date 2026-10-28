@@ -1270,6 +1270,7 @@ export interface ConfirmIntakeArrivalRequest {
     destinatarioPersonId: string;
     remetentePersonId?: string;
     freightTerm?: 'CIF' | 'FOB' | 'REDESPACHO';
+    intakeMode?: 'AUTO' | 'HUB_DIRECT' | 'UNKNOWN';
     /** Volumes/peso/valor da DANFE impressa — usados pelo backend só quando o XML não está no sistema. */
     cargo?: { units: number; weightKg: number; nfValue?: number };
 }

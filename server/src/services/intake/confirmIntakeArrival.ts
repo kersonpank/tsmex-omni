@@ -14,6 +14,8 @@ export interface ConfirmIntakeArrivalInput {
     remetentePersonId?: string | null;
     destinatarioPersonId: string;
     freightTerm?: 'CIF' | 'FOB' | 'REDESPACHO';
+    /** Confirmação operacional da modalidade; ausente em chamadas e pedidos anteriores. */
+    intakeMode?: 'AUTO' | 'HUB_DIRECT' | 'UNKNOWN';
     /**
      * Volumes/peso/valor lidos da DANFE impressa no balcão. Só valem quando o XML da NF-e não
      * está no sistema — com XML, o XML é a fonte (ver `counterCargoFor`).
@@ -109,6 +111,11 @@ export async function confirmIntakeArrival(input: ConfirmIntakeArrivalInput): Pr
     const matchingOpportunity = await prisma.opportunity.findFirst({
         where: { matchedDemandId: demand.id },
     });
+    // Na entrada do /hubs, a ausência de uma solicitação de coleta significa que a
+    // mercadoria chegou diretamente ao CD. Mantemos chamadas antigas sem modo explícito.
+    const intakeMode = input.intakeMode === 'AUTO'
+        ? (matchingOpportunity?.needsCollection ? 'UNKNOWN' : 'HUB_DIRECT')
+        : input.intakeMode;
 
     // Início/fim de prestação (campos fiscais do CT-e — cidade pura, não texto livre) vêm do
     // Person vinculado quando ele já tem cidade resolvida contra o catálogo (`resolveIbgeCode`
@@ -123,11 +130,28 @@ export async function confirmIntakeArrival(input: ConfirmIntakeArrivalInput): Pr
     const remetentePersonRecord = prestacaoPersons.find((p) => p.id === remetentePersonId);
     const destinatarioPersonRecord = prestacaoPersons.find((p) => p.id === input.destinatarioPersonId);
 
-    const origemPrestacao =
+    const receivingHub = intakeMode === 'HUB_DIRECT'
+        ? await prisma.hub.findUnique({
+              where: { id: currentHubId },
+              select: { city: true, state: true, cityIbgeCode: true },
+          })
+        : null;
+    if (intakeMode === 'HUB_DIRECT' && !receivingHub) {
+        throw new AppError('Hub de recebimento não encontrado.', 400);
+    }
+
+    const origemDoRemetente =
         remetentePersonRecord?.city && remetentePersonRecord?.state
             ? `${remetentePersonRecord.city}, ${remetentePersonRecord.state}`
             : demand.origin;
-    const origemIbgeCode = remetentePersonRecord?.cityIbgeCode ?? null;
+    const origemPrestacao = intakeMode === 'HUB_DIRECT'
+        ? (receivingHub?.city?.trim() && receivingHub?.state?.trim()
+            ? `${receivingHub.city.trim()}, ${receivingHub.state.trim().toUpperCase()}`
+            : null)
+        : origemDoRemetente;
+    const origemIbgeCode = intakeMode === 'HUB_DIRECT'
+        ? receivingHub?.cityIbgeCode ?? null
+        : remetentePersonRecord?.cityIbgeCode ?? null;
 
     const fimPrestacao =
         destinatarioPersonRecord?.city && destinatarioPersonRecord?.state
@@ -206,6 +230,8 @@ export async function confirmIntakeArrival(input: ConfirmIntakeArrivalInput): Pr
                 status: 'AT_HUB',
                 enteredAtHubAt: new Date(),
                 currentHubId,
+                intakeMode: intakeMode ?? null,
+                intakeHubId: intakeMode ? currentHubId : null,
                 freightTerm,
                 remetentePersonId,
                 destinatarioPersonId: input.destinatarioPersonId,
@@ -254,9 +280,9 @@ export async function confirmIntakeArrival(input: ConfirmIntakeArrivalInput): Pr
                 orderId: newOrder.id,
                 eventType: 'AT_HUB',
                 description: counterCargo
-                    ? `Chegada confirmada no hub (intake) — ${counterCargoNote(counterCargo)}`
-                    : 'Chegada confirmada no hub (intake)',
-                location: demand.origin,
+                    ? `Chegada confirmada no hub${intakeMode === 'HUB_DIRECT' ? ' (entrega direta)' : ''} — ${counterCargoNote(counterCargo)}`
+                    : `Chegada confirmada no hub${intakeMode === 'HUB_DIRECT' ? ' (entrega direta)' : ''}`,
+                location: origemPrestacao ?? demand.origin,
                 ...(input.actorUserId ? { actorUserId: input.actorUserId } : {}),
             },
         });

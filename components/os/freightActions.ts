@@ -71,7 +71,7 @@ export async function emitFreightDocument(orderId: string, opts: EmitOptions): P
     }
 }
 
-/** Impressão: PDF oficial do CT-e autorizado quando existir; senão a prévia (minuta/DACTE). */
+/** CT-e autorizado usa o DACTE do provedor; minuta usa a impressão operacional. */
 export async function loadFreightPrint(
     orderId: string,
     doc: { id: string; documentType: FreightDocType; status: string },
@@ -84,8 +84,9 @@ export async function loadFreightPrint(
                 return null;
             }
         } catch {
-            // Sem PDF guardado (ex.: emissão simulada): cai na prévia.
+            // Não substituir o DACTE oficial por um desenho gerado localmente.
         }
+        throw new Error('O DACTE autorizado ainda não está disponível. Atualize o pedido ou peça apoio à torre.');
     }
     const res = await ordersFreightApi.getPrintPreview(orderId, doc.id);
     return { payload: res.payload ?? null, branding: res.branding ?? null };

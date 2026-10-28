@@ -21,6 +21,17 @@ export interface CteTaxValidationResult {
 }
 
 export const CTE_CFOP_OPTIONS: CteCfopOption[] = [
+    { code: '5351', label: 'Prestação de serviço de transporte para execução de serviço da mesma natureza', nature: 'PRESTACAO DE SERVICO DE TRANSPORTE' },
+    { code: '5352', label: 'Prestação de serviço de transporte a estabelecimento industrial', nature: 'PRESTACAO DE SERVICO DE TRANSPORTE' },
+    { code: '5353', label: 'Prestação de serviço de transporte a estabelecimento comercial', nature: 'PRESTACAO DE SERVICO DE TRANSPORTE' },
+    { code: '5354', label: 'Prestação de serviço de transporte a prestador de serviço de comunicação', nature: 'PRESTACAO DE SERVICO DE TRANSPORTE' },
+    { code: '5355', label: 'Prestação de serviço de transporte a geradora/distribuidora de energia', nature: 'PRESTACAO DE SERVICO DE TRANSPORTE' },
+    { code: '5356', label: 'Prestação de serviço de transporte a produtor rural', nature: 'PRESTACAO DE SERVICO DE TRANSPORTE' },
+    { code: '5357', label: 'Prestação de serviço de transporte a não contribuinte', nature: 'PRESTACAO DE SERVICO DE TRANSPORTE' },
+    { code: '5359', label: 'Prestação de serviço de transporte de mercadoria dispensada de nota fiscal', nature: 'PRESTACAO DE SERVICO DE TRANSPORTE' },
+    { code: '5360', label: 'Prestação de serviço de transporte a contribuinte substituto', nature: 'PRESTACAO DE SERVICO DE TRANSPORTE' },
+    { code: '5932', label: 'Prestação de serviço de transporte iniciada em UF diversa', nature: 'PRESTACAO DE SERVICO DE TRANSPORTE' },
+    { code: '5949', label: 'Outra prestação de serviço não especificada', nature: 'PRESTACAO DE SERVICO DE TRANSPORTE' },
     { code: '6351', label: 'Prestação de serviço de transporte para execução de serviço da mesma natureza', nature: 'PRESTACAO DE SERVICO DE TRANSPORTE' },
     { code: '6352', label: 'Prestação de serviço de transporte a estabelecimento industrial', nature: 'PRESTACAO DE SERVICO DE TRANSPORTE' },
     { code: '6353', label: 'Prestação de serviço de transporte a estabelecimento comercial', nature: 'PRESTACAO DE SERVICO DE TRANSPORTE' },
@@ -28,6 +39,7 @@ export const CTE_CFOP_OPTIONS: CteCfopOption[] = [
     { code: '6355', label: 'Prestação de serviço de transporte a geradora/distribuidora de energia', nature: 'PRESTACAO DE SERVICO DE TRANSPORTE' },
     { code: '6356', label: 'Prestação de serviço de transporte a produtor rural', nature: 'PRESTACAO DE SERVICO DE TRANSPORTE' },
     { code: '6357', label: 'Prestação de serviço de transporte a não contribuinte', nature: 'PRESTACAO DE SERVICO DE TRANSPORTE' },
+    { code: '6359', label: 'Prestação de serviço de transporte de mercadoria dispensada de nota fiscal', nature: 'PRESTACAO DE SERVICO DE TRANSPORTE' },
     { code: '6360', label: 'Prestação de serviço de transporte a contribuinte substituto', nature: 'PRESTACAO DE SERVICO DE TRANSPORTE' },
     { code: '6932', label: 'Prestação de serviço de transporte iniciada em UF diversa', nature: 'PRESTACAO DE SERVICO DE TRANSPORTE' },
     { code: '6949', label: 'Outra prestação de serviço não especificada', nature: 'PRESTACAO DE SERVICO DE TRANSPORTE' },
@@ -44,7 +56,8 @@ export const CTE_CST_RULES: CteCstRule[] = [
 ];
 
 export function normalizeCfop(value: string | null | undefined): string {
-    return String(value ?? '').replace(/\D/g, '').slice(0, 4);
+    const text = String(value ?? '').trim();
+    return /^\d\.\d{3}$/.test(text) ? text.replace('.', '') : text;
 }
 
 export function normalizeCst(value: string | null | undefined): string {

@@ -3,10 +3,12 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FreightDocumentSummary } from '../../../../types/index';
+import { CTE_CFOP_SELECT_OPTIONS } from '../../../../lib/cteTaxCatalog';
+import { CTE_CFOP_OPTIONS } from '../../../../server/src/services/fiscal/cteTaxRules';
 import FreightDocuments from './FreightDocuments';
 
 const { ordersFreightApi } = vi.hoisted(() => ({
-    ordersFreightApi: { emitCte: vi.fn(), prepare: vi.fn() },
+    ordersFreightApi: { emitCte: vi.fn(), retryRejectedCte: vi.fn(), prepare: vi.fn() },
 }));
 
 vi.mock('../../../../lib/api', () => ({ ordersFreightApi }));
@@ -93,5 +95,68 @@ describe('FreightDocuments — reenvio do CT-e pendente de reconciliação', () 
         expect(screen.getByText('a torre confere na SEFAZ antes de reenviar')).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Reenviar à SEFAZ' })).not.toBeInTheDocument();
         expect(ordersFreightApi.emitCte).not.toHaveBeenCalled();
+    });});
+
+describe('FreightDocuments — correção de CFOP rejeitado', () => {
+    const rejected: FreightDocumentSummary = {
+        ...DOCUMENT, status: 'CTE_REJECTED', canResend: false, statusReason: '519 - CFOP inválido para operação',
+    };
+
+    beforeEach(() => vi.resetAllMocks());
+
+    it('mantém o catálogo de CFOP da interface igual ao validado no servidor', () => {
+        expect(CTE_CFOP_SELECT_OPTIONS.map(({ code, labelFull }) => [code, labelFull]))
+            .toEqual(CTE_CFOP_OPTIONS.map(({ code, label }) => [code, label]));
+    });
+
+    it('permite escolher CFOP e declarar entrega direta, sem preparar ou recalcular o frete', async () => {
+        const send = pending();
+        const reload = pending();
+        ordersFreightApi.retryRejectedCte.mockReturnValue(send.promise);
+        const onResent = vi.fn(() => reload.promise);
+        const user = userEvent.setup();
+        render(<FreightDocuments orderId="order-1" documents={[rejected]} onResent={onResent} />);
+
+        expect(screen.getByText(/519 - CFOP inválido/)).toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: 'Corrigir CFOP e reenviar' }));
+        expect(screen.getByRole('button', { name: 'Corrigir e reenviar CT-e' })).toBeDisabled();
+        await user.selectOptions(screen.getByLabelText('CFOP para o reenvio'), '5932');
+        await user.click(screen.getByRole('checkbox', { name: /carga foi entregue diretamente neste hub/i }));
+        await user.click(screen.getByRole('button', { name: 'Corrigir e reenviar CT-e' }));
+        expect(ordersFreightApi.retryRejectedCte).toHaveBeenCalledExactlyOnceWith('order-1', rejected.id, { cfop: '5932', deliveredDirectlyToHub: true });
+        expect(screen.getByRole('button', { name: 'Reenviando…' })).toBeDisabled();
+        await act(async () => { send.resolve(); });
+        await waitFor(() => expect(onResent).toHaveBeenCalledOnce());
+        await act(async () => { reload.resolve(); });
+        expect(ordersFreightApi.emitCte).not.toHaveBeenCalled();
+        expect(ordersFreightApi.prepare).not.toHaveBeenCalled();
+    });
+
+    it('mostra o erro do preflight e mantém a seleção para correção', async () => {
+        ordersFreightApi.retryRejectedCte.mockRejectedValue({ response: { data: { error: 'SEFAZ 519: CFOP incompatível com a prestação.' } } });
+        const user = userEvent.setup();
+        render(<FreightDocuments orderId="order-1" documents={[rejected]} onResent={vi.fn()} />);
+        await user.click(screen.getByRole('button', { name: 'Corrigir CFOP e reenviar' }));
+        await user.selectOptions(screen.getByLabelText('CFOP para o reenvio'), '6352');
+        await user.click(screen.getByRole('button', { name: 'Corrigir e reenviar CT-e' }));
+        expect(await screen.findByRole('alert')).toHaveTextContent('SEFAZ 519');
+        expect(screen.getByLabelText('CFOP para o reenvio')).toHaveValue('6352');
+    });
+
+    it('does not offer CFOP correction for sent, authorized or other document types', () => {
+        for (const doc of [
+            { ...rejected, status: 'CTE_SENT' as const },
+            { ...rejected, status: 'CTE_AUTHORIZED' as const },
+            { ...rejected, status: 'DCE_REJECTED' as const, documentType: 'DCE' as const },
+        ]) {
+            const { unmount } = render(<FreightDocuments orderId="order-1" documents={[doc]} onResent={vi.fn()} />);
+            expect(screen.queryByRole('button', { name: 'Corrigir CFOP e reenviar' })).not.toBeInTheDocument();
+            unmount();
+        }
+    });
+
+    it('hides CFOP correction for a non-CFOP rejection', () => {
+        render(<FreightDocuments orderId="order-1" documents={[{ ...rejected, statusReason: 'Certificate invalid' }]} onResent={vi.fn()} />);
+        expect(screen.queryByRole('button', { name: 'Corrigir CFOP e reenviar' })).not.toBeInTheDocument();
     });
 });

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { personsApi } from '../../../../lib/api';
 import type { Person } from '../../../../types/index';
 import { PersonFormModal, type PersonFormModalInitialValues } from '../../../ui/PersonFormModal';
@@ -16,14 +16,18 @@ const PartyPicker: React.FC<{
     label: string;
     value: Person | null;
     source: PartySource;
-    onChange: (person: Person | null, source: PartySource) => void;
-}> = ({ label, value, source, onChange }) => {
+    onChange: (person: Person | null, source: PartySource, action?: 'select' | 'edit' | 'clear') => void;
+    stateRegistrationSuggestion?: { value: string; source: string };
+}> = ({ label, value, source, onChange, stateRegistrationSuggestion }) => {
     const [q, setQ] = useState('');
     const [hits, setHits] = useState<Person[]>([]);
     const [searched, setSearched] = useState('');
     const [creating, setCreating] = useState<PersonFormModalInitialValues | null>(null);
     const [publicBusy, setPublicBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const requestVersion = useRef(0);
+    const selectedPerson = useRef(value);
+    selectedPerson.current = value;
     const query = classifyPartyQuery(q);
     const noun = label.toLowerCase();
 
@@ -55,10 +59,11 @@ const PartyPicker: React.FC<{
                 <PartyCard
                     person={value}
                     source={source}
-                    onEdited={(person) => onChange(person, source)}
+                    stateRegistrationSuggestion={stateRegistrationSuggestion}
+                    onEdited={(person) => onChange(person, source, 'edit')}
                     onChange={() => {
                         setQ('');
-                        onChange(null, 'manual');
+                        onChange(null, 'manual', 'clear');
                     }}
                 />
             </Section>
@@ -69,15 +74,18 @@ const PartyPicker: React.FC<{
         (query.kind === 'cnpj' || query.kind === 'cpf') && hits.some((p) => p.document.replace(/\D/g, '') === query.digits);
 
     const createFromPublicCnpj = async (cnpj: string) => {
+        const version = ++requestVersion.current;
         setPublicBusy(true);
         setError(null);
         try {
             const person = (await personsApi.fromPublicCnpj(cnpj)).data;
-            if (person) onChange(person, 'public_cnpj');
+            if (person && version === requestVersion.current && !selectedPerson.current) onChange(person, 'public_cnpj', 'select');
         } catch (cause) {
             // Sem dados públicos agora: o formulário abre com o CNPJ, o operador completa.
-            setError(apiErrorMessage(cause, 'Não foi possível consultar a Receita agora.'));
-            setCreating({ documentType: 'CNPJ', document: cnpj });
+            if (version === requestVersion.current && !selectedPerson.current) {
+                setError(apiErrorMessage(cause, 'Não foi possível consultar a Receita agora.'));
+                setCreating({ documentType: 'CNPJ', document: cnpj });
+            }
         } finally {
             setPublicBusy(false);
         }
@@ -106,6 +114,7 @@ const PartyPicker: React.FC<{
                 type="search"
                 value={q}
                 onChange={(e) => {
+                    requestVersion.current++;
                     setQ(e.target.value);
                     setError(null);
                 }}
@@ -120,7 +129,7 @@ const PartyPicker: React.FC<{
                     <button
                         key={p.id}
                         type="button"
-                        onClick={() => onChange(p, 'manual')}
+                        onClick={() => { requestVersion.current++; onChange(p, 'manual', 'select'); }}
                         className="min-h-[52px] rounded-xl border border-tower-200 px-3 py-1.5 text-left active:bg-tower-50 dark:border-tower-700 dark:active:bg-tower-800"
                     >
                         <span className="block truncate text-[14px] font-semibold text-tower-900 dark:text-white">{p.legalName}</span>
@@ -156,7 +165,8 @@ const PartyPicker: React.FC<{
                     onClose={() => setCreating(null)}
                     onSuccess={(person) => {
                         setCreating(null);
-                        onChange(person, 'manual');
+                        requestVersion.current++;
+                        onChange(person, 'manual', 'select');
                     }}
                 />
             ) : null}

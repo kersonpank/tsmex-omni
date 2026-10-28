@@ -267,6 +267,71 @@ describe('confirmIntakeArrival', () => {
         deps.restore();
     });
 
+    it('modo AUTO sem oportunidade de coleta presume entrega direta no hub', async () => {
+        const deps = stubTransactionDeps({
+            personsById: {
+                'p-remet': { city: 'SÃ£o Paulo', state: 'SP', cityIbgeCode: '3550308' },
+                'p-dest': { city: 'Imperatriz', state: 'MA', cityIbgeCode: '2105302' },
+            },
+        });
+        const originalHubFind = prisma.hub.findUnique;
+        prisma.hub.findUnique = (async () => ({ city: 'Fortaleza', state: 'CE', cityIbgeCode: '2304400' })) as any;
+        prisma.demand.findUnique = (async () => ({
+            id: 'd1', status: 'AWAITING_ARRIVAL', sourceType: 'NFE_KEY', clientId: 'c1',
+            origin: 'SÃ£o Paulo, SP', destination: 'Imperatriz, MA', nfNumber: '1',
+            client: { id: 'c1', personId: 'p-remet', companyName: 'X' }, order: null, expectedHubId: 'hub-1',
+        })) as any;
+        try {
+            await confirmIntakeArrival({
+                demandId: 'd1', actingRoles: ['HUB'], actingHubId: 'hub-1', remetentePersonId: 'p-remet',
+                destinatarioPersonId: 'p-dest', intakeMode: 'AUTO',
+            });
+            const order = deps.orderCreateCalls[0]?.data;
+            assert.equal(order?.intakeMode, 'HUB_DIRECT');
+            assert.equal(order?.origemPrestacao, 'Fortaleza, CE');
+            assert.equal(order?.origemIbgeCode, '2304400');
+            assert.equal(order?.remetentePersonId, 'p-remet');
+        } finally {
+            prisma.hub.findUnique = originalHubFind;
+            deps.restore();
+        }
+    });
+
+    it('entrega direta registra o hub que recebeu como origem, mantendo o remetente', async () => {
+        const deps = stubTransactionDeps({
+            personsById: {
+                'p-remet': { city: 'São Paulo', state: 'SP', cityIbgeCode: '3550308' },
+                'p-dest': { city: 'Imperatriz', state: 'MA', cityIbgeCode: '2105302' },
+            },
+        });
+        const originalHubFind = prisma.hub.findUnique;
+        prisma.hub.findUnique = (async ({ where }: any) => {
+            assert.equal(where.id, 'hub-1');
+            return { city: 'Fortaleza', state: 'CE', cityIbgeCode: '2304400' };
+        }) as any;
+        prisma.demand.findUnique = (async () => ({
+            id: 'd1', status: 'AWAITING_ARRIVAL', sourceType: 'NFE_KEY', clientId: 'c1',
+            origin: 'São Paulo, SP', destination: 'Imperatriz, MA', nfNumber: '1',
+            client: { id: 'c1', personId: 'p-remet', companyName: 'X' }, order: null, expectedHubId: 'hub-1',
+        })) as any;
+        try {
+            await confirmIntakeArrival({
+                demandId: 'd1', actingRoles: ['HUB'], actingHubId: 'hub-1', remetentePersonId: 'p-remet',
+                destinatarioPersonId: 'p-dest', intakeMode: 'HUB_DIRECT', actorUserId: 'operator',
+            });
+            const order = deps.orderCreateCalls[0]?.data;
+            assert.equal(order?.intakeMode, 'HUB_DIRECT');
+            assert.equal(order?.intakeHubId, 'hub-1');
+            assert.equal(order?.origemPrestacao, 'Fortaleza, CE');
+            assert.equal(order?.origemIbgeCode, '2304400');
+            assert.equal(order?.remetentePersonId, 'p-remet');
+            assert.equal(order?.fimPrestacao, 'Imperatriz, MA');
+        } finally {
+            prisma.hub.findUnique = originalHubFind;
+            deps.restore();
+        }
+    });
+
     it('sem cidade no Person vinculado: cai pro texto da Demand (regressão MANUAL_HUB/DECLARATION sem cargoData)', async () => {
         const deps = stubTransactionDeps({
             personsById: {

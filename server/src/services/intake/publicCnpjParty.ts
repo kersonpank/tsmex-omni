@@ -1,7 +1,8 @@
 import axios from 'axios';
 import type { Person, Prisma } from '@prisma/client';
 import prisma from '../../lib/prisma.js';
-import { consultCNPJ } from '../cnpjService.js';
+import { consultCNPJ, normalizeStateRegistration } from '../cnpjService.js';
+import { AppError } from '../../middleware/errorHandler.js';
 import { parseChaveNfe } from '../../lib/nfeChaveIntake.js';
 import { resolveNfeCity, upsertParty } from './ensureNfePartyPersons.js';
 
@@ -23,6 +24,7 @@ export interface PublicCnpjData {
     uf?: string;
     ibge?: string;
     situation?: string;
+    stateRegistration?: string;
 }
 
 const text = (value: unknown): string | undefined =>
@@ -39,6 +41,15 @@ export function fromBrasilApi(cnpj: string, data: unknown): PublicCnpjData | nul
     // CEP pode vir numérico e perder o zero à esquerda (ex.: 1311000 → 01311000).
     const cep = digitsOf(row.cep).padStart(8, '0');
     const ibge = digitsOf(row.codigo_municipio_ibge);
+    const rawIe = row.inscricao_estadual;
+    const ieRows = Array.isArray(rawIe) ? rawIe as Record<string, unknown>[] : [];
+    const matchingIe = ieRows.find((entry) => {
+        const state = text(entry.estado)?.toUpperCase();
+        return !state || state === text(row.uf)?.toUpperCase();
+    });
+    const stateRegistration = normalizeStateRegistration(
+        matchingIe ? matchingIe.inscricao_estadual : rawIe,
+    );
     return {
         cnpj,
         legalName,
@@ -52,27 +63,50 @@ export function fromBrasilApi(cnpj: string, data: unknown): PublicCnpjData | nul
         uf: text(row.uf)?.toUpperCase(),
         ibge: /^\d{7}$/.test(ibge) ? ibge : undefined,
         situation: text(row.descricao_situacao_cadastral),
+        stateRegistration,
     };
 }
 
-/** Só BrasilAPI (sem chave, limite generoso, 5 s). Usado na criação da entrada pela chave. */
-export async function fetchBrasilApiCnpj(cnpj: string): Promise<PublicCnpjData | null> {
+type BrasilLookup = { status: 'found'; data: PublicCnpjData } | { status: 'not_found' | 'unavailable' };
+
+async function lookupBrasilApiCnpj(cnpj: string): Promise<BrasilLookup> {
     const document = digitsOf(cnpj);
-    if (document.length !== 14) return null;
+    if (document.length !== 14) return { status: 'not_found' };
     try {
         const res = await axios.get(`https://brasilapi.com.br/api/cnpj/v1/${document}`, { timeout: 5000 });
-        return fromBrasilApi(document, res.data);
-    } catch {
-        return null;
+        const data = fromBrasilApi(document, res.data);
+        return data ? { status: 'found', data } : { status: 'unavailable' };
+    } catch (error) {
+        return { status: axios.isAxiosError(error) && error.response?.status === 404 ? 'not_found' : 'unavailable' };
     }
 }
 
-/** BrasilAPI e, se falhar, ReceitaWS — nunca Sintegra (cobra por consulta). */
+/** A criação da demanda é best-effort e continua mesmo sem a BrasilAPI. */
+export async function fetchBrasilApiCnpj(cnpj: string): Promise<PublicCnpjData | null> {
+    const result = await lookupBrasilApiCnpj(cnpj);
+    return result.status === 'found' ? result.data : null;
+}
+
+/** BrasilAPI e ReceitaWS; consulta de IE no Sintegra apenas se SINTEGRA_TOKEN estiver configurado. */
 export async function fetchPublicCnpj(cnpj: string): Promise<PublicCnpjData | null> {
-    const fromBrasil = await fetchBrasilApiCnpj(cnpj);
-    if (fromBrasil) return fromBrasil;
+    const brasil = await lookupBrasilApiCnpj(cnpj);
+    if (brasil.status === 'found') {
+        // A BrasilAPI costuma retornar os dados cadastrais sem IE. Quando o Sintegra
+        // foi configurado, aproveitamos a consulta autorizada para completar esse campo;
+        // falha na consulta de IE nunca descarta os dados públicos já obtidos.
+        if (brasil.data.stateRegistration || !process.env.SINTEGRA_TOKEN?.trim()) return brasil.data;
+        try {
+            const fiscal = await consultCNPJ(digitsOf(cnpj), process.env.SINTEGRA_TOKEN);
+            return {
+                ...brasil.data,
+                ...(fiscal.stateRegistration ? { stateRegistration: fiscal.stateRegistration } : {}),
+            };
+        } catch {
+            return brasil.data;
+        }
+    }
     try {
-        const r = await consultCNPJ(digitsOf(cnpj));
+        const r = await consultCNPJ(digitsOf(cnpj), process.env.SINTEGRA_TOKEN);
         return {
             cnpj: r.cnpj,
             legalName: r.legalName,
@@ -86,10 +120,25 @@ export async function fetchPublicCnpj(cnpj: string): Promise<PublicCnpjData | nu
             uf: r.address?.state,
             ibge: r.address?.cityIbgeCode,
             situation: r.situation,
+            stateRegistration: r.stateRegistration,
         };
-    } catch {
-        return null;
+    } catch (error) {
+        if (error instanceof AppError && error.statusCode === 404 && brasil.status === 'not_found') return null;
+        if (error instanceof AppError && error.statusCode === 429) throw error;
+        throw new AppError('Consulta de CNPJ indisponível. Tente novamente ou cadastre manualmente.', 503);
     }
+}
+
+/** Atualiza somente uma IE ainda vazia, inclusive se outra pessoa editar durante a consulta. */
+async function fillMissingIe(person: Person, value?: string): Promise<Person> {
+    const ie = normalizeStateRegistration(value);
+    if (!ie || person.stateRegistration?.trim()) return person;
+    const updated = await prisma.person.updateMany({
+        where: { id: person.id, OR: [{ stateRegistration: null }, { stateRegistration: '' }] },
+        data: { stateRegistration: ie },
+    });
+    if (!updated.count) return (await prisma.person.findUnique({ where: { document: person.document } })) ?? person;
+    return { ...person, stateRegistration: ie };
 }
 
 /**
@@ -101,10 +150,16 @@ export async function ensurePublicCnpjPerson(cnpj: string, known?: PublicCnpjDat
     const document = digitsOf(cnpj);
     if (document.length !== 14) return null;
     const existing = await prisma.person.findUnique({ where: { document } });
-    if (existing) return existing;
-    const data = known?.legalName ? known : await fetchPublicCnpj(document);
+    const matchingKnown = known?.legalName && digitsOf(known.cnpj) === document ? known : null;
+    if (existing?.stateRegistration?.trim()) return existing;
+    const knownWithoutIe = matchingKnown && !matchingKnown.stateRegistration;
+    const enrichedKnown = knownWithoutIe && process.env.SINTEGRA_TOKEN?.trim()
+        ? await fetchPublicCnpj(document) ?? matchingKnown
+        : matchingKnown;
+    if (existing) return fillMissingIe(existing, enrichedKnown?.stateRegistration);
+    const data = enrichedKnown ?? await fetchPublicCnpj(document);
     if (!data) return null;
-    return upsertParty({
+    const person = await upsertParty({
         document,
         legalName: data.legalName,
         tradeName: data.tradeName,
@@ -115,6 +170,7 @@ export async function ensurePublicCnpjPerson(cnpj: string, known?: PublicCnpjDat
         complement: data.complement,
         neighborhood: data.neighborhood,
     });
+    return fillMissingIe(person, data.stateRegistration);
 }
 
 /** Dados públicos guardados na criação da entrada pela chave (`rawInputData.nfeKeyLookup`). */

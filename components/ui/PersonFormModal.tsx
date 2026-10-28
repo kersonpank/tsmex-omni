@@ -71,7 +71,7 @@ export function PersonFormModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
-  const [importInfo, setImportInfo] = useState<{ situation?: string; situationDate?: string; stateRegistrationStatus?: string } | null>(null);
+  const [importInfo, setImportInfo] = useState<{ situation?: string; situationDate?: string; stateRegistrationStatus?: string; stateRegistrationLookup?: DocumentImportData['stateRegistrationLookup']; stateRegistration?: string } | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -164,6 +164,8 @@ export function PersonFormModal({
                 situation: data.situation,
                 situationDate: data.situationDate,
                 stateRegistrationStatus: data.stateRegistrationStatus,
+                stateRegistrationLookup: data.stateRegistrationLookup,
+                stateRegistration: data.stateRegistration,
               });
               setForm(f => ({
                 ...f,
@@ -192,6 +194,18 @@ export function PersonFormModal({
             <p className={`text-sm ${/^ativ/i.test(importInfo.situation) ? 'text-tower-500 dark:text-tower-400' : 'text-amber-700 dark:text-amber-300'}`}>
               Situação na Receita: {importInfo.situation}{importInfo.situationDate ? ` (desde ${importInfo.situationDate})` : ''}
             </p>
+          )}
+          {importInfo?.stateRegistration && form.stateRegistration !== importInfo.stateRegistration && (
+            <div className="-mt-3 rounded-lg border border-brand-200 bg-brand-50 p-3 text-sm text-brand-950 dark:border-brand-700 dark:bg-brand-950/40 dark:text-brand-100">
+              <p>IE {importInfo.stateRegistration} encontrada na consulta.</p>
+              <button type="button" onClick={() => setForm((current) => ({ ...current, stateRegistration: importInfo.stateRegistration! }))} className="mt-2 min-h-[40px] rounded-lg border border-brand-400 px-3 py-2 font-bold">Usar IE importada</button>
+            </div>
+          )}
+          {!importInfo?.stateRegistration && importInfo?.stateRegistrationLookup === 'unavailable' && (
+            <p className="-mt-3 text-sm text-amber-700 dark:text-amber-300">A IE nÃ£o pÃ´de ser consultada agora. Confira na NF-e ou tente importar novamente.</p>
+          )}
+          {!importInfo?.stateRegistration && (importInfo?.stateRegistrationLookup === 'not_found' || importInfo?.stateRegistrationLookup === 'not_requested') && (
+            <p className="-mt-3 text-sm text-tower-500 dark:text-tower-400">A consulta nÃ£o retornou uma IE. Isso nÃ£o confirma isenÃ§Ã£o; confira a NF-e ou preencha manualmente.</p>
           )}
           <div>
             <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Nome / Razão social *</label>

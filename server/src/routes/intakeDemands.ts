@@ -82,6 +82,7 @@ const confirmArrivalSchema = z.object({
     destinatarioPersonId: z.string().uuid(),
     remetentePersonId: z.string().uuid().optional(),
     freightTerm: z.enum(['CIF', 'FOB', 'REDESPACHO']).optional(),
+    intakeMode: z.enum(['AUTO', 'HUB_DIRECT', 'UNKNOWN']).optional(),
     // Conferência no balcão pela DANFE impressa — usada só quando o XML não está no sistema.
     cargo: z
         .object({
@@ -285,6 +286,7 @@ router.post('/demands/:id/confirm-arrival', async (req: AuthRequest, res: Respon
             remetentePersonId: body.remetentePersonId,
             destinatarioPersonId: body.destinatarioPersonId,
             freightTerm: body.freightTerm,
+            intakeMode: body.intakeMode,
             cargo: body.cargo,
             actorUserId: req.user!.id,
         });

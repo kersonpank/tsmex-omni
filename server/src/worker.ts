@@ -24,15 +24,11 @@ worker.on('failed', (job, err) => {
     console.error(JSON.stringify({ level: 'error', source: 'cteEmissionWorker', jobId: job?.id, error: err.message }));
 
     if (!job) return;
-    // BullMQ emite 'failed' em TODA tentativa fracassada, não só na última — verificado contra
-    // `node_modules/bullmq/dist/cjs/classes/job.js` (`shouldRetryJob`: retenta quando
-    // `attemptsMade + 1 < opts.attempts`). Espelha exatamente essa fórmula negada pra só agir
-    // quando o BullMQ de fato desistiu — nunca marcar reconciliação/alerta numa tentativa
-    // intermediária que ainda vai ser retentada automaticamente.
-    const maxAttempts = job.opts.attempts ?? 1;
-    const isFinalAttempt = job.attemptsMade + 1 >= maxAttempts;
-    if (isFinalAttempt) {
-        void handleCteJobExhausted(job.data, err).catch((handlerErr) => {
+    // O evento ocorre depois de moveToFailed, que já incrementou attemptsMade. Consultar o
+    // estado também cobre erros irrecuperáveis e backoff que desativa retry antecipadamente.
+    void job.getState().then(async (state) => {
+        if (state === 'failed') await handleCteJobExhausted(job.data, err, undefined, job.id);
+    }).catch((handlerErr) => {
             console.error(JSON.stringify({
                 level: 'error',
                 source: 'cteEmissionWorker',
@@ -40,8 +36,7 @@ worker.on('failed', (job, err) => {
                 jobId: job.id,
                 error: handlerErr instanceof Error ? handlerErr.message : String(handlerErr),
             }));
-        });
-    }
+    });
 });
 
 worker.on('error', (err) => {

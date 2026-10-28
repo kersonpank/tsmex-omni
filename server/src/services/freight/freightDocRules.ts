@@ -25,15 +25,22 @@ export const ACTIVE_DOC_STATUSES: FreightCalcStatus[] = [...EMITTED_STATUSES, ..
 export const REUSABLE_STATUSES: FreightCalcStatus[] = ['DRAFT', 'CALCULATED', 'CTE_REJECTED', 'DCE_REJECTED'];
 
 /**
- * Reconciliação normalmente bloqueia reenvio para evitar duplicidade na ACBr. Se o job morreu
- * antes da primeira submissão (preflight, falha ao enfileirar ou no início do processor), ainda
- * pode ser reenviado. O primeiro job deve ser o mais recente, ordenado por createdAt desc.
+ * A ausência de ID não prova que o provedor não recebeu a submissão. A guarda v1 e a fase
+ * terminal também não provam, sozinhas, que um worker não continua executando. O chamador deve
+ * fornecer prova independente de que não há worker concorrente; sem ela o padrão é bloquear.
  */
 export function isPendingReconciliationWithoutSubmission(calc: {
     status: string;
-    cteEmissionJobs?: { providerDocId: string | null }[];
-}): boolean {
-    return calc.status === 'CTE_PENDING_RECONCILIATION' && !calc.cteEmissionJobs?.[0]?.providerDocId;
+    cteEmissionJobs?: { providerDocId: string | null; phase?: string; submissionGuardVersion?: number | null; submitStartedAt?: Date | null }[];
+}, workerAbsent = false): boolean {
+    const job = calc.cteEmissionJobs?.[0];
+    return calc.status === 'CTE_PENDING_RECONCILIATION'
+        && workerAbsent
+        && job != null
+        && job.phase === 'PENDING_RECONCILIATION'
+        && job.submissionGuardVersion === 1
+        && job.submitStartedAt === null
+        && job.providerDocId === null;
 }
 
 export type FreightDocState = 'emitted' | 'in_flight' | 'rejected' | 'draft' | 'none';

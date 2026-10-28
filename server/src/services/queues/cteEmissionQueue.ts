@@ -1,4 +1,5 @@
 import { Queue } from 'bullmq';
+import { randomUUID } from 'node:crypto';
 import { createRedisConnection } from '../../lib/redis.js';
 
 export const CTE_EMISSION_QUEUE_NAME = 'cte-emission';
@@ -8,6 +9,10 @@ export interface CteEmissionJobData {
     cteEmissionJobId: string;
     /** 'poll-only' é usado pela reconciliação manual: nunca refaz POST /cte, só consulta status. */
     phaseHint?: 'submit' | 'poll-only';
+    /** Identificador estável desta solicitação de consulta, inclusive em retries de enqueue. */
+    reconciliationRunId?: string;
+    /** Aguarda a rota publicar queueJobId quando o job inicia antes da escrita no banco. */
+    queueIdWaitCount?: number;
     /**
      * `providerDocId` retornado pela ACBr logo após um `POST /cte` bem-sucedido, gravado via
      * `job.updateData(...)` (persiste no Redis) ANTES de qualquer escrita no Postgres. Existe
@@ -37,9 +42,8 @@ export function getCteEmissionQueue(): Queue<CteEmissionJobData> {
                 // Rede de segurança pra exceções genuinamente não classificadas (ex.: connection
                 // reset do Postgres numa escrita que já está dentro do catch-all do processor) —
                 // sem isso o BullMQ mata o job na 1ª falha (default attempts:1) e o calc fica
-                // preso sem chance de reconciliação. Seguro contra duplicidade de emissão porque
-                // `providerDocIdPending` (job.data, Redis) garante que uma retentativa nunca
-                // rechama `submitCteToAcbr` se a ACBr já tiver confirmado sucesso antes.
+                // preso sem chance de reconciliação. O marcador no banco impede novo POST mesmo
+                // quando a resposta ou o próprio Redis se perdem.
                 attempts: 5,
                 backoff: { type: 'exponential', delay: 5000 },
                 removeOnComplete: { age: 60 * 60 * 24 * 7 }, // 7 dias de histórico pra auditoria
@@ -57,7 +61,7 @@ export function getCteEmissionQueue(): Queue<CteEmissionJobData> {
 }
 
 /**
- * `jobId` é sempre `data.cteEmissionJobId` (UUID já único, gerado pelo Postgres em
+ * Para emissão, `jobId` é `data.cteEmissionJobId` (UUID gerado pelo Postgres em
  * `cteEmissionJob.create`) — nunca deixar o BullMQ gerar um automaticamente. Sem `jobId`
  * explícito, o BullMQ usa um contador incremental próprio guardado no Redis
  * (`bull:cte-emission:id`, `INCR`); se esse contador for perdido (Redis reiniciado sem volume
@@ -70,14 +74,25 @@ export function getCteEmissionQueue(): Queue<CteEmissionJobData> {
  * "recover from enqueue failure" já documentado em `freightCalculations.ts` (o retry depois de
  * uma falha de persistência não arrisca enfileirar o mesmo cálculo duas vezes).
  *
+ * Cada reconciliação usa um jobId distinto, pois um job concluído ainda permanece no Redis.
+ * O chamador deve fornecer `reconciliationRunId` estável ao repetir o mesmo enqueue e
+ * serializar solicitações concorrentes no banco; na ausência dele geramos um novo UUID.
  * `queue` é injetável (mesmo padrão de DI de `cteEmissionProcessor.ts`/
  * `distribuicaoNfeSyncProcessor.ts`) pra permitir testar sem tocar Redis de verdade.
  */
+export function cteReconciliationQueueJobId(cteEmissionJobId: string, runId: string): string {
+    if (!/^[A-Za-z0-9_-]+$/.test(runId)) throw new Error('reconciliationRunId inválido para BullMQ.');
+    return `${cteEmissionJobId}-reconcile-${runId}`;
+}
+
 export async function enqueueCteEmissionJob(
     data: CteEmissionJobData,
     queue: Pick<Queue<CteEmissionJobData>, 'add'> = getCteEmissionQueue(),
 ): Promise<string> {
-    const job = await queue.add('emit', data, { jobId: data.cteEmissionJobId });
+    const runId = data.phaseHint === 'poll-only' ? data.reconciliationRunId ?? randomUUID() : undefined;
+    const jobData = runId !== undefined ? { ...data, reconciliationRunId: runId } : data;
+    const jobId = runId !== undefined ? cteReconciliationQueueJobId(data.cteEmissionJobId, runId) : data.cteEmissionJobId;
+    const job = await queue.add('emit', jobData, { jobId });
     if (!job.id) throw new Error('BullMQ não retornou id para o job enfileirado.');
     return job.id;
 }

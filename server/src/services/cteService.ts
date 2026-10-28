@@ -33,6 +33,13 @@ export interface CteInvoice {
     value?: number;
 }
 
+/** Local da prestação é independente do endereço das partes da NF-e. */
+export interface CteServiceLocation {
+    city: string;
+    state: string;
+    ibgeCode?: NullableString;
+}
+
 export interface CteEmissionInput {
     calc: {
         id: string;
@@ -62,6 +69,8 @@ export interface CteEmissionInput {
         collectionData?: unknown;
         origemIbgeCode?: NullableString;
         fimIbgeCode?: NullableString;
+        serviceStart?: CteServiceLocation | null;
+        serviceEnd?: CteServiceLocation | null;
     };
     hub: {
         id: string;
@@ -222,7 +231,7 @@ export async function authorizeCteWithProvider(
         };
     }
 
-    const acbrDecision = getAcbrProviderDecision(options.fiscalEmitterProvider ?? null);
+    const acbrDecision = getAcbrProviderDecision(options.fiscalEmitterProvider ?? null, input.ambiente);
     if (acbrDecision.acbrRequired && !acbrDecision.credentialsConfigured) {
         return {
             status: 'REJECTED',

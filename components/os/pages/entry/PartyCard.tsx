@@ -41,10 +41,14 @@ const PartyCard: React.FC<{
     source: PartySource;
     onEdited: (person: Person) => void;
     onChange: () => void;
-}> = ({ person, source, onEdited, onChange }) => {
+    stateRegistrationSuggestion?: { value: string; source: string };
+}> = ({ person, source, onEdited, onChange, stateRegistrationSuggestion }) => {
     const [editing, setEditing] = useState(false);
     const gaps = partyGaps(person);
     const sourceLabel = SOURCE_LABEL[source];
+    const ie = person.stateRegistration?.trim();
+    const comparableIe = (value: string) => value.toUpperCase() === 'ISENTO' ? 'ISENTO' : value.replace(/\D/g, '');
+    const differentIe = ie && stateRegistrationSuggestion && comparableIe(ie) !== comparableIe(stateRegistrationSuggestion.value);
 
     return (
         <div className="rounded-xl border-2 border-emerald-500/60 bg-emerald-500/5 p-3">
@@ -53,6 +57,8 @@ const PartyCard: React.FC<{
                 {formatDocument(person.document)}
                 {person.city ? ` · ${person.city}/${person.state}` : ''}
             </p>
+            {person.documentType === 'CNPJ' && ie ? <p className="mt-0.5 text-[12px] text-tower-600 dark:text-tower-300">IE: {ie}</p> : null}
+            {differentIe ? <p className="mt-1 text-[12px] font-semibold text-[#8a6d00] dark:text-brand-yellow-400">A IE da NF-e é {stateRegistrationSuggestion.value}. Confira em Editar.</p> : null}
             {sourceLabel || gaps.length > 0 ? (
                 <p className="mt-1 text-[12px]">
                     {sourceLabel ? <span className="text-emerald-700 dark:text-emerald-400">{sourceLabel}</span> : null}
@@ -77,6 +83,7 @@ const PartyCard: React.FC<{
                     mode="edit"
                     personId={person.id}
                     initialValues={personFormValues(person)}
+                    stateRegistrationSuggestion={stateRegistrationSuggestion}
                     onClose={() => setEditing(false)}
                     onSuccess={(updated) => {
                         setEditing(false);

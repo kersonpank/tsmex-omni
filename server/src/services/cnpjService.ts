@@ -30,10 +30,24 @@ interface CNPJData {
     stateRegistration?: string;
     /** Situação da IE retornada pelo Sintegra (Ativo/Inativo/Baixado) — nunca vem do ReceitaWS. */
     stateRegistrationStatus?: string;
+    /** Uma fonte sem IE não comprova isenção; falha é diferente de ausência. */
+    stateRegistrationLookup?: 'found' | 'not_found' | 'not_requested' | 'unavailable';
 }
 
+export function normalizeStateRegistration(value: unknown): string | undefined {
+    if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+    const ie = String(value).trim();
+    if (ie.toUpperCase() === 'ISENTO') return 'ISENTO';
+    if (!/^[\d.\-/\s]+$/.test(ie)) return undefined;
+    return ie.replace(/\D/g, '') || undefined;
+}
+
+type LookupResult =
+    | { status: 'found'; data: CNPJData }
+    | { status: 'not_found' | 'unavailable' };
+
 // Consulta ReceitaWS (gratuita)
-async function consultReceitaWS(cnpj: string): Promise<CNPJData | null> {
+async function consultReceitaWS(cnpj: string): Promise<LookupResult> {
     try {
         const cleanCNPJ = cnpj.replace(/\D/g, '');
         
@@ -45,12 +59,12 @@ async function consultReceitaWS(cnpj: string): Promise<CNPJData | null> {
         });
 
         if (response.data.status === 'ERROR') {
-            return null;
+            return { status: /n[aã]o encontrado/i.test(String(response.data.message ?? '')) ? 'not_found' : 'unavailable' };
         }
 
         const data = response.data;
 
-        return {
+        return { status: 'found', data: {
             cnpj: cleanCNPJ,
             legalName: data.nome || '',
             tradeName: data.fantasia || undefined,
@@ -74,23 +88,24 @@ async function consultReceitaWS(cnpj: string): Promise<CNPJData | null> {
             capital: data.capital_social ? parseFloat(data.capital_social) : undefined,
             size: data.porte,
             source: 'receitaws',
-        };
+            stateRegistration: normalizeStateRegistration(data.inscricao_estadual),
+        } };
     } catch (error: any) {
         if (error.response?.status === 429) {
             throw new AppError('Rate limit exceeded. Please try again later.', 429);
         }
         if (error.response?.status === 404) {
-            return null;
+            return { status: 'not_found' };
         }
         console.error('ReceitaWS error:', error.message);
-        return null;
+        return { status: 'unavailable' };
     }
 }
 
 // Consulta SintegraWS (requer token)
-async function consultSintegraWS(cnpj: string, token?: string): Promise<CNPJData | null> {
+async function consultSintegraWS(cnpj: string, token: string): Promise<LookupResult> {
     if (!token) {
-        return null; // SintegraWS requires token
+        return { status: 'unavailable' };
     }
 
     try {
@@ -107,7 +122,7 @@ async function consultSintegraWS(cnpj: string, token?: string): Promise<CNPJData
 
         const resData = response.data;
         if (resData.status === 'ERROR' || resData.code === 'ERROR') {
-            return null;
+            return { status: 'unavailable' };
         }
 
         const data = resData.dados || resData;
@@ -126,20 +141,12 @@ async function consultSintegraWS(cnpj: string, token?: string): Promise<CNPJData
         let cnaeDescription = data.cnae_principal?.text || data.cnae_principal?.descricao || data.cnae_descricao || undefined;
 
         // Clean IE: SintegraWS might return 'ISENTO' or numbers with dots/dashes, clean them or keep ISENTO
-        let stateRegistration = data.inscricao_estadual;
-        if (stateRegistration) {
-            const cleanIe = String(stateRegistration).trim();
-            if (cleanIe.toUpperCase() === 'ISENTO') {
-                stateRegistration = 'ISENTO';
-            } else {
-                stateRegistration = cleanIe.replace(/\D/g, '') || undefined;
-            }
-        }
+        const stateRegistration = normalizeStateRegistration(data.inscricao_estadual);
 
         // situacao_ie: status da própria IE (Ativo/Inativo/Baixado) — distinto de situacao_cnpj.
         const stateRegistrationStatus = data.situacao_ie || undefined;
 
-        return {
+        return { status: 'found', data: {
             cnpj: cleanCNPJ,
             legalName: data.razao_social || data.nome_empresarial || data.nome || '',
             tradeName: data.nome_fantasia || data.fantasia || undefined,
@@ -165,10 +172,11 @@ async function consultSintegraWS(cnpj: string, token?: string): Promise<CNPJData
             source: 'sintegra',
             stateRegistration,
             stateRegistrationStatus,
-        };
-    } catch (error: any) {
-        console.error('SintegraWS error:', error.message);
-        return null;
+        } };
+    } catch {
+        // O token é enviado na query; não registrar a mensagem de erro do cliente HTTP.
+        console.error('SintegraWS indisponível durante consulta de IE.');
+        return { status: 'unavailable' };
     }
 }
 
@@ -181,34 +189,35 @@ export async function consultCNPJ(cnpj: string, sintegraToken?: string): Promise
     }
 
     // Try ReceitaWS first (free)
-    let result = await consultReceitaWS(cleanCNPJ);
-
-    // If ReceitaWS succeeded but lacks stateRegistration, supplement with SintegraWS if token exists
-    if (result && !result.stateRegistration && sintegraToken) {
-        try {
-            const sintegraData = await consultSintegraWS(cleanCNPJ, sintegraToken);
-            if (sintegraData) {
-                if (sintegraData.stateRegistration) {
-                    result.stateRegistration = sintegraData.stateRegistration;
-                    result.stateRegistrationStatus = sintegraData.stateRegistrationStatus;
+    const receita = await consultReceitaWS(cleanCNPJ);
+    let result = receita.status === 'found' ? receita.data : null;
+    let ieLookup: CNPJData['stateRegistrationLookup'] = result?.stateRegistration ? 'found' : 'not_requested';
+    // Consulta paga só quando há token e a fonte gratuita não trouxe IE ou razão social.
+    if ((!result?.legalName || !result.stateRegistration) && sintegraToken) {
+        const sintegra = await consultSintegraWS(cleanCNPJ, sintegraToken);
+        if (sintegra.status === 'found') {
+            const data = sintegra.data;
+            if (!result?.legalName) result = data;
+            else {
+                if (data.stateRegistration) {
+                    result.stateRegistration = data.stateRegistration;
+                    result.stateRegistrationStatus = data.stateRegistrationStatus;
                 }
-                if (!result.tradeName && sintegraData.tradeName) {
-                    result.tradeName = sintegraData.tradeName;
-                }
+                if (!result.tradeName && data.tradeName) result.tradeName = data.tradeName;
             }
-        } catch (err: any) {
-            console.error('Failed to supplement IE from SintegraWS:', err.message);
+            ieLookup = result?.stateRegistration ? 'found' : 'not_found';
+        } else {
+            ieLookup = 'unavailable';
         }
     }
 
-    // If ReceitaWS failed entirely or returned incomplete data, fallback/try SintegraWS
-    if ((!result || !result.legalName) && sintegraToken) {
-        result = await consultSintegraWS(cleanCNPJ, sintegraToken);
-    }
-
     if (!result || !result.legalName) {
+        if (receita.status === 'unavailable' || ieLookup === 'unavailable') {
+            throw new AppError('Consulta de CNPJ indisponível. Tente novamente ou informe os dados manualmente.', 503);
+        }
         throw new AppError('CNPJ not found or invalid', 404);
     }
+    result.stateRegistrationLookup = ieLookup;
 
     if (result && result.address?.city && result.address?.state) {
         try {

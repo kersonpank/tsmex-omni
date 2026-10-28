@@ -18,6 +18,7 @@ export interface DocumentImportData {
   situation?: string;
   situationDate?: string;
   stateRegistration?: string;
+  stateRegistrationLookup?: 'found' | 'not_found' | 'not_requested' | 'unavailable';
   /** Situação da IE (Ativo/Inativo/Baixado) — só vem quando a fonte foi o Sintegra. */
   stateRegistrationStatus?: string;
 }

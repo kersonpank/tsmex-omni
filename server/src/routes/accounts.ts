@@ -1025,22 +1025,19 @@ router.get('/cnpj/:cnpj', async (req, res: Response, next: NextFunction) => {
             throw new AppError('CNPJ must have 14 digits', 400);
         }
 
-        // Get Sintegra token from environment (optional)
-        const sintegraToken = process.env.SINTEGRA_TOKEN;
-
-        // Consult CNPJ
-        const cnpjData = await consultCNPJ(cnpj, sintegraToken);
-
-        // Se a fonte externa não trouxe IE, reaproveita a IE já cadastrada em Person
-        // (evita gastar crédito Sintegra de novo para um CNPJ já resolvido antes).
-        if (!cnpjData.stateRegistration) {
-            const knownPerson = await prisma.person.findUnique({
-                where: { document: cnpj },
-                select: { stateRegistration: true },
-            });
-            if (knownPerson?.stateRegistration) {
-                cnpjData.stateRegistration = knownPerson.stateRegistration;
-            }
+        // A IE cadastrada tem prioridade e evita uma consulta paga desnecessária.
+        const knownPerson = await prisma.person.findUnique({
+            where: { document: cnpj },
+            select: { stateRegistration: true },
+        });
+        const knownIe = knownPerson?.stateRegistration?.trim();
+        const cnpjData = await consultCNPJ(cnpj, knownIe ? undefined : process.env.SINTEGRA_TOKEN);
+        if (knownIe) {
+            cnpjData.stateRegistration = knownIe;
+            cnpjData.stateRegistrationLookup = 'found';
+        } else if (cnpjData.stateRegistrationLookup === 'unavailable') {
+            // O formulário compartilhado já distingue erro de importação de consulta sem IE.
+            throw new AppError('Consulta de IE indisponível. Tente novamente ou informe a IE manualmente.', 503);
         }
 
         // Check if CNPJ already exists in database

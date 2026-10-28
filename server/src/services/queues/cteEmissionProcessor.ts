@@ -1,14 +1,11 @@
 import type { Job } from 'bullmq';
 import { DelayedError } from 'bullmq';
+import { XMLParser, XMLValidator } from 'fast-xml-parser';
+import type { FreightCalcStatus, Prisma } from '@prisma/client';
 import prisma from '../../lib/prisma.js';
 import { AcbrHttpError } from '../acbr/acbrHttp.js';
-import {
-    submitCteToAcbr,
-    pollCteStatusOnce,
-    downloadCteXml,
-    downloadCtePdf,
-} from '../acbr/acbrCteEmit.js';
-import type { CteEmissionInput } from '../cteService.js';
+import { submitCteToAcbr, pollCteStatusOnce, downloadCteXml, downloadCtePdf } from '../acbr/acbrCteEmit.js';
+import type { CteEmissionInput, CteProviderResult } from '../cteService.js';
 import { buildCteEmissionInputForJob } from './cteEmissionJobInput.js';
 import { uploadBase64Object } from '../../lib/objectStorage.js';
 import { getCteEmissionQueue, type CteEmissionJobData } from './cteEmissionQueue.js';
@@ -17,39 +14,26 @@ import { pendingReconciliationRecoveryHint } from './cteReconciliationMessages.j
 
 const POLL_DELAY_MS = 1500;
 const RATE_LIMIT_BACKOFF_CAP_MS = 5 * 60 * 1000;
-
-/**
- * Rastro mínimo de observabilidade: sem isso, os logs do container não distinguem "job nunca
- * foi retirado da fila" (ex.: fila pausada silenciosamente) de "job foi pego e travou em algum
- * ponto do processamento" — a única forma de saber era consultar Postgres/Redis diretamente.
- */
-function logProcessorEvent(event: string, details: Record<string, unknown>): void {
-    console.log(JSON.stringify({ level: 'info', source: 'cteEmissionProcessor', event, ...details }));
-}
+const ACTIVE_CALC_STATUSES = ['CTE_SENT', 'CTE_PROCESSING', 'CTE_PENDING_RECONCILIATION'] as const;
+const SUBMITTED_CALC_STATUSES = ['CTE_PROCESSING', 'CTE_PENDING_RECONCILIATION'] as const;
 
 type CteEmissionJobRecord = Awaited<ReturnType<typeof prisma.cteEmissionJob.findUniqueOrThrow>>;
+type CteTransaction = {
+    cteEmissionJob: Pick<typeof prisma.cteEmissionJob, 'updateMany'>;
+    orderFreightCalculation: Pick<typeof prisma.orderFreightCalculation, 'updateMany'>;
+};
 
-/**
- * Dependências injetáveis do processor. Por padrão (`defaultCteEmissionProcessorDeps`)
- * apontam para as implementações reais (ACBr HTTP real, prisma real, fila BullMQ real).
- *
- * Existem para permitir testar `processCteEmissionJob` (o state machine de submit/poll/
- * 429/402/timeout/reconciliação — a peça de maior risco de todo o pipeline) sem falar com
- * Postgres/Redis/ACBr de verdade. Bindings de função exportados por módulos ES não podem
- * ser reatribuídos de fora do módulo que os exporta, então a injeção por parâmetro é o jeito
- * limpo de trocar por duplos de teste em vez de mockar objetos internos do runtime ESM.
- */
 export interface CteEmissionProcessorDeps {
-    prisma: {
-        cteEmissionJob: Pick<typeof prisma.cteEmissionJob, 'findUniqueOrThrow' | 'update'>;
-        orderFreightCalculation: Pick<typeof prisma.orderFreightCalculation, 'update'>;
-        $transaction: (ops: Array<Promise<unknown>>) => Promise<unknown[]>;
+    prisma: CteTransaction & {
+        cteEmissionJob: CteTransaction['cteEmissionJob'] & Pick<typeof prisma.cteEmissionJob, 'findUniqueOrThrow'>;
+        orderFreightCalculation: CteTransaction['orderFreightCalculation'] & Pick<typeof prisma.orderFreightCalculation, 'findUniqueOrThrow'>;
+        $transaction: <T>(fn: (tx: CteTransaction) => Promise<T>) => Promise<T>;
     };
     submitCteToAcbr: typeof submitCteToAcbr;
     pollCteStatusOnce: typeof pollCteStatusOnce;
     downloadCteXml: typeof downloadCteXml;
     downloadCtePdf: typeof downloadCtePdf;
-    buildCteEmissionInputForJob: typeof buildCteEmissionInputForJob;
+    buildCteEmissionInputForJob: (calcId: string, cteEmissionJobId: string) => ReturnType<typeof buildCteEmissionInputForJob>;
     uploadBase64Object: typeof uploadBase64Object;
     cteEmissionQueue: Pick<ReturnType<typeof getCteEmissionQueue>, 'pause'>;
     createSystemAlert: typeof createSystemAlert;
@@ -68,174 +52,170 @@ export const defaultCteEmissionProcessorDeps: CteEmissionProcessorDeps = {
     downloadCtePdf,
     buildCteEmissionInputForJob,
     uploadBase64Object,
-    // getter: só constrói a Queue/conexão Redis reais quando algo de fato acessa
-    // `deps.cteEmissionQueue` (ex.: pausa por cota) — nunca na importação deste módulo.
-    get cteEmissionQueue() {
-        return getCteEmissionQueue();
-    },
+    get cteEmissionQueue() { return getCteEmissionQueue(); },
     createSystemAlert,
     createOrMergeSystemAlert,
 };
 
-function retryDelayFromHeaders(err: AcbrHttpError): number {
-    const seconds = err.retryInSeconds ?? err.retryAfterSeconds ?? 2;
-    return Math.min(Math.max(seconds, 1) * 1000, RATE_LIMIT_BACKOFF_CAP_MS);
+async function readJob(deps: CteEmissionProcessorDeps, id: string): Promise<CteEmissionJobRecord> {
+    return deps.prisma.cteEmissionJob.findUniqueOrThrow({ where: { id } });
 }
 
-/**
- * Reagenda o job para rodar de novo após `delayMs` e sinaliza ao worker da BullMQ que o
- * job já foi movido para o estado "delayed" — lançar `DelayedError` depois de
- * `job.moveToDelayed` é o contrato exigido pela BullMQ (ver `worker.js#handleFailed`):
- * sem isso, o worker tentaria `moveToCompleted` num job que já saiu do set "active",
- * corrompendo o lock/estado do job. Nunca troque isto por um `return` simples.
- */
+class StaleTransition extends Error {}
+
+/** Compara a versão lida, inclusive o marcador, antes de alterar job e cálculo numa transação. */
+async function transition(
+    deps: CteEmissionProcessorDeps,
+    record: CteEmissionJobRecord,
+    jobData: Prisma.CteEmissionJobUpdateManyMutationInput,
+    calcData?: Prisma.OrderFreightCalculationUpdateManyMutationInput,
+    options: { calcStatuses?: readonly FreightCalcStatus[]; queueJobId?: string; requireCalc?: boolean } = {},
+): Promise<boolean> {
+    try {
+        return await deps.prisma.$transaction(async (tx) => {
+            const where = {
+                id: record.id,
+                calcId: record.calcId,
+                phase: record.phase,
+                providerDocId: record.providerDocId,
+                submissionGuardVersion: record.submissionGuardVersion,
+                submitStartedAt: record.submitStartedAt,
+                ...((options.queueJobId ?? record.queueJobId) ? { queueJobId: options.queueJobId ?? record.queueJobId } : {}),
+            } satisfies Prisma.CteEmissionJobWhereInput;
+            const changed = await tx.cteEmissionJob.updateMany({ where, data: jobData });
+            if (changed.count !== 1) return false;
+            if (calcData) {
+                const calc = await tx.orderFreightCalculation.updateMany({
+                    where: { id: record.calcId, status: { in: [...(options.calcStatuses ?? ACTIVE_CALC_STATUSES)] } },
+                    data: calcData,
+                });
+                if (calc.count !== 1 && options.requireCalc !== false) throw new StaleTransition();
+            }
+            return true;
+        });
+    } catch (err) {
+        if (err instanceof StaleTransition) return false;
+        throw err;
+    }
+}
+
+async function markPendingReconciliation(
+    deps: CteEmissionProcessorDeps,
+    record: CteEmissionJobRecord,
+    reason: string,
+    extra: Prisma.CteEmissionJobUpdateManyMutationInput = {},
+    queueJobId?: string,
+): Promise<boolean> {
+    if (['DONE', 'FAILED', 'PENDING_RECONCILIATION'].includes(record.phase)) return false;
+    return transition(deps, record,
+        { ...extra, phase: 'PENDING_RECONCILIATION', lastError: reason },
+        { status: 'CTE_PENDING_RECONCILIATION', cteStatusReason: `${reason}${pendingReconciliationRecoveryHint(record.providerDocId)}` },
+        { queueJobId, calcStatuses: record.submitStartedAt || record.providerDocId ? SUBMITTED_CALC_STATUSES : ACTIVE_CALC_STATUSES },
+    );
+}
+
 async function rescheduleJob(job: Job<CteEmissionJobData>, delayMs: number): Promise<never> {
     await job.moveToDelayed(Date.now() + delayMs, job.token);
     throw new DelayedError();
 }
 
-async function markPendingReconciliation(
-    deps: CteEmissionProcessorDeps,
-    calcId: string,
-    emissionJobId: string,
-    reason: string,
-    providerDocId: string | null = null,
-): Promise<void> {
-    const fullReason = `${reason}${pendingReconciliationRecoveryHint(providerDocId)}`;
-    await deps.prisma.$transaction([
-        deps.prisma.orderFreightCalculation.update({
-            where: { id: calcId },
-            data: { status: 'CTE_PENDING_RECONCILIATION', cteStatusReason: fullReason },
-        }),
-        deps.prisma.cteEmissionJob.update({
-            where: { id: emissionJobId },
-            // lastError fica cru, sem o hint de recuperação — é log técnico, não texto pra UI.
-            data: { phase: 'PENDING_RECONCILIATION', lastError: reason },
-        }),
-    ]);
+function rejectionText(result: CteProviderResult): string {
+    const reason = result.rejectionReason ?? 'Rejeitado pela SEFAZ.';
+    return result.rejectionCode ? `Código ${result.rejectionCode}: ${reason}` : reason;
 }
 
-/** Extrai `{error:{code,message}}` do corpo embutido em `AcbrHttpError.message` (best-effort; o corpo pode vir truncado). */
-function parseAcbrErrorBody(err: AcbrHttpError): { code: string | null; message: string | null } {
-    const start = err.message.indexOf('{');
-    const raw = start >= 0 ? err.message.slice(start) : '';
+/** Só a resposta de rejeição efetiva ou o pré-cadastro que falhou antes do POST é definitiva. */
+async function markRejected(deps: CteEmissionProcessorDeps, record: CteEmissionJobRecord, result: CteProviderResult): Promise<void> {
+    const reason = rejectionText(result);
+    await transition(deps, record,
+        { phase: 'FAILED', lastError: reason, rejectionCode: result.rejectionCode ?? null, rejectionReason: result.rejectionReason ?? null },
+        { status: 'CTE_REJECTED', cteStatusReason: reason, cteRejectedAt: new Date() },
+        { calcStatuses: record.submitStartedAt || record.providerDocId ? SUBMITTED_CALC_STATUSES : ACTIVE_CALC_STATUSES },
+    );
+}
+
+function fiscalDate(value: unknown): Date | null {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)) return null;
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/** Confirma o protocolo do mesmo CT-e e obtém a data do XML ou do retorno de autorização. */
+function cteAuthorizationDate(xml: string, key: string, protocol: string, responseDate: Date | null = null): Date | null {
     try {
-        const json = JSON.parse(raw) as { error?: { code?: unknown; message?: unknown }; code?: unknown; message?: unknown };
-        const node = json.error && typeof json.error === 'object' ? json.error : json;
-        return {
-            code: typeof node.code === 'string' ? node.code : null,
-            message: typeof node.message === 'string' ? node.message : null,
-        };
+        if (XMLValidator.validate(xml) !== true) return null;
+        const parsed = new XMLParser({ ignoreAttributes: false, removeNSPrefix: true, parseTagValue: false }).parse(xml) as Record<string, unknown>;
+        const root = (parsed.cteProc ?? parsed.procCTe) as Record<string, unknown> | undefined;
+        const cte = root?.CTe as Record<string, unknown> | undefined;
+        const infCte = cte?.infCte as Record<string, unknown> | undefined;
+        const prot = root?.protCTe as Record<string, unknown> | undefined;
+        const inf = prot?.infProt as Record<string, unknown> | undefined;
+        const matches = String(infCte?.['@_Id'] ?? '') === `CTe${key}`
+            && String(inf?.cStat ?? '') === '100'
+            && String(inf?.chCTe ?? '') === key
+            && String(inf?.nProt ?? '') === protocol;
+        const xmlDate = inf?.dhRecbto;
+        const receivedAt = xmlDate == null || xmlDate === '' ? responseDate : fiscalDate(xmlDate);
+        return matches ? receivedAt : null;
     } catch {
-        return {
-            code: /"code"\s*:\s*"([^"]+)"/.exec(raw)?.[1] ?? null,
-            message: /"message"\s*:\s*"([^"]*)/.exec(raw)?.[1] ?? null,
-        };
+        return null;
     }
 }
 
-/**
- * Recusa definitiva da ACBr no envio (4xx sem documento submetido): nada chegou à SEFAZ, então
- * não é caso de retry nem de conferência — vira CTE_REJECTED (reaproveitável) e avisa a torre.
- */
-async function handleSubmitRefused(
-    deps: CteEmissionProcessorDeps,
-    calcId: string,
-    emissionJobId: string,
-    err: AcbrHttpError,
-): Promise<void> {
-    const { code, message } = parseAcbrErrorBody(err);
-    const isCertificate = code === 'CertificateValidityError';
-    const reason = isCertificate
-        ? 'Certificado A1 do emitente vencido ou ainda não válido. A torre precisa enviar o certificado novo e depois é só emitir de novo.'
-        : `A ACBr recusou o envio (HTTP ${err.httpStatus}): ${message ?? err.message}. Nada foi enviado à SEFAZ; corrija e emita de novo.`;
-    await deps.prisma.$transaction([
-        deps.prisma.orderFreightCalculation.update({
-            where: { id: calcId },
-            data: { status: 'CTE_REJECTED', cteStatusReason: reason, cteRejectedAt: new Date() },
-        }),
-        deps.prisma.cteEmissionJob.update({
-            where: { id: emissionJobId },
-            data: { phase: 'FAILED', lastError: err.message, lastHttpStatus: err.httpStatus },
-        }),
-    ]);
-    await deps.createOrMergeSystemAlert({
-        category: 'FISCAL_PROVIDER_ERROR',
-        severity: isCertificate ? 'CRITICAL' : 'WARNING',
-        title: isCertificate ? 'Emissão de CT-e bloqueada — certificado A1 vencido' : 'Emissão de CT-e recusada pela ACBr',
-        message: `Cálculo ${calcId}: ${reason}`,
-        context: { calcId, emissionJobId, httpStatus: err.httpStatus, acbrErrorCode: code },
-        dedupMatch: (context) => context.calcId === calcId,
-    });
-}
-
-async function handlePaymentRequired(
-    deps: CteEmissionProcessorDeps,
-    calcId: string,
-    emissionJobId: string,
-    err: AcbrHttpError,
-    providerDocId: string | null,
-): Promise<void> {
-    await deps.cteEmissionQueue.pause();
-    await deps.prisma.cteEmissionJob.update({
-        where: { id: emissionJobId },
-        data: { pausedForQuota: true, lastHttpStatus: 402, lastError: err.message },
-    });
-    await markPendingReconciliation(
-        deps,
-        calcId,
-        emissionJobId,
-        'Fila de emissão pausada: créditos ACBr insuficientes ou cota excedida. Aguardando ação de um administrador.',
-        providerDocId,
-    );
-    await deps.createSystemAlert({
-        category: 'FISCAL_PROVIDER_QUOTA',
-        severity: 'CRITICAL',
-        title: 'Emissão de CT-e pausada — créditos ACBr esgotados',
-        message: `Código: ${err.quotaErrorCode ?? 'desconhecido'}. ${err.message}`,
-        context: { calcId, emissionJobId, httpStatus: 402, quotaErrorCode: err.quotaErrorCode },
-    });
+export function xmlConfirmsCteAuthorization(xml: string, key: string, protocol: string): boolean {
+    return cteAuthorizationDate(xml, key, protocol) !== null;
 }
 
 async function downloadAndPersistFiles(
     deps: CteEmissionProcessorDeps,
-    calcId: string,
-    emissionJobId: string,
-    providerDocId: string,
+    record: CteEmissionJobRecord,
     ambiente: CteEmissionInput['ambiente'],
-): Promise<void> {
-    const job = await deps.prisma.cteEmissionJob.findUniqueOrThrow({ where: { id: emissionJobId } });
-
-    if (!job.xmlDownloadedAt) {
-        const xml = await deps.downloadCteXml(providerDocId, ambiente);
+    key: string,
+    protocol: string,
+    responseDate: Date | null,
+): Promise<Date | null> {
+    const id = record.providerDocId!;
+    let xml: string;
+    if (!record.xmlDownloadedAt) {
+        xml = await deps.downloadCteXml(id, ambiente);
+        if (!cteAuthorizationDate(xml, key, protocol, responseDate)) return null;
         const uploaded = await deps.uploadBase64Object({
-            base64: Buffer.from(xml, 'utf-8').toString('base64'),
-            fileName: `${calcId}.xml`,
-            mimeType: 'application/xml',
-            keyPrefix: `cte/${calcId}/xml`,
+            base64: Buffer.from(xml, 'utf8').toString('base64'), fileName: `${record.calcId}.xml`,
+            mimeType: 'application/xml', keyPrefix: `cte/${record.calcId}/xml`,
         });
-        await deps.prisma.$transaction([
-            deps.prisma.orderFreightCalculation.update({
-                where: { id: calcId },
-                data: { cteXml: xml, cteXmlStorageKey: uploaded.storageKey },
-            }),
-            deps.prisma.cteEmissionJob.update({ where: { id: emissionJobId }, data: { xmlDownloadedAt: new Date() } }),
-        ]);
+        if (!(await transition(deps, record, { xmlDownloadedAt: new Date() }, { cteXml: xml, cteXmlStorageKey: uploaded.storageKey }, { calcStatuses: SUBMITTED_CALC_STATUSES }))) return null;
+    } else {
+        const calc = await deps.prisma.orderFreightCalculation.findUniqueOrThrow({ where: { id: record.calcId } });
+        xml = calc.cteXml ?? '';
+        if (!cteAuthorizationDate(xml, key, protocol, responseDate)) return null;
     }
 
-    if (!job.pdfDownloadedAt) {
-        const pdf = await deps.downloadCtePdf(providerDocId, ambiente);
+    if (!record.pdfDownloadedAt) {
+        const pdf = await deps.downloadCtePdf(id, ambiente);
         const uploaded = await deps.uploadBase64Object({
-            base64: pdf.toString('base64'),
-            fileName: `${calcId}.pdf`,
-            mimeType: 'application/pdf',
-            keyPrefix: `cte/${calcId}/pdf`,
+            base64: pdf.toString('base64'), fileName: `${record.calcId}.pdf`,
+            mimeType: 'application/pdf', keyPrefix: `cte/${record.calcId}/pdf`,
         });
-        await deps.prisma.$transaction([
-            deps.prisma.orderFreightCalculation.update({ where: { id: calcId }, data: { ctePdfStorageKey: uploaded.storageKey } }),
-            deps.prisma.cteEmissionJob.update({ where: { id: emissionJobId }, data: { pdfDownloadedAt: new Date() } }),
-        ]);
+        if (!(await transition(deps, record, { pdfDownloadedAt: new Date() }, { ctePdfStorageKey: uploaded.storageKey }, { calcStatuses: SUBMITTED_CALC_STATUSES }))) return null;
     }
+    return cteAuthorizationDate(xml, key, protocol, responseDate);
+}
+
+/** Persiste o ID mesmo se o Redis falhou; não sobrescreve cálculo já terminal ou substituído. */
+async function persistProviderId(deps: CteEmissionProcessorDeps, id: string, providerDocId: string): Promise<CteEmissionJobRecord | null> {
+    const stillCurrent = async (record: CteEmissionJobRecord): Promise<CteEmissionJobRecord | null> => {
+        const calc = await deps.prisma.orderFreightCalculation.findUniqueOrThrow({ where: { id: record.calcId } });
+        return SUBMITTED_CALC_STATUSES.some((status) => status === calc.status) ? record : null;
+    };
+    for (let attempt = 0; attempt < 2; attempt++) {
+        const current = await readJob(deps, id);
+        if (current.providerDocId) return current.providerDocId === providerDocId ? stillCurrent(current) : null;
+        if (['DONE', 'FAILED'].includes(current.phase)) return null;
+        if (await transition(deps, current, { phase: 'SUBMITTED', providerDocId }, { status: 'CTE_PROCESSING' }, {
+            calcStatuses: SUBMITTED_CALC_STATUSES, requireCalc: false,
+        })) return stillCurrent(await readJob(deps, id));
+    }
+    return null;
 }
 
 export async function processCteEmissionJob(
@@ -243,247 +223,171 @@ export async function processCteEmissionJob(
     deps: CteEmissionProcessorDeps = defaultCteEmissionProcessorDeps,
 ): Promise<void> {
     const { calcId, cteEmissionJobId, phaseHint } = job.data;
-    // `emissionJob` e as chamadas que o carregam ficam DENTRO do try: se
-    // `findUniqueOrThrow`/`buildCteEmissionInputForJob` lançarem (preflight fiscal falhou no
-    // momento do processamento, blip transitório de DB, etc.), o erro precisa passar pela
-    // mesma classificação (429/402/genérico) que qualquer outra falha do job — senão a fila
-    // (sem `attempts` configurado) mata o job na primeira exceção sem nunca atualizar
-    // `CteEmissionJob.lastError`/`phase` nem `OrderFreightCalculation.status`, e a emissão
-    // trava silenciosamente sem nenhum sinal pro operador.
-    let emissionJob: CteEmissionJobRecord | null = null;
-
-    logProcessorEvent('job-picked-up', { calcId, cteEmissionJobId, phaseHint: phaseHint ?? null });
-
+    let record: CteEmissionJobRecord | null = null;
+    let claimed = false;
     try {
-        emissionJob = await deps.prisma.cteEmissionJob.findUniqueOrThrow({ where: { id: cteEmissionJobId } });
-        const { input, fiscalEmitterContext } = await deps.buildCteEmissionInputForJob(calcId);
-
-        // Fase 1: submit — só acontece se ainda não temos providerDocId. Nunca reenvia depois disso
-        // (POST /cte custa 1 crédito ACBr por chamada; reenviar duplicaria o documento fiscal).
-        if (!emissionJob.providerDocId && phaseHint !== 'poll-only') {
-            // `job.data` sobrevive no Redis independente do estado do Postgres. Se uma
-            // tentativa anterior JÁ recebeu sucesso da ACBr mas não conseguiu persistir
-            // `providerDocId` no Postgres (ex.: connection reset bem entre as duas etapas),
-            // `providerDocIdPending` guarda esse valor — e esta tentativa NUNCA rechama
-            // `submitCteToAcbr` quando ele está presente, só completa a persistência que
-            // faltou. Sem isso, `attempts`/retry automático da fila poderia causar uma
-            // segunda cobrança de crédito + rejeição por duplicidade na SEFAZ.
-            let providerDocId = job.data.providerDocIdPending;
-
-            if (!providerDocId) {
-                const submitted = await deps.submitCteToAcbr(input, calcId, fiscalEmitterContext);
-                if ('rejected' in submitted) {
-                    await deps.prisma.$transaction([
-                        deps.prisma.orderFreightCalculation.update({
-                            where: { id: calcId },
-                            data: { status: 'CTE_REJECTED', cteStatusReason: submitted.rejected.rejectionReason ?? 'Rejeitado pela ACBr.' },
-                        }),
-                        deps.prisma.cteEmissionJob.update({ where: { id: cteEmissionJobId }, data: { phase: 'FAILED', lastError: submitted.rejected.rejectionReason } }),
-                    ]);
-                    return;
-                }
-                providerDocId = submitted.providerDocId;
-                // Grava no Redis ANTES de qualquer escrita no Postgres — fecha a janela de
-                // duplicidade descrita acima.
-                await job.updateData({ ...job.data, providerDocIdPending: providerDocId });
+        record = await readJob(deps, cteEmissionJobId);
+        if (record.calcId !== calcId) throw new Error('Cálculo do job não corresponde ao registro fiscal.');
+        if (['DONE', 'FAILED'].includes(record.phase)) return;
+        // A rota atual publica queueJobId depois de enfileirar. Uma consulta que começou muito
+        // cedo aguarda essa publicação; uma execução substituída jamais altera o job atual.
+        if (job.id && record.queueJobId && record.queueJobId !== job.id) {
+            if (phaseHint === 'poll-only' && (job.data.queueIdWaitCount ?? 0) < 3) {
+                await job.updateData({ ...job.data, queueIdWaitCount: (job.data.queueIdWaitCount ?? 0) + 1 });
+                await rescheduleJob(job, POLL_DELAY_MS);
             }
-
-            await deps.prisma.$transaction([
-                deps.prisma.cteEmissionJob.update({
-                    where: { id: cteEmissionJobId },
-                    data: { phase: 'SUBMITTED', providerDocId },
-                }),
-                deps.prisma.orderFreightCalculation.update({ where: { id: calcId }, data: { status: 'CTE_PROCESSING' } }),
-            ]);
-            emissionJob.providerDocId = providerDocId;
-            logProcessorEvent('submit-accepted', { calcId, cteEmissionJobId, providerDocId });
-        }
-
-        if (!emissionJob.providerDocId) {
-            throw new Error(`CteEmissionJob ${cteEmissionJobId} está em poll-only sem providerDocId — estado inconsistente.`);
-        }
-
-        // Fase 2: poll — uma tentativa por execução do job; reagenda via delay do BullMQ, nunca bloqueia
-        // o worker com um sleep local (isso liberaria o processo pra outros jobs da fila).
-        const outcome = await deps.pollCteStatusOnce(emissionJob.providerDocId, input.ambiente, emissionJob.attemptCount);
-        logProcessorEvent('poll-outcome', { calcId, cteEmissionJobId, kind: outcome.kind, attemptCount: emissionJob.attemptCount });
-
-        if (outcome.kind === 'AUTHORIZED') {
-            await deps.prisma.cteEmissionJob.update({ where: { id: cteEmissionJobId }, data: { phase: 'DOWNLOADING_FILES' } });
-            await downloadAndPersistFiles(deps, calcId, cteEmissionJobId, emissionJob.providerDocId, input.ambiente);
-            await deps.prisma.$transaction([
-                deps.prisma.orderFreightCalculation.update({
-                    where: { id: calcId },
-                    data: {
-                        status: 'CTE_AUTHORIZED',
-                        cteAccessKey: outcome.result.accessKey ?? null,
-                        cteProtocol: outcome.result.protocol ?? null,
-                        cteAuthorizedAt: new Date(),
-                        cteStatusReason: null,
-                    },
-                }),
-                deps.prisma.cteEmissionJob.update({ where: { id: cteEmissionJobId }, data: { phase: 'DONE' } }),
-            ]);
-            logProcessorEvent('done', { calcId, cteEmissionJobId });
             return;
         }
 
+        if (!record.providerDocId && job.data.providerDocIdPending) {
+            record = await persistProviderId(deps, cteEmissionJobId, job.data.providerDocIdPending);
+            if (!record) return;
+        }
+        if (!record.providerDocId) {
+            if (record.phase === 'PENDING_RECONCILIATION') return;
+            if (phaseHint === 'poll-only' || record.submissionGuardVersion !== 1 || record.submitStartedAt || record.phase !== 'QUEUED') {
+                await markPendingReconciliation(deps, record, 'Não é possível comprovar que o CT-e deixou de ser enviado; investigação necessária.');
+                return;
+            }
+        }
+        if (record.phase === 'PENDING_RECONCILIATION' && phaseHint !== 'poll-only') return;
+
+        const { input, fiscalEmitterContext } = await deps.buildCteEmissionInputForJob(calcId, cteEmissionJobId);
+        if (!record.providerDocId) {
+            const submitted = await deps.submitCteToAcbr(input, calcId, fiscalEmitterContext, async () => {
+                // O CAS e o estado do cálculo são gravados juntos. A rota não deve conseguir
+                // declarar falha de enqueue após esta transição e liberar uma nova emissão.
+                const startedAt = new Date();
+                const won = await transition(deps, record!, { submitStartedAt: startedAt, phase: 'EMPRESA_ENSURING' },
+                    { status: 'CTE_PROCESSING' }, { calcStatuses: ['CTE_SENT'] });
+                if (won) {
+                    claimed = true;
+                    record = { ...record!, submitStartedAt: startedAt, phase: 'EMPRESA_ENSURING' };
+                }
+                return won;
+            });
+            if ('skipped' in submitted) return;
+            if ('rejected' in submitted) {
+                // O adapter só retorna esta variante se o cadastro da empresa falhou antes do POST.
+                if (!claimed) await markRejected(deps, record, submitted.rejected);
+                else await markPendingReconciliation(deps, record, 'Resultado do envio não confirmado pelo provedor.');
+                return;
+            }
+            const providerDocId = submitted.providerDocId?.trim();
+            if (!providerDocId || !claimed) {
+                await markPendingReconciliation(deps, await readJob(deps, cteEmissionJobId), 'Resposta do envio sem identificador fiscal utilizável.');
+                return;
+            }
+            try {
+                await job.updateData({ ...job.data, providerDocIdPending: providerDocId });
+            } catch (err) {
+                console.error(JSON.stringify({ source: 'cteEmissionProcessor', event: 'redis-id-write-failed', cteEmissionJobId, error: String(err) }));
+            }
+            record = await persistProviderId(deps, cteEmissionJobId, providerDocId);
+            if (!record) return;
+        }
+
+        const providerDocId = record.providerDocId;
+        if (!providerDocId) return;
+        const outcome = await deps.pollCteStatusOnce(providerDocId, input.ambiente, record.attemptCount);
         if (outcome.kind === 'REJECTED') {
-            await deps.prisma.$transaction([
-                deps.prisma.orderFreightCalculation.update({
-                    where: { id: calcId },
-                    data: { status: 'CTE_REJECTED', cteStatusReason: outcome.result.rejectionReason ?? 'Rejeitado pela SEFAZ.', cteRejectedAt: new Date() },
-                }),
-                deps.prisma.cteEmissionJob.update({ where: { id: cteEmissionJobId }, data: { phase: 'FAILED', lastError: outcome.result.rejectionReason } }),
-            ]);
+            await markRejected(deps, record, outcome.result);
+            return;
+        }
+        if (outcome.kind === 'RECONCILIATION_REQUIRED') {
+            await markPendingReconciliation(deps, record, outcome.reason, {
+                ...(outcome.rejectionCode ? { rejectionCode: outcome.rejectionCode } : {}),
+                ...(outcome.rejectionReason ? { rejectionReason: outcome.rejectionReason } : {}),
+            });
+            return;
+        }
+        if (outcome.kind === 'AUTHORIZED') {
+            const key = outcome.result.accessKey ?? '';
+            const protocol = outcome.result.protocol ?? '';
+            if (!/^\d{44}$/.test(key) || !protocol.trim()) {
+                await markPendingReconciliation(deps, record, 'Autorização sem chave ou protocolo válidos; confirme o documento na ACBr e SEFAZ.');
+                return;
+            }
+            if (!(await transition(deps, record, { phase: 'DOWNLOADING_FILES' }))) return;
+            record = { ...record, phase: 'DOWNLOADING_FILES' };
+            const authorization = outcome.result.rawResponse.autorizacao;
+            const authorizationFields = authorization && typeof authorization === 'object' ? authorization as Record<string, unknown> : {};
+            const responseDate = fiscalDate(authorizationFields.dhRecbto ?? authorizationFields.data_autorizacao);
+            const authorizedAt = await downloadAndPersistFiles(deps, record, input.ambiente, key, protocol, responseDate);
+            if (!authorizedAt) {
+                await markPendingReconciliation(deps, await readJob(deps, cteEmissionJobId), 'XML não confirma a mesma chave, protocolo e autorização; reconciliação necessária.');
+                return;
+            }
+            await transition(deps, record, { phase: 'DONE' }, {
+                status: 'CTE_AUTHORIZED', cteAccessKey: key, cteProtocol: protocol, cteAuthorizedAt: authorizedAt, cteStatusReason: null,
+            }, { calcStatuses: SUBMITTED_CALC_STATUSES });
             return;
         }
 
-        // outcome.kind === 'PENDING' — reagenda mais uma tentativa. Timeout aqui NUNCA vira
-        // CTE_REJECTED: o documento pode estar autorizado do lado da SEFAZ mesmo que nosso
-        // polling tenha desistido; só reconciliação manual pode confirmar isso.
-        const nextAttempt = emissionJob.attemptCount + 1;
-        if (nextAttempt >= emissionJob.maxAttempts) {
-            await markPendingReconciliation(deps, calcId, cteEmissionJobId, 'Timeout aguardando retorno da SEFAZ via ACBr após o número máximo de tentativas.', emissionJob.providerDocId);
+        const nextAttempt = record.attemptCount + 1;
+        if (nextAttempt >= record.maxAttempts) {
+            await markPendingReconciliation(deps, record, 'Timeout aguardando retorno da SEFAZ via ACBr após o número máximo de tentativas.');
             return;
         }
-        await deps.prisma.cteEmissionJob.update({
-            where: { id: cteEmissionJobId },
-            data: { phase: 'POLLING', attemptCount: nextAttempt, lastPolledAt: new Date() },
-        });
-        await rescheduleJob(job, POLL_DELAY_MS);
+        if (await transition(deps, record, { phase: 'POLLING', attemptCount: nextAttempt, lastPolledAt: new Date() })) {
+            await rescheduleJob(job, POLL_DELAY_MS);
+        }
     } catch (err) {
         if (err instanceof DelayedError) throw err;
-
-        const isRecordNotFound =
-            err instanceof Error &&
-            (err.name === 'NotFoundError' ||
-                (err as { code?: string }).code === 'P2025' ||
-                err.message.includes('No CteEmissionJob found') ||
-                err.message.includes('Record to update not found') ||
-                err.message.includes('No OrderFreightCalculation found'));
-
-        if (isRecordNotFound) {
-            console.warn(
-                JSON.stringify({
-                    level: 'warn',
-                    source: 'processCteEmissionJob',
-                    calcId,
-                    cteEmissionJobId,
-                    message: 'Job ou cálculo não existe no PostgreSQL (job fantasma do Redis expurgado silenciosamente).',
-                }),
-            );
-            return;
+        if (!record && err instanceof Error && ((err as { code?: string }).code === 'P2025' || err.name === 'NotFoundError')) return;
+        console.error(JSON.stringify({ source: 'cteEmissionProcessor', calcId, cteEmissionJobId, error: err instanceof Error ? err.message : String(err) }));
+        // Se não for possível reler, propaga para o retry do BullMQ: ele terá que passar pelo CAS.
+        const current = await readJob(deps, cteEmissionJobId);
+        if (current.calcId !== calcId || ['DONE', 'FAILED', 'PENDING_RECONCILIATION'].includes(current.phase)) return;
+        if (job.id && current.queueJobId && current.queueJobId !== job.id) return;
+        if (!current.providerDocId && job.data.providerDocIdPending) {
+            const recovered = await persistProviderId(deps, cteEmissionJobId, job.data.providerDocIdPending);
+            if (recovered?.providerDocId) await rescheduleJob(job, POLL_DELAY_MS);
         }
-
-        console.error(
-            JSON.stringify({
-                level: 'error',
-                source: 'processCteEmissionJob',
-                calcId,
-                cteEmissionJobId,
-                attempt: (emissionJob?.attemptCount ?? 0) + 1,
-                error: err instanceof Error ? err.message : String(err),
-            }),
-        );
-
-        if (err instanceof AcbrHttpError && err.httpStatus === 429) {
-            if (emissionJob) {
-                await deps.prisma.cteEmissionJob.update({ where: { id: cteEmissionJobId }, data: { lastHttpStatus: 429, lastError: err.message } });
-            }
-            await rescheduleJob(job, retryDelayFromHeaders(err));
-            return;
-        }
+        const error = err instanceof Error ? err.message : String(err);
         if (err instanceof AcbrHttpError && err.httpStatus === 402) {
-            await handlePaymentRequired(deps, calcId, cteEmissionJobId, err, emissionJob?.providerDocId ?? null);
+            await deps.cteEmissionQueue.pause();
+            const changed = await markPendingReconciliation(deps, current, `Fila pausada por cota ACBr: ${error}`, { pausedForQuota: true, lastHttpStatus: 402 });
+            if (changed) await deps.createSystemAlert({
+                category: 'FISCAL_PROVIDER_QUOTA', severity: 'CRITICAL', title: 'Emissão de CT-e pausada — créditos ACBr esgotados',
+                message: error, context: { calcId, cteEmissionJobId, httpStatus: 402, quotaErrorCode: err.quotaErrorCode },
+            });
             return;
         }
-
-        // 4xx (exceto 402/404/409/429) no envio, sem documento submetido: recusa definitiva.
-        if (
-            err instanceof AcbrHttpError &&
-            err.httpStatus >= 400 &&
-            err.httpStatus < 500 &&
-            ![402, 404, 409, 429].includes(err.httpStatus) &&
-            emissionJob &&
-            !emissionJob.providerDocId &&
-            !job.data.providerDocIdPending
-        ) {
-            await handleSubmitRefused(deps, calcId, cteEmissionJobId, err);
+        // Toda falha após o marcador e antes de obter um ID é incerta, inclusive 4xx/429/5xx.
+        if (!current.providerDocId && (current.submitStartedAt || current.submissionGuardVersion !== 1 || claimed)) {
+            await markPendingReconciliation(deps, current, `Resultado do envio incerto: ${error}`,
+                err instanceof AcbrHttpError ? { lastHttpStatus: err.httpStatus } : {});
             return;
         }
-
-        // `emissionJob` pode ser `null` aqui se o próprio `findUniqueOrThrow` inicial falhou
-        // (blip transitório de DB) — sem um registro carregado não temos
-        // `attemptCount`/`maxAttempts` pra decidir reagendar, então tratamos como
-        // reconciliação imediata em vez de arriscar acessar propriedades de `null`.
-        if (!emissionJob) {
-            await markPendingReconciliation(
-                deps,
-                calcId,
-                cteEmissionJobId,
-                `Falha ao carregar dados do job antes do processamento: ${err instanceof Error ? err.message : String(err)}`,
-            );
+        const nextAttempt = current.attemptCount + 1;
+        if (nextAttempt >= current.maxAttempts) {
+            await markPendingReconciliation(deps, current, `Falha persistente no processamento do CT-e: ${error}`);
             return;
         }
-
-        // Timeout de rede ou qualquer outra instabilidade (incluindo falha do preflight
-        // fiscal em `buildCteEmissionInputForJob`): NÃO é rejeição definitiva.
-        const nextAttempt = emissionJob.attemptCount + 1;
-        if (nextAttempt >= emissionJob.maxAttempts) {
-            await markPendingReconciliation(deps, calcId, cteEmissionJobId, `Falha de comunicação persistente com a ACBr: ${err instanceof Error ? err.message : String(err)}`, emissionJob.providerDocId);
-            return;
+        const delay = err instanceof AcbrHttpError && err.httpStatus === 429
+            ? Math.min(Math.max(err.retryInSeconds ?? err.retryAfterSeconds ?? 2, 1) * 1000, RATE_LIMIT_BACKOFF_CAP_MS)
+            : POLL_DELAY_MS;
+        if (await transition(deps, current, { attemptCount: nextAttempt, lastError: error, ...(err instanceof AcbrHttpError ? { lastHttpStatus: err.httpStatus } : {}) })) {
+            await rescheduleJob(job, delay);
         }
-        await deps.prisma.cteEmissionJob.update({
-            where: { id: cteEmissionJobId },
-            data: { attemptCount: nextAttempt, lastError: err instanceof Error ? err.message : String(err) },
-        });
-        await rescheduleJob(job, POLL_DELAY_MS);
-        return;
     }
 }
 
-/**
- * Chamado pelo `worker.ts` no `.on('failed', ...)` do worker `cte-emission`, e SÓ quando o
- * BullMQ esgotou de vez todas as `attempts` configuradas (não vai retentar mais este job) —
- * nunca em falhas intermediárias que ainda serão retentadas automaticamente (ver o cálculo de
- * "última tentativa" em `worker.ts`, verificado contra o código-fonte do BullMQ).
- *
- * Fecha o buraco final do pipeline: sem isso, um job que morre de vez por uma exceção não
- * classificada (ex.: o próprio catch-all falhando ao escrever no Postgres) deixaria o calc
- * preso em `CTE_SENT`/`CTE_PROCESSING` pra sempre — sem sequer poder ser reconciliado
- * manualmente, já que `/emit-cte/reconcile` exige `CTE_PENDING_RECONCILIATION`.
- */
 export async function handleCteJobExhausted(
     jobData: CteEmissionJobData,
     err: Error,
     deps: CteEmissionProcessorDeps = defaultCteEmissionProcessorDeps,
+    queueJobId?: string,
 ): Promise<void> {
-    const { calcId, cteEmissionJobId } = jobData;
-
-    const emissionJob = await deps.prisma.cteEmissionJob
-        .findUniqueOrThrow({ where: { id: cteEmissionJobId } })
-        .catch(() => null);
-
-    // Se o job já chegou num estado terminal por outro caminho (ex.: uma tentativa anterior
-    // na verdade concluiu com sucesso antes deste evento 'failed' de uma tentativa mais velha
-    // ser processado fora de ordem), não sobrescrever — evita regressão de estado.
-    if (emissionJob && ['DONE', 'FAILED', 'PENDING_RECONCILIATION'].includes(emissionJob.phase)) {
-        return;
-    }
-    await markPendingReconciliation(
-        deps,
-        calcId,
-        cteEmissionJobId,
-        `Job esgotou todas as tentativas automáticas da fila: ${err.message}`,
-        emissionJob?.providerDocId ?? null,
-    );
-
+    const record = await readJob(deps, jobData.cteEmissionJobId);
+    if (record.calcId !== jobData.calcId || ['DONE', 'FAILED', 'PENDING_RECONCILIATION'].includes(record.phase)) return;
+    if (queueJobId && record.queueJobId && record.queueJobId !== queueJobId) return;
+    const changed = await markPendingReconciliation(deps, record, `Job esgotou as tentativas automáticas: ${err.message}`, {}, record.queueJobId ? queueJobId : undefined);
+    if (!changed) return;
     await deps.createOrMergeSystemAlert({
-        category: 'FISCAL_PROVIDER_ERROR',
-        severity: 'WARNING',
-        title: 'Emissão de CT-e travada — tentativas automáticas esgotadas',
-        message: `Cálculo ${calcId} não concluiu a emissão assíncrona após todas as tentativas automáticas. Reconciliação manual necessária.`,
-        context: { calcId, cteEmissionJobId, providerDocId: emissionJob?.providerDocId ?? null, lastError: err.message },
+        category: 'FISCAL_PROVIDER_ERROR', severity: 'WARNING', title: 'Emissão de CT-e travada — tentativas automáticas esgotadas',
+        message: `Cálculo ${record.calcId} não concluiu a emissão assíncrona. Reconciliação necessária.`,
+        context: { calcId: record.calcId, cteEmissionJobId: record.id, providerDocId: record.providerDocId, lastError: err.message },
     });
 }

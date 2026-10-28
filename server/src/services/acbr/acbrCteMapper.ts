@@ -1,6 +1,8 @@
-import type { CteEmissionInput, CtePerson } from '../cteService.js';
+import type { CteEmissionInput, CtePerson, CteServiceLocation } from '../cteService.js';
 import { buildCteIcmsBlock, getCteCfopOption, normalizeCfop } from '../fiscal/cteTaxRules.js';
 import { resolveIbgeMunicipio, ufToCuf } from './acbrIbge.js';
+import { resolveCteServiceLocation } from '../fiscal/cteServiceLocation.js';
+import { validateSelectedCity } from '../selectedCity.js';
 
 function digits(s: string): string {
     return s.replace(/\D/g, '');
@@ -50,6 +52,18 @@ function getTomador(input: CteEmissionInput): CtePerson | null {
     return input.order.consignatarioPerson ?? input.order.destinatarioPerson;
 }
 
+async function resolveServiceIbge(location: CteServiceLocation | null, label: string): Promise<string> {
+    if (!location) throw new Error(`${label}: informe município e UF da prestação.`);
+    if (location.ibgeCode) {
+        return (await validateSelectedCity({
+            city: location.city,
+            state: location.state,
+            cityIbgeCode: location.ibgeCode,
+        }, label)).cityIbgeCode;
+    }
+    return resolveIbgeMunicipio(location.city, location.state);
+}
+
 /** Monta corpo JSON para POST /cte da ACBr (layout SEFAZ embutido em infCte). */
 export async function buildAcbrCteEmitBody(input: CteEmissionInput, referencia: string): Promise<Record<string, unknown>> {
     const emit = input.person;
@@ -59,9 +73,18 @@ export async function buildAcbrCteEmitBody(input: CteEmissionInput, referencia: 
     if (!rem || !dest || !tomador) throw new Error('Remetente, destinatário e tomador são obrigatórios para ACBr CT-e.');
 
     const emitCmun = await resolveIbgeMunicipio(emit.city, emit.state, emit.cityIbgeCode);
-    const remCmun = await resolveIbgeMunicipio(rem.city, rem.state, input.order.origemIbgeCode ?? rem.cityIbgeCode);
-    const destCmun = await resolveIbgeMunicipio(dest.city, dest.state, input.order.fimIbgeCode ?? dest.cityIbgeCode);
+    const remCmun = await resolveIbgeMunicipio(rem.city, rem.state, rem.cityIbgeCode);
+    const destCmun = await resolveIbgeMunicipio(dest.city, dest.state, dest.cityIbgeCode);
     const tomCmun = await resolveIbgeMunicipio(tomador.city, tomador.state, tomador.cityIbgeCode);
+    const serviceStart = input.order.serviceStart === undefined
+        ? resolveCteServiceLocation({ calculationCity: input.calc.originCity, person: rem })
+        : input.order.serviceStart;
+    const serviceEnd = input.order.serviceEnd === undefined
+        ? resolveCteServiceLocation({ calculationCity: input.calc.destCity, person: dest })
+        : input.order.serviceEnd;
+    const startCmun = await resolveServiceIbge(serviceStart, 'Início da prestação');
+    const endCmun = await resolveServiceIbge(serviceEnd, 'Fim da prestação');
+    if (!serviceStart || !serviceEnd) throw new Error('Início e fim da prestação são obrigatórios.');
 
     const cUF = ufToCuf(emit.state);
     const tpAmb = input.ambiente === 'PRODUCAO' ? 1 : 2;
@@ -145,12 +168,12 @@ export async function buildAcbrCteEmitBody(input: CteEmissionInput, referencia: 
             cMunEnv: emitCmun,
             xMunEnv: (emit.city ?? 'INI').slice(0, 60),
             UFEnv: (emit.state ?? 'SP').slice(0, 2).toUpperCase(),
-            cMunIni: remCmun,
-            xMunIni: (rem.city ?? 'INI').slice(0, 60),
-            UFIni: (rem.state ?? 'SP').slice(0, 2).toUpperCase(),
-            cMunFim: destCmun,
-            xMunFim: (dest.city ?? 'FIM').slice(0, 60),
-            UFFim: (dest.state ?? 'SP').slice(0, 2).toUpperCase(),
+            cMunIni: startCmun,
+            xMunIni: serviceStart.city.slice(0, 60),
+            UFIni: serviceStart.state,
+            cMunFim: endCmun,
+            xMunFim: serviceEnd.city.slice(0, 60),
+            UFFim: serviceEnd.state,
             retira: 0,
             ...tomaIde,
         },

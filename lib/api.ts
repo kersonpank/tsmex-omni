@@ -1656,6 +1656,13 @@ export const ordersFreightApi = {
         return response.data;
     },
 
+    retryRejectedCte: async (orderId: string, calcId: string, data: { cfop: string; deliveredDirectlyToHub?: boolean }) => {
+        const response = await api.post<ApiResponse<OrderFreightCalculation>>(
+            `/orders/${orderId}/freight-calculations/${calcId}/retry-cte-cfop`, data,
+        );
+        return response.data;
+    },
+
     ctePreflight: async (orderId: string, calcId: string) => {
         const response = await api.get<ApiResponse<CtePreflightResult>>(
             `/orders/${orderId}/freight-calculations/${calcId}/cte-preflight`

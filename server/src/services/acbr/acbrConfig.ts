@@ -58,11 +58,14 @@ function isEmitterAcbr(fiscalEmitterProvider?: string | null): boolean {
     return fiscalEmitterProvider?.trim().toUpperCase() === 'ACBR';
 }
 
-export function getAcbrProviderDecision(fiscalEmitterProvider?: string | null): AcbrProviderDecision {
+export function getAcbrProviderDecision(
+    fiscalEmitterProvider?: string | null,
+    environment?: AcbrFiscalEnvironment | null,
+): AcbrProviderDecision {
     const forced = isAcbrEnvForced();
     const emitterAcbr = isEmitterAcbr(fiscalEmitterProvider);
     const acbrRequired = forced || emitterAcbr;
-    const credentialsConfigured = isAcbrCredentialsConfigured();
+    const credentialsConfigured = isAcbrCredentialsConfigured(environment);
 
     if (acbrRequired && !credentialsConfigured) {
         return {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { after, before, beforeEach, describe, it } from 'node:test';
 import axios from 'axios';
 import prisma from '../../lib/prisma.js';
-import { ensureKeyEmitterPerson, ensurePublicCnpjPerson, fromBrasilApi, storedPublicData } from './publicCnpjParty.js';
+import { ensureKeyEmitterPerson, ensurePublicCnpjPerson, fetchPublicCnpj, fromBrasilApi, storedPublicData } from './publicCnpjParty.js';
 import { counterCargoFor, counterCargoNote } from './confirmIntakeArrival.js';
 
 const SP = { id: 'c-sp', name: 'São Paulo', ibgeCode: '3550308', stateId: 's-sp', state: { id: 's-sp', code: 'SP', name: 'São Paulo' } };
@@ -44,6 +44,26 @@ describe('fromBrasilApi', () => {
     it('não duplica o tipo quando o logradouro já começa com ele', () => {
         assert.equal(fromBrasilApi(CNPJ, { ...brasilApiRow, logradouro: 'AVENIDA PAULISTA' })?.street, 'AVENIDA PAULISTA');
     });
+
+    it('leva IE explícita da fonte, sem inventar isenção nem aceitar texto inválido', () => {
+        assert.equal(fromBrasilApi(CNPJ, { ...brasilApiRow, inscricao_estadual: '001.234-5' })?.stateRegistration, '0012345');
+        assert.equal(fromBrasilApi(CNPJ, { ...brasilApiRow, inscricao_estadual: 'isento' })?.stateRegistration, 'ISENTO');
+        assert.equal(fromBrasilApi(CNPJ, brasilApiRow)?.stateRegistration, undefined);
+        assert.equal(fromBrasilApi(CNPJ, { ...brasilApiRow, inscricao_estadual: 'não informada' })?.stateRegistration, undefined);
+    });
+});
+
+describe('IE no cadastro pÃºblico', () => {
+    it('lÃª IE quando a BrasilAPI devolve uma lista por UF', () => {
+        const data = fromBrasilApi(CNPJ, {
+            ...brasilApiRow,
+            inscricao_estadual: [
+                { estado: 'RJ', inscricao_estadual: '999.999' },
+                { estado: 'SP', inscricao_estadual: '001.234-5', ativo: true },
+            ],
+        });
+        assert.equal(data?.stateRegistration, '0012345');
+    });
 });
 
 describe('storedPublicData', () => {
@@ -62,6 +82,7 @@ describe('ensurePublicCnpjPerson', () => {
         cityFind: prisma.city.findUnique,
         personFind: prisma.person.findUnique,
         personCreate: prisma.person.create,
+        personUpdateMany: prisma.person.updateMany,
         axiosGet: axios.get,
     };
 
@@ -73,6 +94,12 @@ describe('ensurePublicCnpjPerson', () => {
             store.set(data.document, row);
             return row;
         }) as any;
+        prisma.person.updateMany = (async ({ where, data }: any) => {
+            const row = [...store.values()].find((p) => p.id === where.id);
+            if (!row || (row.stateRegistration != null && row.stateRegistration !== '')) return { count: 0 };
+            Object.assign(row, data);
+            return { count: 1 };
+        }) as any;
         axios.get = (async () => {
             calls += 1;
             return { data: brasilApiRow };
@@ -81,11 +108,13 @@ describe('ensurePublicCnpjPerson', () => {
     beforeEach(() => {
         store.clear();
         calls = 0;
+        axios.get = (async () => { calls += 1; return { data: brasilApiRow }; }) as any;
     });
     after(() => {
         prisma.city.findUnique = original.cityFind;
         prisma.person.findUnique = original.personFind;
         prisma.person.create = original.personCreate;
+        prisma.person.updateMany = original.personUpdateMany;
         axios.get = original.axiosGet;
     });
 
@@ -104,6 +133,51 @@ describe('ensurePublicCnpjPerson', () => {
         const person = await ensurePublicCnpjPerson(CNPJ);
         assert.equal(person?.id, 'p-old');
         assert.equal(calls, 0);
+    });
+
+    it('cria com IE já conhecida e completa somente IE vazia em pessoa existente', async () => {
+        const known = fromBrasilApi(CNPJ, { ...brasilApiRow, inscricao_estadual: '001.234-5' })!;
+        assert.equal((await ensurePublicCnpjPerson(CNPJ, known))?.stateRegistration, '0012345');
+        store.set(CNPJ, { id: 'p-old', document: CNPJ, legalName: 'HUMANO', stateRegistration: null });
+        assert.equal((await ensurePublicCnpjPerson(CNPJ, known))?.stateRegistration, '0012345');
+        store.get(CNPJ).stateRegistration = '999';
+        assert.equal((await ensurePublicCnpjPerson(CNPJ, known))?.stateRegistration, '999');
+        assert.equal(calls, 0);
+    });
+
+    it('não aplica a IE de outro CNPJ guardado no cache', async () => {
+        store.set(CNPJ, { id: 'p-old', document: CNPJ, legalName: 'HUMANO', stateRegistration: null });
+        const other = fromBrasilApi('12345678000190', { ...brasilApiRow, inscricao_estadual: '123' })!;
+        assert.equal((await ensurePublicCnpjPerson(CNPJ, other))?.stateRegistration, null);
+        assert.equal(calls, 0);
+    });
+
+    it('não sobrescreve uma IE digitada enquanto a importação está em andamento', async () => {
+        store.set(CNPJ, { id: 'p-old', document: CNPJ, legalName: 'HUMANO', stateRegistration: null });
+        const previous = prisma.person.updateMany;
+        prisma.person.updateMany = (async () => { store.get(CNPJ).stateRegistration = '999'; return { count: 0 }; }) as any;
+        try {
+            const known = fromBrasilApi(CNPJ, { ...brasilApiRow, inscricao_estadual: '123' })!;
+            assert.equal((await ensurePublicCnpjPerson(CNPJ, known))?.stateRegistration, '999');
+        } finally {
+            prisma.person.updateMany = previous;
+        }
+    });
+
+    it('fonte pública indisponível é erro; ausência confirmada é null', async () => {
+        axios.get = (async () => { throw Object.assign(new Error('indisponível'), { isAxiosError: true }); }) as any;
+        await assert.rejects(() => fetchPublicCnpj(CNPJ), (error: any) => error.statusCode === 503);
+        axios.get = (async () => { throw Object.assign(new Error('não encontrado'), { isAxiosError: true, response: { status: 404 } }); }) as any;
+        assert.equal(await fetchPublicCnpj(CNPJ), null);
+    });
+
+    it('propaga IE da Receita no fallback sem chamar Sintegra', async () => {
+        axios.get = (async (url: string) => {
+            if (url.includes('brasilapi')) throw Object.assign(new Error('fora'), { isAxiosError: true });
+            assert.match(url, /receitaws/);
+            return { data: { nome: 'RECEITA LTDA', inscricao_estadual: '000.456' } };
+        }) as any;
+        assert.equal((await fetchPublicCnpj(CNPJ))?.stateRegistration, '000456');
     });
 
     it('remetente da chave usa os dados públicos guardados na criação (sem nova consulta)', async () => {

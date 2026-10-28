@@ -1774,6 +1774,10 @@ model Order {
   currentHubId String?
   currentHub   Hub?    @relation(fields: [currentHubId], references: [id], onDelete: SetNull)
 
+  // Modalidade e hub da primeira entrada informados pelo operador. Nulo em pedidos legados.
+  intakeMode  String?
+  intakeHubId String?
+
   // Status do pedido
   status OrderStatus @default(PENDING)
 
@@ -2434,6 +2438,12 @@ model CteEmissionJob {
 
   queueJobId      String?             @unique
   providerDocId   String?             @unique
+  // Marca persistida antes de enviar à ACBr. Versão nula identifica jobs anteriores à guarda.
+  submissionGuardVersion Int?
+  submitStartedAt DateTime?
+  inputSnapshot   Json?
+  rejectionCode   String?
+  rejectionReason String?             @db.Text
   phase           CteEmissionJobPhase @default(QUEUED)
   attemptCount    Int                 @default(0)
   maxAttempts     Int                 @default(24)

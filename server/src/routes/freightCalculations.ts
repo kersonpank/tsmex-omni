@@ -1,6 +1,6 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import type { FreightCalcStatus } from '@prisma/client';
+import type { FreightCalcStatus, Prisma } from '@prisma/client';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
@@ -19,14 +19,15 @@ import { authorizeDceWithProvider, validateDceReadiness } from '../services/dceS
 import { getBrandingForFiscalEmitter } from '../services/visualIdentityService.js';
 import { getFiscalDocModeForFreight } from '../services/fiscal/fiscalDocPolicy.js';
 import { resolveCteCfopCstForEmission } from '../services/fiscal/cteEmitterDefaults.js';
-import { buildCteEmissionInputFromRecords } from '../services/fiscal/cteEmissionInputBuilder.js';
+import { buildCteEmissionInputFromRecords, createCteInputSnapshot } from '../services/fiscal/cteEmissionInputBuilder.js';
 import { getAcbrProviderDecision } from '../services/acbr/acbrConfig.js';
 import { enqueueCteEmissionJob } from '../services/queues/cteEmissionQueue.js';
 import { getObjectDownloadUrl } from '../lib/objectStorage.js';
 import { BREAKDOWN_KEYS, computeFreightFromTable, informedFreight, orderFreightParams } from '../services/freight/freightPricing.js';
 import { ACTIVE_DOC_STATUSES, REUSABLE_STATUSES, isPendingReconciliationWithoutSubmission } from '../services/freight/freightDocRules.js';
 import { getFreightSuggestion } from '../services/freight/freightQueries.js';
-import type { CtePreflightResult } from '../services/fiscal/ctePreflight.js';
+import { normalizeCteUf, type CtePreflightResult } from '../services/fiscal/ctePreflight.js';
+import { getCteCfopOption } from '../services/fiscal/cteTaxRules.js';
 
 const router = Router({ mergeParams: true });
 
@@ -486,6 +487,7 @@ router.patch('/:calcId', authenticate, authorize('ADMIN', 'HUB'), async (req: Au
 
         if (
             updated.calculationMethod !== 'INFORMADO'
+            && Object.keys(updatePayload).some((key) => key !== 'cfop' && key !== 'cst')
             && updated.status !== 'MINUTA_EMITTED'
             && !FISCAL_LOCKED_STATUSES.includes(updated.status as (typeof FISCAL_LOCKED_STATUSES)[number])
         ) {
@@ -996,8 +998,13 @@ router.post('/:calcId/emit-minuta', authenticate, authorize('ADMIN', 'HUB'), asy
     }
 });
 
-// POST /api/orders/:orderId/freight-calculations/:calcId/emit-cte - Emitir CT-e (SEFAZ) - estrutura pronta; API externa a integrar
-router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+const retryRejectedCteSchema = z.object({
+    cfop: z.string().trim().min(1),
+    deliveredDirectlyToHub: z.boolean().optional(),
+}).strict();
+
+// O reenvio com correção usa o mesmo pipeline de emissão, mas só altera um cálculo rejeitado.
+const emitCteHandler = (correctRejected: boolean) => async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const orderId = req.params.orderId as string;
         const calcId = req.params.calcId as string;
@@ -1033,6 +1040,20 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
         if (calc.documentType !== 'CTE') {
             throw new AppError('Este cálculo não é do tipo CT-e. Use emit-minuta para Minuta.', 400);
         }
+        const originalCalcStatus = calc.status;
+
+        const parsedCorrection = correctRejected ? retryRejectedCteSchema.safeParse(req.body) : null;
+        if (parsedCorrection && !parsedCorrection.success) {
+            throw new AppError('Informe um CFOP válido e a opção de entrega direta ao hub.', 400);
+        }
+        const correction = parsedCorrection?.success ? parsedCorrection.data : null;
+        if (correction && calc.status !== 'CTE_REJECTED') {
+            throw new AppError('A correção de CFOP só é permitida para CT-e rejeitado. Recarregue o pedido.', 409);
+        }
+        const selectedCfop = correction ? getCteCfopOption(correction.cfop) : null;
+        if (correction && !selectedCfop) {
+            throw new AppError('Escolha um CFOP válido do catálogo de CT-e.', 400);
+        }
 
         const pendingReconciliationWithoutSubmission = isPendingReconciliationWithoutSubmission(calc);
         if (
@@ -1040,7 +1061,7 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
             && !pendingReconciliationWithoutSubmission
         ) {
             const message = calc.status === 'CTE_PENDING_RECONCILIATION'
-                ? 'CT-e já tem um documento submetido à ACBr, aguardando reconciliação — use POST .../emit-cte/reconcile (consulta de status); reemissão está bloqueada aqui para evitar duplicidade.'
+                ? 'CT-e aguardando reconciliação. O reenvio está bloqueado até confirmar o estado no provedor e a ausência de worker concorrente; contate a torre.'
                 : 'CT-e já está preparado, enviado, autorizado ou cancelado para este cálculo.';
             throw new AppError(message, 400);
         }
@@ -1055,8 +1076,23 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
         });
 
         if (!hub) throw new AppError('Emissor (Hub) não encontrado', 404);
+
+        let correctedOrigin: string | undefined;
+        if (correction?.deliveredDirectlyToHub) {
+            if (!order.currentHubId) throw new AppError('Pedido sem hub atual para determinar o início da prestação.', 400);
+            const receivingHub = order.currentHubId === hub.id ? hub : await prisma.hub.findUnique({ where: { id: order.currentHubId } });
+            const uf = normalizeCteUf(receivingHub?.state);
+            const city = receivingHub?.city?.trim();
+            if (!city || !uf || uf === 'EX') {
+                throw new AppError('O hub atual precisa ter cidade e UF válidas para corrigir o início da prestação.', 400);
+            }
+            correctedOrigin = `${city}, ${uf}`;
+        }
         const providerMode = CTE_PROVIDER_HAPPY_PATH_MODE;
-        const { input: cteBaseInput, preflight } = buildCteEmissionInputFromRecords({ order, calc, hub });
+        const calcForEmission = correction
+            ? { ...calc, cfop: selectedCfop!.code, ...(correctedOrigin ? { originCity: correctedOrigin } : {}) }
+            : calc;
+        const { input: cteBaseInput, preflight } = buildCteEmissionInputFromRecords({ order, calc: calcForEmission, hub });
         if (!preflight.ok || !cteBaseInput) {
             return res.status(400).json({
                 success: false,
@@ -1068,13 +1104,8 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
         const ambiente = cteBaseInput.ambiente;
         const serie = cteBaseInput.serie;
 
-        const allowedStatusesForEmit: FreightCalcStatus[] = ['DRAFT', 'CALCULATED', 'CTE_REJECTED'];
+        const allowedStatusesForEmit: FreightCalcStatus[] = correctRejected ? ['CTE_REJECTED'] : ['DRAFT', 'CALCULATED', 'CTE_REJECTED'];
         if (pendingReconciliationWithoutSubmission) {
-            // Já verificamos acima que o último job deste calc está em fase terminal
-            // PENDING_RECONCILIATION e nunca teve providerDocId — esse job nunca mais roda no
-            // BullMQ (attempts exauridos), então o valor não muda entre esta leitura e o
-            // updateMany abaixo. O filtro de status sozinho já serializa contra uma segunda
-            // chamada concorrente a este endpoint, sem precisar de filtro relacional no CAS.
             allowedStatusesForEmit.push('CTE_PENDING_RECONCILIATION');
         }
 
@@ -1084,19 +1115,32 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
                 orderId,
                 documentType: 'CTE',
                 status: { in: allowedStatusesForEmit },
+                ...(calc.updatedAt ? { updatedAt: calc.updatedAt } : {}),
+                ...((req.user!.roles.includes('HUB') || correctedOrigin) ? { order: { currentHubId: order.currentHubId } } : {}),
             },
             data: {
                 status: 'CTE_READY',
-                cteStatusReason: null,
+                ...(selectedCfop ? { cfop: selectedCfop.code } : {}),
+                ...(correctedOrigin ? { originCity: correctedOrigin } : {}),
             },
         });
         if (ready.count !== 1) {
             throw new AppError('CT-e não está em estado elegível para envio. Recarregue o pedido e tente novamente.', 409);
         }
 
-        const numero = calc.fiscalEmitterId
-            ? await getNextFiscalEmitterCteNumber(calc.fiscalEmitterId)
-            : await getNextCteNumber(hub.id);
+        let numero: number;
+        try {
+            numero = calc.fiscalEmitterId
+                ? await getNextFiscalEmitterCteNumber(calc.fiscalEmitterId)
+                : await getNextCteNumber(hub.id);
+        } catch (error) {
+            // Não houve submissão nem criação de job; devolve a reserva para uma nova tentativa.
+            await prisma.orderFreightCalculation.updateMany({
+                where: { id: calcId, status: 'CTE_READY' },
+                data: { status: originalCalcStatus },
+            });
+            throw error;
+        }
         const cteInput = { ...cteBaseInput, numero } satisfies CteEmissionInput;
 
         await prisma.orderFreightCalculation.update({
@@ -1106,11 +1150,10 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
                 cteNumber: String(numero),
                 cteSeries: serie,
                 cteEnvironment: ambiente,
-                cteStatusReason: null,
             },
         });
 
-        const acbrDecision = getAcbrProviderDecision(calc.fiscalEmitter?.provider ?? null);
+        const acbrDecision = getAcbrProviderDecision(calc.fiscalEmitter?.provider ?? null, ambiente);
 
         if (acbrDecision.willUseAcbrHttp) {
             // Caminho real ACBr: assíncrono. Cria o job de emissão e enfileira — nunca chama a ACBr aqui.
@@ -1125,31 +1168,22 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
             let emissionJob: Awaited<ReturnType<typeof prisma.cteEmissionJob.create>> | null = null;
             try {
                 emissionJob = await prisma.cteEmissionJob.create({
-                    data: { calcId, phase: 'QUEUED' },
+                    data: {
+                        calcId, phase: 'QUEUED', submissionGuardVersion: 1,
+                        inputSnapshot: createCteInputSnapshot(cteInput) as unknown as Prisma.InputJsonValue,
+                    } as Parameters<typeof prisma.cteEmissionJob.create>[0]['data'],
                 });
                 const queueJobId = await enqueueCteEmissionJob({ calcId, cteEmissionJobId: emissionJob.id, phaseHint: 'submit' });
                 await prisma.cteEmissionJob.update({ where: { id: emissionJob.id }, data: { queueJobId } });
             } catch (enqueueError) {
                 const errMessage = enqueueError instanceof Error ? enqueueError.message : String(enqueueError);
-                // Nenhum documento chega a ser submetido à ACBr neste bloco (isso só acontece depois,
-                // no worker), então o `providerDocId` do job nunca existe aqui — ou seja, mesmo a
-                // reconciliação (/emit-cte/reconcile) não consegue agir sozinha neste estado exato
-                // (ela exige um job com `providerDocId` já preenchido). E reemitir via este mesmo
-                // endpoint também não é possível a partir de CTE_PENDING_RECONCILIATION, que está em
-                // FISCAL_LOCKED_STATUSES. Por isso a mensagem não promete "refaça a emissão" — só
-                // deixa claro que precisa de intervenção do suporte/administrador.
-                //
-                // As duas escritas abaixo usam `updateMany` com um filtro de estado (compare-and-swap)
-                // em vez de `update`: é possível que `enqueueCteEmissionJob` tenha de fato colocado o
-                // job na fila (BullMQ) antes de o `queueJobId` falhar ao persistir — nesse caso um
-                // worker pode já estar processando o job concorrentemente com este catch. Sem o
-                // filtro, escreveríamos CTE_PENDING_RECONCILIATION por cima de um resultado real
-                // (ex.: CTE_PROCESSING/CTE_AUTHORIZED/CTE_REJECTED) que o worker já persistiu.
+                // O enfileiramento pode ter funcionado mesmo quando a confirmação falhou;
+                // um worker pode estar ativo e um ID ausente não prova que não houve submit.
                 await prisma.orderFreightCalculation.updateMany({
                     where: { id: calcId, status: 'CTE_SENT' },
                     data: {
                         status: 'CTE_PENDING_RECONCILIATION',
-                        cteStatusReason: 'Falha ao enfileirar a emissão assíncrona do CT-e. Nenhum documento foi enviado à ACBr — contate o suporte técnico para reprocessar este cálculo.',
+                        cteStatusReason: [calc.cteStatusReason, 'Falha ao enfileirar o CT-e. Confirme o estado no provedor e com a torre antes de tentar novamente.'].filter(Boolean).join(' '),
                     },
                 });
                 if (emissionJob) {
@@ -1179,9 +1213,7 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
                 // Não-nulo aqui: o catch acima sempre relança (nunca cai para fora do try/catch
                 // deixando `emissionJob` como null quando o bloco todo teve sucesso).
                 job: { id: emissionJob!.id, phase: emissionJob!.phase },
-                message: pendingReconciliationWithoutSubmission
-                    ? 'CT-e reenviado para processamento assíncrono — a tentativa anterior não chegou a submeter nenhum documento à ACBr, então este é um envio novo, sem risco de duplicidade.'
-                    : 'CT-e enviado para processamento assíncrono. Acompanhe o status do cálculo.',
+                message: 'CT-e enviado para processamento assíncrono. Acompanhe o status do cálculo.',
             });
             return;
         }
@@ -1230,16 +1262,10 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
                 ctePdfUrl: providerResult.pdfUrl ?? null,
                 cteStatusReason: null,
                 cteAuthorizedAt: now,
-                cteRejectedAt: null,
             }
             : {
                 status: 'CTE_REJECTED' as const,
-                cteAccessKey: null,
-                cteProtocol: null,
-                cteXml: null,
-                ctePdfUrl: null,
-                cteStatusReason: providerResult.rejectionReason ?? 'CT-e rejeitado pelo provedor fiscal.',
-                cteAuthorizedAt: null,
+                cteStatusReason: [calc.cteStatusReason, providerResult.rejectionReason ?? 'CT-e rejeitado pelo provedor fiscal.'].filter(Boolean).join(' | Nova rejeição: '),
                 cteRejectedAt: now,
             };
 
@@ -1267,7 +1293,10 @@ router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), async 
     } catch (error) {
         next(error);
     }
-});
+};
+
+router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), emitCteHandler(false));
+router.post('/:calcId/retry-cte-cfop', authenticate, authorize('ADMIN', 'HUB'), emitCteHandler(true));
 
 // POST .../emit-cte/reconcile — só permite a partir de CTE_PENDING_RECONCILIATION.
 // Reenfileira em modo 'poll-only': NUNCA refaz POST /cte, só consulta o status já existente.
@@ -1287,7 +1316,7 @@ router.post('/:calcId/emit-cte/reconcile', authenticate, authorize('ADMIN'), asy
         const lastJob = calc.cteEmissionJobs[0];
         if (!lastJob?.providerDocId) {
             throw new AppError(
-                'Nenhum documento foi submetido à ACBr ainda para este cálculo — reconciliação (consulta de status) não se aplica aqui. Use POST .../emit-cte para reemitir do zero: é seguro, pois nada chegou a ser enviado à ACBr.',
+                'Não há ID do provedor para consultar. Isso não comprova que o envio não ocorreu; confirme com a torre e o provedor antes de qualquer reenvio.',
                 400,
             );
         }

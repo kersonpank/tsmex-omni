@@ -35,6 +35,43 @@ function unique(values: string[]): string[] {
     return Array.from(new Set(values.filter((value) => value.trim().length > 0)));
 }
 
+const VALID_UFS = new Set(['AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS', 'MT', 'PA', 'PB', 'PE', 'PI', 'PR', 'RJ', 'RN', 'RO', 'RR', 'RS', 'SC', 'SE', 'SP', 'TO', 'EX']);
+
+export function normalizeCteUf(value: unknown): string | null {
+    const uf = typeof value === 'string' ? value.trim().toUpperCase() : '';
+    return VALID_UFS.has(uf) ? uf : null;
+}
+
+/** MOC CT-e 4.00, G050/G051/G052. Nunca infere a prestação pelo endereço das partes. */
+function validateCfopLocations(input: CteEmissionInput): { issues: string[]; warnings: string[] } {
+    const start = normalizeCteUf(input.order.serviceStart?.state);
+    const end = normalizeCteUf(input.order.serviceEnd?.state);
+    const emitter = normalizeCteUf(input.person.state);
+    const cfop = getCteCfopOption(input.calc.cfop)?.code;
+    const issues: string[] = [];
+    const warnings: string[] = [];
+
+    if (!start || !end || !emitter) {
+        warnings.push('Não foi possível verificar as regras SEFAZ 519/524/908: faltam UFs válidas do início, fim ou emitente. Confira os locais da prestação.');
+    }
+    if (!cfop) return { issues, warnings };
+    if (start && end) {
+        const expectedPrefix = end === 'EX' ? '7' : start === end ? '5' : '6';
+        if (!cfop.startsWith(expectedPrefix)) {
+            issues.push(`SEFAZ 519: para a prestação ${start} → ${end}, o CFOP deve começar por ${expectedPrefix}.`);
+        }
+        if (emitter && start !== 'EX' && end !== 'EX') {
+            const isOutsideEmitterUf = cfop === '5932' || cfop === '6932';
+            if (emitter !== start && !isOutsideEmitterUf) {
+                issues.push(`SEFAZ 524: início em ${start} e emitente em ${emitter} exigem CFOP 5932 ou 6932.`);
+            } else if (emitter === start && isOutsideEmitterUf) {
+                issues.push(`SEFAZ 908: início e emitente em ${start} não permitem CFOP 5932 ou 6932.`);
+            }
+        }
+    }
+    return { issues, warnings };
+}
+
 function missingFieldsFromReadiness(input: CteEmissionInput, issues: string[]): string[] {
     const missing: string[] = [];
     if (issues.includes('CT-e precisa de CFOP.')) missing.push('cfop');
@@ -52,7 +89,8 @@ export function buildCtePreflightResult(input: CteEmissionInput | null, context:
     const inputIssues = input ? [] : ['Dados de cálculo e pedido são obrigatórios para o preflight completo do CT-e.'];
     const readiness = input ? validateCteReadiness(input) : { ok: false, issues: [] };
     const tax = input ? validateCteTaxSelection({ cfop: input.calc.cfop, cst: input.calc.cst }) : null;
-    const acbrDecision = getAcbrProviderDecision(context.provider ?? null);
+    const locations = input ? validateCfopLocations(input) : { issues: [], warnings: [] };
+    const acbrDecision = getAcbrProviderDecision(context.provider ?? null, context.environment ?? input?.ambiente ?? null);
     const providerIssues =
         acbrDecision.reason === 'missing_credentials'
             ? ['ACBr exigido, mas ACBR_CLIENT_ID e ACBR_CLIENT_SECRET não foram detectados no container da API.']
@@ -61,15 +99,17 @@ export function buildCtePreflightResult(input: CteEmissionInput | null, context:
         ...inputIssues,
         ...readiness.issues,
         ...(tax?.issues ?? []),
+        ...locations.issues,
         ...providerIssues,
         ...(context.additionalIssues ?? []),
     ]);
     const missingFields = unique([
         ...(input ? missingFieldsFromReadiness(input, readiness.issues) : []),
         ...(tax?.missingFields ?? []),
+        ...(locations.issues.length > 0 || (input?.calc.cfop && !tax?.cfop) ? ['cfop'] : []),
         ...(context.additionalMissingFields ?? []),
     ]);
-    const warnings = unique(context.additionalWarnings ?? []);
+    const warnings = unique([...locations.warnings, ...(context.additionalWarnings ?? [])]);
     const ok = input !== null && issues.length === 0 && missingFields.length === 0;
     const providerDecision = {
         willUseAcbrHttp: ok && acbrDecision.willUseAcbrHttp,

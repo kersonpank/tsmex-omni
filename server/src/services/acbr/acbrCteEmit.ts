@@ -13,6 +13,22 @@ export type FiscalEmitterContext = {
     certificatePasswordEncrypted?: string | null;
 };
 
+/** O provedor pode ter recebido o POST mesmo sem devolver uma resposta utilizável. */
+export class AcbrCteSubmissionUncertainError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'AcbrCteSubmissionUncertainError';
+    }
+}
+
+export function cteProviderDocIdFromCreateResponse(created: unknown): string {
+    const id = created && typeof created === 'object' ? (created as { id?: unknown }).id : null;
+    if ((typeof id !== 'string' && typeof id !== 'number') || !String(id).trim()) {
+        throw new AcbrCteSubmissionUncertainError('Resposta da ACBr sem id de documento; o resultado do envio é incerto.');
+    }
+    return String(id).trim();
+}
+
 function norm(s: unknown): string {
     return String(s ?? '')
         .toLowerCase()
@@ -20,38 +36,15 @@ function norm(s: unknown): string {
         .replace(/\p{Diacritic}/gu, '');
 }
 
-function mapDocToResult(doc: Record<string, unknown>, id: string, baseUrl: string): CteProviderResult {
-    const auth = (doc.autorizacao ?? {}) as Record<string, unknown>;
-    const st = norm(doc.status);
-    const authSt = norm(auth.status);
+function mapAuthorizedResult(doc: Record<string, unknown>, auth: Record<string, unknown>, id: string, baseUrl: string): CteProviderResult {
     const chave = (auth.chave_acesso ?? doc.chave) as string | undefined;
     const proto = (auth.numero_protocolo ?? doc.numero_protocolo) as string | undefined;
-    const motivo = [auth.motivo_status, doc.motivo_status].filter(Boolean).join(' | ') || 'Sem motivo informado.';
-
-    if (authSt.includes('autorizado') || st === 'autorizado' || (chave && /^\d{44}$/.test(String(chave).replace(/\D/g, '')) && !st.includes('rejeit'))) {
-        const cleanKey = String(chave ?? '').replace(/\D/g, '').slice(0, 44);
-        return {
-            status: 'AUTHORIZED',
-            accessKey: cleanKey || undefined,
-            protocol: proto ? String(proto) : undefined,
-            xml: undefined,
-            pdfUrl: id ? `${baseUrl}/cte/${id}/pdf` : undefined,
-            rawResponse: doc as Record<string, unknown>,
-        };
-    }
-    if (st.includes('rejeit') || st.includes('erro') || authSt.includes('rejeit')) {
-        return {
-            status: 'REJECTED',
-            rejectionCode: String(doc.codigo_status ?? auth.codigo_status ?? 'ACBR'),
-            rejectionReason: motivo,
-            rawResponse: doc as Record<string, unknown>,
-        };
-    }
     return {
-        status: 'REJECTED',
-        rejectionCode: 'PENDENTE',
-        rejectionReason: motivo,
-        rawResponse: doc as Record<string, unknown>,
+        status: 'AUTHORIZED',
+        accessKey: String(chave ?? '').replace(/\D/g, '') || undefined,
+        protocol: proto ? String(proto) : undefined,
+        pdfUrl: id ? `${baseUrl}/cte/${id}/pdf` : undefined,
+        rawResponse: doc,
     };
 }
 
@@ -59,18 +52,30 @@ function mapDocToResult(doc: Record<string, unknown>, id: string, baseUrl: strin
 export type CtePollOutcome =
     | { kind: 'AUTHORIZED'; result: CteProviderResult; providerDocId: string }
     | { kind: 'REJECTED'; result: CteProviderResult }
+    | { kind: 'RECONCILIATION_REQUIRED'; reason: string; rejectionCode?: string; rejectionReason?: string }
     | { kind: 'PENDING' };
+
+export interface CteSubmitDeps {
+    ensureEmpresaRegistered: typeof ensureEmpresaRegistered;
+    buildAcbrCteEmitBody: typeof buildAcbrCteEmitBody;
+    acbrFetchJson: typeof acbrFetchJson;
+}
+
+const defaultCteSubmitDeps: CteSubmitDeps = { ensureEmpresaRegistered, buildAcbrCteEmitBody, acbrFetchJson };
 
 /**
  * Faz o `POST /cte` (com auto-provisionamento de empresa se necessário) UMA ÚNICA VEZ.
- * Chamador é responsável por nunca invocar isto de novo para o mesmo `CteEmissionJob`
- * depois que `providerDocId` tiver sido persistido.
+ * O worker fornece `beforeCtePost` para gravar um marcador atômico depois de preparar o
+ * payload e cadastrar a empresa, mas antes de qualquer tentativa de POST /cte. Retornar
+ * false significa que outra execução ganhou o CAS ou o estado deixou de ser elegível.
  */
 export async function submitCteToAcbr(
     input: CteEmissionInput,
     referencia: string,
     fiscalEmitter?: FiscalEmitterContext | null,
-): Promise<{ providerDocId: string } | { rejected: CteProviderResult }> {
+    beforeCtePost?: () => Promise<boolean>,
+    deps: CteSubmitDeps = defaultCteSubmitDeps,
+): Promise<{ providerDocId: string } | { rejected: CteProviderResult } | { skipped: true }> {
     if (fiscalEmitter) {
         const ensureInput: EnsureEmpresaInput = {
             environment: fiscalEmitter.environment,
@@ -79,7 +84,7 @@ export async function submitCteToAcbr(
             certificateStorageKey: fiscalEmitter.certificateStorageKey,
             certificatePasswordEncrypted: fiscalEmitter.certificatePasswordEncrypted,
         };
-        const ensureResult = await ensureEmpresaRegistered(ensureInput);
+        const ensureResult = await deps.ensureEmpresaRegistered(ensureInput);
         if (!ensureResult.ok) {
             return {
                 rejected: {
@@ -92,61 +97,73 @@ export async function submitCteToAcbr(
         }
     }
 
-    const body = await buildAcbrCteEmitBody(input, referencia);
-    const created = await acbrFetchJson<Record<string, unknown>>('/cte', {
+    const body = JSON.stringify(await deps.buildAcbrCteEmitBody(input, referencia));
+    if (beforeCtePost && !(await beforeCtePost())) return { skipped: true };
+    const created = await deps.acbrFetchJson<Record<string, unknown>>('/cte', {
         method: 'POST',
-        body: JSON.stringify(body),
+        body,
         scopes: ['empresa', 'cte'],
         apiEnvironment: input.ambiente,
     });
-    const id = String(created.id ?? '');
-    if (!id) {
-        return {
-            rejected: {
-                status: 'REJECTED',
-                rejectionCode: 'ACBR',
-                rejectionReason: 'Resposta sem id de documento na ACBr.',
-                rawResponse: created,
-            },
-        };
-    }
-    return { providerDocId: id };
+    return { providerDocId: cteProviderDocIdFromCreateResponse(created) };
 }
 
 /**
- * Uma única checagem de status (`GET /cte/{id}`, com `sincronizar` esporádico).
+ * Uma única consulta de status (`GET /cte/{id}`), sem POST na reconciliação.
  * Não decide o que fazer com timeout/erro — isso é o processor da fila que decide,
  * porque só ele sabe a `attemptCount`/`maxAttempts` do `CteEmissionJob`.
  */
 export async function pollCteStatusOnce(
     providerDocId: string,
     ambiente: AcbrFiscalEnvironment,
-    attempt: number,
+    _attempt: number,
+    fetchJson: typeof acbrFetchJson = acbrFetchJson,
 ): Promise<CtePollOutcome> {
     const baseUrl = getAcbrApiBaseUrlForEnvironment(ambiente);
 
-    if (attempt >= 5 && attempt % 3 === 0) {
-        try {
-            await acbrFetchJson(`/cte/${providerDocId}/sincronizar`, { method: 'POST', scopes: ['empresa', 'cte'], apiEnvironment: ambiente });
-        } catch {
-            /* sync opcional — não deve derrubar o polling */
-        }
-    }
-
-    const doc = await acbrFetchJson<Record<string, unknown>>(`/cte/${providerDocId}`, {
+    const doc = await fetchJson<Record<string, unknown>>(`/cte/${providerDocId}`, {
         method: 'GET',
         scopes: ['empresa', 'cte'],
         apiEnvironment: ambiente,
     });
     const st = norm(doc.status);
-    const auth = (doc.autorizacao ?? {}) as Record<string, unknown>;
+    const auth = doc.autorizacao && typeof doc.autorizacao === 'object' && !Array.isArray(doc.autorizacao)
+        ? doc.autorizacao as Record<string, unknown> : {};
     const authSt = norm(auth.status);
+    const authReason = String(auth.motivo_status ?? auth.xMotivo ?? auth.motivo ?? '').trim();
+    const reason = authReason || String(doc.motivo_status ?? '').trim();
+    const authRejects = authSt.includes('rejeit') || norm(authReason).includes('rejeic');
+    const authAuthorizes = authSt === 'autorizado' || authSt === 'uso autorizado';
+    // `cStat` é do retorno fiscal; codigo_status de topo só é usado com rejeição explícita na autorização.
+    const codeValue = auth.cStat ?? auth.cstat ?? auth.codigo_status ?? doc.cStat ?? doc.cstat ?? (authRejects ? doc.codigo_status : undefined);
+    const code = codeValue == null ? '' : String(codeValue).trim();
+    const correctionCodes = new Set(['524', '519', '676', '908']); // regras CFOP no MOC CT-e 4.00
+    const unsafeCode = new Set(['204', '205', '206', '218', '539', '656', '999']).has(code);
+    const unsafeReason = /duplic|consumo indevido|indisponivel|paralisad|timeout|processamento|falha de comunicacao|erro interno|erro tecnico/.test(norm(reason));
 
-    if (authSt.includes('autorizado') || st === 'autorizado') {
-        return { kind: 'AUTHORIZED', result: mapDocToResult(doc, providerDocId, baseUrl), providerDocId };
+    if ((code === '100' && authRejects) || (correctionCodes.has(code) && authAuthorizes)) {
+        return { kind: 'RECONCILIATION_REQUIRED', reason: 'Retorno fiscal contraditório; confirme o estado na SEFAZ.' };
     }
-    if (st.includes('rejeit') || st.includes('erro') || authSt.includes('rejeit')) {
-        return { kind: 'REJECTED', result: mapDocToResult(doc, providerDocId, baseUrl) };
+    if (code === '100') {
+        return { kind: 'AUTHORIZED', result: mapAuthorizedResult(doc, auth, providerDocId, baseUrl), providerDocId };
+    }
+    if (unsafeCode || (unsafeReason && (authRejects || st.includes('rejeit') || st.includes('erro') || authSt.includes('erro')))) {
+        return {
+            kind: 'RECONCILIATION_REQUIRED', reason: `Retorno fiscal exige conferência: ${reason || code}.`,
+            ...((['204', '205', '206', '218', '539'].includes(code) || (authRejects && code)) ? { rejectionCode: code, rejectionReason: reason || undefined } : {}),
+        };
+    }
+    if (/^\d{3}$/.test(code) && Number(code) >= 200 && (correctionCodes.has(code) || (authRejects && authReason))) {
+        return {
+            kind: 'REJECTED',
+            result: { status: 'REJECTED', rejectionCode: code, rejectionReason: reason || `Rejeição SEFAZ ${code}.`, rawResponse: doc },
+        };
+    }
+    if ((authAuthorizes && !code) || (st === 'autorizado' && !code && !authRejects)) {
+        return { kind: 'AUTHORIZED', result: mapAuthorizedResult(doc, auth, providerDocId, baseUrl), providerDocId };
+    }
+    if (st.includes('erro') || st.includes('rejeit') || authSt.includes('erro') || authRejects) {
+        return { kind: 'RECONCILIATION_REQUIRED', reason: `Retorno do provedor não comprova rejeição fiscal definitiva: ${reason || 'sem detalhes'}.` };
     }
     return { kind: 'PENDING' };
 }
@@ -204,6 +221,7 @@ export async function emitCteViaAcbr(
 ): Promise<CteProviderResult> {
     const submitted = await submitCteToAcbr(input, referencia, fiscalEmitter);
     if ('rejected' in submitted) return submitted.rejected;
+    if ('skipped' in submitted) throw new Error('Envio de CT-e não iniciado.');
     const { providerDocId } = submitted;
 
     for (let attempt = 0; attempt < 24; attempt++) {
@@ -219,12 +237,8 @@ export async function emitCteViaAcbr(
             return { ...outcome.result, xml: xml ?? outcome.result.xml };
         }
         if (outcome.kind === 'REJECTED') return outcome.result;
+        if (outcome.kind === 'RECONCILIATION_REQUIRED') throw new AcbrCteSubmissionUncertainError(outcome.reason);
     }
 
-    return {
-        status: 'REJECTED',
-        rejectionCode: 'TIMEOUT',
-        rejectionReason: 'Timeout aguardando retorno da SEFAZ via ACBr.',
-        rawResponse: { id: providerDocId },
-    };
+    throw new AcbrCteSubmissionUncertainError(`Timeout aguardando retorno da SEFAZ via ACBr para o documento ${providerDocId}.`);
 }

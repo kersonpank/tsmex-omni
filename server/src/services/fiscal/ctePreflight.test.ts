@@ -24,6 +24,8 @@ const completeInput: CteEmissionInput = {
     },
     order: {
         freightTerm: 'CIF',
+        serviceStart: { city: 'Imperatriz', state: 'MA', ibgeCode: '2105302' },
+        serviceEnd: { city: 'Belém', state: 'PA', ibgeCode: '1501402' },
         remetentePerson: {
             legalName: 'Remetente SA',
             document: '12345678000190',
@@ -188,5 +190,40 @@ describe('buildCtePreflightResult', () => {
         assert.deepEqual(result.missingFields, []);
         assert.equal(result.tax.cfop, null);
         assert.equal(result.tax.cst, null);
+    });
+
+    it('aplica 519, 524 e 908 às UFs reais da prestação e do emitente', () => {
+        const check = (cfop: string, start: string, end: string, emitter: string) => buildCtePreflightResult({
+            ...completeInput,
+            calc: { ...completeInput.calc, cfop },
+            order: { ...completeInput.order, serviceStart: { city: 'Início', state: start }, serviceEnd: { city: 'Fim', state: end } },
+            person: { ...completeInput.person, state: emitter },
+        });
+
+        assert.ok(check('6352', 'MA', 'MA', 'MA').issues.some((issue) => issue.includes('519')));
+        assert.ok(check('6352', 'MA', 'MA', 'MA').missingFields.includes('cfop'));
+        assert.ok(check('5352', 'MA', 'PA', 'MA').issues.some((issue) => issue.includes('519')));
+        assert.ok(check('6352', 'MA', 'EX', 'MA').issues.some((issue) => issue.includes('519')));
+        assert.ok(check('5352', 'MA', 'MA', 'SP').issues.some((issue) => issue.includes('524')));
+        assert.ok(check('5352', 'MA', 'MA', 'SP').missingFields.includes('cfop'));
+        assert.ok(check('6352', 'MA', 'PA', 'SP').issues.some((issue) => issue.includes('524')));
+        assert.ok(check('5932', 'MA', 'MA', 'MA').issues.some((issue) => issue.includes('908')));
+        assert.ok(check('5932', 'MA', 'MA', 'MA').missingFields.includes('cfop'));
+        assert.ok(check('6932', 'MA', 'PA', 'MA').issues.some((issue) => issue.includes('908')));
+        for (const [cfop, start, end, emitter] of [
+            ['5352', 'MA', 'MA', 'MA'], ['6352', 'MA', 'PA', 'MA'],
+            ['5932', 'MA', 'MA', 'SP'], ['6932', 'MA', 'PA', 'SP'], ['7358', 'MA', 'EX', 'SP'],
+        ]) {
+            assert.ok(!check(cfop, start, end, emitter).issues.some((issue) => /SEFAZ (519|524|908)/.test(issue)), `${cfop} ${start} ${end} ${emitter}`);
+        }
+    });
+
+    it('não deduz UFs da prestação pelas partes quando o contrato de localização está ausente', () => {
+        const result = buildCtePreflightResult({
+            ...completeInput,
+            order: { ...completeInput.order, serviceStart: null, serviceEnd: null },
+        });
+        assert.ok(result.warnings.some((warning) => warning.includes('519/524/908')));
+        assert.ok(!result.issues.some((issue) => /SEFAZ (519|524|908)/.test(issue)));
     });
 });

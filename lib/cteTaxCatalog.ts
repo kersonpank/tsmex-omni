@@ -11,7 +11,7 @@ export interface CteCfopCatalogEntry {
     labelFull: string;
 }
 
-export const CTE_CFOP_SELECT_OPTIONS: readonly CteCfopCatalogEntry[] = [
+const INTERSTATE_AND_EXPORT_CFOPS: readonly CteCfopCatalogEntry[] = [
     {
         code: '6351',
         summary: 'Para execução de serviço da mesma natureza',
@@ -48,6 +48,11 @@ export const CTE_CFOP_SELECT_OPTIONS: readonly CteCfopCatalogEntry[] = [
         labelFull: 'Prestação de serviço de transporte a não contribuinte',
     },
     {
+        code: '6359',
+        summary: 'Transporte de mercadoria dispensada de nota fiscal',
+        labelFull: 'Prestação de serviço de transporte de mercadoria dispensada de nota fiscal',
+    },
+    {
         code: '6360',
         summary: 'Transporte a contribuinte substituto',
         labelFull: 'Prestação de serviço de transporte a contribuinte substituto',
@@ -68,6 +73,15 @@ export const CTE_CFOP_SELECT_OPTIONS: readonly CteCfopCatalogEntry[] = [
         labelFull: 'Prestação de serviço de transporte para o exterior',
     },
 ] as const;
+
+// Os correspondentes estaduais são previstos na relação de CFOP do MOC CT-e 4.00.
+export const CTE_CFOP_SELECT_OPTIONS: readonly CteCfopCatalogEntry[] = [
+    ...INTERSTATE_AND_EXPORT_CFOPS.filter((entry) => entry.code.startsWith('6')).map((entry) => ({
+        ...entry,
+        code: `5${entry.code.slice(1)}`,
+    })),
+    ...INTERSTATE_AND_EXPORT_CFOPS,
+];
 
 export function cfopOptionSelectText(entry: CteCfopCatalogEntry): string {
     return `${entry.code} | ${entry.summary}`;

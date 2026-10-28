@@ -10,7 +10,7 @@ import { personFormValues } from '../entry/PartyCard';
 /**
  * Pendências do documento do frete, cada uma com quem resolve: cadastro de uma parte se
  * completa aqui mesmo; dado do emitente/hub é da torre. CFOP/CST aparecem só quando o
- * emitente do hub não tem padrão.
+ * padrão do emitente falta ou é incompatível com a prestação.
  */
 const FreightIssues: React.FC<{
     suggestion: FreightSuggestion;
@@ -21,7 +21,7 @@ const FreightIssues: React.FC<{
     onPartyEdited: () => void;
 }> = ({ suggestion, issues, tax, onTax, showTax, onPartyEdited }) => {
     const [editing, setEditing] = useState<Person | null>(null);
-    const visible = issues.filter((issue) => !/CFOP|CST/.test(issue) || !showTax);
+    const visible = issues.filter((issue) => !/CFOP|CST/.test(issue) || !showTax || /^SEFAZ (519|524|908):/.test(issue));
     if (visible.length === 0 && !showTax) return null;
 
     return (

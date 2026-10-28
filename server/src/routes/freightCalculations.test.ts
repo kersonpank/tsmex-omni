@@ -32,6 +32,7 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
     const calcPendingId = 'calc-pending';
     const calcPendingReconciliationNoDocId = 'calc-pending-reconciliation-no-doc';
     const calcPendingReconciliationWithDocId = 'calc-pending-reconciliation-with-doc';
+    const calcRejectedId = 'calc-rejected';
     let token = '';
     let baseUrl = '';
     let server: ReturnType<express.Express['listen']> | null = null;
@@ -43,6 +44,8 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
         calcUpdateMany: prisma.orderFreightCalculation.updateMany,
         calcUpdate: prisma.orderFreightCalculation.update,
         hubFindUnique: prisma.hub.findUnique,
+        fiscalEmitterUpdate: prisma.fiscalEmitter.update,
+        cteJobCreate: prisma.cteEmissionJob.create,
     };
     const envSnapshot = {
         ACBR_CLIENT_ID: process.env.ACBR_CLIENT_ID,
@@ -94,6 +97,8 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
         id: hubId,
         name: 'Hub Imperatriz',
         code: 'IMP-MA',
+        city: 'Imperatriz',
+        state: 'MA',
         phone: '99999999',
         rntrc: '12345678',
         person: {
@@ -136,7 +141,7 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
             freightTotal: 320,
             originCity: 'Imperatriz',
             destCity: 'São Luís',
-            cfop: '6352',
+            cfop: '5352',
             cst: '00',
             tipoFrete: 'Normal',
             observacoes: null,
@@ -281,12 +286,12 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
         delete process.env.FISCAL_PROVIDER;
         const { ordersRouter } = await import('./orders.js');
 
-        prisma.user.findUnique = ((async () => ({
-            id: 'admin-1',
+        prisma.user.findUnique = ((async (args: any) => ({
+            id: args.where.id,
             email: 'admin@tsmex.com',
-            roles: ['ADMIN'],
+            roles: args.where.id === 'hub-outro' ? ['HUB'] : ['ADMIN'],
             active: true,
-            hubId: null,
+            hubId: args.where.id === 'hub-outro' ? 'outro-hub' : null,
             permissions: [],
             admin: null,
             client: null,
@@ -310,7 +315,7 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
             // aceitos), sempre retornando sucesso independente do filtro pedido pela rota.
             const allowedStatuses: string[] | undefined = args?.where?.status?.in;
             if (allowedStatuses && !allowedStatuses.includes(calc.status)) return { count: 0 } as any;
-            calc.status = args?.data?.status ?? calc.status;
+            Object.assign(calc, args?.data ?? {});
             return { count: 1 } as any;
         }) as unknown) as typeof prisma.orderFreightCalculation.updateMany;
 
@@ -345,6 +350,8 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
         prisma.orderFreightCalculation.updateMany = original.calcUpdateMany;
         prisma.orderFreightCalculation.update = original.calcUpdate;
         prisma.hub.findUnique = original.hubFindUnique;
+        prisma.fiscalEmitter.update = original.fiscalEmitterUpdate;
+        prisma.cteEmissionJob.create = original.cteJobCreate;
         for (const [key, value] of Object.entries(envSnapshot)) {
             if (value === undefined) {
                 delete process.env[key];
@@ -365,7 +372,7 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
         assert.equal(response.body.data.ok, true);
         assert.equal(response.body.data.canEmit, true);
         assert.deepEqual(response.body.data.issues, []);
-        assert.equal(response.body.data.tax.cfop?.code, '6352');
+        assert.equal(response.body.data.tax.cfop?.code, '5352');
         assert.equal(response.body.data.tax.cst?.code, '00');
     });
 
@@ -411,7 +418,7 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
         assert.equal(calcById.get(calcPendingId)?.status, 'DRAFT');
     });
 
-    it('(Onda 3) POST /emit-cte permite reemissão quando CTE_PENDING_RECONCILIATION mas o último job nunca teve providerDocId', async () => {
+    it('POST /emit-cte bloqueia reconciliação antiga sem providerDocId e sem prova de guarda/worker', async () => {
         const response = await httpJson<{ success: boolean; error: string; preflight?: { ok: boolean } }>(
             baseUrl,
             `/api/orders/${orderId}/freight-calculations/${calcPendingReconciliationNoDocId}/emit-cte`,
@@ -419,11 +426,9 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
             { method: 'POST', body: '{}' },
         );
 
-        // Não é rejeitado pelo gate de status (que responderia sem a chave `preflight`) — chega
-        // até a validação de preflight normal, provando que o beco sem saída foi eliminado.
         assert.equal(response.status, 400);
-        assert.match(response.body.error, /CT-e com pendências fiscais:/);
-        assert.ok(response.body.preflight, 'deveria ter passado do gate de status e chegado ao preflight');
+        assert.match(response.body.error, /reenvio está bloqueado/i);
+        assert.equal(response.body.preflight, undefined);
     });
 
     it('(Onda 3) POST /emit-cte continua bloqueado quando CTE_PENDING_RECONCILIATION e o último job já tem providerDocId', async () => {
@@ -436,7 +441,7 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
 
         assert.equal(response.status, 400);
         assert.ok(!response.body.preflight, 'não deveria ter chegado ao preflight — bloqueado antes, no gate de status');
-        assert.match(response.body.error, /reconcile/i);
+        assert.match(response.body.error, /reconciliação/i);
     });
 
     it('(Onda 3) POST /emit-cte/reconcile rejeita quando status não é CTE_PENDING_RECONCILIATION', async () => {
@@ -451,7 +456,7 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
         assert.match(response.body.error, /Reconciliação só é permitida/);
     });
 
-    it('(Onda 3) POST /emit-cte/reconcile orienta reemissão via /emit-cte (mensagem agora verdadeira) quando não há providerDocId', async () => {
+    it('POST /emit-cte/reconcile não presume que ausência de providerDocId significa ausência de envio', async () => {
         const response = await httpJson<{ success: boolean; error: string }>(
             baseUrl,
             `/api/orders/${orderId}/freight-calculations/${calcPendingReconciliationNoDocId}/emit-cte/reconcile`,
@@ -460,7 +465,92 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
         );
 
         assert.equal(response.status, 400);
-        assert.match(response.body.error, /emit-cte/);
+        assert.match(response.body.error, /não comprova que o envio não ocorreu/i);
+    });
+
+    beforeEach(() => {
+        calcById.set(calcRejectedId, {
+            ...calcById.get(calcValidId), id: calcRejectedId, status: 'CTE_REJECTED', cfop: '6352',
+            originCity: 'Imperatriz', cteStatusReason: '519 - CFOP inválido', cteRejectedAt: new Date('2026-10-27T10:00:00Z'),
+            cteEmissionJobs: [{ phase: 'FAILED', lastError: '519 - CFOP inválido', providerDocId: 'documento-rejeitado' }],
+        });
+        prisma.fiscalEmitter.update = original.fiscalEmitterUpdate;
+        prisma.cteEmissionJob.create = original.cteJobCreate;
+    });
+
+    it('rejeita CFOP inválido, estado não rejeitado e HUB de outro pedido', async () => {
+        const retry = `/api/orders/${orderId}/freight-calculations/${calcRejectedId}/retry-cte-cfop`;
+        const invalid = await httpJson<{ error: string }>(baseUrl, retry, token, { method: 'POST', body: JSON.stringify({ cfop: '53520' }) });
+        assert.equal(invalid.status, 400);
+        assert.match(invalid.body.error, /CFOP válido/);
+        const forbidden = await httpJson<{ error: string }>(baseUrl, retry, jwt.sign({ userId: 'hub-outro' }, jwtSecret), { method: 'POST', body: JSON.stringify({ cfop: '5352' }) });
+        assert.equal(forbidden.status, 403);
+        for (const status of ['CTE_SENT', 'CTE_PROCESSING', 'CTE_AUTHORIZED', 'CTE_PENDING_RECONCILIATION']) {
+            calcById.get(calcRejectedId)!.status = status;
+            const response = await httpJson<{ error: string }>(baseUrl, retry, token, { method: 'POST', body: JSON.stringify({ cfop: '5352' }) });
+            assert.equal(response.status, 409, status);
+        }
+    });
+
+    it('valida o CFOP proposto antes de alterar o cálculo rejeitado', async () => {
+        const calc = calcById.get(calcRejectedId)!;
+        const response = await httpJson<{ error: string }>(baseUrl, `/api/orders/${orderId}/freight-calculations/${calcRejectedId}/retry-cte-cfop`, token, {
+            method: 'POST', body: JSON.stringify({ cfop: '6352', deliveredDirectlyToHub: true }),
+        });
+        assert.equal(response.status, 400);
+        assert.match(response.body.error, /SEFAZ 519/);
+        assert.equal(calc.status, 'CTE_REJECTED');
+        assert.equal(calc.cfop, '6352');
+        assert.equal(calc.originCity, 'Imperatriz');
+        assert.equal(calc.cteStatusReason, '519 - CFOP inválido');
+    });
+
+    it('reserva uma única correção concorrente e conserva frete, origem global e evidência', async () => {
+        let entered!: () => void;
+        let fail!: (error: Error) => void;
+        const started = new Promise<void>((resolve) => { entered = resolve; });
+        const waiting = new Promise<never>((_resolve, reject) => { fail = reject; });
+        prisma.fiscalEmitter.update = ((async () => { entered(); return waiting; }) as unknown) as typeof prisma.fiscalEmitter.update;
+        const calc = calcById.get(calcRejectedId)!;
+        const rejectionDate = calc.cteRejectedAt;
+        const retry = `/api/orders/${orderId}/freight-calculations/${calcRejectedId}/retry-cte-cfop`;
+        const request = { method: 'POST', body: JSON.stringify({ cfop: '5352', deliveredDirectlyToHub: true }) };
+        const first = httpJson(baseUrl, retry, token, request);
+        await started;
+        assert.equal(calc.status, 'CTE_READY');
+        assert.equal(calc.cfop, '5352');
+        assert.equal(calc.originCity, 'Imperatriz, MA');
+        assert.equal(calc.freightTotal, 320);
+        assert.equal(calc.cteStatusReason, '519 - CFOP inválido');
+        assert.equal(calc.cteRejectedAt, rejectionDate);
+        assert.equal(calc.cteEmissionJobs[0].lastError, '519 - CFOP inválido');
+        assert.equal((mockOrder as any).origemPrestacao, undefined);
+        const second = await httpJson(baseUrl, retry, token, request);
+        assert.equal(second.status, 409);
+        fail(new Error('teste interrompido antes de criar job ou chamar provedor'));
+        assert.equal((await first).status, 500);
+        assert.equal(calc.status, 'CTE_REJECTED');
+    });
+
+    it('cria job com guarda e snapshot da tentativa corrigida sem certificado ou envio real', async () => {
+        let jobData: any;
+        prisma.fiscalEmitter.update = ((async () => ({ lastCteNumber: 55 })) as unknown) as typeof prisma.fiscalEmitter.update;
+        prisma.cteEmissionJob.create = ((async (args: any) => {
+            jobData = args.data;
+            throw new Error('teste interrompido antes de enfileirar');
+        }) as unknown) as typeof prisma.cteEmissionJob.create;
+        const response = await httpJson(baseUrl, `/api/orders/${orderId}/freight-calculations/${calcRejectedId}/retry-cte-cfop`, token, {
+            method: 'POST', body: JSON.stringify({ cfop: '5352', deliveredDirectlyToHub: true }),
+        });
+        assert.equal(response.status, 500);
+        assert.equal(jobData.submissionGuardVersion, 1);
+        assert.equal(jobData.inputSnapshot.calc.cfop, '5352');
+        assert.equal(jobData.inputSnapshot.calc.originCity, 'Imperatriz, MA');
+        assert.equal(jobData.inputSnapshot.order.serviceStart.city, 'Imperatriz');
+        assert.equal(jobData.inputSnapshot.numero, 55);
+        assert.doesNotMatch(JSON.stringify(jobData.inputSnapshot), /certificate|certificado|password|senha/i);
+        assert.equal(calcById.get(calcRejectedId)!.cteEmissionJobs[0].lastError, '519 - CFOP inválido');
+        assert.match(calcById.get(calcRejectedId)!.cteStatusReason, /519 - CFOP inválido/);
     });
 });
 

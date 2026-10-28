@@ -1,11 +1,48 @@
-import type { CteEmissionInput, CteEnvironment } from '../cteService.js';
+import type { CteEmissionInput, CteEnvironment, CtePerson } from '../cteService.js';
 import { buildCtePreflightResult, type CtePreflightResult } from './ctePreflight.js';
 import { resolveCteCfopCstForEmission } from './cteEmitterDefaults.js';
+import { resolveCteServiceLocation } from './cteServiceLocation.js';
 
 export type CteInputBuildResult = {
     input: CteEmissionInput | null;
     preflight: CtePreflightResult;
 };
+
+/** Somente os dados usados na tentativa fiscal; nunca inclui certificado ou senha. */
+export function createCteInputSnapshot(input: CteEmissionInput): CteEmissionInput {
+    const person = (value: CtePerson | null): CtePerson | null => value ? ({
+        legalName: value.legalName,
+        document: value.document,
+        stateRegistration: value.stateRegistration,
+        address: value.address,
+        number: value.number,
+        neighborhood: value.neighborhood,
+        city: value.city,
+        state: value.state,
+        cep: value.cep,
+        cityIbgeCode: value.cityIbgeCode,
+    }) : null;
+    return JSON.parse(JSON.stringify({
+        calc: input.calc,
+        order: {
+            freightTerm: input.order.freightTerm,
+            remetentePerson: person(input.order.remetentePerson),
+            destinatarioPerson: person(input.order.destinatarioPerson),
+            consignatarioPerson: person(input.order.consignatarioPerson),
+            expedidorPerson: person(input.order.expedidorPerson),
+            invoicesRel: input.order.invoicesRel.map(({ type, nfNumber, nfKey, nature, volumes, weight, value }) => ({
+                type, nfNumber, nfKey, nature, volumes, weight, value,
+            })),
+            serviceStart: input.order.serviceStart,
+            serviceEnd: input.order.serviceEnd,
+        },
+        hub: input.hub,
+        person: person(input.person),
+        numero: input.numero,
+        serie: input.serie,
+        ambiente: input.ambiente,
+    })) as CteEmissionInput;
+}
 
 /** Mensagem começa com "Emitente" para o frontend (`blockerAction`) rotear para a torre. */
 function certificateExpiredIssue(
@@ -57,6 +94,27 @@ export function buildCteEmissionInputFromRecords(params: {
     const rntrc = calc.fiscalEmitter?.rntrc ?? hub?.rntrc ?? null;
     const canBuildInput = calc.documentType === 'CTE' && Boolean(hub && emitterPerson);
     const effectiveTax = resolveCteCfopCstForEmission(calc, calc.fiscalEmitter);
+    const serviceStart = resolveCteServiceLocation({
+        calculationCity: calc.originCity,
+        orderCity: order.origemPrestacao,
+        orderIbgeCode: order.origemIbgeCode,
+        person: order.remetentePerson,
+        allowPersonFallback: order.intakeMode !== 'HUB_DIRECT',
+    });
+    const serviceEnd = resolveCteServiceLocation({
+        calculationCity: calc.destCity,
+        orderCity: order.fimPrestacao,
+        orderIbgeCode: order.fimIbgeCode,
+        person: order.destinatarioPerson,
+    });
+    if (canBuildInput && !serviceStart) {
+        additionalIssues.push('Informe uma cidade e UF válidas para o início da prestação.');
+        additionalMissingFields.push('originCity');
+    }
+    if (canBuildInput && !serviceEnd) {
+        additionalIssues.push('Informe uma cidade e UF válidas para o fim da prestação.');
+        additionalMissingFields.push('destCity');
+    }
 
     const input = canBuildInput
         ? {
@@ -86,6 +144,8 @@ export function buildCteEmissionInputFromRecords(params: {
                 expedidorPerson: order.expedidorPerson,
                 invoicesRel: order.invoicesRel,
                 collectionData: order.collectionData,
+                serviceStart,
+                serviceEnd,
             },
             hub: {
                 id: hub.id,

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it, mock } from 'node:test';
-import { enqueueCteEmissionJob, type CteEmissionJobData } from './cteEmissionQueue.js';
+import { cteReconciliationQueueJobId, enqueueCteEmissionJob, type CteEmissionJobData } from './cteEmissionQueue.js';
 
 function makeFakeQueue(idsAlreadyAdded = new Set<string>()) {
     const calls: unknown[] = [];
@@ -47,5 +47,26 @@ describe('enqueueCteEmissionJob', () => {
             () => enqueueCteEmissionJob(data, queue as any),
             /BullMQ não retornou id/,
         );
+    });
+
+    it('cada consulta usa ID próprio, diferente do job original concluído', async () => {
+        const { queue, calls } = makeFakeQueue();
+        const data: CteEmissionJobData = { calcId: 'calc-1', cteEmissionJobId: 'job-1', phaseHint: 'poll-only' };
+        const first = await enqueueCteEmissionJob(data, queue as any);
+        const second = await enqueueCteEmissionJob(data, queue as any);
+        assert.notEqual(first, 'job-1');
+        assert.notEqual(second, first);
+        assert.match(first, /^job-1-reconcile-/);
+        assert.equal((calls[0] as { data: CteEmissionJobData }).data.reconciliationRunId?.length, 36);
+    });
+
+    it('retries da mesma consulta usam o runId fornecido; IDs inválidos são recusados', async () => {
+        const { queue } = makeFakeQueue();
+        const data: CteEmissionJobData = { calcId: 'calc-1', cteEmissionJobId: 'job-1', phaseHint: 'poll-only', reconciliationRunId: 'run-123' };
+        assert.equal(await enqueueCteEmissionJob(data, queue as any), 'job-1-reconcile-run-123');
+        assert.equal(await enqueueCteEmissionJob(data, queue as any), 'job-1-reconcile-run-123');
+        assert.equal(cteReconciliationQueueJobId('job-1', 'run-123'), 'job-1-reconcile-run-123');
+        await assert.rejects(enqueueCteEmissionJob({ ...data, reconciliationRunId: 'run:bad' }, queue as any), /inválido/);
+        await assert.rejects(enqueueCteEmissionJob({ ...data, reconciliationRunId: '' }, queue as any), /inválido/);
     });
 });
