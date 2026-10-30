@@ -2,9 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { hubCargoApi, hubsApi, vehicleTypesApi } from '../../../lib/api';
 import type { ConsolidationQueueGroup, Hub, VehicleType } from '../../../types/index';
+import { countWithoutCubage } from '../lib/packages';
 import { docBadge, isDocumented, vehicleFit } from '../lib/readiness';
 import { OsBadge, OsButton } from '../ui/kit';
 import { IconX } from '../ui/icons';
+import CubageConfirmSheet from './order/CubageConfirmSheet';
 
 /**
  * Montagem de viagem a partir da fila: escolhe pedidos (documentados por padrão) e o tipo de
@@ -39,6 +41,7 @@ const QueueGroupSheet: React.FC<{
         () => new Set(group.orders.filter((o) => isDocumented(o.freightDocState)).map((o) => o.orderId)),
     );
     const undocumentedCount = group.orders.filter((o) => !isDocumented(o.freightDocState)).length;
+    const [askCubage, setAskCubage] = useState(false);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [partial, setPartial] = useState<{
@@ -101,7 +104,17 @@ const QueueGroupSheet: React.FC<{
             return next;
         });
 
+    const noCubageOrders = pickedOrders.filter((o) => countWithoutCubage([o]) > 0);
+    const noCubageCount = noCubageOrders.length;
+    const noCubageText = `${noCubageCount} pedido(s) sem cubagem — o volume da viagem pode estar subestimado`;
+
+    const requestCreate = () => {
+        if (noCubageCount > 0) setAskCubage(true);
+        else void create();
+    };
+
     const create = async () => {
+        setAskCubage(false);
         if (!canCreateTrip || busy || pickedOrders.length === 0 || !vehicleTypeId || !routeReady) return;
         setBusy(true);
         setError(null);
@@ -149,6 +162,7 @@ const QueueGroupSheet: React.FC<{
               : 'Sem rota definida';
 
     return (
+        <>
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50" onClick={onClose}>
             <div
                 className="flex max-h-[88vh] w-full max-w-xl flex-col rounded-t-2xl bg-white dark:bg-tower-900"
@@ -209,6 +223,11 @@ const QueueGroupSheet: React.FC<{
                     {undocumentedCount > 0 ? (
                         <p className="mb-2 rounded-lg border-l-4 border-brand-yellow-400 bg-brand-yellow-400/15 p-3 text-[13px] text-tower-700 dark:text-tower-200">
                             {undocumentedCount} pedido(s) sem documento do frete ficaram de fora. Emita o CT-e/minuta no pedido para incluir.
+                        </p>
+                    ) : null}
+                    {noCubageCount > 0 ? (
+                        <p className="mb-2 rounded-lg border-l-4 border-brand-yellow-400 bg-brand-yellow-400/15 p-3 text-[13px] text-tower-700 dark:text-tower-200">
+                            {noCubageText}.
                         </p>
                     ) : null}
                     <div className="flex flex-col gap-2">
@@ -318,7 +337,7 @@ const QueueGroupSheet: React.FC<{
                         <OsButton
                             full
                             disabled={!canCreateTrip || busy || pickedOrders.length === 0 || !vehicleTypeId || !routeReady}
-                            onClick={() => void create()}
+                            onClick={requestCreate}
                         >
                             {busy ? 'Criando viagem…' : `Criar viagem com ${pickedOrders.length} pedido(s)`}
                         </OsButton>
@@ -326,6 +345,21 @@ const QueueGroupSheet: React.FC<{
                 </div>
             </div>
         </div>
+        {askCubage ? (
+            <CubageConfirmSheet
+                title="Criar a viagem sem a cubagem?"
+                body={`${noCubageText}. Você pode informar a cubagem no pedido.`}
+                informLabel="Informar cubagem"
+                proceedLabel="Criar viagem sem cubagem"
+                onInform={() => {
+                    setAskCubage(false);
+                    navigate(`/hubs/pedidos/${noCubageOrders[0].orderId}`);
+                }}
+                onProceed={() => void create()}
+                onClose={() => setAskCubage(false)}
+            />
+        ) : null}
+        </>
     );
 };
 

@@ -7,6 +7,7 @@ import { DOC_TYPE_LABEL, EMPTY_INFORMED, formatBRL, freightTableOptionLabel, fre
 import { OsActionBar, OsButton } from '../../ui/kit';
 import FreightIssues from './FreightIssues';
 import InformedFields from './InformedFields';
+import CubageConfirmSheet from './CubageConfirmSheet';
 
 const NO_TABLE = 'Sem tabela de preço';
 
@@ -33,12 +34,16 @@ function outcomeMessage(outcome: EmitOutcome): { tone: 'ok' | 'info' | 'bad'; te
  * Emitir o documento do frete: tipo (CT-e padrão; minuta sempre possível), valor da tabela ou
  * informado pelo hub, pendências com quem resolve, e a ação primária em um toque.
  */
-const FreightComposer: React.FC<{ orderId: string; suggestion: FreightSuggestion; newDocument: boolean; onEmitted: () => void }> = ({
-    orderId,
-    suggestion,
-    newDocument,
-    onEmitted,
-}) => {
+const FreightComposer: React.FC<{
+    orderId: string;
+    suggestion: FreightSuggestion;
+    newDocument: boolean;
+    onEmitted: () => void;
+    /** Pedido sem cubagem: emitir pede confirmação (o frete sai só pelo peso). */
+    cubageMissing?: boolean;
+    onInformCubage?: () => void;
+}> = ({ orderId, suggestion, newDocument, onEmitted, cubageMissing = false, onInformCubage }) => {
+    const [askCubage, setAskCubage] = useState(false);
     const tableOptions = freightTableOptions(suggestion);
     const tablePickerId = useId();
     const [docType, setDocType] = useState<FreightDocType>(suggestion.docs.recommended);
@@ -65,7 +70,14 @@ const FreightComposer: React.FC<{ orderId: string; suggestion: FreightSuggestion
     const reasonOk = !informedMode || tableOptions.length === 0 || reason.trim().length > 0;
     const canEmit = total > 0 && blocking.length === 0 && taxOk && reasonOk && !busy;
 
+    const requestEmit = () => {
+        if (!canEmit) return;
+        if (cubageMissing) setAskCubage(true);
+        else void emit();
+    };
+
     const emit = async () => {
+        setAskCubage(false);
         if (!canEmit) return;
         setBusy(true);
         setMessage(null);
@@ -193,13 +205,26 @@ const FreightComposer: React.FC<{ orderId: string; suggestion: FreightSuggestion
             ) : null}
 
             <OsActionBar>
-                <OsButton full disabled={!canEmit} onClick={() => void emit()}>
+                <OsButton full disabled={!canEmit} onClick={requestEmit}>
                     {busy ? 'Emitindo…' : `Emitir ${DOC_TYPE_LABEL[docType]}${total > 0 ? ` · ${formatBRL(total)}` : ''}`}
                 </OsButton>
                 {!canEmit && !busy && blocking.length > 0 ? (
                     <p className="mt-1.5 text-center text-[12px] font-semibold text-tower-500">Resolva as pendências acima para emitir.</p>
                 ) : null}
             </OsActionBar>
+            {askCubage ? (
+                <CubageConfirmSheet
+                    title="Emitir sem a cubagem?"
+                    body="O frete será calculado só pelo peso."
+                    proceedLabel="Emitir sem cubagem"
+                    onInform={() => {
+                        setAskCubage(false);
+                        onInformCubage?.();
+                    }}
+                    onProceed={() => void emit()}
+                    onClose={() => setAskCubage(false)}
+                />
+            ) : null}
             {print ? <DactePrintPreview payload={print.payload} branding={print.branding} onClose={() => setPrint(null)} /> : null}
         </div>
     );

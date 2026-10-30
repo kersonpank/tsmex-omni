@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cubedWeightKg, isCubageInformed, packagesVolumeM3, parsePackageRows, parseTotalM3, volumeCountCheck } from './packages';
+import { countWithoutCubage, cubedWeightKg, formCubageM3, initialPackageRow, isCubageInformed, needsCubageConfirmation, packagesVolumeM3, parsePackageRows, parseTotalM3, volumeCountCheck } from './packages';
 
 describe('cubagem por volume', () => {
     it('soma qtd × C×L×A em m³ e ignora linhas incompletas', () => {
@@ -50,5 +50,33 @@ describe('conferência de volumes com a NF', () => {
         expect(volumeCountCheck(rows('3'), null).status).toBe('unknown');
         expect(volumeCountCheck(rows('3'), 0).status).toBe('unknown');
         expect(volumeCountCheck([{ quantity: '', lengthCm: '', widthCm: '', heightCm: '' }], 10).status).toBe('unknown');
+    });
+});
+
+describe('decisão de cubagem (nunca bloqueia, só confirma)', () => {
+    it('needsCubageConfirmation: pede confirmação sem cubagem ou com o placeholder', () => {
+        expect(needsCubageConfirmation(null)).toBe(true);
+        expect(needsCubageConfirmation(undefined)).toBe(true);
+        expect(needsCubageConfirmation(0)).toBe(true);
+        expect(needsCubageConfirmation(0.001)).toBe(true);
+        expect(needsCubageConfirmation(0.002)).toBe(false);
+    });
+
+    it('formCubageM3 usa as medidas ou o total digitado', () => {
+        const row = { quantity: '2', lengthCm: '100', widthCm: '50', heightCm: '40' };
+        expect(formCubageM3({ rows: [row], onlyTotal: false, total: '' })).toBe(0.4);
+        expect(formCubageM3({ rows: [row], onlyTotal: true, total: '1,5' })).toBe(1.5);
+        expect(formCubageM3({ rows: [{ ...row, heightCm: '' }], onlyTotal: false, total: '9' })).toBe(0);
+        expect(needsCubageConfirmation(formCubageM3({ rows: [row], onlyTotal: true, total: '' }))).toBe(true);
+    });
+
+    it('countWithoutCubage conta pedidos com volume <= 0,001', () => {
+        expect(countWithoutCubage([{ volumeM3: 1 }, { volumeM3: 0 }, { volumeM3: 0.001 }, { volumeM3: null }])).toBe(3);
+    });
+
+    it('initialPackageRow traz os volumes da NF ou 1', () => {
+        expect(initialPackageRow(7).quantity).toBe('7');
+        expect(initialPackageRow(null).quantity).toBe('1');
+        expect(initialPackageRow(0).lengthCm).toBe('');
     });
 });

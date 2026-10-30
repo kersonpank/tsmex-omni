@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import EntrySheet from './EntrySheet';
-import { hubCargoApi, intakeDemandsApi, personsApi } from '../../../../lib/api';
+import { hubCargoApi, intakeDemandsApi, orderPackagesApi, personsApi } from '../../../../lib/api';
 import type { HubCargoItem, Person } from '../../../../types/index';
 
 vi.mock('../../../../lib/api', () => ({
@@ -21,6 +21,11 @@ const destinatario = { id: 'dest', documentType: 'CNPJ', document: '222222220001
 const item = { demandId: 'd1', nfNumber: '42', statusLabel: 'Aguardando', units: 1, effectiveWeightKg: 10 } as HubCargoItem;
 const cargo = { emitente: { cnpj: remetente.document, ie: '111' }, destinatario: { cnpj: destinatario.document, ie: '222' }, modFrete: '0', quantidadeVolumes: 1, pesoBruto: 10, valorTotalNota: 100 };
 
+const confirmWithoutCubage = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(screen.getByRole('button', { name: 'Confirmar entrada' }));
+    await user.click(await screen.findByRole('button', { name: 'Confirmar sem cubagem' }));
+};
+
 describe('EntrySheet: início do serviço e edição', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -35,7 +40,7 @@ describe('EntrySheet: início do serviço e edição', () => {
         render(<EntrySheet item={item} hubId="hub" onClose={vi.fn()} onDone={vi.fn()} />);
         expect(await screen.findByRole('radio', { name: /Chegou direto neste hub/ })).toBeChecked();
         expect(screen.getByRole('radio', { name: /Foi coletado no remetente/ })).not.toBeChecked();
-        await user.click(screen.getByRole('button', { name: 'Confirmar entrada' }));
+        await confirmWithoutCubage(user);
         await waitFor(() => expect(intakeDemandsApi.confirmArrival).toHaveBeenCalledWith('d1', expect.objectContaining({ intakeMode: 'HUB_DIRECT' })));
     });
 
@@ -44,7 +49,7 @@ describe('EntrySheet: início do serviço e edição', () => {
         render(<EntrySheet item={item} hubId="hub" onClose={vi.fn()} onDone={vi.fn()} />);
         await user.click(await screen.findByRole('radio', { name: /Chegou direto neste hub/ }));
         expect(screen.getByText('O CT-e começa em Guarulhos/SP.')).toBeInTheDocument();
-        await user.click(screen.getByRole('button', { name: 'Confirmar entrada' }));
+        await confirmWithoutCubage(user);
         await waitFor(() => expect(intakeDemandsApi.confirmArrival).toHaveBeenCalledWith('d1', expect.objectContaining({
             intakeMode: 'HUB_DIRECT', remetentePersonId: 'rem', destinatarioPersonId: 'dest', freightTerm: 'CIF',
         })));
@@ -56,7 +61,7 @@ describe('EntrySheet: início do serviço e edição', () => {
         await user.click(await screen.findByRole('radio', { name: /Chegou direto neste hub/ }));
         rerender(<EntrySheet item={{ ...item, demandId: 'd2' }} hubId="hub" onClose={vi.fn()} onDone={vi.fn()} />);
         expect(await screen.findByRole('radio', { name: /Chegou direto neste hub/ })).toBeChecked();
-        await user.click(screen.getByRole('button', { name: 'Confirmar entrada' }));
+        await confirmWithoutCubage(user);
         await waitFor(() => expect(intakeDemandsApi.confirmArrival).toHaveBeenCalledWith('d2', expect.objectContaining({ intakeMode: 'HUB_DIRECT' })));
     });
 
@@ -65,7 +70,7 @@ describe('EntrySheet: início do serviço e edição', () => {
         render(<EntrySheet item={item} hubId="hub" onClose={vi.fn()} onDone={vi.fn()} />);
         expect(await screen.findByRole('radio', { name: 'Foi coletado no remetente' })).toBeChecked();
         expect(screen.getByText('O CT-e começa em SP/SP.')).toBeInTheDocument();
-        await userEvent.setup().click(screen.getByRole('button', { name: 'Confirmar entrada' }));
+        await confirmWithoutCubage(userEvent.setup());
         await waitFor(() => expect(intakeDemandsApi.confirmArrival).toHaveBeenCalledWith('d1', expect.objectContaining({ intakeMode: 'UNKNOWN' })));
     });
 
@@ -100,7 +105,52 @@ describe('EntrySheet: início do serviço e edição', () => {
         expect(screen.getAllByText('ESCOLHA MANUAL').length).toBeGreaterThan(0);
         expect(screen.queryByText('REMETENTE')).not.toBeInTheDocument();
         expect(screen.getByRole('button', { name: /Destinatário/ })).toHaveAttribute('aria-pressed', 'true');
-        await user.click(screen.getByRole('button', { name: 'Confirmar entrada' }));
+        await confirmWithoutCubage(user);
         await waitFor(() => expect(intakeDemandsApi.confirmArrival).toHaveBeenCalledWith('d1', expect.objectContaining({ remetentePersonId: 'outro', freightTerm: 'FOB' })));
+    });
+
+    it('mostra a cubagem sempre visível, sem a palavra opcional', async () => {
+        render(<EntrySheet item={item} hubId="hub" onClose={vi.fn()} onDone={vi.fn()} />);
+        expect(await screen.findByText('Cubagem (medidas dos volumes)')).toBeInTheDocument();
+        expect(screen.getByText('Necessária para o preço (peso cubado) e para saber se cabe no veículo.')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Só sei o m³ total' })).toBeInTheDocument();
+        expect(screen.queryByText(/opcional/i)).not.toBeInTheDocument();
+    });
+
+    it('sem cubagem pergunta antes de confirmar e "Informar cubagem" não confirma', async () => {
+        const user = userEvent.setup();
+        render(<EntrySheet item={item} hubId="hub" onClose={vi.fn()} onDone={vi.fn()} />);
+        await user.click(await screen.findByRole('button', { name: 'Confirmar entrada' }));
+        expect(screen.getByRole('dialog', { name: 'Seguir sem a cubagem?' })).toBeInTheDocument();
+        expect(screen.getByText(/Sem cubagem o frete usa só o peso/)).toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: 'Informar cubagem' }));
+        expect(screen.queryByRole('dialog', { name: 'Seguir sem a cubagem?' })).not.toBeInTheDocument();
+        expect(intakeDemandsApi.confirmArrival).not.toHaveBeenCalled();
+    });
+
+    it('com medidas completas confirma direto e grava a cubagem', async () => {
+        const user = userEvent.setup();
+        vi.mocked(intakeDemandsApi.confirmArrival).mockResolvedValue({ data: { order: { id: 'o1' } } } as never);
+        vi.mocked(orderPackagesApi.set).mockResolvedValue({ data: {} } as never);
+        render(<EntrySheet item={item} hubId="hub" onClose={vi.fn()} onDone={vi.fn()} />);
+        await user.type(await screen.findByLabelText('Comprimento em cm'), '50');
+        await user.type(screen.getByLabelText('Largura em cm'), '40');
+        await user.type(screen.getByLabelText('Altura em cm'), '30');
+        await user.click(screen.getByRole('button', { name: 'Confirmar entrada' }));
+        await waitFor(() => expect(intakeDemandsApi.confirmArrival).toHaveBeenCalled());
+        expect(screen.queryByRole('dialog', { name: 'Seguir sem a cubagem?' })).not.toBeInTheDocument();
+        await waitFor(() => expect(orderPackagesApi.set).toHaveBeenCalledWith('o1', { packages: [{ quantity: 1, lengthCm: 50, widthCm: 40, heightCm: 30 }] }));
+    });
+
+    it('com só o m³ total confirma direto e envia o total', async () => {
+        const user = userEvent.setup();
+        vi.mocked(intakeDemandsApi.confirmArrival).mockResolvedValue({ data: { order: { id: 'o2' } } } as never);
+        vi.mocked(orderPackagesApi.set).mockResolvedValue({ data: {} } as never);
+        render(<EntrySheet item={item} hubId="hub" onClose={vi.fn()} onDone={vi.fn()} />);
+        await user.click(await screen.findByRole('button', { name: 'Só sei o m³ total' }));
+        await user.type(screen.getByLabelText(/Cubagem total/), '0,5');
+        await user.click(screen.getByRole('button', { name: 'Confirmar entrada' }));
+        await waitFor(() => expect(orderPackagesApi.set).toHaveBeenCalledWith('o2', { packages: [], totalM3: 0.5 }));
+        expect(screen.queryByRole('dialog', { name: 'Seguir sem a cubagem?' })).not.toBeInTheDocument();
     });
 });

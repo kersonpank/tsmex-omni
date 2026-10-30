@@ -112,4 +112,24 @@ describe('FreightComposer — tabela do frete', () => {
             documentType: 'CTE', pricingTableId: 'general-1', newDocument: false, tax: { cfop: '5352', cst: '' },
         });
     });
+
+    it('sem cubagem pede confirmação antes de emitir; "Informar cubagem" não emite', async () => {
+        const user = userEvent.setup();
+        const onInformCubage = vi.fn();
+        render(<FreightComposer orderId="order-1" suggestion={suggestion()} newDocument={false} onEmitted={vi.fn()} cubageMissing onInformCubage={onInformCubage} />);
+        await user.click(screen.getByRole('button', { name: `Emitir Minuta · ${formatBRL(120)}` }));
+        expect(screen.getByRole('dialog', { name: 'Emitir sem a cubagem?' })).toBeInTheDocument();
+        expect(screen.getByText('O frete será calculado só pelo peso.')).toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: 'Informar cubagem' }));
+        expect(onInformCubage).toHaveBeenCalledTimes(1);
+        expect(emitFreightDocument).not.toHaveBeenCalled();
+    });
+
+    it('sem cubagem, "Emitir sem cubagem" emite', async () => {
+        const user = userEvent.setup();
+        render(<FreightComposer orderId="order-1" suggestion={suggestion()} newDocument={false} onEmitted={vi.fn()} cubageMissing />);
+        await user.click(screen.getByRole('button', { name: `Emitir Minuta · ${formatBRL(120)}` }));
+        await user.click(screen.getByRole('button', { name: 'Emitir sem cubagem' }));
+        await waitFor(() => expect(emitFreightDocument).toHaveBeenCalledTimes(1));
+    });
 });

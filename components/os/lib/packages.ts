@@ -54,6 +54,27 @@ export function isCubageInformed(volumeM3: number | null | undefined): boolean {
     return (volumeM3 ?? 0) > CUBAGE_PLACEHOLDER_M3;
 }
 
+/** Cubagem em m³ de um formulário: medidas por volume ou, no atalho, o total digitado. */
+export function formCubageM3(form: { rows: PackageRow[]; onlyTotal: boolean; total: string }): number {
+    return form.onlyTotal ? parseTotalM3(form.total) : packagesVolumeM3(parsePackageRows(form.rows));
+}
+
+/** A cubagem é necessária (preço, "cabe no veículo", plano 3D), mas nunca bloqueia: sem ela, o operador confirma. */
+export function needsCubageConfirmation(volumeM3: number | null | undefined): boolean {
+    return !isCubageInformed(volumeM3);
+}
+
+/** Quantos itens não têm cubagem informada (volumeM3 <= 0,001). */
+export function countWithoutCubage(items: ReadonlyArray<{ volumeM3: number | null | undefined }>): number {
+    return items.filter((i) => needsCubageConfirmation(i.volumeM3)).length;
+}
+
+/** Primeira linha de medidas: já com a quantidade de volumes da NF (ou 1 se desconhecida). */
+export function initialPackageRow(expectedUnits: number | null | undefined): PackageRow {
+    const n = expectedUnits && expectedUnits > 0 ? Math.round(expectedUnits) : 1;
+    return { ...EMPTY_PACKAGE_ROW, quantity: String(n) };
+}
+
 /** Linhas de volumes já salvos de volta para o formulário. */
 export function rowsFromPackages(packages: ParsedPackage[]): PackageRow[] {
     return packages.map((p) => ({

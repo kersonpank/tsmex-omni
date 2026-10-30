@@ -134,6 +134,11 @@ const OrderPage: React.FC = () => {
                     <span className="text-[13px] font-bold text-brand-600 dark:text-brand-300">{cubageDone ? 'Editar medidas' : 'Informar medidas'}</span>
                 </span>
             </OsRow>
+            {!cubageDone ? (
+                <p className="mt-1.5 px-1 text-[12px] font-semibold text-[#6b5900] dark:text-brand-yellow-400">
+                    Necessária para o preço (peso cubado) e para saber se cabe no veículo.
+                </p>
+            ) : null}
 
             <div ref={freightSection} />
             <OsSectionTitle>3 · Documento do frete</OsSectionTitle>
@@ -148,7 +153,15 @@ const OrderPage: React.FC = () => {
                     <FreightDocuments orderId={orderId} documents={s.documents} onResent={reload} />
                     {composing ? (
                         <div className="mt-3">
-                            <FreightComposer key={`${s.freightTerm}-${another}-${s.state}`} orderId={orderId} suggestion={s} newDocument={another} onEmitted={reload} />
+                            <FreightComposer
+                                key={`${s.freightTerm}-${another}-${s.state}`}
+                                orderId={orderId}
+                                suggestion={s}
+                                newDocument={another}
+                                onEmitted={reload}
+                                cubageMissing={volumeM3 != null && !cubageDone}
+                                onInformCubage={() => setEditingPackages(true)}
+                            />
                         </div>
                     ) : (
                         <button type="button" onClick={() => setAnother(true)} className="mt-2 min-h-[40px] text-[13px] font-bold text-brand-600 dark:text-brand-300">

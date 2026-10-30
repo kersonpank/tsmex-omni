@@ -14,7 +14,8 @@ import {
 import { OsButton } from '../../ui/kit';
 import OsSheet, { apiErrorMessage } from '../../ui/Sheet';
 import { payerFromModFrete } from '../../lib/freight';
-import { EMPTY_PACKAGE_ROW, parsePackageRows, type PackageRow } from '../../lib/packages';
+import { EMPTY_PACKAGE_ROW, formCubageM3, needsCubageConfirmation, parsePackageRows, parseTotalM3, type PackageRow } from '../../lib/packages';
+import CubageConfirmSheet from '../order/CubageConfirmSheet';
 import CargoFields from './CargoFields';
 import EntryPackages from './EntryPackages';
 import { volumeCountCheck } from '../../lib/packages';
@@ -70,6 +71,10 @@ const EntrySheet: React.FC<{
     const [xmlParties, setXmlParties] = useState<Record<string, unknown> | null>(null);
     const [cargoForm, setCargoForm] = useState<CargoForm>(EMPTY_CARGO_FORM);
     const [packageRows, setPackageRows] = useState<PackageRow[]>([{ ...EMPTY_PACKAGE_ROW }]);
+    const [onlyTotal, setOnlyTotal] = useState(false);
+    const [totalM3, setTotalM3] = useState('');
+    const [askCubage, setAskCubage] = useState(false);
+    const cubageSection = useRef<HTMLElement>(null);
     const [payer, setPayer] = useState<{ term: PayerTerm | null; fromNfe: boolean }>({ term: null, fromNfe: false });
     const [loading, setLoading] = useState(true);
     const [notice, setNotice] = useState<string | null>(null);
@@ -117,6 +122,9 @@ const EntrySheet: React.FC<{
         setXmlParties(null);
         setCargoForm(EMPTY_CARGO_FORM);
         setPackageRows([{ ...EMPTY_PACKAGE_ROW }]);
+        setOnlyTotal(false);
+        setTotalM3('');
+        setAskCubage(false);
         setPayer({ term: null, fromNfe: false });
         setIntakeMode('HUB_DIRECT');
         intakeTouched.current = false;
@@ -173,7 +181,23 @@ const EntrySheet: React.FC<{
         cargoMissing: counter.missing,
     });
 
+    const cubageM3 = formCubageM3({ rows: packageRows, onlyTotal, total: totalM3 });
+
+    /** Sem cubagem informada, pergunta antes de seguir; o operador decide. */
+    const requestConfirm = () => {
+        if (needsCubageConfirmation(cubageM3)) setAskCubage(true);
+        else void confirm();
+    };
+
+    const informCubage = () => {
+        setAskCubage(false);
+        const section = cubageSection.current;
+        section?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+        section?.querySelector<HTMLElement>('input')?.focus();
+    };
+
     const confirm = async () => {
+        setAskCubage(false);
         if (!item.demandId || !remetente.person || !destinatario.person || !payer.term || missing.length > 0 || busy) return;
         setBusy(true);
         setError(null);
@@ -187,9 +211,10 @@ const EntrySheet: React.FC<{
             };
             const body = await intakeDemandsApi.confirmArrival(item.demandId, arrival);
             const orderId = (body.data?.order as { id?: string } | null)?.id;
-            // Medidas são opcionais: se falhar, a entrada já está confirmada e dá para informar depois no pedido.
+            // Se gravar a cubagem falhar, a entrada já está confirmada e dá para informar depois no pedido.
             const packages = parsePackageRows(packageRows);
-            if (orderId && packages.length > 0) await orderPackagesApi.set(orderId, { packages }).catch(() => undefined);
+            if (orderId && onlyTotal && parseTotalM3(totalM3) > 0) await orderPackagesApi.set(orderId, { packages: [], totalM3: parseTotalM3(totalM3) }).catch(() => undefined);
+            else if (orderId && !onlyTotal && packages.length > 0) await orderPackagesApi.set(orderId, { packages }).catch(() => undefined);
             let order: HubCargoItem | null = null;
             if (orderId) {
                 const resolved = (await hubCargoApi.resolve(orderId, hubId)).data;
@@ -203,6 +228,7 @@ const EntrySheet: React.FC<{
     };
 
     return (
+        <>
         <OsSheet
             title={item.nfNumber ? `Entrada da NF ${item.nfNumber}` : 'Entrada no balcão'}
             subtitle={item.nfKeySuffix ? `chave …${item.nfKeySuffix}` : cargoFacts(item) || item.statusLabel}
@@ -215,7 +241,7 @@ const EntrySheet: React.FC<{
                     {!loading && missing.length > 0 ? (
                         <p className="mb-2 text-center text-[12px] font-semibold text-tower-500 dark:text-tower-400">{missingSentence(missing)}</p>
                     ) : null}
-                    <OsButton full disabled={loading || missing.length > 0 || busy} onClick={() => void confirm()}>
+                    <OsButton full disabled={loading || missing.length > 0 || busy} onClick={requestConfirm}>
                         {busy ? 'Confirmando…' : volumeMismatch ? 'Confirmar mesmo assim' : 'Confirmar entrada'}
                     </OsButton>
                 </>
@@ -299,10 +325,30 @@ const EntrySheet: React.FC<{
                     ) : (
                         <CargoFields value={cargoForm} onChange={setCargoForm} />
                     )}
-                    <EntryPackages rows={packageRows} onChange={setPackageRows} expectedUnits={expectedUnits} />
+                    <EntryPackages
+                        ref={cubageSection}
+                        rows={packageRows}
+                        onChange={setPackageRows}
+                        onlyTotal={onlyTotal}
+                        onOnlyTotalChange={setOnlyTotal}
+                        total={totalM3}
+                        onTotalChange={setTotalM3}
+                        expectedUnits={expectedUnits}
+                    />
                 </>
             )}
         </OsSheet>
+        {askCubage ? (
+            <CubageConfirmSheet
+                title="Seguir sem a cubagem?"
+                body="Sem cubagem o frete usa só o peso e a viagem não sabe se a carga cabe no veículo. Você pode informar depois no pedido."
+                proceedLabel="Confirmar sem cubagem"
+                onInform={informCubage}
+                onProceed={() => void confirm()}
+                onClose={() => setAskCubage(false)}
+            />
+        ) : null}
+        </>
     );
 };
 

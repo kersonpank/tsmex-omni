@@ -1,9 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import clsx from 'clsx';
 import { orderPackagesApi } from '../../../../lib/api';
 import {
     EMPTY_PACKAGE_ROW,
-    cubedWeightKg,
     packagesVolumeM3,
     parsePackageRows,
     parseTotalM3,
@@ -12,11 +10,11 @@ import {
     type PackageRow,
 } from '../../lib/packages';
 import { OsButton } from '../../ui/kit';
-import OsSheet, { apiErrorMessage, osFieldClass } from '../../ui/Sheet';
-import PackageRows from './PackageRows';
+import OsSheet, { apiErrorMessage } from '../../ui/Sheet';
+import CubageFields from './CubageFields';
 
 /**
- * MEDIDAS DOS VOLUMES — cubagem por volume (qtd × C × L × A em cm) ou, no atalho, só o m³ total.
+ * CUBAGEM — cubagem por volume (qtd × C × L × A em cm) ou, no atalho, só o m³ total.
  * Alimenta o preço (peso cubado), o "cabe no veículo" e a futura simulação 3D da carga.
  */
 const PackagesEditor: React.FC<{ orderId: string; expectedUnits?: number | null; onClose: () => void; onSaved: (volumeM3: number) => void }> = ({ orderId, expectedUnits, onClose, onSaved }) => {
@@ -67,8 +65,8 @@ const PackagesEditor: React.FC<{ orderId: string; expectedUnits?: number | null;
 
     return (
         <OsSheet
-            title="Medidas dos volumes"
-            subtitle="Com as medidas o preço usa o peso cubado e dá para saber se a carga cabe no veículo."
+            title="Cubagem (medidas dos volumes)"
+            subtitle="Necessária para o preço (peso cubado) e para saber se cabe no veículo."
             onClose={onClose}
             footer={
                 <>
@@ -83,30 +81,15 @@ const PackagesEditor: React.FC<{ orderId: string; expectedUnits?: number | null;
                 <p className="text-[13px] text-tower-400">Carregando…</p>
             ) : (
                 <>
-                    <button
-                        type="button"
-                        onClick={() => setOnlyTotal((v) => !v)}
-                        className="mb-3 min-h-[40px] text-[13px] font-bold text-brand-600 dark:text-brand-300"
-                    >
-                        {onlyTotal ? 'Informar as medidas de cada volume' : 'Só sei o m³ total'}
-                    </button>
-                    {onlyTotal ? (
-                        <div>
-                            <label className="block text-[12px] font-semibold text-tower-500 dark:text-tower-400">
-                                Cubagem total (m³)
-                                <input
-                                    inputMode="decimal"
-                                    value={total}
-                                    onChange={(e) => setTotal(e.target.value.replace(/[^\d.,]/g, '').slice(0, 8))}
-                                    placeholder="0,000"
-                                    className={clsx(osFieldClass, 'mt-1')}
-                                />
-                            </label>
-                            <p className="mt-2 text-[12px] text-tower-500 dark:text-tower-400">Peso cubado: {cubedWeightKg(volume)} kg</p>
-                        </div>
-                    ) : (
-                        <PackageRows rows={rows} onChange={setRows} expectedUnits={expectedUnits} />
-                    )}
+                    <CubageFields
+                        rows={rows}
+                        onRowsChange={setRows}
+                        onlyTotal={onlyTotal}
+                        onOnlyTotalChange={setOnlyTotal}
+                        total={total}
+                        onTotalChange={setTotal}
+                        expectedUnits={expectedUnits}
+                    />
                 </>
             )}
         </OsSheet>

@@ -236,4 +236,32 @@ describe('QueueGroupSheet — escolha de rota pelo operador', () => {
         await user.click(screen.getByRole('button', { name: 'Abrir viagem' }));
         expect(onCreated).toHaveBeenCalledWith('manifest-partial');
     });
+
+    it('avisa pedidos sem cubagem e pede confirmação explícita antes de criar a viagem', async () => {
+        const user = userEvent.setup();
+        const group: ConsolidationQueueGroup = {
+            ...GROUP,
+            kind: 'LOCAL',
+            key: 'LOCAL',
+            orders: GROUP.orders.map((o, i) => (i === 0 ? { ...o, volumeM3: 0.001 } : o)),
+        };
+        const { onCreated } = renderSheet(group);
+        expect(screen.getByText('1 pedido(s) sem cubagem — o volume da viagem pode estar subestimado.')).toBeInTheDocument();
+        await user.click(await screen.findByRole('radio', { name: /Furgão/ }));
+        await user.click(screen.getByRole('button', { name: 'Criar viagem com 2 pedido(s)' }));
+        expect(hubCargoApi.consolidate).not.toHaveBeenCalled();
+        expect(screen.getByRole('dialog', { name: 'Criar a viagem sem a cubagem?' })).toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: 'Criar viagem sem cubagem' }));
+        await waitFor(() => expect(onCreated).toHaveBeenCalledWith('manifest-1'));
+    });
+
+    it('com todos cubados não mostra aviso nem confirmação', async () => {
+        const user = userEvent.setup();
+        const group: ConsolidationQueueGroup = { ...GROUP, kind: 'LOCAL', key: 'LOCAL' };
+        const { onCreated } = renderSheet(group);
+        expect(screen.queryByText(/sem cubagem/)).not.toBeInTheDocument();
+        await user.click(await screen.findByRole('radio', { name: /Furgão/ }));
+        await user.click(screen.getByRole('button', { name: 'Criar viagem com 2 pedido(s)' }));
+        await waitFor(() => expect(onCreated).toHaveBeenCalledWith('manifest-1'));
+    });
 });
