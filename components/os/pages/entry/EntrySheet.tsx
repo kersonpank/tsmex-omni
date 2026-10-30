@@ -20,6 +20,7 @@ import EntryPackages from './EntryPackages';
 import { volumeCountCheck } from '../../lib/packages';
 import type { PartySource } from './PartyCard';
 import PartyPicker from './PartyPicker';
+import { useOs } from '../../OsContext';
 import PayerChoice, { type PayerTerm } from './PayerChoice';
 
 /**
@@ -35,7 +36,7 @@ const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' 
 
 type Party = { person: Person | null; source: PartySource };
 const NO_PARTY: Party = { person: null, source: 'manual' };
-type IntakeMode = 'AUTO' | 'HUB_DIRECT' | 'UNKNOWN';
+type IntakeMode = 'HUB_DIRECT' | 'UNKNOWN';
 
 /** A resposta tardia não troca a pessoa escolhida nem substitui uma IE informada. */
 function applyParty(current: Party, incoming: Person | null | undefined, source: PartySource, touched: boolean, edited: boolean): Party {
@@ -73,7 +74,9 @@ const EntrySheet: React.FC<{
     const [loading, setLoading] = useState(true);
     const [notice, setNotice] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
-    const [intakeMode, setIntakeMode] = useState<IntakeMode>('AUTO');
+    const [intakeMode, setIntakeMode] = useState<IntakeMode>('HUB_DIRECT');
+    const { hub } = useOs();
+    const intakeTouched = useRef(false);
     const partyTouched = useRef({ remetente: false, destinatario: false });
     const partyEdited = useRef({ remetente: false, destinatario: false });
     const fileInput = useRef<HTMLInputElement>(null);
@@ -115,7 +118,8 @@ const EntrySheet: React.FC<{
         setCargoForm(EMPTY_CARGO_FORM);
         setPackageRows([{ ...EMPTY_PACKAGE_ROW }]);
         setPayer({ term: null, fromNfe: false });
-        setIntakeMode('AUTO');
+        setIntakeMode('HUB_DIRECT');
+        intakeTouched.current = false;
         setNotice(null);
         setError(null);
         setBusy(false);
@@ -131,7 +135,10 @@ const EntrySheet: React.FC<{
         intakeDemandsApi
             .getLocalNfeData(item.demandId)
             .then((body) => {
-                if (!cancelled) applyNfeData(body.data);
+                if (!cancelled) {
+                    applyNfeData(body.data);
+                    if (!intakeTouched.current) setIntakeMode(body.data?.needsCollection ? 'UNKNOWN' : 'HUB_DIRECT');
+                }
             })
             .catch(() => !cancelled && setNotice('Não foi possível ler os dados da NF-e. Confira com a DANFE impressa.'))
             .finally(() => !cancelled && setLoading(false));
@@ -266,18 +273,19 @@ const EntrySheet: React.FC<{
                     />
                     <fieldset className="mt-4 rounded-xl border border-tower-200 p-3 dark:border-tower-700">
                         <legend className="px-1 text-[13px] font-bold text-tower-600 dark:text-tower-300">Início do serviço</legend>
-                        <label className="flex min-h-[44px] items-start gap-2 py-1 text-[13px] text-tower-800 dark:text-tower-100">
-                            <input type="radio" name="intakeMode" className="mt-1" checked={intakeMode === 'AUTO'} onChange={() => setIntakeMode('AUTO')} />
-                            <span>Definir pela solicitação de coleta <span className="block text-[12px] text-tower-500">Sem coleta solicitada, o serviço começa neste hub.</span></span>
+                        <label className="flex min-h-[44px] items-center gap-2 text-[13px] text-tower-800 dark:text-tower-100">
+                            <input type="radio" name="intakeMode" checked={intakeMode === 'HUB_DIRECT'} onChange={() => { intakeTouched.current = true; setIntakeMode('HUB_DIRECT'); }} />
+                            Chegou direto neste hub
                         </label>
-                        <label className="flex min-h-[44px] items-start gap-2 py-1 text-[13px] text-tower-800 dark:text-tower-100">
-                            <input type="radio" name="intakeMode" className="mt-1" checked={intakeMode === 'HUB_DIRECT'} onChange={() => setIntakeMode('HUB_DIRECT')} />
-                            <span>Entregue diretamente neste hub <span className="block text-[12px] text-tower-500">O serviço começa aqui.</span></span>
+                        <label className="flex min-h-[44px] items-center gap-2 text-[13px] text-tower-800 dark:text-tower-100">
+                            <input type="radio" name="intakeMode" checked={intakeMode === 'UNKNOWN'} onChange={() => { intakeTouched.current = true; setIntakeMode('UNKNOWN'); }} />
+                            Foi coletado no remetente
                         </label>
-                        <label className="flex min-h-[44px] items-start gap-2 py-1 text-[13px] text-tower-800 dark:text-tower-100">
-                            <input type="radio" name="intakeMode" className="mt-1" checked={intakeMode === 'UNKNOWN'} onChange={() => setIntakeMode('UNKNOWN')} />
-                            <span>Início na origem do remetente <span className="block text-[12px] text-tower-500">Use quando a carga foi coletada no remetente.</span></span>
-                        </label>
+                        <p className="mt-1 text-[12px] text-tower-500 dark:text-tower-400">
+                            O CT-e começa em {intakeMode === 'HUB_DIRECT'
+                                ? (hub?.city && hub.state ? `${hub.city}/${hub.state}` : 'cidade deste hub (cadastro pendente)')
+                                : (remetente.person?.city && remetente.person.state ? `${remetente.person.city}/${remetente.person.state}` : 'cidade do remetente (cadastro pendente)')}.
+                        </p>
                     </fieldset>
                     {xmlCargo ? (
                         <div className="mt-4">

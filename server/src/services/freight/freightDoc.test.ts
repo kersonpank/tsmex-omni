@@ -244,12 +244,12 @@ describe('summarizeDocuments: reenvio do CT-e', () => {
 });
 
 describe('suggestFreight', () => {
-    it('pede escolha de CFOP quando o padrão do emitente não corresponde às UFs da prestação', () => {
+    it('CFOP do emitente incompatível com as UFs da prestação é derivado sozinho (sem pedir escolha)', () => {
         const { order, ctx } = fixture();
         ctx.emitter!.defaultCteCfop = '5353';
         const suggestion = suggestFreight(order, ctx);
-        assert.ok(suggestion.blockers.some((issue) => issue.includes('SEFAZ 519')));
-        assert.ok(suggestion.missingFields.includes('cfop'));
+        assert.ok(!suggestion.blockers.some((issue) => issue.includes('SEFAZ 519')));
+        assert.ok(!suggestion.missingFields.includes('cfop'));
         assert.equal(ctx.emitter!.defaultCteCfop, '5353');
     });
 

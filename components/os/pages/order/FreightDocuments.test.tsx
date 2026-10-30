@@ -8,7 +8,7 @@ import { CTE_CFOP_OPTIONS } from '../../../../server/src/services/fiscal/cteTaxR
 import FreightDocuments from './FreightDocuments';
 
 const { ordersFreightApi } = vi.hoisted(() => ({
-    ordersFreightApi: { emitCte: vi.fn(), retryRejectedCte: vi.fn(), prepare: vi.fn() },
+    ordersFreightApi: { emitCte: vi.fn(), retryRejectedCte: vi.fn(), prepare: vi.fn(), ctePreflight: vi.fn().mockResolvedValue({ data: { tax: { cfop: null } } }) },
 }));
 
 vi.mock('../../../../lib/api', () => ({ ordersFreightApi }));
@@ -39,6 +39,7 @@ function pending() {
 describe('FreightDocuments — reenvio do CT-e pendente de reconciliação', () => {
     beforeEach(() => {
         vi.resetAllMocks();
+        ordersFreightApi.ctePreflight.mockResolvedValue({ data: { tax: { cfop: null } } });
     });
 
     it('reenvia o cálculo existente e mantém a ação ocupada até recarregar os documentos', async () => {
@@ -102,7 +103,10 @@ describe('FreightDocuments — correção de CFOP rejeitado', () => {
         ...DOCUMENT, status: 'CTE_REJECTED', canResend: false, statusReason: '519 - CFOP inválido para operação',
     };
 
-    beforeEach(() => vi.resetAllMocks());
+    beforeEach(() => {
+        vi.resetAllMocks();
+        ordersFreightApi.ctePreflight.mockResolvedValue({ data: { tax: { cfop: null } } });
+    });
 
     it('mantém o catálogo de CFOP da interface igual ao validado no servidor', () => {
         expect(CTE_CFOP_SELECT_OPTIONS.map(({ code, labelFull }) => [code, labelFull]))
@@ -159,4 +163,15 @@ describe('FreightDocuments — correção de CFOP rejeitado', () => {
         render(<FreightDocuments orderId="order-1" documents={[{ ...rejected, statusReason: 'Certificate invalid' }]} onResent={vi.fn()} />);
         expect(screen.queryByRole('button', { name: 'Corrigir CFOP e reenviar' })).not.toBeInTheDocument();
     });
+});
+it('mostra rejeição anterior como histórico em cálculo já preparado', () => {
+    render(<FreightDocuments orderId="o1" documents={[{ ...DOCUMENT, status: 'CALCULATED', statusReason: 'CFOP inválido' }]} onResent={vi.fn()} />);
+    expect(screen.getByText('Rejeição anterior: CFOP inválido')).toBeInTheDocument();
+    expect(screen.getByText('CT-e em rascunho')).toBeInTheDocument();
+});
+it('preenche o CFOP sugerido pelo preflight', async () => {
+    ordersFreightApi.ctePreflight.mockResolvedValue({ data: { tax: { cfop: { code: '6353' } } } });
+    render(<FreightDocuments orderId="o1" documents={[{ ...DOCUMENT, status: 'CTE_REJECTED', statusReason: 'CFOP inválido' }]} onResent={vi.fn()} />);
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Corrigir CFOP e reenviar' }));
+    await waitFor(() => expect(screen.getByLabelText('CFOP para o reenvio')).toHaveValue('6353'));
 });

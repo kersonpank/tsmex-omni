@@ -1,3 +1,4 @@
+import { orderServiceStartRouter } from './orderServiceStart.js';
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
@@ -46,6 +47,7 @@ const router = Router();
 router.use(uuidParam(), ...resourceGuard('order'));
 
 router.use('/:orderId/freight-calculations', freightCalculationsRouter);
+router.use('/:id/service-start', orderServiceStartRouter);
 
 router.get('/resolve', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {

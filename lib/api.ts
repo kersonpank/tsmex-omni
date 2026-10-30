@@ -6,6 +6,7 @@ import type {
     CreateDemandRequest,
     CreateIntakeDemandRequest,
     CreateIntakeFromNfeKeyRequest,
+    CreateCollectionRequestPayload,
     ConfirmIntakeArrivalRequest,
     ResolveIntakeByNfeKeyResult,
     ResolveIntakeClientResult,
@@ -352,6 +353,7 @@ export const intakeDemandsApi = {
     getLocalNfeData: async (id: string) => {
         const response = await api.get<ApiResponse<{
             status: 'available' | 'pending' | 'invalid';
+            needsCollection?: boolean;
             source?: 'demand' | 'distribution_storage';
             cargo?: Record<string, unknown>;
             reason?: string;
@@ -376,6 +378,22 @@ export const intakeDemandsApi = {
 
     createFromNfeKey: async (data: CreateIntakeFromNfeKeyRequest) => {
         const response = await api.post<ApiResponse<Demand>>('/intake/demands/from-nfe-key', data);
+        return response.data;
+    },
+
+    requestCollection: async (data: CreateCollectionRequestPayload) => {
+        const response = await api.post<ApiResponse<Demand> & { attached: number; created: number; message?: string }>('/intake/demands/collection-request', data);
+        return response.data;
+    },
+
+    /** Anexa a coleta a uma NF que já aguarda chegada (nunca duplica a entrada). */
+    attachCollection: async (id: string, data: CreateCollectionRequestPayload) => {
+        const response = await api.post<ApiResponse<Demand>>('/intake/demands/' + id + '/collection-request', data);
+        return response.data;
+    },
+
+    cancelCollection: async (id: string, reason: string) => {
+        const response = await api.post<ApiResponse<Demand>>('/intake/demands/' + id + '/cancel-collection', { reason });
         return response.data;
     },
 
@@ -1737,6 +1755,14 @@ export const orderPackagesApi = {
 };
 
 export const ordersApi = {
+    getServiceStart: async (id: string) => {
+        const response = await api.get<ApiResponse<{ city: string | null; mode: 'HUB' | 'REMETENTE'; allowed: boolean }>>(`/orders/${id}/service-start`);
+        return response.data;
+    },
+    setServiceStart: async (id: string, mode: 'HUB' | 'REMETENTE') => {
+        const response = await api.patch<ApiResponse<{ city: string | null; mode: 'HUB' | 'REMETENTE'; allowed: boolean }>>(`/orders/${id}/service-start`, { mode });
+        return response.data;
+    },
     list: async (params?: {
         status?: string;
         /** Vários status separados por vírgula (ex.: AT_HUB,IN_TRANSIT) — usado pelo Hub. */

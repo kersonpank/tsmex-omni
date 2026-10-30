@@ -93,7 +93,6 @@ export function buildCteEmissionInputFromRecords(params: {
     const emitterPerson = calc.fiscalEmitter?.person ?? hub?.person ?? null;
     const rntrc = calc.fiscalEmitter?.rntrc ?? hub?.rntrc ?? null;
     const canBuildInput = calc.documentType === 'CTE' && Boolean(hub && emitterPerson);
-    const effectiveTax = resolveCteCfopCstForEmission(calc, calc.fiscalEmitter);
     const serviceStart = resolveCteServiceLocation({
         calculationCity: calc.originCity,
         orderCity: order.origemPrestacao,
@@ -107,6 +106,7 @@ export function buildCteEmissionInputFromRecords(params: {
         orderIbgeCode: order.fimIbgeCode,
         person: order.destinatarioPerson,
     });
+    const effectiveTax = resolveCteCfopCstForEmission(calc, calc.fiscalEmitter, { startUf: serviceStart?.state, endUf: serviceEnd?.state });
     if (canBuildInput && !serviceStart) {
         additionalIssues.push('Informe uma cidade e UF válidas para o início da prestação.');
         additionalMissingFields.push('originCity');

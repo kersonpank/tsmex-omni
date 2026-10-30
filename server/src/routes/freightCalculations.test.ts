@@ -46,6 +46,8 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
         hubFindUnique: prisma.hub.findUnique,
         fiscalEmitterUpdate: prisma.fiscalEmitter.update,
         cteJobCreate: prisma.cteEmissionJob.create,
+        transaction: prisma.$transaction,
+        historyCreate: prisma.orderHistory.create,
     };
     const envSnapshot = {
         ACBR_CLIENT_ID: process.env.ACBR_CLIENT_ID,
@@ -298,6 +300,8 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
             link: null,
         })) as unknown) as typeof prisma.user.findUnique;
 
+        prisma.$transaction = (async (fn: any) => fn(prisma)) as any;
+        prisma.orderHistory.create = (async () => ({})) as any;
         prisma.order.findUnique = ((async () => mockOrder) as unknown) as typeof prisma.order.findUnique;
         prisma.hub.findUnique = ((async () => mockHub) as unknown) as typeof prisma.hub.findUnique;
 
@@ -352,6 +356,8 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
         prisma.hub.findUnique = original.hubFindUnique;
         prisma.fiscalEmitter.update = original.fiscalEmitterUpdate;
         prisma.cteEmissionJob.create = original.cteJobCreate;
+        prisma.$transaction = original.transaction;
+        prisma.orderHistory.create = original.historyCreate;
         for (const [key, value] of Object.entries(envSnapshot)) {
             if (value === undefined) {
                 delete process.env[key];
@@ -386,17 +392,18 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
         assert.equal(response.body.success, true);
         assert.equal(response.body.data.ok, false);
         assert.equal(response.body.data.canEmit, false);
-        assert.ok(response.body.data.issues.includes('CT-e precisa de CFOP.'));
+        assert.ok(!response.body.data.issues.includes('CT-e precisa de CFOP.'));
         assert.ok(response.body.data.issues.includes('CST 99 não está habilitado para CT-e no MVP.'));
         assert.ok(response.body.data.issues.includes('CT-e precisa de origem e fim da prestação.'));
         assert.ok(response.body.data.issues.includes('CT-e precisa de valor de frete maior que zero.'));
-        assert.ok(response.body.data.missingFields.includes('cfop'));
+        assert.ok(!response.body.data.missingFields.includes('cfop'));
         assert.ok(response.body.data.missingFields.includes('originCity'));
         assert.ok(response.body.data.missingFields.includes('destCity'));
         assert.ok(response.body.data.missingFields.includes('freightTotal'));
     });
 
     it('POST /emit-cte retorna 400 com preflight e não marca CTE_REJECTED em pendência de preenchimento', async () => {
+        calcById.get(calcPendingId)!.cst = '99';
         const response = await httpJson<{
             success: boolean;
             error: string;
@@ -413,8 +420,9 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
         assert.match(response.body.error, /CT-e com pendências fiscais:/);
         assert.equal(response.body.preflight.ok, false);
         assert.equal(response.body.preflight.canEmit, false);
-        assert.ok(response.body.preflight.issues.includes('CT-e precisa de CFOP.'));
-        assert.ok(response.body.preflight.missingFields.includes('cfop'));
+        assert.ok(response.body.preflight.issues.some((issue) => issue.includes('CST 99')));
+        assert.ok(!response.body.preflight.missingFields.includes('cfop'));
+        calcById.get(calcPendingId)!.cst = '00';
         assert.equal(calcById.get(calcPendingId)?.status, 'DRAFT');
     });
 
@@ -492,16 +500,19 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
         }
     });
 
-    it('valida o CFOP proposto antes de alterar o cálculo rejeitado', async () => {
+    it('corrige CFOP proposto incompatível com a geografia antes do envio', async () => {
         const calc = calcById.get(calcRejectedId)!;
+        let note: any;
+        prisma.orderHistory.create = (async ({ data }: any) => { note = data; return {}; }) as any;
+        prisma.fiscalEmitter.update = (async () => { throw new Error('parar antes do envio'); }) as any;
         const response = await httpJson<{ error: string }>(baseUrl, `/api/orders/${orderId}/freight-calculations/${calcRejectedId}/retry-cte-cfop`, token, {
             method: 'POST', body: JSON.stringify({ cfop: '6352', deliveredDirectlyToHub: true }),
         });
-        assert.equal(response.status, 400);
-        assert.match(response.body.error, /SEFAZ 519/);
+        assert.equal(response.status, 500);
         assert.equal(calc.status, 'CTE_REJECTED');
-        assert.equal(calc.cfop, '6352');
-        assert.equal(calc.originCity, 'Imperatriz');
+        assert.equal(calc.cfop, '5352');
+        assert.equal(calc.originCity, 'Imperatriz, MA');
+        assert.match(note.description, /CFOP ajustado automaticamente de 6352 para 5352/);
         assert.equal(calc.cteStatusReason, '519 - CFOP inválido');
     });
 

@@ -22,6 +22,7 @@ import { resolveLocalNfeCargo } from '../services/intake/resolveLocalNfeCargo.js
 import { ensureNfePartyPersons } from '../services/intake/ensureNfePartyPersons.js';
 import { attachNfeXmlToDemand } from '../services/intake/attachNfeXml.js';
 import { ensureKeyEmitterPerson } from '../services/intake/publicCnpjParty.js';
+import { attachCollectionRequest, cancelCollectionRequest, createCollectionRequest, demandNeedsCollection } from '../services/intake/collectionRequest.js';
 
 const router = Router();
 
@@ -65,6 +66,30 @@ const fromNfeKeySchema = z.object({
     expectedHubId: z.string().uuid().optional(),
     rawInputData: z.record(z.unknown()).optional(),
 });
+
+const collectionRequestSchema = z.object({
+    expectedHubId: z.string().uuid().optional(),
+    senderPersonId: z.string().uuid(),
+    address: z.object({
+        cep: z.string().max(12).optional(),
+        address: z.string().max(200).optional(),
+        number: z.string().max(20).optional(),
+        complement: z.string().max(100).optional(),
+        neighborhood: z.string().max(100).optional(),
+        city: z.string().max(100).optional(),
+        state: z.string().max(2).optional(),
+        cityIbgeCode: z.string().max(7).optional(),
+    }),
+    requestedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Informe a data desejada da coleta.'),
+    windowLabel: z.string().max(60).optional(),
+    contact: z.string().max(120).optional(),
+    approxWeightKg: z.number().positive().max(200000).optional(),
+    approxUnits: z.number().int().positive().max(99999).optional(),
+    nfKeys: z.array(z.string().max(200)).max(50).optional(),
+    note: z.string().max(500).optional(),
+});
+
+const cancelCollectionSchema = z.object({ reason: z.string().min(3, 'Informe o motivo do cancelamento.').max(300) });
 
 const lookupByKeySchema = z.object({
     chave: z.string().min(8),
@@ -274,6 +299,74 @@ router.post('/demands/lookup-by-key', async (req: AuthRequest, res: Response, ne
     }
 });
 
+// POST /api/intake/demands/collection-request — o hub solicita uma coleta no remetente
+router.post('/demands/collection-request', async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const data = collectionRequestSchema.parse(req.body);
+        const hubId = requireResolvedHubId(resolveExpectedHubId(req, data.expectedHubId));
+        const result = await createCollectionRequest({
+            hubId,
+            senderPersonId: data.senderPersonId,
+            address: data.address,
+            requestedDate: data.requestedDate,
+            windowLabel: data.windowLabel,
+            contact: data.contact,
+            approxWeightKg: data.approxWeightKg,
+            approxUnits: data.approxUnits,
+            nfKeys: data.nfKeys,
+            note: data.note,
+            actorUserId: req.user!.id,
+        });
+        res.status(201).json({
+            success: true,
+            data: result.demands[0],
+            demands: result.demands,
+            attached: result.attached,
+            created: result.created,
+            message: result.attached > 0 ? 'NF já estava aguardando — coleta vinculada.' : undefined,
+        });
+    } catch (e) {
+        if (e instanceof z.ZodError) return next(new AppError(e.errors[0]?.message ?? 'Payload inválido', 400));
+        next(e);
+    }
+});
+
+// POST /api/intake/demands/:id/collection-request — coleta desta NF (Demand que já aguarda)
+router.post('/demands/:id/collection-request', async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const { nfKeys: _ignored, ...data } = collectionRequestSchema.parse(req.body);
+        const hubId = requireResolvedHubId(resolveExpectedHubId(req, data.expectedHubId));
+        const demand = await attachCollectionRequest({
+            ...data,
+            demandId: req.params.id as string,
+            hubId,
+            isAdmin: req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('HUB'),
+            actorUserId: req.user!.id,
+        });
+        res.status(200).json({ success: true, data: demand });
+    } catch (e) {
+        if (e instanceof z.ZodError) return next(new AppError(e.errors[0]?.message ?? 'Payload inválido', 400));
+        next(e);
+    }
+});
+
+// POST /api/intake/demands/:id/cancel-collection
+router.post('/demands/:id/cancel-collection', async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const { reason } = cancelCollectionSchema.parse(req.body);
+        const demand = await cancelCollectionRequest({
+            demandId: req.params.id as string,
+            reason,
+            actingHubId: req.user!.hubId,
+            isAdmin: req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('HUB'),
+        });
+        res.json({ success: true, data: demand });
+    } catch (e) {
+        if (e instanceof z.ZodError) return next(new AppError(e.errors[0]?.message ?? 'Payload inválido', 400));
+        next(e);
+    }
+});
+
 // POST /api/intake/demands/:id/confirm-arrival
 router.post('/demands/:id/confirm-arrival', async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
@@ -458,17 +551,19 @@ router.get('/demands/:id/nfe-data', async (req: AuthRequest, res: Response, next
         const id = req.params.id as string;
         const demand = await assertCanViewIntakeDemand(req, id);
         const local = await resolveLocalNfeCargo(id);
+        const opportunity = await prisma.opportunity.findFirst({ where: { matchedDemandId: id }, select: { needsCollection: true } });
+        const needsCollection = Boolean(opportunity?.needsCollection) || demandNeedsCollection(demand);
         if (local.status === 'available') {
             // Fallback idempotente para demandas anteriores: garante Pessoas com cidade por IBGE ao abrir a entrada.
             const parties = await ensureNfePartyPersons(local.cargo);
-            return res.json({ success: true, data: { ...local, parties, partiesSource: 'nfe_xml' } });
+            return res.json({ success: true, data: { ...local, needsCollection, parties, partiesSource: 'nfe_xml' } });
         }
         // Sem XML: o remetente é o emitente da chave, pelo cadastro público do CNPJ (Receita).
         // O destinatário não está na chave — fica para o operador.
         const remetente = await ensureKeyEmitterPerson(demand);
         res.json({
             success: true,
-            data: { ...local, ...(remetente ? { parties: { remetente, destinatario: null }, partiesSource: 'public_cnpj' } : {}) },
+            data: { ...local, needsCollection, ...(remetente ? { parties: { remetente, destinatario: null }, partiesSource: 'public_cnpj' } : {}) },
         });
     } catch (error) {
         next(error);

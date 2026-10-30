@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { ordersFreightApi } from '../../../../lib/api';
 import { CTE_CFOP_SELECT_OPTIONS, cfopOptionSelectText } from '../../../../lib/cteTaxCatalog';
 import type { BrandingForDocuments, FreightDocumentSummary } from '../../../../types/index';
@@ -18,8 +18,9 @@ const FreightDocuments: React.FC<{ orderId: string; documents: FreightDocumentSu
     const [error, setError] = useState<string | null>(null);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [cfop, setCfop] = useState('');
+    const cfopRequest = useRef(0);
     const [deliveredDirectlyToHub, setDeliveredDirectlyToHub] = useState(false);
-    const shown = documents.filter((d) => d.status !== 'DRAFT' && d.status !== 'CALCULATED');
+    const shown = documents.filter((d) => (d.status !== 'DRAFT' && d.status !== 'CALCULATED') || Boolean(d.statusReason));
     if (shown.length === 0) return null;
 
     const openPrint = async (doc: FreightDocumentSummary) => {
@@ -49,6 +50,20 @@ const FreightDocuments: React.FC<{ orderId: string; documents: FreightDocumentSu
             } finally {
                 setBusyId(null);
             }
+        }
+    };
+
+    const openCfopCorrection = async (doc: FreightDocumentSummary) => {
+        const request = ++cfopRequest.current;
+        setEditingId(doc.id);
+        setCfop('');
+        setDeliveredDirectlyToHub(false);
+        setError(null);
+        try {
+            const body = await ordersFreightApi.ctePreflight(orderId, doc.id);
+            if (cfopRequest.current === request) setCfop(body.data?.tax.cfop?.code ?? '');
+        } catch (cause) {
+            if (cfopRequest.current === request) setError(apiErrorMessage(cause, 'Não foi possível sugerir o CFOP. Escolha no catálogo.'));
         }
     };
 
@@ -84,6 +99,9 @@ const FreightDocuments: React.FC<{ orderId: string; documents: FreightDocumentSu
                             <span className="shrink-0 font-mono text-[13px] font-semibold text-tower-700 dark:text-tower-200">{formatBRL(doc.freightTotal)}</span>
                         </div>
                         {view.hint ? <p className="mt-1 text-[12px] text-tower-500 dark:text-tower-400">{view.hint}</p> : null}
+                        {doc.statusReason && !['CTE_REJECTED', 'DCE_REJECTED', 'CTE_PENDING_RECONCILIATION'].includes(doc.status) ? (
+                            <p className="mt-1 text-[12px] text-tower-500 dark:text-tower-400">Rejeição anterior: {doc.statusReason}</p>
+                        ) : null}
                         {doc.status === 'CTE_PENDING_RECONCILIATION' && doc.statusReason ? (
                             <p className="mt-1 line-clamp-3 text-[12px] text-tower-500 dark:text-tower-400">{doc.statusReason}</p>
                         ) : null}
@@ -98,7 +116,7 @@ const FreightDocuments: React.FC<{ orderId: string; documents: FreightDocumentSu
                                 <form className="mt-3 flex flex-col gap-3" onSubmit={(event) => { event.preventDefault(); void retryRejected(doc); }}>
                                     <label className="text-[13px] font-semibold text-tower-700 dark:text-tower-200">
                                         CFOP para o reenvio
-                                        <select className={`${osFieldClass} mt-1`} value={cfop} onChange={(event) => setCfop(event.target.value)} disabled={busyId !== null} required>
+                                        <select className={`${osFieldClass} mt-1`} value={cfop} onChange={(event) => { ++cfopRequest.current; setCfop(event.target.value); }} disabled={busyId !== null} required>
                                             <option value="">Escolha o CFOP</option>
                                             {CTE_CFOP_SELECT_OPTIONS.map((option) => (
                                                 <option key={option.code} value={option.code} title={option.labelFull}>{cfopOptionSelectText(option)}</option>
@@ -118,7 +136,7 @@ const FreightDocuments: React.FC<{ orderId: string; documents: FreightDocumentSu
                                     </div>
                                 </form>
                             ) : (
-                                <OsButton type="button" disabled={busyId !== null} onClick={() => { setEditingId(doc.id); setCfop(''); setDeliveredDirectlyToHub(false); setError(null); }} className="mt-2">
+                                <OsButton type="button" disabled={busyId !== null} onClick={() => void openCfopCorrection(doc)} className="mt-2">
                                     Corrigir CFOP e reenviar
                                 </OsButton>
                             )

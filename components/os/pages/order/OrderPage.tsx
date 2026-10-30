@@ -14,6 +14,7 @@ import FreightComposer from './FreightComposer';
 import FreightDocuments from './FreightDocuments';
 import PackagesEditor from './PackagesEditor';
 import PayerRow from './PayerRow';
+import ServiceStartRow from './ServiceStartRow';
 
 /**
  * PEDIDO NO HUB — "o que falta para este pedido ficar pronto para viajar?"
@@ -142,11 +143,12 @@ const OrderPage: React.FC = () => {
                 <OsErrorNotice message={freight.error ?? 'Pedido não encontrado.'} onRetry={() => void freight.reload()} />
             ) : (
                 <>
+                    <ServiceStartRow key={JSON.stringify(s.documents)} orderId={orderId} onChanged={reload} />
                     <PayerRow orderId={orderId} suggestion={s} onChanged={reload} />
                     <FreightDocuments orderId={orderId} documents={s.documents} onResent={reload} />
                     {composing ? (
                         <div className="mt-3">
-                            <FreightComposer key={`${s.freightTerm}-${another}`} orderId={orderId} suggestion={s} newDocument={another} onEmitted={reload} />
+                            <FreightComposer key={`${s.freightTerm}-${another}-${s.state}`} orderId={orderId} suggestion={s} newDocument={another} onEmitted={reload} />
                         </div>
                     ) : (
                         <button type="button" onClick={() => setAnother(true)} className="mt-2 min-h-[40px] text-[13px] font-bold text-brand-600 dark:text-brand-300">

@@ -1,3 +1,4 @@
+import { persistDerivedCteCfop } from '../services/fiscal/cteCfopPersistence.js';
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import type { FreightCalcStatus, Prisma } from '@prisma/client';
@@ -1109,21 +1110,29 @@ const emitCteHandler = (correctRejected: boolean) => async (req: AuthRequest, re
             allowedStatusesForEmit.push('CTE_PENDING_RECONCILIATION');
         }
 
-        const ready = await prisma.orderFreightCalculation.updateMany({
-            where: {
-                id: calcId,
-                orderId,
-                documentType: 'CTE',
-                status: { in: allowedStatusesForEmit },
-                ...(calc.updatedAt ? { updatedAt: calc.updatedAt } : {}),
-                ...((req.user!.roles.includes('HUB') || correctedOrigin) ? { order: { currentHubId: order.currentHubId } } : {}),
-            },
-            data: {
-                status: 'CTE_READY',
-                ...(selectedCfop ? { cfop: selectedCfop.code } : {}),
-                ...(correctedOrigin ? { originCity: correctedOrigin } : {}),
-            },
-        });
+        const previousTaxCalc = { id: calc.id, orderId: calc.orderId, cfop: calc.cfop };
+        const reserve = async (tx: Prisma.TransactionClient) => {
+            const ready = await tx.orderFreightCalculation.updateMany({
+                where: {
+                    id: calcId,
+                    orderId,
+                    documentType: 'CTE',
+                    status: { in: allowedStatusesForEmit },
+                    ...(calc.updatedAt ? { updatedAt: calc.updatedAt } : {}),
+                    ...((req.user!.roles.includes('HUB') || correctedOrigin) ? { order: { currentHubId: order.currentHubId } } : {}),
+                },
+                data: {
+                    status: 'CTE_READY',
+                    cfop: cteBaseInput.calc.cfop,
+                    ...(correctedOrigin ? { originCity: correctedOrigin } : {}),
+                },
+            });
+            if (ready.count === 1) await persistDerivedCteCfop(tx, previousTaxCalc, cteBaseInput, req.user!.id);
+            return ready;
+        };
+        const ready = calc.cfop !== cteBaseInput.calc.cfop
+            ? await prisma.$transaction(reserve)
+            : await reserve(prisma);
         if (ready.count !== 1) {
             throw new AppError('CT-e não está em estado elegível para envio. Recarregue o pedido e tente novamente.', 409);
         }
@@ -1690,7 +1699,19 @@ router.post('/prepare', authenticate, authorize('ADMIN', 'HUB'), async (req: Aut
                 include: { remetentePerson: true, destinatarioPerson: true, consignatarioPerson: true, expedidorPerson: true, invoicesRel: true },
             });
             const hub = await prisma.hub.findUniqueOrThrow({ where: { id: calc.emissorId }, include: { person: true } });
-            preflight = buildCteEmissionInputFromRecords({ order: full, calc, hub }).preflight;
+            const built = buildCteEmissionInputFromRecords({ order: full, calc, hub });
+            preflight = built.preflight;
+            if (!prepared.alreadyActive && built.input && calc.cfop !== built.input.calc.cfop) {
+                await prisma.$transaction(async (tx) => {
+                    const reserved = await tx.orderFreightCalculation.updateMany({
+                        where: { id: calc.id, updatedAt: calc.updatedAt, status: { in: ['DRAFT', 'CALCULATED', 'CTE_REJECTED'] } },
+                        data: { cfop: built.input!.calc.cfop },
+                    });
+                    if (reserved.count !== 1) throw new AppError('O cálculo mudou durante a preparação. Recarregue o pedido.', 409);
+                    await persistDerivedCteCfop(tx, calc, built.input!, req.user!.id);
+                });
+                calc.cfop = built.input.calc.cfop ?? null;
+            }
         }
         res.status(prepared.created ? 201 : 200).json({ success: true, data: { calc, preflight, alreadyActive: prepared.alreadyActive } });
     } catch (error) {

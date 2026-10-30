@@ -1,3 +1,4 @@
+import { persistDerivedCteCfop } from '../fiscal/cteCfopPersistence.js';
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import type { CteEmissionInput } from '../cteService.js';
@@ -49,6 +50,9 @@ export async function buildCteEmissionInputForJob(calcId: string, emissionJobId?
             throw new AppError(`CT-e com pendências fiscais no momento do processamento: ${built.preflight.issues.join(' ')}`, 400);
         }
         input = built.input;
+        if (calc.cfop !== input.calc.cfop) {
+            await prisma.$transaction(async (tx) => persistDerivedCteCfop(tx, calc, input));
+        }
     }
 
     const fiscalEmitterContext: FiscalEmitterContext | null = calc.fiscalEmitter

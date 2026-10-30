@@ -13,6 +13,7 @@ vi.mock('../../../../lib/api', () => ({
     personsApi: { search: vi.fn(), fromPublicCnpj: vi.fn(), create: vi.fn(), update: vi.fn() },
     cnpjApi: { consult: vi.fn() },
 }));
+vi.mock('../../OsContext', () => ({ useOs: () => ({ hub: { city: 'Guarulhos', state: 'SP' } }) }));
 vi.mock('../../../manifest/FiscalAddressFields', () => ({ FiscalAddressFields: () => null }));
 
 const remetente = { id: 'rem', documentType: 'CNPJ', document: '11111111000111', legalName: 'REMETENTE', stateRegistration: '111', city: 'SP', cityIbgeCode: '3550308', state: 'SP' } as Person;
@@ -29,20 +30,20 @@ describe('EntrySheet: início do serviço e edição', () => {
         vi.mocked(hubCargoApi.resolve).mockResolvedValue({ data: {} } as never);
     });
 
-    it('mantém origem desconhecida por padrão e não presume entrega direta', async () => {
+    it('seleciona chegada direta por padrão sem solicitação de coleta', async () => {
         const user = userEvent.setup();
         render(<EntrySheet item={item} hubId="hub" onClose={vi.fn()} onDone={vi.fn()} />);
-        expect(await screen.findByRole('radio', { name: /Definir pela solicita/ })).toBeChecked();
-        expect(screen.getByRole('radio', { name: /Entregue diretamente neste hub/ })).not.toBeChecked();
+        expect(await screen.findByRole('radio', { name: /Chegou direto neste hub/ })).toBeChecked();
+        expect(screen.getByRole('radio', { name: /Foi coletado no remetente/ })).not.toBeChecked();
         await user.click(screen.getByRole('button', { name: 'Confirmar entrada' }));
-        await waitFor(() => expect(intakeDemandsApi.confirmArrival).toHaveBeenCalledWith('d1', expect.objectContaining({ intakeMode: 'AUTO' })));
+        await waitFor(() => expect(intakeDemandsApi.confirmArrival).toHaveBeenCalledWith('d1', expect.objectContaining({ intakeMode: 'HUB_DIRECT' })));
     });
 
     it('envia HUB_DIRECT somente ao confirmar entrega direta no hub', async () => {
         const user = userEvent.setup();
         render(<EntrySheet item={item} hubId="hub" onClose={vi.fn()} onDone={vi.fn()} />);
-        await user.click(await screen.findByRole('radio', { name: /Entregue diretamente neste hub/ }));
-        expect(screen.getByText('O serviço começa aqui.')).toBeInTheDocument();
+        await user.click(await screen.findByRole('radio', { name: /Chegou direto neste hub/ }));
+        expect(screen.getByText('O CT-e começa em Guarulhos/SP.')).toBeInTheDocument();
         await user.click(screen.getByRole('button', { name: 'Confirmar entrada' }));
         await waitFor(() => expect(intakeDemandsApi.confirmArrival).toHaveBeenCalledWith('d1', expect.objectContaining({
             intakeMode: 'HUB_DIRECT', remetentePersonId: 'rem', destinatarioPersonId: 'dest', freightTerm: 'CIF',
@@ -52,11 +53,20 @@ describe('EntrySheet: início do serviço e edição', () => {
     it('não carrega a escolha de entrega direta para outra demanda', async () => {
         const user = userEvent.setup();
         const { rerender } = render(<EntrySheet item={item} hubId="hub" onClose={vi.fn()} onDone={vi.fn()} />);
-        await user.click(await screen.findByRole('radio', { name: /Entregue diretamente neste hub/ }));
+        await user.click(await screen.findByRole('radio', { name: /Chegou direto neste hub/ }));
         rerender(<EntrySheet item={{ ...item, demandId: 'd2' }} hubId="hub" onClose={vi.fn()} onDone={vi.fn()} />);
-        expect(await screen.findByRole('radio', { name: /Definir pela solicita/ })).toBeChecked();
+        expect(await screen.findByRole('radio', { name: /Chegou direto neste hub/ })).toBeChecked();
         await user.click(screen.getByRole('button', { name: 'Confirmar entrada' }));
-        await waitFor(() => expect(intakeDemandsApi.confirmArrival).toHaveBeenCalledWith('d2', expect.objectContaining({ intakeMode: 'AUTO' })));
+        await waitFor(() => expect(intakeDemandsApi.confirmArrival).toHaveBeenCalledWith('d2', expect.objectContaining({ intakeMode: 'HUB_DIRECT' })));
+    });
+
+    it('seleciona coleta quando a oportunidade exige coleta', async () => {
+        vi.mocked(intakeDemandsApi.getLocalNfeData).mockResolvedValue({ data: { status: 'available', cargo, needsCollection: true, parties: { remetente, destinatario } } } as never);
+        render(<EntrySheet item={item} hubId="hub" onClose={vi.fn()} onDone={vi.fn()} />);
+        expect(await screen.findByRole('radio', { name: 'Foi coletado no remetente' })).toBeChecked();
+        expect(screen.getByText('O CT-e começa em SP/SP.')).toBeInTheDocument();
+        await userEvent.setup().click(screen.getByRole('button', { name: 'Confirmar entrada' }));
+        await waitFor(() => expect(intakeDemandsApi.confirmArrival).toHaveBeenCalledWith('d1', expect.objectContaining({ intakeMode: 'UNKNOWN' })));
     });
 
     it('avisa quando falha a conferência das IEs, mantendo a entrada disponível', async () => {

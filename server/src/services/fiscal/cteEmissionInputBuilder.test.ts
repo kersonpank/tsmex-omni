@@ -38,3 +38,14 @@ describe('buildCteEmissionInputFromRecords — certificado A1', () => {
         assert.ok(!preflight.issues.some((i) => i.includes('certificado A1')));
     });
 });
+
+it('deriva CFOP pelas localidades resolvidas do pedido e devolve a sugestão no preflight', () => {
+    const result = buildCteEmissionInputFromRecords({
+        order: { origemPrestacao: 'Guarulhos, SP', fimPrestacao: 'São Luís, MA', invoicesRel: [] },
+        calc: { id: 'c1', documentType: 'CTE', freightTotal: 100, cfop: '6932', cst: '00',
+            fiscalEmitterId: 'e1', fiscalEmitter: { active: true, person: { ...person, state: 'SP' }, defaultCteCfop: '6353' } },
+        hub: { id: 'h1' },
+    });
+    assert.equal(result.input?.calc.cfop, '6353');
+    assert.equal(result.preflight.tax.cfop?.code, '6353');
+});

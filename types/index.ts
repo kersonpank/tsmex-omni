@@ -865,6 +865,46 @@ export interface HubCargoAllowedActions {
     triage: boolean;
 }
 
+/** Coleta solicitada pelo hub (guardada em Demand.rawInputData.collectionRequest). */
+export interface CollectionRequest {
+    senderPersonId: string;
+    senderName: string;
+    address: {
+        cep?: string;
+        address?: string;
+        number?: string;
+        complement?: string;
+        neighborhood?: string;
+        city?: string;
+        state?: string;
+        cityIbgeCode?: string;
+    };
+    /** AAAA-MM-DD */
+    requestedDate: string;
+    windowLabel?: string | null;
+    contact?: string | null;
+    approxWeightKg?: number | null;
+    approxUnits?: number | null;
+    nfKeys: string[];
+    note?: string | null;
+    requestedAt: string;
+    cancelledAt?: string | null;
+    cancelReason?: string | null;
+}
+
+export interface CreateCollectionRequestPayload {
+    expectedHubId?: string;
+    senderPersonId: string;
+    address: CollectionRequest['address'];
+    requestedDate: string;
+    windowLabel?: string;
+    contact?: string;
+    approxWeightKg?: number;
+    approxUnits?: number;
+    nfKeys?: string[];
+    note?: string;
+}
+
 export interface HubCargoItem {
     id: string;
     kind: 'order' | 'intake' | 'fiscal_document';
@@ -901,6 +941,8 @@ export interface HubCargoItem {
     updatedAt?: string;
     /** Documento do frete do pedido (CT-e/DC-e/minuta). */
     freightDocState?: FreightDocState;
+    /** Coleta solicitada pelo hub (Aguardando chegada). */
+    collectionRequest?: CollectionRequest | null;
 }
 
 // ========== DOCUMENTO DO FRETE (TSM O.S.) ==========
