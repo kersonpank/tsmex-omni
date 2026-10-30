@@ -22,7 +22,7 @@ import { resolveLocalNfeCargo } from '../services/intake/resolveLocalNfeCargo.js
 import { ensureNfePartyPersons } from '../services/intake/ensureNfePartyPersons.js';
 import { attachNfeXmlToDemand } from '../services/intake/attachNfeXml.js';
 import { ensureKeyEmitterPerson } from '../services/intake/publicCnpjParty.js';
-import { attachCollectionRequest, cancelCollectionRequest, createCollectionRequest, demandNeedsCollection } from '../services/intake/collectionRequest.js';
+import { attachCollectionRequest, cancelCollectionRequest, createCollectionRequest, demandNeedsCollection, getLastCollectionAddresses } from '../services/intake/collectionRequest.js';
 
 const router = Router();
 
@@ -67,9 +67,27 @@ const fromNfeKeySchema = z.object({
     rawInputData: z.record(z.unknown()).optional(),
 });
 
+const collectionContactInputSchema = z.object({
+    personContactId: z.string().uuid().optional(),
+    name: z.string().min(1, 'Nome do contato é obrigatório').trim(),
+    phone: z.string().max(40).optional(),
+    email: z.string().email().optional().or(z.literal('')),
+    role: z.string().max(80).optional(),
+});
+
+const collectionPackageDimensionInputSchema = z.object({
+    quantity: z.number().int().positive(),
+    lengthCm: z.number().positive(),
+    widthCm: z.number().positive(),
+    heightCm: z.number().positive(),
+    weightKg: z.number().positive().optional(),
+});
+
 const collectionRequestSchema = z.object({
     expectedHubId: z.string().uuid().optional(),
     senderPersonId: z.string().uuid(),
+    contractingPersonId: z.string().uuid().optional(),
+    contacts: z.array(collectionContactInputSchema).max(30).optional(),
     address: z.object({
         cep: z.string().max(12).optional(),
         address: z.string().max(200).optional(),
@@ -79,12 +97,23 @@ const collectionRequestSchema = z.object({
         city: z.string().max(100).optional(),
         state: z.string().max(2).optional(),
         cityIbgeCode: z.string().max(7).optional(),
+        referencePoint: z.string().max(200).optional(),
+        accessInstructions: z.string().max(500).optional(),
     }),
+    referencePoint: z.string().max(200).optional(),
+    accessInstructions: z.string().max(500).optional(),
+    destinatarioPersonId: z.string().uuid().optional(),
+    goodsDescription: z.string().max(300).optional(),
     requestedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Informe a data desejada da coleta.'),
     windowLabel: z.string().max(60).optional(),
-    contact: z.string().max(120).optional(),
+    availabilityWindow: z.string().max(60).optional(),
+    contact: z.string().max(200).optional(),
     approxWeightKg: z.number().positive().max(200000).optional(),
     approxUnits: z.number().int().positive().max(99999).optional(),
+    nfValue: z.number().nonnegative().max(1_000_000_000).optional(),
+    packageDimensions: z.array(collectionPackageDimensionInputSchema).max(50).optional(),
+    needsHelper: z.boolean().optional(),
+    needsLoading: z.boolean().optional(),
     nfKeys: z.array(z.string().max(200)).max(50).optional(),
     note: z.string().max(500).optional(),
 });
@@ -307,12 +336,23 @@ router.post('/demands/collection-request', async (req: AuthRequest, res: Respons
         const result = await createCollectionRequest({
             hubId,
             senderPersonId: data.senderPersonId,
+            contractingPersonId: data.contractingPersonId,
+            contacts: data.contacts,
             address: data.address,
+            referencePoint: data.referencePoint,
+            accessInstructions: data.accessInstructions,
+            destinatarioPersonId: data.destinatarioPersonId,
+            goodsDescription: data.goodsDescription,
             requestedDate: data.requestedDate,
             windowLabel: data.windowLabel,
+            availabilityWindow: data.availabilityWindow,
             contact: data.contact,
             approxWeightKg: data.approxWeightKg,
             approxUnits: data.approxUnits,
+            nfValue: data.nfValue,
+            packageDimensions: data.packageDimensions,
+            needsHelper: data.needsHelper,
+            needsLoading: data.needsLoading,
             nfKeys: data.nfKeys,
             note: data.note,
             actorUserId: req.user!.id,
@@ -344,6 +384,77 @@ router.post('/demands/:id/collection-request', async (req: AuthRequest, res: Res
             actorUserId: req.user!.id,
         });
         res.status(200).json({ success: true, data: demand });
+    } catch (e) {
+        if (e instanceof z.ZodError) return next(new AppError(e.errors[0]?.message ?? 'Payload inválido', 400));
+        next(e);
+    }
+});
+
+// GET /api/intake/demands/last-collection-addresses
+router.get('/demands/last-collection-addresses', async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const senderPersonId = String(req.query.senderPersonId ?? '').trim();
+        if (!senderPersonId) return res.json({ success: true, data: [] });
+        const addresses = await getLastCollectionAddresses(senderPersonId);
+        res.json({ success: true, data: addresses });
+    } catch (e) {
+        next(e);
+    }
+});
+
+// POST /api/intake/demands/lookup-nfe-cargo — preenchimento automático a partir de chave de 44 dígitos
+router.post('/demands/lookup-nfe-cargo', async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const { chave } = resolveByKeySchema.parse(req.body);
+        const digits = extractChaveFromInput(chave).replace(/\D/g, '');
+        if (digits.length !== 44) {
+            return res.json({ success: true, data: { found: false } });
+        }
+
+        // 1. Tenta achar via Demand já existente com XML ou cargo
+        const existingDemand = await prisma.demand.findFirst({
+            where: {
+                OR: [
+                    { documentKey: digits },
+                    { rawInputData: { path: ['collectionRequest', 'nfKeys'], array_contains: digits } },
+                ],
+            },
+            select: { id: true, rawInputData: true },
+        });
+
+        let cargo: ParsedNfeCargo | undefined;
+        if (existingDemand) {
+            const local = await resolveLocalNfeCargo(existingDemand.id);
+            if (local.status === 'available') {
+                cargo = local.cargo;
+            }
+        }
+
+        // 2. Tenta achar via Distribuição NF-e
+        if (!cargo) {
+            cargo = await findCargoDataForChave(digits);
+        }
+
+        if (!cargo) {
+            return res.json({ success: true, data: { found: false } });
+        }
+
+        const parties = await ensureNfePartyPersons(cargo);
+        const goodsDescription = cargo.produtos?.map((p) => p.descricao).filter(Boolean).slice(0, 5).join(', ');
+
+        res.json({
+            success: true,
+            data: {
+                found: true,
+                cargo: {
+                    goodsDescription,
+                    units: cargo.quantidadeVolumes,
+                    weightKg: cargo.pesoBruto ?? cargo.pesoLiquido,
+                    nfValue: cargo.valorTotalNota,
+                },
+                parties,
+            },
+        });
     } catch (e) {
         if (e instanceof z.ZodError) return next(new AppError(e.errors[0]?.message ?? 'Payload inválido', 400));
         next(e);

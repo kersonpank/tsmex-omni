@@ -388,6 +388,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
                 },
                 hubs: { select: { id: true, name: true, code: true } },
                 fiscalEmitters: { select: { id: true, active: true } },
+                contacts: { orderBy: { createdAt: 'asc' } },
                 users: req.user!.roles.includes('ADMIN')
                     ? {
                           select: {
@@ -407,8 +408,8 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
             throw new AppError('Pessoa não encontrada', 404);
         }
 
-        // Non-admin can only view their own person (via client or link)
-        if (!req.user!.roles.includes('ADMIN')) {
+        // Non-admin and non-hub can only view their own person (via client or link)
+        if (!req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('HUB')) {
             const isOwn =
                 (req.user!.roles.includes('CLIENT') && person.clients.some(c => c.user?.id === req.user!.id)) ||
                 (req.user!.roles.includes('LINK') && person.links.some(l => l.user?.id === req.user!.id));
@@ -422,6 +423,52 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
             data: person,
         });
     } catch (error) {
+        next(error);
+    }
+});
+
+const createPersonContactSchema = z.object({
+    name: z.string().min(1, 'Nome do contato é obrigatório').trim(),
+    phone: z.string().optional().transform(v => v?.trim() || undefined),
+    email: z.string().email('Email inválido').optional().or(z.literal('')).transform(v => v ? v.trim().toLowerCase() : undefined),
+    role: z.string().optional().transform(v => v?.trim() || undefined),
+    relation: z.string().optional().transform(v => v?.trim() || undefined),
+});
+
+// GET /api/persons/:id/contacts - Lista contatos da pessoa (Admin, Hub)
+router.get('/:id/contacts', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const id = getParamId(req.params);
+        const contacts = await prisma.personContact.findMany({
+            where: { personId: id },
+            orderBy: { createdAt: 'asc' },
+        });
+        res.json({ success: true, data: contacts });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// POST /api/persons/:id/contacts - Adiciona contato à pessoa (Admin, Hub)
+router.post('/:id/contacts', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const id = getParamId(req.params);
+        const body = createPersonContactSchema.parse(req.body);
+        const person = await prisma.person.findUnique({ where: { id }, select: { id: true } });
+        if (!person) throw new AppError('Pessoa não encontrada', 404);
+
+        const contact = await prisma.personContact.create({
+            data: {
+                personId: id,
+                name: body.name,
+                phone: body.phone,
+                email: body.email,
+                relation: body.role || body.relation || null,
+            },
+        });
+        res.status(201).json({ success: true, data: contact });
+    } catch (error) {
+        if (error instanceof z.ZodError) return next(new AppError(error.errors[0]?.message ?? 'Payload inválido', 400));
         next(error);
     }
 });

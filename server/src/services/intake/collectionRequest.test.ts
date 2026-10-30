@@ -6,6 +6,7 @@ import {
     cancelCollectionRequest,
     createCollectionRequest,
     demandNeedsCollection,
+    getLastCollectionAddresses,
     parseNfKeys,
     readCollectionRequest,
 } from './collectionRequest.js';
@@ -188,5 +189,97 @@ describe('coleta solicitada pelo hub', () => {
         assert.equal(d.status, 'AWAITING_ARRIVAL');
         assert.equal(d.intentType, 'DROP_AT_HUB');
         assert.equal(demandNeedsCollection(d as { rawInputData: unknown }), false);
+    });
+
+    it('grava e lê campos enriquecidos (contratante, contatos, janela, mercadoria, flags)', async () => {
+        const res = await createCollectionRequest({
+            ...base,
+            contractingPersonId: PERSON,
+            contacts: [{ name: 'Carlos', phone: '11999999999', email: 'carlos@empresa.com', role: 'Expedição' }],
+            availabilityWindow: '08:00–12:00',
+            referencePoint: 'Portão 3 ao lado do galpão',
+            accessInstructions: 'Doca 2, avisar portaria',
+            destinatarioPersonId: PERSON,
+            goodsDescription: 'Peças industriais e válvulas',
+            nfValue: 12500.5,
+            needsHelper: true,
+            needsLoading: true,
+            packageDimensions: [{ quantity: 2, lengthCm: 50, widthCm: 40, heightCm: 30, weightKg: 15 }],
+        });
+        const dem = res.demands[0];
+        const cr = readCollectionRequest(dem.rawInputData);
+        assert.ok(cr);
+        assert.equal(cr.contractingPersonId, PERSON);
+        assert.equal(cr.contractingPersonName, 'Remetente');
+        assert.equal(cr.contacts?.[0]?.name, 'Carlos');
+        assert.equal(cr.contacts?.[0]?.phone, '11999999999');
+        assert.equal(cr.contacts?.[0]?.role, 'Expedição');
+        assert.equal(cr.contact, 'Carlos (11999999999)');
+        assert.equal(cr.availabilityWindow, '08:00–12:00');
+        assert.equal(cr.referencePoint, 'Portão 3 ao lado do galpão');
+        assert.equal(cr.accessInstructions, 'Doca 2, avisar portaria');
+        assert.equal(cr.destinatarioPersonId, PERSON);
+        assert.equal(cr.goodsDescription, 'Peças industriais e válvulas');
+        assert.equal(cr.nfValue, 12500.5);
+        assert.equal(cr.needsHelper, true);
+        assert.equal(cr.needsLoading, true);
+        assert.equal(cr.packageDimensions?.length, 1);
+        assert.equal(dem.commodity, 'Peças industriais e válvulas');
+        assert.equal(dem.nfValue, 12500.5);
+    });
+
+    it('compatibilidade retroativa: lê coletas antigas sem campos novos', () => {
+        const oldCr = {
+            senderPersonId: PERSON,
+            senderName: 'Antigo',
+            address: { city: 'São Paulo', state: 'SP' },
+            requestedDate: '2026-10-01',
+            nfKeys: [],
+            requestedAt: '2026-10-01T10:00:00.000Z',
+        };
+        const read = readCollectionRequest({ collectionRequest: oldCr });
+        assert.ok(read);
+        assert.equal(read.senderName, 'Antigo');
+        assert.equal(read.contractingPersonId, undefined);
+        assert.equal(read.contacts, undefined);
+        assert.equal(read.needsHelper, undefined);
+    });
+
+    it('getLastCollectionAddresses devolve histórico deduplicado do remetente', async () => {
+        const addr1 = { city: 'Imperatriz', state: 'MA', address: 'Rua A', number: '10' };
+        const addr2 = { city: 'Açailândia', state: 'MA', address: 'Av B', number: '200', referencePoint: 'Galpão 2' };
+        store.demands.set('d-1', {
+            id: 'd-1',
+            createdAt: new Date('2026-10-25'),
+            rawInputData: { collectionRequest: { senderPersonId: PERSON, address: addr1 } },
+        });
+        store.demands.set('d-2', {
+            id: 'd-2',
+            createdAt: new Date('2026-10-26'),
+            rawInputData: { collectionRequest: { senderPersonId: PERSON, address: addr2 } },
+        });
+        store.demands.set('d-3', {
+            id: 'd-3',
+            createdAt: new Date('2026-10-27'),
+            rawInputData: { collectionRequest: { senderPersonId: PERSON, address: addr1 } }, // duplicado
+        });
+
+        // Mock findMany to search store by rawInputData
+        const originalFindMany = prisma.demand.findMany;
+        prisma.demand.findMany = (async () => {
+            return [...store.demands.values()]
+                .filter((d) => (d.rawInputData as Record<string, unknown>)?.collectionRequest)
+                .reverse();
+        }) as unknown as typeof prisma.demand.findMany;
+
+        try {
+            const addrs = await getLastCollectionAddresses(PERSON, 5);
+            assert.equal(addrs.length, 2);
+            assert.equal(addrs[0]?.city, 'Imperatriz');
+            assert.equal(addrs[1]?.city, 'Açailândia');
+            assert.equal(addrs[1]?.referencePoint, 'Galpão 2');
+        } finally {
+            prisma.demand.findMany = originalFindMany;
+        }
     });
 });

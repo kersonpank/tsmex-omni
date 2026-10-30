@@ -273,6 +273,17 @@ export interface CtePreflightResult {
 
 export type PersonDocumentType = 'CPF' | 'CNPJ';
 
+export interface PersonContact {
+    id: string;
+    personId: string;
+    name: string;
+    phone?: string | null;
+    email?: string | null;
+    relation?: string | null;
+    createdAt?: string;
+    updatedAt?: string;
+}
+
 // ========== ENTITIES ==========
 
 export interface Person {
@@ -299,6 +310,7 @@ export interface Person {
     clients?: Array<{ id: string; companyName: string; document: string }>;
     links?: Array<{ id: string; name: string; document: string }>;
     hubs?: Array<{ id: string; name: string; code?: string }>;
+    contacts?: PersonContact[];
     /** Papéis da pessoa devolvidos pela busca (/persons/search). */
     roles?: string[];
     drivers?: Array<{
@@ -865,10 +877,29 @@ export interface HubCargoAllowedActions {
     triage: boolean;
 }
 
+export interface CollectionContact {
+    personContactId?: string | null;
+    name: string;
+    phone?: string | null;
+    email?: string | null;
+    role?: string | null;
+}
+
+export interface CollectionPackageDimension {
+    quantity: number;
+    lengthCm: number;
+    widthCm: number;
+    heightCm: number;
+    weightKg?: number | null;
+}
+
 /** Coleta solicitada pelo hub (guardada em Demand.rawInputData.collectionRequest). */
 export interface CollectionRequest {
     senderPersonId: string;
     senderName: string;
+    contractingPersonId?: string | null;
+    contractingPersonName?: string | null;
+    contacts?: CollectionContact[];
     address: {
         cep?: string;
         address?: string;
@@ -878,16 +909,29 @@ export interface CollectionRequest {
         city?: string;
         state?: string;
         cityIbgeCode?: string;
+        referencePoint?: string;
+        accessInstructions?: string;
     };
+    referencePoint?: string | null;
+    accessInstructions?: string | null;
+    destinatarioPersonId?: string | null;
+    destinatarioName?: string | null;
+    goodsDescription?: string | null;
     /** AAAA-MM-DD */
     requestedDate: string;
     windowLabel?: string | null;
+    availabilityWindow?: string | null;
     contact?: string | null;
     approxWeightKg?: number | null;
     approxUnits?: number | null;
+    nfValue?: number | null;
+    packageDimensions?: CollectionPackageDimension[];
+    needsHelper?: boolean;
+    needsLoading?: boolean;
     nfKeys: string[];
     note?: string | null;
     requestedAt: string;
+    requestedByUserId?: string | null;
     cancelledAt?: string | null;
     cancelReason?: string | null;
 }
@@ -895,12 +939,23 @@ export interface CollectionRequest {
 export interface CreateCollectionRequestPayload {
     expectedHubId?: string;
     senderPersonId: string;
+    contractingPersonId?: string;
+    contacts?: CollectionContact[];
     address: CollectionRequest['address'];
+    referencePoint?: string;
+    accessInstructions?: string;
+    destinatarioPersonId?: string;
+    goodsDescription?: string;
     requestedDate: string;
     windowLabel?: string;
+    availabilityWindow?: string;
     contact?: string;
     approxWeightKg?: number;
     approxUnits?: number;
+    nfValue?: number;
+    packageDimensions?: CollectionPackageDimension[];
+    needsHelper?: boolean;
+    needsLoading?: boolean;
     nfKeys?: string[];
     note?: string;
 }

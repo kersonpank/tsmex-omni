@@ -7,6 +7,7 @@ import type {
     CreateIntakeDemandRequest,
     CreateIntakeFromNfeKeyRequest,
     CreateCollectionRequestPayload,
+    CollectionRequest,
     ConfirmIntakeArrivalRequest,
     ResolveIntakeByNfeKeyResult,
     ResolveIntakeClientResult,
@@ -28,6 +29,7 @@ import type {
     VehicleType,
     Client,
     Person,
+    PersonContact,
     CreatePersonRequest,
     UpdatePersonRequest,
     PricingTable,
@@ -394,6 +396,30 @@ export const intakeDemandsApi = {
 
     cancelCollection: async (id: string, reason: string) => {
         const response = await api.post<ApiResponse<Demand>>('/intake/demands/' + id + '/cancel-collection', { reason });
+        return response.data;
+    },
+
+    getLastCollectionAddresses: async (senderPersonId: string) => {
+        const response = await api.get<ApiResponse<CollectionRequest['address'][]>>('/intake/demands/last-collection-addresses', {
+            params: { senderPersonId },
+        });
+        return response.data;
+    },
+
+    lookupNfeCargo: async (chave: string) => {
+        const response = await api.post<ApiResponse<{
+            found: boolean;
+            cargo?: {
+                goodsDescription?: string;
+                units?: number;
+                weightKg?: number;
+                nfValue?: number;
+            };
+            parties?: {
+                remetente: Person | null;
+                destinatario: Person | null;
+            };
+        }>>('/intake/demands/lookup-nfe-cargo', { chave });
         return response.data;
     },
 
@@ -1253,6 +1279,16 @@ export const personsApi = {
 
     addHub: async (personId: string, data: { hubId: string; email: string; password: string; permissions?: string[] }) => {
         const response = await api.post<ApiResponse<{ id: string; email: string; hubId: string; personId: string }>>(`/persons/${personId}/add-hub`, data);
+        return response.data;
+    },
+
+    getContacts: async (personId: string) => {
+        const response = await api.get<ApiResponse<PersonContact[]>>(`/persons/${personId}/contacts`);
+        return response.data;
+    },
+
+    createContact: async (personId: string, data: { name: string; phone?: string; email?: string; role?: string; relation?: string }) => {
+        const response = await api.post<ApiResponse<PersonContact>>(`/persons/${personId}/contacts`, data);
         return response.data;
     },
 };

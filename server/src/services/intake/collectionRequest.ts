@@ -19,19 +19,50 @@ export interface CollectionAddress {
     city?: string;
     state?: string;
     cityIbgeCode?: string;
+    referencePoint?: string;
+    accessInstructions?: string;
+}
+
+export interface CollectionContact {
+    personContactId?: string | null;
+    name: string;
+    phone?: string | null;
+    email?: string | null;
+    role?: string | null;
+}
+
+export interface CollectionPackageDimension {
+    quantity: number;
+    lengthCm: number;
+    widthCm: number;
+    heightCm: number;
+    weightKg?: number | null;
 }
 
 export interface CollectionRequestData {
     senderPersonId: string;
     senderName: string;
+    contractingPersonId?: string | null;
+    contractingPersonName?: string | null;
+    contacts?: CollectionContact[];
     address: CollectionAddress;
+    referencePoint?: string | null;
+    accessInstructions?: string | null;
+    destinatarioPersonId?: string | null;
+    destinatarioName?: string | null;
+    goodsDescription?: string | null;
     /** Data desejada (AAAA-MM-DD). */
     requestedDate: string;
     /** Janela desejada em texto livre (ex.: "manhã", "14h às 17h"). */
     windowLabel?: string | null;
+    availabilityWindow?: string | null;
     contact?: string | null;
     approxWeightKg?: number | null;
     approxUnits?: number | null;
+    nfValue?: number | null;
+    packageDimensions?: CollectionPackageDimension[];
+    needsHelper?: boolean;
+    needsLoading?: boolean;
     /** Todas as chaves informadas; a primeira também vira `Demand.documentKey`. */
     nfKeys: string[];
     note?: string | null;
@@ -84,12 +115,23 @@ export function formatCollectionAddress(a: CollectionAddress | undefined | null)
 export interface CreateCollectionRequestInput {
     hubId: string;
     senderPersonId: string;
+    contractingPersonId?: string | null;
+    contacts?: CollectionContact[];
     address: CollectionAddress;
+    referencePoint?: string | null;
+    accessInstructions?: string | null;
+    destinatarioPersonId?: string | null;
+    goodsDescription?: string | null;
     requestedDate: string;
     windowLabel?: string | null;
+    availabilityWindow?: string | null;
     contact?: string | null;
     approxWeightKg?: number | null;
     approxUnits?: number | null;
+    nfValue?: number | null;
+    packageDimensions?: CollectionPackageDimension[];
+    needsHelper?: boolean;
+    needsLoading?: boolean;
     nfKeys?: string[];
     note?: string | null;
     actorUserId?: string | null;
@@ -111,20 +153,53 @@ function demandKeys(d: { documentKey: string | null; rawInputData: unknown }): s
     return [...new Set([d.documentKey, ...extra].filter((k): k is string => Boolean(k)))];
 }
 
+async function loadPersonName(personId: string | null | undefined): Promise<string | null> {
+    if (!personId) return null;
+    const p = await prisma.person.findUnique({
+        where: { id: personId },
+        select: { id: true, legalName: true, tradeName: true },
+    });
+    return p ? (p.tradeName?.trim() || p.legalName) : null;
+}
+
 function buildRequestData(
     input: CreateCollectionRequestInput,
     person: { id: string; legalName: string; tradeName: string | null },
     nfKeys: string[],
+    extraNames?: { contractingName?: string | null; destinatarioName?: string | null },
 ): CollectionRequestData {
+    const senderName = person.tradeName?.trim() || person.legalName;
+    const derivedContact =
+        input.contact?.trim() ||
+        (input.contacts && input.contacts.length > 0
+            ? input.contacts.map((c) => c.name + (c.phone ? ` (${c.phone})` : '')).join(', ')
+            : null);
+
     return {
         senderPersonId: person.id,
-        senderName: person.tradeName?.trim() || person.legalName,
+        senderName,
+        contractingPersonId: input.contractingPersonId || person.id,
+        contractingPersonName:
+            (input.contractingPersonId && input.contractingPersonId !== person.id
+                ? extraNames?.contractingName
+                : null) || senderName,
+        contacts: input.contacts?.length ? input.contacts : undefined,
         address: input.address,
+        referencePoint: input.referencePoint?.trim() || input.address.referencePoint?.trim() || null,
+        accessInstructions: input.accessInstructions?.trim() || input.address.accessInstructions?.trim() || null,
+        destinatarioPersonId: input.destinatarioPersonId || null,
+        destinatarioName: extraNames?.destinatarioName || null,
+        goodsDescription: input.goodsDescription?.trim() || null,
         requestedDate: input.requestedDate,
         windowLabel: input.windowLabel?.trim() || null,
-        contact: input.contact?.trim() || null,
+        availabilityWindow: input.availabilityWindow?.trim() || null,
+        contact: derivedContact,
         approxWeightKg: input.approxWeightKg ?? null,
         approxUnits: input.approxUnits ?? null,
+        nfValue: input.nfValue ?? null,
+        packageDimensions: input.packageDimensions?.length ? input.packageDimensions : undefined,
+        needsHelper: input.needsHelper ?? false,
+        needsLoading: input.needsLoading ?? false,
         nfKeys,
         note: input.note?.trim() || null,
         requestedAt: new Date().toISOString(),
@@ -188,6 +263,13 @@ async function loadSender(senderPersonId: string) {
  */
 export async function createCollectionRequest(input: CreateCollectionRequestInput): Promise<CollectionRequestResult> {
     const person = await loadSender(input.senderPersonId);
+    const [contractingName, destinatarioName] = await Promise.all([
+        input.contractingPersonId && input.contractingPersonId !== input.senderPersonId
+            ? loadPersonName(input.contractingPersonId)
+            : null,
+        loadPersonName(input.destinatarioPersonId),
+    ]);
+    const extraNames = { contractingName, destinatarioName };
     const nfKeys = parseNfKeys(input.nfKeys);
 
     const awaiting = nfKeys.length
@@ -232,11 +314,11 @@ export async function createCollectionRequest(input: CreateCollectionRequestInpu
     const demands: DemandRow[] = [];
     for (const d of awaiting) {
         const own = nfKeys.filter((k) => demandKeys(d).includes(k));
-        demands.push(await attachToDemand(d, buildRequestData(input, person, own), input));
+        demands.push(await attachToDemand(d, buildRequestData(input, person, own, extraNames), input));
     }
 
     if (awaiting.length === 0 || remaining.length > 0) {
-        const data = buildRequestData(input, person, remaining);
+        const data = buildRequestData(input, person, remaining, extraNames);
         const city = input.address.city || person.city;
         const state = input.address.state || person.state;
         const origin = city && state ? `${city}, ${state}` : undefined;
@@ -250,6 +332,8 @@ export async function createCollectionRequest(input: CreateCollectionRequestInpu
             origin,
             weight: input.approxWeightKg && input.approxWeightKg > 0 ? input.approxWeightKg : undefined,
             units: input.approxUnits && input.approxUnits > 0 ? input.approxUnits : undefined,
+            commodity: input.goodsDescription?.trim() || undefined,
+            nfValue: input.nfValue && input.nfValue > 0 ? input.nfValue : undefined,
             intentType: 'COLLECT',
             rawInputData: { collectionRequest: data } as unknown as Prisma.InputJsonValue,
         });
@@ -284,7 +368,13 @@ export async function attachCollectionRequest(
     if (existing && !existing.cancelledAt) throw new AppError('Esta NF já tem coleta solicitada.', 409);
 
     const person = await loadSender(input.senderPersonId);
-    const data = buildRequestData(input, person, demandKeys(demand));
+    const [contractingName, destinatarioName] = await Promise.all([
+        input.contractingPersonId && input.contractingPersonId !== input.senderPersonId
+            ? loadPersonName(input.contractingPersonId)
+            : null,
+        loadPersonName(input.destinatarioPersonId),
+    ]);
+    const data = buildRequestData(input, person, demandKeys(demand), { contractingName, destinatarioName });
     return attachToDemand(demand, data, input);
 }
 
@@ -333,4 +423,46 @@ export async function cancelCollectionRequest(input: {
         });
         return updated;
     });
+}
+
+export async function getLastCollectionAddresses(senderPersonId: string, limit = 5): Promise<CollectionAddress[]> {
+    const demands = await prisma.demand.findMany({
+        where: {
+            rawInputData: {
+                path: ['collectionRequest', 'senderPersonId'],
+                equals: senderPersonId,
+            },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 30,
+        select: { rawInputData: true },
+    });
+    const addresses: CollectionAddress[] = [];
+    const seen = new Set<string>();
+    for (const d of demands) {
+        const cr = readCollectionRequest(d.rawInputData);
+        if (!cr?.address) continue;
+        const a = cr.address;
+        const ref = cr.referencePoint || a.referencePoint;
+        const inst = cr.accessInstructions || a.accessInstructions;
+        const normalizedAddr: CollectionAddress = {
+            ...a,
+            referencePoint: ref || undefined,
+            accessInstructions: inst || undefined,
+        };
+        const key = [
+            (a.cep ?? '').replace(/\D/g, ''),
+            (a.address ?? '').trim().toLowerCase(),
+            (a.number ?? '').trim().toLowerCase(),
+            (a.city ?? '').trim().toLowerCase(),
+            (a.state ?? '').trim().toUpperCase(),
+        ].join('|');
+        if (!key.replace(/\|/g, '')) continue;
+        if (!seen.has(key)) {
+            seen.add(key);
+            addresses.push(normalizedAddr);
+            if (addresses.length >= limit) break;
+        }
+    }
+    return addresses;
 }
