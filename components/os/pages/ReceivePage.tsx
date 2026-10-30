@@ -6,11 +6,13 @@ import type { HubCargoItem } from '../../../types/index';
 import { useOs } from '../OsContext';
 import { arrivingManifests, ordersToUnload, type ManifestWithLegs } from '../lib/arrival';
 import { cargoFacts } from '../lib/cargo';
+import { addressLine, canRequestCollection, collectionBadge } from '../lib/collection';
 import { looksLikeAccessKey } from '../lib/intake';
 import { useScanController } from '../useScanController';
 import { OsBadge, OsButton, OsEmpty, OsErrorNotice, OsRow, OsSectionTitle, OsSkeletonRows } from '../ui/kit';
 import { IconReceive } from '../ui/icons';
 import { osFieldClass } from '../ui/Sheet';
+import CollectionRequestSheet from './CollectionRequestSheet';
 
 /**
  * RECEBER — tudo o que entra no hub. Pergunta: "o que chegou e precisa de entrada?"
@@ -28,6 +30,7 @@ const ReceivePage: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [key, setKey] = useState('');
+    const [requesting, setRequesting] = useState(false);
 
     const load = useCallback(async () => {
         if (!hubId) return;
@@ -85,6 +88,9 @@ const ReceivePage: React.FC = () => {
                     Buscar
                 </OsButton>
             </div>
+            <OsButton full variant="secondary" className="mt-2" onClick={() => setRequesting(true)}>
+                Solicitar coleta
+            </OsButton>
             {scan.message ? (
                 <p
                     className={clsx(
@@ -109,11 +115,24 @@ const ReceivePage: React.FC = () => {
                         <OsRow key={`${item.kind}-${item.id}`} tone="attention" onClick={() => void scan.openItem(item)}>
                             <div className="flex items-center justify-between gap-2 pr-1">
                                 <p className="truncate font-semibold text-tower-900 dark:text-white">
-                                    {item.nfNumber ? `NF ${item.nfNumber}` : item.statusLabel}
+                                    {item.collectionRequest?.senderName ?? (item.nfNumber ? `NF ${item.nfNumber}` : item.statusLabel)}
                                 </p>
-                                <OsBadge tone="warn">dar entrada</OsBadge>
+                                <OsBadge tone="warn">{item.collectionRequest ? collectionBadge(item.collectionRequest) : 'dar entrada'}</OsBadge>
                             </div>
-                            <p className="mt-0.5 truncate text-[13px] text-tower-500 dark:text-tower-400">{cargoFacts(item) || item.statusLabel}</p>
+                            <p className="mt-0.5 truncate text-[13px] text-tower-500 dark:text-tower-400">{item.collectionRequest ? addressLine(item.collectionRequest.address) || item.collectionRequest.senderName : cargoFacts(item) || item.statusLabel}
+                            </p>
+                            {canRequestCollection(item) ? (
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        scan.requestCollectionFor(item);
+                                    }}
+                                    className="mt-1 min-h-[40px] text-[13px] font-bold text-brand-600 dark:text-brand-300"
+                                >
+                                    Solicitar coleta desta NF
+                                </button>
+                            ) : null}
                         </OsRow>
                     ))}
                 </div>
@@ -148,6 +167,17 @@ const ReceivePage: React.FC = () => {
                 </div>
             )}
 
+            {requesting && hubId ? (
+                <CollectionRequestSheet
+                    hubId={hubId}
+                    onClose={() => setRequesting(false)}
+                    onDone={() => {
+                        setRequesting(false);
+                        void load();
+                        void refresh();
+                    }}
+                />
+            ) : null}
             {scan.overlays}
         </div>
     );

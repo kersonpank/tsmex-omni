@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { manifestsApi } from '../../../lib/api';
 import { useOs } from '../OsContext';
 import { arrivingManifests, ordersToUnload, type ManifestWithLegs } from '../lib/arrival';
-import { OsBadge, OsEmpty, OsErrorNotice, OsRow, OsSectionTitle, OsSkeletonRows, OsStatTile } from '../ui/kit';
+import CollectionRequestSheet from './CollectionRequestSheet';
+import { OsBadge, OsButton, OsEmpty, OsErrorNotice, OsRow, OsSectionTitle, OsSkeletonRows, OsStatTile } from '../ui/kit';
 
 /**
  * HOJE — a capa da roda no hub. Pergunta única: "o que precisa de mim agora?"
@@ -17,6 +18,7 @@ const TodayPage: React.FC = () => {
     const { hubId, summary, capabilities, loading, error, refresh } = useOs();
     const [arrivals, setArrivals] = useState<ManifestWithLegs[]>([]);
     const [arrivalsLoading, setArrivalsLoading] = useState(true);
+    const [requesting, setRequesting] = useState(false);
 
     useEffect(() => {
         if (!hubId) return;
@@ -102,6 +104,12 @@ const TodayPage: React.FC = () => {
             </div>
 
             {capabilities.canReceive ? (
+                <OsButton full variant="secondary" className="mt-3" onClick={() => setRequesting(true)}>
+                    Solicitar coleta
+                </OsButton>
+            ) : null}
+
+            {capabilities.canReceive ? (
                 <>
                     <OsSectionTitle>Chegadas em rota</OsSectionTitle>
                     {arrivalsLoading ? (
@@ -133,6 +141,16 @@ const TodayPage: React.FC = () => {
                         </div>
                     )}
                 </>
+            ) : null}
+            {requesting && hubId ? (
+                <CollectionRequestSheet
+                    hubId={hubId}
+                    onClose={() => setRequesting(false)}
+                    onDone={() => {
+                        setRequesting(false);
+                        void refresh();
+                    }}
+                />
             ) : null}
         </div>
     );

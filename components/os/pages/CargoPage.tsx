@@ -5,6 +5,7 @@ import { hubCargoApi } from '../../../lib/api';
 import type { ConsolidationQueueGroup, HubCargoBucket, HubCargoItem } from '../../../types/index';
 import { useOs } from '../OsContext';
 import { CARGO_BUCKETS, cargoFacts } from '../lib/cargo';
+import { addressLine, canRequestCollection, collectionBadge } from '../lib/collection';
 import { buildStockTripSelection } from '../lib/cargoTripSelection';
 import { looksLikeAccessKey } from '../lib/intake';
 import { useScanController } from '../useScanController';
@@ -330,7 +331,7 @@ const CargoPage: React.FC = () => {
                                         <div className="min-w-0 flex-1">
                                             <div className="flex items-center justify-between gap-2 pr-1">
                                                 <p className="truncate font-semibold text-tower-900 dark:text-white">
-                                                    {item.orderNumber ? `Pedido ${item.orderNumber}` : item.statusLabel}
+                                                    {item.orderNumber && !item.collectionRequest ? `Pedido ${item.orderNumber}` : item.collectionRequest?.senderName ?? item.statusLabel}
                                                     {item.nfNumber ? (
                                                         <span className="font-mono text-[13px] font-medium text-tower-500 dark:text-tower-300">
                                                             {' '}
@@ -338,15 +339,29 @@ const CargoPage: React.FC = () => {
                                                         </span>
                                                     ) : null}
                                                 </p>
-                                                {item.activeTrip ? (
+                                                {item.collectionRequest ? (
+                                                    <OsBadge tone="warn">{collectionBadge(item.collectionRequest)}</OsBadge>
+                                                ) : item.activeTrip ? (
                                                     <OsBadge tone="route">em viagem</OsBadge>
                                                 ) : item.kind === 'order' && item.freightDocState && !['emitted', 'in_flight'].includes(item.freightDocState) ? (
                                                     <OsBadge tone="warn">sem CT-e</OsBadge>
                                                 ) : null}
                                             </div>
                                             <p className="mt-0.5 truncate text-[13px] text-tower-500 dark:text-tower-400">
-                                                {cargoFacts(item) || item.statusLabel}
+                                                {item.collectionRequest ? addressLine(item.collectionRequest.address) || item.collectionRequest.senderName : cargoFacts(item) || item.statusLabel}
                                             </p>
+                                            {!selecting && canRequestCollection(item) ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        scan.requestCollectionFor(item);
+                                                    }}
+                                                    className="mt-1 min-h-[40px] text-[13px] font-bold text-brand-600 dark:text-brand-300"
+                                                >
+                                                    Solicitar coleta desta NF
+                                                </button>
+                                            ) : null}
                                         </div>
                                     </div>
                                 </CargoRow>

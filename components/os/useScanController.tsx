@@ -4,6 +4,8 @@ import type { HubCargoItem } from '../../types/index';
 import { useScanFlow } from './useScanFlow';
 import type { ScanFinal } from './lib/intake';
 import CargoItemSheet from './pages/CargoItemSheet';
+import CollectionDetailSheet from './pages/CollectionDetailSheet';
+import CollectionRequestSheet from './pages/CollectionRequestSheet';
 import EntrySheet from './pages/entry/EntrySheet';
 
 const Scanner = React.lazy(() => import('./ui/Scanner'));
@@ -17,12 +19,18 @@ export function useScanController(hubId: string | null, onChanged: () => void) {
     const flow = useScanFlow(hubId);
     const [scanOpen, setScanOpen] = useState(false);
     const [entry, setEntry] = useState<HubCargoItem | null>(null);
+    const [collection, setCollection] = useState<HubCargoItem | null>(null);
+    const [collectFor, setCollectFor] = useState<HubCargoItem | null>(null);
     const [selected, setSelected] = useState<{ item: HubCargoItem; note?: string } | null>(null);
     const [message, setMessage] = useState<{ kind: 'info' | 'error'; text: string } | null>(null);
 
     const apply = useCallback(
         (result: ScanFinal) => {
-            if (result.kind === 'entry') setEntry(result.item);
+            if (result.kind === 'entry') {
+                // Coleta solicitada: mostra o detalhe antes (dar entrada ou cancelar).
+                if (result.item.collectionRequest) setCollection(result.item);
+                else setEntry(result.item);
+            }
             else if (result.kind === 'item' && !result.note && result.item.bucket === 'stock' && result.item.orderId) {
                 navigate(`/hubs/pedidos/${result.item.orderId}`, { state: { item: result.item } });
             } else if (result.kind === 'item') setSelected({ item: result.item, note: result.note });
@@ -46,7 +54,10 @@ export function useScanController(hubId: string | null, onChanged: () => void) {
             setMessage(null);
             if (item.kind === 'order' && item.bucket === 'stock' && item.orderId) {
                 navigate(`/hubs/pedidos/${item.orderId}`, { state: { item } });
-            } else if (item.kind === 'intake' && item.bucket === 'awaiting') setEntry(item);
+            } else if (item.kind === 'intake' && item.bucket === 'awaiting') {
+                if (item.collectionRequest) setCollection(item);
+                else setEntry(item);
+            }
             else if (item.kind === 'fiscal_document' && item.fiscalDocumentId) {
                 apply(await flow.prepareFiscal(item.fiscalDocumentId));
                 onChanged();
@@ -61,6 +72,31 @@ export function useScanController(hubId: string | null, onChanged: () => void) {
                 <React.Suspense fallback={null}>
                     <Scanner onCode={(code) => void handleCode(code)} onClose={() => setScanOpen(false)} />
                 </React.Suspense>
+            ) : null}
+            {collectFor && hubId ? (
+                <CollectionRequestSheet
+                    hubId={hubId}
+                    attachTo={collectFor}
+                    onClose={() => setCollectFor(null)}
+                    onDone={() => {
+                        setCollectFor(null);
+                        onChanged();
+                    }}
+                />
+            ) : null}
+            {collection ? (
+                <CollectionDetailSheet
+                    item={collection}
+                    onClose={() => setCollection(null)}
+                    onReceive={(item) => {
+                        setCollection(null);
+                        setEntry(item);
+                    }}
+                    onCancelled={() => {
+                        setCollection(null);
+                        onChanged();
+                    }}
+                />
             ) : null}
             {entry && hubId ? (
                 <EntrySheet
@@ -87,6 +123,8 @@ export function useScanController(hubId: string | null, onChanged: () => void) {
         },
         handleCode,
         openItem,
+        /** Solicitar coleta desta NF (entrada que já aguarda, sem criar outra). */
+        requestCollectionFor: setCollectFor,
         busy: flow.busy,
         message,
         overlays,

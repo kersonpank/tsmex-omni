@@ -3,6 +3,7 @@ import prisma from '../../lib/prisma.js';
 import { buildHubOrderVisibilityWhere } from '../../lib/hubOrderAccess.js';
 import { hasOperationalPermission } from '../../lib/operationalPermissions.js';
 import { HUB_CARGO_ACTIVE_MANIFEST_STATUSES } from './hubCargoPolicy.js';
+import { readCollectionRequest, type CollectionRequestData } from '../intake/collectionRequest.js';
 import { intakePartyNames } from '../intake/intakeDemandPolicy.js';
 import { ACTIVE_DOC_STATUSES, freightDocState, type FreightDocState } from '../freight/freightDocRules.js';
 import { getCargoDataFromDistribuicaoDocument } from '../fiscal/nfeDistribuicaoCargoData.js';
@@ -60,6 +61,8 @@ export interface HubCargoItem {
     updatedAt?: string;
     /** Documento do frete do pedido (CT-e/DC-e/minuta) — só para pedidos. */
     freightDocState?: FreightDocState;
+    /** Coleta solicitada pelo hub (somente em Aguardando chegada). */
+    collectionRequest?: CollectionRequestData | null;
 }
 
 export interface HubCargoSummary {
@@ -464,6 +467,9 @@ export async function listHubCargoItems(
                 nfKeySuffix: demand.documentKey?.slice(-8) ?? null,
                 invoiceCount: demand.documentKey || demand.nfNumber ? 1 : 0,
                 ...intakePartyNames(demand),
+                ...(readCollectionRequest(demand.rawInputData)
+                    ? { collectionRequest: readCollectionRequest(demand.rawInputData), senderName: readCollectionRequest(demand.rawInputData)?.senderName ?? null }
+                    : {}),
                 origin: demand.origin,
                 destination: demand.destination,
                 currentHubName: null,

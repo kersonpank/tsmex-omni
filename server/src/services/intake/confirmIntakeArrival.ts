@@ -6,6 +6,7 @@ import { resolvePayerClient } from './resolvePayerClient.js';
 import { parseChaveNfe } from '../../lib/nfeChaveIntake.js';
 import type { ParsedNfeCargo } from '../acbr/nfeXmlParser.js';
 import { resolveLocalNfeCargo } from './resolveLocalNfeCargo.js';
+import { demandNeedsCollection } from './collectionRequest.js';
 
 export interface ConfirmIntakeArrivalInput {
     demandId: string;
@@ -114,7 +115,7 @@ export async function confirmIntakeArrival(input: ConfirmIntakeArrivalInput): Pr
     // Na entrada do /hubs, a ausência de uma solicitação de coleta significa que a
     // mercadoria chegou diretamente ao CD. Mantemos chamadas antigas sem modo explícito.
     const intakeMode = input.intakeMode === 'AUTO'
-        ? (matchingOpportunity?.needsCollection ? 'UNKNOWN' : 'HUB_DIRECT')
+        ? ((matchingOpportunity?.needsCollection || demandNeedsCollection(demand)) ? 'UNKNOWN' : 'HUB_DIRECT')
         : input.intakeMode;
 
     // Início/fim de prestação (campos fiscais do CT-e — cidade pura, não texto livre) vêm do

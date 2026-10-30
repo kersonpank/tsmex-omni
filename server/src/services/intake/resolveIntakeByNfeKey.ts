@@ -74,7 +74,13 @@ const INVALID_KEY_MESSAGE = 'Informe pelo menos 8 caracteres da chave ou a chave
 
 function buildKeyWhere(digits: string, raw: string): Prisma.DemandWhereInput {
     if (digits.length === 44) {
-        return { documentKey: digits };
+        // Coleta solicitada com várias NF-e: a 1ª é documentKey, as demais ficam em rawInputData.
+        return {
+            OR: [
+                { documentKey: digits },
+                { rawInputData: { path: ['collectionRequest', 'nfKeys'], array_contains: digits } },
+            ],
+        };
     }
     return {
         documentKey: {
