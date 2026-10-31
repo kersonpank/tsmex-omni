@@ -15,6 +15,11 @@ import FreightDocuments from './FreightDocuments';
 import PackagesEditor from './PackagesEditor';
 import PayerRow from './PayerRow';
 import ServiceStartRow from './ServiceStartRow';
+import PartySheet from './PartySheet';
+import { orderPartiesApi, type OrderParties } from '../../lib/orderPartiesApi';
+import { partyLabels, type PartyRole } from '../../lib/partyFix';
+import { apiErrorMessage } from '../../ui/Sheet';
+import { formatDocument } from '../../lib/entry';
 
 /**
  * PEDIDO NO HUB — "o que falta para este pedido ficar pronto para viajar?"
@@ -32,6 +37,16 @@ const OrderPage: React.FC = () => {
     const freight = useFreightDoc(orderId);
     const [editingPackages, setEditingPackages] = useState(false);
     const [savedVolumeM3, setSavedVolumeM3] = useState<number | null>(null);
+    const [parties, setParties] = useState<OrderParties | null>(null);
+    const [partiesError, setPartiesError] = useState<string | null>(null);
+    const [partyEditor, setPartyEditor] = useState<{ role: PartyRole; autoLookup: boolean } | null>(null);
+    const [partiesCorrected, setPartiesCorrected] = useState(false);
+    const loadParties = async () => {
+        if (!orderId) return;
+        try { setParties(await orderPartiesApi.get(orderId)); setPartiesError(null); }
+        catch (cause) { setPartiesError(apiErrorMessage(cause, 'Não foi possível carregar as partes.')); }
+    };
+    useEffect(() => { setParties(null); setPartiesCorrected(false); void loadParties(); }, [orderId]);
     const freightSection = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -117,6 +132,26 @@ const OrderPage: React.FC = () => {
                 </div>
             ) : null}
 
+            <OsSectionTitle>Partes</OsSectionTitle>
+            {partiesError ? <OsErrorNotice message={partiesError} onRetry={() => void loadParties()} /> : !parties ? <OsSkeletonRows count={2} /> : (
+                (['remetente', 'destinatario', ...(parties.tomador && parties.tomador.id !== parties.remetente?.id && parties.tomador.id !== parties.destinatario?.id ? ['tomador'] : [])] as PartyRole[]).map((role) => {
+                    const person = parties[role];
+                    return <OsRow key={role} tone="none" onClick={() => setPartyEditor({ role, autoLookup: false })}>
+                        <span className="block min-w-0 text-[13px]">
+                            <span className="block font-bold text-tower-900 dark:text-white">{partyLabels[role]} · {person?.legalName ?? 'Selecionar pessoa'}</span>
+                            {person ? <span className="block text-tower-500">{formatDocument(person.document)} · IE {person.stateRegistration || 'não informada'} · {person.city}/{person.state}</span> : null}
+                        </span>
+                    </OsRow>;
+                })
+            )}
+            {partyEditor && orderId && parties ? <PartySheet
+                key={`${orderId}-${partyEditor.role}-${parties[partyEditor.role]?.id}`}
+                orderId={orderId} role={partyEditor.role} person={parties[partyEditor.role]} autoLookup={partyEditor.autoLookup}
+                replacementRole={partyEditor.role === 'tomador' ? parties.freightTerm === 'CIF' ? 'remetente' : parties.freightTerm === 'FOB' ? 'destinatario' : 'tomador' : partyEditor.role}
+                onClose={() => setPartyEditor(null)}
+                onSaved={async () => { setPartiesCorrected(true); await loadParties(); await reload(); }}
+            /> : null}
+
             <OsSectionTitle>1 · Etiquetas</OsSectionTitle>
             <OsRow tone="none" onClick={item ? () => navigate(`/hubs/etiquetas/${orderId}`, { state: { item } }) : undefined}>
                 <span className="flex items-center gap-2 font-semibold text-tower-900 dark:text-white">
@@ -150,7 +185,7 @@ const OrderPage: React.FC = () => {
                 <>
                     <ServiceStartRow key={JSON.stringify(s.documents)} orderId={orderId} onChanged={reload} />
                     <PayerRow orderId={orderId} suggestion={s} onChanged={reload} />
-                    <FreightDocuments orderId={orderId} documents={s.documents} onResent={reload} />
+                    <FreightDocuments orderId={orderId} documents={s.documents} onResent={async () => { setPartiesCorrected(false); await reload(); }} partiesCorrected={partiesCorrected} onFixParty={parties ? (role) => setPartyEditor({ role, autoLookup: true }) : undefined} />
                     {composing ? (
                         <div className="mt-3">
                             <FreightComposer

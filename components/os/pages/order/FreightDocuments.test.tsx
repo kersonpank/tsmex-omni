@@ -30,6 +30,24 @@ const DOCUMENT: FreightDocumentSummary = {
     canResend: true,
 };
 
+describe('FreightDocuments — corrigir IE dentro da O.S.', () => {
+    it.each([
+        ['Código 422: Rejeição: IE do remetente não vinculada ao CNPJ', 'remetente'],
+        ['Código 427: Rejeição: IE do destinatário não vinculada ao CNPJ', 'destinatário'],
+    ])('abre a parte da rejeição: %s', async (reason, label) => {
+        const onFixParty = vi.fn();
+        const user = userEvent.setup();
+        render(<FreightDocuments orderId="o1" documents={[{ ...DOCUMENT, status: 'CTE_REJECTED', statusReason: reason }]} onResent={vi.fn()} onFixParty={onFixParty} />);
+        await user.click(screen.getByRole('button', { name: `Corrigir IE do ${label}` }));
+        expect(onFixParty).toHaveBeenCalledWith(label === 'destinatário' ? 'destinatario' : 'remetente');
+    });
+    it('mostra os dados corrigidos junto do reenvio existente', () => {
+        render(<FreightDocuments orderId="o1" documents={[{ ...DOCUMENT, status: 'CTE_REJECTED' }]} onResent={vi.fn()} partiesCorrected />);
+        expect(screen.getByRole('status')).toHaveTextContent('Dados corrigidos — reenvie para a SEFAZ');
+        expect(screen.getByRole('button', { name: 'Reenviar à SEFAZ' })).toBeEnabled();
+    });
+});
+
 function pending() {
     let resolve!: () => void;
     const promise = new Promise<void>((done) => { resolve = done; });

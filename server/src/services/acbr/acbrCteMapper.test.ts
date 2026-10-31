@@ -1,11 +1,21 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { getIndIETomaAndIe } from './acbrCteMapper.js';
+import { getIndIETomaAndIe, partyIe } from './acbrCteMapper.js';
 import type { CtePerson } from '../cteService.js';
 import type { CteEmissionInput } from '../cteService.js';
 import { buildAcbrCteEmitBody } from './acbrCteMapper.js';
 import prisma from '../../lib/prisma.js';
+
+describe('IE opcional no CT-e 4.00', () => {
+    for (const value of [null, undefined, '', '   ']) {
+        it(`omite a tag IE para ${JSON.stringify(value)}`, () => assert.deepEqual(partyIe(value), {}));
+    }
+    it('preserva o literal ISENTO e normaliza IE numérica', () => {
+        assert.deepEqual(partyIe('ISENTO'), { IE: 'ISENTO' });
+        assert.deepEqual(partyIe('131.223.670.117'), { IE: '131223670117' });
+    });
+});
 
 describe('getIndIETomaAndIe', () => {
     it('retorna indIEToma = 9 para pessoa física (CPF)', () => {
@@ -83,6 +93,21 @@ describe('origem da prestação no payload ACBr', () => {
             assert.deepEqual([cte.ide.cMunIni, cte.ide.xMunIni, cte.ide.UFIni], ['2304400', 'Fortaleza', 'CE']);
             assert.deepEqual([cte.rem.enderReme.cMun, cte.rem.enderReme.xMun, cte.rem.enderReme.UF], ['3550308', 'São Paulo', 'SP']);
             assert.deepEqual([cte.ide.cMunFim, cte.ide.xMunFim, cte.ide.UFFim], ['2105302', 'Imperatriz', 'MA']);
+            for (const ie of [null, '', 'ISENTO']) {
+                input.order.remetentePerson!.stateRegistration = ie;
+                input.order.destinatarioPerson!.stateRegistration = ie;
+                const updated = (await buildAcbrCteEmitBody(input, 'ie-test')).infCte as any;
+                if (ie === 'ISENTO') {
+                    assert.equal(updated.rem.IE, 'ISENTO'); assert.equal(updated.dest.IE, 'ISENTO'); assert.equal(updated.ide.indIEToma, 2);
+                } else {
+                    assert.equal('IE' in updated.rem, false); assert.equal('IE' in updated.dest, false); assert.equal(updated.ide.indIEToma, 9);
+                }
+                input.order.freightTerm = 'REDESPACHO';
+                input.order.consignatarioPerson = { ...input.order.destinatarioPerson!, stateRegistration: ie };
+                const thirdParty = (await buildAcbrCteEmitBody(input, 'toma-test')).infCte as any;
+                assert.equal(thirdParty.ide.toma4.IE, ie === 'ISENTO' ? 'ISENTO' : undefined);
+                input.order.freightTerm = 'CIF';
+            }
         } finally {
             prisma.city.findUnique = originalFindCity;
         }

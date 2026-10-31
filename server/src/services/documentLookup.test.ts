@@ -14,6 +14,17 @@ const base = {
 describe('lookupCnpjSuggestion', () => {
     beforeEach(() => clearCnpjLookupCache());
 
+    it('fresh ignora o cache e consulta novamente o cadastro', async () => {
+        let calls = 0;
+        const deps = { consult: (async () => ({ ...base, source: 'receitaws', stateRegistration: String(++calls) })) as never };
+        await lookupCnpjSuggestion(base.cnpj, deps);
+        await lookupCnpjSuggestion(base.cnpj, deps);
+        assert.equal(calls, 1);
+        const fresh = await lookupCnpjSuggestion(base.cnpj, { ...deps, fresh: true });
+        assert.equal(calls, 2);
+        assert.equal(fresh?.suggestion.stateRegistration, '2');
+    });
+
     it('usa o Sintegra quando a IE vem na consulta, passando o token sem expô-lo', async () => {
         const tokens: Array<string | undefined> = [];
         const result = await lookupCnpjSuggestion('11.222.333/0001-81', {

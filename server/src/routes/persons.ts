@@ -113,6 +113,8 @@ const createPersonSchema = z.object({
 });
 
 const updatePersonSchema = createPersonSchema.partial().extend({
+    stateRegistration: z.preprocess(v => v === null || (typeof v === 'string' && !v.trim()) ? null : v, stateRegistrationSchema.nullable()).optional(),
+    complement: z.string().trim().optional(),
     documentType: z.enum(['CPF', 'CNPJ']).optional(),
     document: z.string().min(1).transform(normalizeDocument).optional(),
     // RNTRC do transportador (ANTT). Vale para viagens ofertadas depois da mudança; viagens já
@@ -293,11 +295,11 @@ router.get('/lookup-document/:document', authenticate, authorize('ADMIN', 'HUB')
                 hubs: { select: { id: true, name: true } },
             },
         });
-        if (existing) {
+        if (existing && req.query.fresh !== '1') {
             return res.json({ success: true, data: { source: 'person', person: { ...existing, roles: personRoles(existing) }, suggestion: null } });
         }
         if (document.length === 14 && isValidCnpj(document)) {
-            const found = await lookupCnpjSuggestion(document);
+            const found = await lookupCnpjSuggestion(document, { fresh: req.query.fresh === '1' });
             if (found) {
                 return res.json({ success: true, data: { source: found.source, person: null, suggestion: found.suggestion } });
             }

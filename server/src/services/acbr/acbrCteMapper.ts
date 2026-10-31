@@ -17,6 +17,12 @@ export function cleanIe(ie: string | null | undefined): string | undefined {
     return undefined;
 }
 
+/** MOC 4.00: não contribuinte omite a tag; isento de inscrição usa o literal ISENTO. */
+export function partyIe(ie: string | null | undefined): { IE?: string } {
+    const value = cleanIe(ie);
+    return value ? { IE: value } : {};
+}
+
 export function getIndIETomaAndIe(person: CtePerson): { indIEToma: number; ie?: string } {
     const doc = digits(person.document);
     const cleanedIe = cleanIe(person.stateRegistration);
@@ -113,12 +119,12 @@ export async function buildAcbrCteEmitBody(input: CteEmissionInput, referencia: 
 
     const remParty =
         remDoc.length === 14
-            ? { CNPJ: remDoc, IE: cleanIe(rem.stateRegistration), xNome: rem.legalName, enderReme: enderecoParte(rem, remCmun) }
+            ? { CNPJ: remDoc, ...partyIe(rem.stateRegistration), xNome: rem.legalName, enderReme: enderecoParte(rem, remCmun) }
             : { CPF: remDoc.padStart(11, '0').slice(0, 11), xNome: rem.legalName, enderReme: enderecoParte(rem, remCmun) };
 
     const destParty =
         destDoc.length === 14
-            ? { CNPJ: destDoc, IE: cleanIe(dest.stateRegistration), xNome: dest.legalName, enderDest: enderecoParte(dest, destCmun) }
+            ? { CNPJ: destDoc, ...partyIe(dest.stateRegistration), xNome: dest.legalName, enderDest: enderecoParte(dest, destCmun) }
             : { CPF: destDoc.padStart(11, '0').slice(0, 11), xNome: dest.legalName, enderDest: enderecoParte(dest, destCmun) };
 
     const { indIEToma, ie: tomadorIe } = getIndIETomaAndIe(tomador);

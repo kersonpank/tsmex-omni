@@ -7,12 +7,13 @@ import { loadFreightPrint } from '../../freightActions';
 import { documentStatusView, formatBRL } from '../../lib/freight';
 import { OsBadge, OsButton } from '../../ui/kit';
 import { apiErrorMessage, osFieldClass } from '../../ui/Sheet';
+import { partyFixForRejection, partyLabels, type PartyRole } from '../../lib/partyFix';
 
 const BADGE = { ok: 'ok', route: 'route', warn: 'warn', danger: 'bad', none: 'neutral' } as const;
 const PRINTABLE = new Set(['CTE_AUTHORIZED', 'MINUTA_EMITTED', 'DCE_AUTHORIZED']);
 
 /** Documentos do frete deste pedido (pode haver mais de um), com impressão do DACTE/minuta. */
-const FreightDocuments: React.FC<{ orderId: string; documents: FreightDocumentSummary[]; onResent: () => void | Promise<void> }> = ({ orderId, documents, onResent }) => {
+const FreightDocuments: React.FC<{ orderId: string; documents: FreightDocumentSummary[]; onResent: () => void | Promise<void>; onFixParty?: (role: PartyRole) => void; partiesCorrected?: boolean }> = ({ orderId, documents, onResent, onFixParty, partiesCorrected = false }) => {
     const [print, setPrint] = useState<{ payload: unknown; branding: BrandingForDocuments | null } | null>(null);
     const [busyId, setBusyId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -89,6 +90,7 @@ const FreightDocuments: React.FC<{ orderId: string; documents: FreightDocumentSu
         <div className="mt-3 flex flex-col gap-2">
             {shown.map((doc) => {
                 const view = documentStatusView(doc);
+                const fixParty = doc.documentType === 'CTE' && doc.status === 'CTE_REJECTED' ? partyFixForRejection(doc.statusReason) : null;
                 const canCorrectCfop = doc.documentType === 'CTE'
                     && doc.status === 'CTE_REJECTED'
                     && /\b(?:519|524|676|908)\b|CFOP/i.test(doc.statusReason ?? '');
@@ -141,6 +143,8 @@ const FreightDocuments: React.FC<{ orderId: string; documents: FreightDocumentSu
                                 </OsButton>
                             )
                         ) : null}
+                        {fixParty && onFixParty ? <OsButton className="mt-2" disabled={busyId !== null} onClick={() => onFixParty(fixParty)}>Corrigir IE do {partyLabels[fixParty].toLowerCase()}</OsButton> : null}
+                        {partiesCorrected && doc.canResend ? <p role="status" className="mt-2 text-[13px] font-semibold text-emerald-700 dark:text-emerald-300">Dados corrigidos — reenvie para a SEFAZ</p> : null}
                         {doc.canResend ? (
                             <OsButton
                                 type="button"

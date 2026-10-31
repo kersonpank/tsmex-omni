@@ -1,3 +1,4 @@
+import { orderPartiesRouter } from './orderParties.js';
 import { orderServiceStartRouter } from './orderServiceStart.js';
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
@@ -48,6 +49,7 @@ router.use(uuidParam(), ...resourceGuard('order'));
 
 router.use('/:orderId/freight-calculations', freightCalculationsRouter);
 router.use('/:id/service-start', orderServiceStartRouter);
+router.use('/:id/parties', orderPartiesRouter);
 
 router.get('/resolve', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {

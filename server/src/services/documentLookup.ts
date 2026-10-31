@@ -31,6 +31,7 @@ export interface CnpjLookupDeps {
     fetchPublic: (cnpj: string) => Promise<PublicCnpjData | null>;
     sintegraToken?: string;
     now: () => number;
+    fresh?: boolean;
 }
 
 const TTL_MS = 10 * 60 * 1000;
@@ -55,7 +56,7 @@ export async function lookupCnpjSuggestion(cnpj: string, deps?: Partial<CnpjLook
     };
     const document = cnpj.replace(/\D/g, '');
     const hit = cache.get(document);
-    if (hit && d.now() - hit.at < TTL_MS) return hit.value;
+    if (!d.fresh && hit && d.now() - hit.at < TTL_MS) return hit.value;
 
     let value: CnpjSuggestionResult | null = null;
     try {
