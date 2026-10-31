@@ -217,6 +217,14 @@ export const fiscalEmittersApi = {
         const response = await api.get<ApiResponse<FiscalAcbrDiagnostics>>('/fiscal-emitters/acbr-diagnostics');
         return response.data;
     },
+
+    efreteStatus: async (environment?: 'homologacao' | 'producao') => {
+        const response = await api.get<ApiResponse<{ configured: boolean; environment: 'homologacao' | 'producao'; integratorCnpjMasked: string | null }>>(
+            '/fiscal-emitters/efrete-status',
+            { params: environment ? { environment } : undefined },
+        );
+        return response.data;
+    },
 };
 
 // ========== NUMERAÇÃO DE PEDIDOS ==========

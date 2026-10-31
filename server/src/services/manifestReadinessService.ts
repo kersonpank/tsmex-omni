@@ -1,5 +1,6 @@
 import type { ManifestStatus } from '@prisma/client';
 import prisma from '../lib/prisma.js';
+import { resolveDefaultTripEmitter } from './fiscal/resolveDefaultTripEmitter.js';
 import { AppError } from '../middleware/errorHandler.js';
 import type { PlanningActions } from './manifestPlanningChanges.js';
 import { linkVehicleInclude, manifestVehicleAssignmentsInclude } from './vehicleUnitService.js';
@@ -181,7 +182,11 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
         add(issue('cover', 'ARRIVAL_BEFORE_DEPARTURE', 'A chegada prevista precisa ser posterior à saída.', 'plannedArrivalAt'));
     }
     if (!manifest.fiscalEmitterId) {
-        add(issue('cover', 'FISCAL_EMITTER_PENDING', 'O emitente fiscal ainda não foi definido.', 'fiscalEmitterId', 'warning'));
+        // Só pede escolha quando o servidor não consegue decidir sozinho (vários emitentes, nenhum padrão).
+        const suggested = await resolveDefaultTripEmitter(manifest.hubId).catch(() => null);
+        if (!suggested) {
+            add(issue('cover', 'FISCAL_EMITTER_PENDING', 'Mais de um emitente ativo para este hub — escolha qual emite os documentos desta viagem.', 'fiscalEmitterId', 'warning'));
+        }
     }
 
     if (!manifest.linkId || !manifest.link) {

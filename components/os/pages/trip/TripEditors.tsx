@@ -86,6 +86,14 @@ export const EmitterEditor: React.FC<EditorProps & { hubId: string; current?: st
     const [emitters, setEmitters] = useState<FiscalEmitter[]>([]);
     const [busyId, setBusyId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [efrete, setEfrete] = useState<{ configured: boolean; environment: string; integratorCnpjMasked: string | null } | null>(null);
+
+    useEffect(() => {
+        fiscalEmittersApi
+            .efreteStatus()
+            .then((body) => setEfrete(body.data ?? null))
+            .catch(() => setEfrete(null));
+    }, []);
 
     useEffect(() => {
         fiscalEmittersApi
@@ -107,8 +115,19 @@ export const EmitterEditor: React.FC<EditorProps & { hubId: string; current?: st
     };
 
     return (
-        <OsSheet title="Emitente fiscal" subtitle="Quem emite CT-e e MDF-e desta viagem" onClose={onClose}>
+        <OsSheet title="Emitente fiscal" subtitle="Empresa que emite CT-e e MDF-e e contrata o CIOT desta viagem" onClose={onClose}>
             <ErrorLine message={error} />
+            {efrete ? (
+                <p className="mb-3 rounded-xl bg-tower-100 px-3 py-2.5 text-[12px] leading-snug text-tower-600 dark:bg-tower-800 dark:text-tower-300">
+                    {efrete.configured
+                        ? `Integração e-Frete (CIOT): credenciais do integrador configuradas no servidor · ambiente ${efrete.environment === 'producao' ? 'produção' : 'homologação'}.${
+                              efrete.environment === 'producao'
+                                  ? ''
+                                  : ` Em homologação o contratante do CIOT é o CNPJ do integrador${efrete.integratorCnpjMasked ? ` (${efrete.integratorCnpjMasked})` : ''}.`
+                          }`
+                        : 'Credenciais do integrador e-Frete não configuradas — a torre define no servidor (variáveis EFRETE_HOMOLOGACAO_*).'}
+                </p>
+            ) : null}
             <div className="flex flex-col gap-2">
                 {emitters.map((e) => (
                     <button
@@ -126,6 +145,7 @@ export const EmitterEditor: React.FC<EditorProps & { hubId: string; current?: st
                         </span>
                         <span className="text-[12px] text-tower-500 dark:text-tower-400">
                             {e.environment === 'PRODUCAO' ? 'produção' : 'homologação'}
+                            {e.defaultForHub || emitters.length === 1 ? ' · automático' : ''}
                         </span>
                     </button>
                 ))}

@@ -267,6 +267,17 @@ const TripPrepPage: React.FC = () => {
                 </>
             ) : null}
 
+            {['DRAFT', 'PENDING_ACCEPT', 'ACCEPTED'].includes(manifest.status) && manifest.fiscalEmitterId ? (
+                <p className="mb-3 flex flex-wrap items-center gap-x-2 text-[13px] text-tower-600 dark:text-tower-300">
+                    <span>
+                        Emitente: <strong className="text-tower-900 dark:text-white">{manifest.fiscalEmitter?.displayName ?? manifest.fiscalEmitter?.tradeName ?? 'definido'}</strong> · automático
+                    </span>
+                    <button type="button" onClick={() => setOpen('emitter')} className="font-bold text-brand-700 underline dark:text-brand-300">
+                        Trocar
+                    </button>
+                </p>
+            ) : null}
+
             <OsSectionTitle>Carga ({legs.length})</OsSectionTitle>
             {legs.length === 0 ? (
                 <OsEmpty title="Sem pedidos" detail="Monte a viagem a partir da fila em Viagens." />

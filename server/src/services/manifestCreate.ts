@@ -1,4 +1,5 @@
 import prisma from '../lib/prisma.js';
+import { resolveDefaultTripEmitter } from './fiscal/resolveDefaultTripEmitter.js';
 import { selectedManifestCity } from './manifestSelectedCity.js';
 import { validateCreateManifestInput, type OperationalTripType } from './manifestLifecycle.js';
 
@@ -76,8 +77,10 @@ export async function createManifestDraft(
         data.tripType === 'TRANSFER' ? data.destHubId : allowIncompleteHubCity && data.tripType === 'DELIVERY' ? hubId : undefined,
         allowIncompleteHubCity,
     );
+    const emitter = await resolveDefaultTripEmitter(hubId).catch(() => null);
     return prisma.manifest.create({
         data: {
+            fiscalEmitterId: emitter?.id,
             vehicleTypeId: data.vehicleTypeId,
             origin: data.origin,
             originCity: data.originCity,

@@ -56,7 +56,7 @@ describe('tripNextStep', () => {
     });
 
     it('resolve emitente fiscal antes dos documentos', () => {
-        expect(tripNextStep(manifest({ fiscalEmitterId: null, fiscalDocuments: [] }), readiness()).action).toBe('emitter');
+        expect(tripNextStep(manifest({ fiscalEmitterId: null, fiscalDocuments: [] }), readiness()).action).not.toBe('emitter');
         expect(tripNextStep(manifest(), readiness([issue('FISCAL_EMITTER_PENDING', 'cover', 'warning')])).action).toBe('emitter');
     });
 

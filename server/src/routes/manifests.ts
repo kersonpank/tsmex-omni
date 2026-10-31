@@ -22,6 +22,7 @@ import { enqueueCiotEmissionJob } from '../services/queues/ciotEmissionQueue.js'
 import type { StoredCiotRequestData } from '../services/queues/ciotEmissionJobInput.js';
 import { getManifestReadiness } from '../services/manifestReadinessService.js';
 import { ciotDispensaSchema, dispenseManifestCiot, undoManifestCiotDispensa } from '../services/manifestCiotDispensa.js';
+import { ensureTripEmitter } from '../services/fiscal/resolveDefaultTripEmitter.js';
 import { createManifestDraft } from '../services/manifestCreate.js';
 import { manifestVehiclesSchema, setManifestVehicles, publishManifestOffer } from '../services/manifestVehicleService.js';
 import { cancelManifest, deleteEmptyManifest, getPlanningActions, reopenAcceptedManifest, requestManifestCorrection, resolveManifestCorrection } from '../services/manifestPlanningChanges.js';
@@ -248,6 +249,12 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
 router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const id = req.params.id as string;
+
+        // Rascunho sem emitente se corrige sozinho quando só há uma escolha possível (idempotente).
+        // Antes da leitura, para o updatedAt devolvido já refletir a gravação (concorrência otimista).
+        if (req.user!.roles.includes('ADMIN') || req.user!.roles.includes('HUB')) {
+            await ensureTripEmitter(id).catch(() => null);
+        }
 
         const manifest = await prisma.manifest.findUnique({
             where: { id: id },

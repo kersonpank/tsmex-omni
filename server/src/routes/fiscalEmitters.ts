@@ -15,6 +15,7 @@ import { getObjectDownloadUrl } from '../lib/objectStorage.js';
 import { isAcbrCredentialsConfigured } from '../services/acbr/acbrConfig.js';
 import { putAcbrEmpresaCertificado, syncFiscalEmitterToAcbr } from '../services/acbr/acbrEmpresa.js';
 import { buildAcbrRuntimeDiagnostics } from '../services/acbr/acbrDiagnostics.js';
+import { normalizeEfreteEnvironment, resolveEfreteCredentials } from '../services/efrete/efreteConfig.js';
 import { runEfreteDiagnostics } from '../services/efrete/efreteDiagnostics.js';
 import { getCteCfopOption, getCteCstRule } from '../services/fiscal/cteTaxRules.js';
 import { CertificateInfoError, readPkcs12Info } from '../services/fiscal/certificateInfo.js';
@@ -226,6 +227,22 @@ router.get('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest
 
 router.get('/acbr-diagnostics', authenticate, authorize('ADMIN'), (_req: AuthRequest, res: Response) => {
     res.json({ success: true, data: buildAcbrRuntimeDiagnostics() });
+});
+
+// Só sinaliza se o integrador e-Frete está configurado no servidor — nunca devolve usuário, senha nem hash.
+router.get('/efrete-status', authenticate, authorize('ADMIN', 'HUB'), (req: AuthRequest, res: Response) => {
+    const environment = normalizeEfreteEnvironment(typeof req.query.environment === 'string' ? req.query.environment : undefined);
+    let configured = false;
+    let integratorCnpjMasked: string | null = null;
+    try {
+        const creds = resolveEfreteCredentials(environment);
+        configured = true;
+        const cnpj = (creds.integradorCnpj ?? '').replace(/\D/g, '');
+        if (cnpj.length === 14) integratorCnpjMasked = `${cnpj.slice(0, 8)}/****-**`;
+    } catch {
+        configured = false;
+    }
+    res.json({ success: true, data: { configured, environment, integratorCnpjMasked } });
 });
 
 router.get('/:id/efrete-diagnostics', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {

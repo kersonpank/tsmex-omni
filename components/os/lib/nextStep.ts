@@ -49,7 +49,8 @@ export function tripNextStep(manifest: ManifestWithLegs, readiness: ManifestRead
     }
 
     const emitter = issues.find((issue) => issue.code === 'FISCAL_EMITTER_PENDING');
-    if (!manifest.fiscalEmitterId || emitter) {
+    // Só trava quando o servidor não decidiu sozinho (vários emitentes sem padrão).
+    if (emitter) {
         return next('emitter', 'Definir emitente fiscal', emitter?.message ?? 'Escolha o emitente para preparar os documentos da viagem.');
     }
 
