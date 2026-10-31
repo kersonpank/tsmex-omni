@@ -10,6 +10,7 @@ import OsSheet, { apiErrorMessage } from '../../ui/Sheet';
 import CarrierInfoEditor from '../carrier/CarrierInfoEditor';
 import DriverEditor from '../carrier/DriverEditor';
 import UnitEditor from '../carrier/UnitEditor';
+import CarrierPaymentEditor from './CarrierPaymentEditor';
 
 type Editing = { kind: 'unit'; unit: TripRegistryUnit } | { kind: 'driver'; driver: TripRegistryDriver } | { kind: 'carrier' } | null;
 
@@ -151,6 +152,13 @@ const TripRegistryEditor: React.FC<{
                             <MissingFields issues={otherIssues} />
                             {registry ? <OsButton full variant="secondary" className="mt-3" disabled={!canEdit} onClick={() => setEditing({ kind: 'carrier' })}>Completar dados do transportador</OsButton> : null}
                         </div>
+                    ) : null}
+                    {registry ? (
+                        <>
+                            <OsSectionTitle>Dados bancários</OsSectionTitle>
+                            <CarrierPaymentEditor key={registry.link.id} registry={registry} onSaved={afterSave} />
+                            <OsButton full variant="secondary" className="mt-3" disabled={!canEdit} onClick={() => setEditing({ kind: 'carrier' })}>Editar dados do transportador</OsButton>
+                        </>
                     ) : null}
                     {registry ? (
                         <OsButton full variant="ghost" className="mt-4" disabled={busy}

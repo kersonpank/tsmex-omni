@@ -1,4 +1,4 @@
-import type { FreightDocState, Manifest, ManifestStop } from '../../../types/index';
+import type { FreightDocState, Manifest, ManifestStop, ManifestOrderParty } from '../../../types/index';
 
 /**
  * Lógica pura do fluxo "Receber chegada" do TSM O.S. (sem React, sem rede),
@@ -19,7 +19,8 @@ export interface ArrivalLeg {
         nfNumber?: string | null;
         /** Estado do documento do frete (vem de GET /manifests/:id). */
         freightDocState?: FreightDocState;
-        demand?: { id?: string; orderNumber?: number | null; destination?: string | null } | null;
+        destinatarioPerson?: ManifestOrderParty | null;
+        demand?: { id?: string; orderNumber?: number | null; destination?: string | null; rawInputData?: Record<string, unknown> | null } | null;
     } | null;
 }
 

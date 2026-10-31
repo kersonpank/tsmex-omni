@@ -12,6 +12,7 @@ import { signLinkInvite } from '../services/linkInvite.js';
 import { getObjectDownloadUrl, uploadBase64Object } from '../lib/objectStorage.js';
 
 import { getCarrierRegistry, hubCanEditLink } from '../services/carrierRegistry.js';
+import { paymentAccountSchema, savePrimaryPaymentAccount } from '../services/personPaymentAccount.js';
 
 const router = Router();
 
@@ -632,7 +633,7 @@ const driverSchema = z.object({
     pis: z.string().optional(),
     notes: z.string().optional(),
     contacts: z.array(z.object({ name: z.string().min(1), phone: z.string().optional(), email: z.string().email().optional(), relation: z.string().optional() })).optional(),
-    paymentAccount: z.object({ bankCode: z.string().optional(), accountType: z.string().optional(), agency: z.string().optional(), account: z.string().optional(), pixKey: z.string().optional() }).optional(),
+    paymentAccount: paymentAccountSchema.optional(),
     address: addressSchema.optional(),
     updatePersonAddress: z.boolean().optional(),
 });
@@ -689,9 +690,7 @@ async function saveDriverDetails(tx: Prisma.TransactionClient, personId: string,
         if (body.contacts.length) await tx.personContact.createMany({ data: body.contacts.map((contact) => ({ ...contact, personId })) });
     }
     if (body.paymentAccount) {
-        const current = await tx.personPaymentAccount.findFirst({ where: { personId, isPrimary: true } });
-        if (current) await tx.personPaymentAccount.update({ where: { id: current.id }, data: body.paymentAccount });
-        else await tx.personPaymentAccount.create({ data: { personId, ...body.paymentAccount, isPrimary: true } });
+        await savePrimaryPaymentAccount(tx, personId, body.paymentAccount);
     }
     const driverFields = {
         cnhRegistry: body.cnhRegistry, cnhState: body.cnhState, cnhCategory: body.cnhCategory,
@@ -854,6 +853,7 @@ router.post('/:id/drivers/:driverId/associate', authenticate, authorize('ADMIN',
 // PATCH /api/links/:id/owner-person - Vincula/cria a Person do próprio Link (endereço + IE do proprietário),
 // usada pelo "Gravar Proprietário" do CIOT. O documento nunca é redigitado: vem de Link.document.
 const ownerPersonSchema = z.object({
+    paymentAccount: paymentAccountSchema.optional(),
     address: addressSchema.optional(),
     updatePersonAddress: z.boolean().optional(),
     stateRegistration: z.string().optional(),
@@ -881,6 +881,8 @@ router.patch('/:id/owner-person', authenticate, authorize('ADMIN', 'HUB'), async
             body.stateRegistration,
             body.updatePersonAddress,
         );
+
+        if (body.paymentAccount) await savePrimaryPaymentAccount(prisma, person.id, body.paymentAccount);
 
         const updated = await prisma.link.update({
             where: { id },

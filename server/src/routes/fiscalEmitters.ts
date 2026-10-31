@@ -1,3 +1,5 @@
+import { resolveMatrizCnpj } from '../services/efrete/efreteConfig.js';
+import { integratorPersonReady } from '../services/efrete/ensureEfreteIntegratorPerson.js';
 import crypto from 'crypto';
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
@@ -230,7 +232,7 @@ router.get('/acbr-diagnostics', authenticate, authorize('ADMIN'), (_req: AuthReq
 });
 
 // Só sinaliza se o integrador e-Frete está configurado no servidor — nunca devolve usuário, senha nem hash.
-router.get('/efrete-status', authenticate, authorize('ADMIN', 'HUB'), (req: AuthRequest, res: Response) => {
+router.get('/efrete-status', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     const environment = normalizeEfreteEnvironment(typeof req.query.environment === 'string' ? req.query.environment : undefined);
     let configured = false;
     let integratorCnpjMasked: string | null = null;
@@ -242,7 +244,12 @@ router.get('/efrete-status', authenticate, authorize('ADMIN', 'HUB'), (req: Auth
     } catch {
         configured = false;
     }
-    res.json({ success: true, data: { configured, environment, integratorCnpjMasked } });
+    try {
+        const document = resolveMatrizCnpj('', environment);
+        const formatted = document.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+        const person = document ? await prisma.person.findFirst({ where: { document: { in: [document, formatted] } } }) : null;
+        res.json({ success: true, data: { configured, environment, integratorCnpjMasked, integratorPersonReady: integratorPersonReady(person) } });
+    } catch (error) { next(error); }
 });
 
 router.get('/:id/efrete-diagnostics', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {

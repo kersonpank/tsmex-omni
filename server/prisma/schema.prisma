@@ -215,6 +215,9 @@ model PersonPaymentAccount {
   accountType    String?
   agency         String?
   account        String?
+  pixKeyType     String?
+  holderName     String?
+  holderDocument String?
   pixKey         String?
   isPrimary      Boolean  @default(false)
   createdAt      DateTime @default(now())

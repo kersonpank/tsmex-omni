@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { after, before, beforeEach, it } from 'node:test';
 import express from 'express';
 import jwt from 'jsonwebtoken';
+import axios from 'axios';
 import prisma from '../lib/prisma.js';
 import { AppError, errorHandler } from '../middleware/errorHandler.js';
 
@@ -245,7 +246,9 @@ it('rejeita integrador sem pessoa cadastrada em homologação antes da fila', as
     const previous = process.env.EFRETE_HOMOLOGACAO_INTEGRADOR_CNPJ;
     try {
         process.env.EFRETE_HOMOLOGACAO_INTEGRADOR_CNPJ = '99999999000191';
-        await rejectsBeforeJob(requestBody(), /Cadastre a pessoa do CNPJ do integrador eFrete/);
+        // Sem rede no teste: a consulta pública falha e o servidor orienta o cadastro manual.
+        stub(axios, 'get', async () => { throw new Error('offline'); });
+        await rejectsBeforeJob(requestBody(), /Não foi possível cadastrar automaticamente o integrador e-Frete.*Gestão → Pessoas/);
     } finally {
         process.env.EFRETE_HOMOLOGACAO_INTEGRADOR_CNPJ = previous;
     }

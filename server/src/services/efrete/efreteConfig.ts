@@ -124,7 +124,7 @@ export function resolveCiotContratante<T extends { document: string }>(
 ): T {
     const document = digits(fiscalEmitterPerson.document);
     const cnpj = resolveMatrizCnpj(document, env);
-    if (cnpj === document) return fiscalEmitterPerson;
+    if (normalizeEfreteEnvironment(env ?? getEfreteEnvironment()) === 'producao' || (cnpj === document && !integradorPerson)) return fiscalEmitterPerson;
     if (!integradorPerson || digits(integradorPerson.document) !== cnpj) {
         throw new Error('Cadastre a pessoa do CNPJ do integrador eFrete com razão social e endereço completos para o CIOT em homologação.');
     }

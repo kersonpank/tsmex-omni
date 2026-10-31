@@ -67,7 +67,7 @@ const personAddressSelect = {
 export async function getCarrierRegistry(linkId: string) {
     const link = await prisma.link.findUnique({
         where: { id: linkId },
-        include: { ...linkVehicleInclude, person: { select: personAddressSelect } },
+        include: { ...linkVehicleInclude, person: { select: { ...personAddressSelect, paymentAccounts: { where: { isPrimary: true } } } } },
     });
     if (!link) throw new AppError('Transportador não encontrado.', 404);
 

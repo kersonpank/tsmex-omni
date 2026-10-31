@@ -86,7 +86,7 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
             where,
             orderBy: { name: 'asc' },
             include: {
-                person: { select: { id: true, document: true, legalName: true } },
+                person: { select: { id: true, document: true, legalName: true, cep: true, address: true, number: true, complement: true, neighborhood: true, city: true, state: true, cityIbgeCode: true } },
             },
         });
 

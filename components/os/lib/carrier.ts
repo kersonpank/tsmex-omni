@@ -1,5 +1,5 @@
 import type { VehicleUnitInput } from '../../../lib/api';
-import type { Driver, Person } from '../../../types/index';
+import type { Driver, Person, PersonPaymentAccount } from '../../../types/index';
 
 /**
  * Lógica pura da ficha do transportador (cadastro para CIOT/MDF-e no TSM O.S.).
@@ -8,6 +8,7 @@ import type { Driver, Person } from '../../../types/index';
  */
 
 export interface RegistryPerson {
+    paymentAccounts?: PersonPaymentAccount[];
     id: string;
     document: string;
     legalName: string;

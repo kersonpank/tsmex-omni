@@ -286,7 +286,20 @@ export interface PersonContact {
 
 // ========== ENTITIES ==========
 
+export interface PersonPaymentAccount {
+    bankCode?: string | null;
+    accountType?: string | null;
+    agency?: string | null;
+    account?: string | null;
+    pixKey?: string | null;
+    pixKeyType?: string | null;
+    holderName?: string | null;
+    holderDocument?: string | null;
+    isPrimary?: boolean;
+}
+
 export interface Person {
+    paymentAccounts?: PersonPaymentAccount[];
     id: string;
     documentType: PersonDocumentType;
     document: string;
@@ -389,7 +402,7 @@ export interface Hub {
     name: string;
     code: string;
     personId?: string | null;
-    person?: { id: string; document?: string; legalName?: string } | null;
+    person?: Partial<Person> | null;
     city: string;
     state: string;
     cityIbgeCode?: string | null;
@@ -538,7 +551,7 @@ export interface Driver {
     person?: {
         individualProfile?: { birthCity?: string | null; birthState?: string | null; identityNumber?: string | null; maritalStatus?: string | null; pis?: string | null; notes?: string | null; photoStorageKey?: string | null } | null;
         contacts?: Array<{ name: string; phone?: string | null; email?: string | null; relation?: string | null }>;
-        paymentAccounts?: Array<{ bankCode?: string | null; accountType?: string | null; agency?: string | null; account?: string | null; pixKey?: string | null }>;
+        paymentAccounts?: PersonPaymentAccount[];
         cep?: string | null;
         address?: string | null;
         number?: string | null;
@@ -561,6 +574,12 @@ export interface DemandEvent {
 }
 
 export interface ManifestOrderParty {
+    cep?: string | null;
+    address?: string | null;
+    number?: string | null;
+    complement?: string | null;
+    neighborhood?: string | null;
+    cityIbgeCode?: string | null;
     id: string;
     legalName: string;
     tradeName?: string | null;

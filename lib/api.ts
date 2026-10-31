@@ -219,7 +219,7 @@ export const fiscalEmittersApi = {
     },
 
     efreteStatus: async (environment?: 'homologacao' | 'producao') => {
-        const response = await api.get<ApiResponse<{ configured: boolean; environment: 'homologacao' | 'producao'; integratorCnpjMasked: string | null }>>(
+        const response = await api.get<ApiResponse<{ configured: boolean; environment: 'homologacao' | 'producao'; integratorCnpjMasked: string | null; integratorPersonReady: boolean }>>(
             '/fiscal-emitters/efrete-status',
             { params: environment ? { environment } : undefined },
         );
@@ -984,7 +984,7 @@ export const linksApi = {
         pis?: string;
         notes?: string;
         contacts?: Array<{ name: string; phone?: string; email?: string; relation?: string }>;
-        paymentAccount?: { bankCode?: string; accountType?: string; agency?: string; account?: string; pixKey?: string };
+        paymentAccount?: { bankCode?: string; accountType?: string; agency?: string; account?: string; pixKey?: string; pixKeyType?: string; holderName?: string; holderDocument?: string };
         updatePersonAddress?: boolean;
         address?: {
             cep: string;
@@ -1030,6 +1030,7 @@ export const linksApi = {
     },
 
     updateOwnerPerson: async (id: string, data: {
+        paymentAccount?: { bankCode?: string; accountType?: string; agency?: string; account?: string; pixKey?: string; pixKeyType?: string; holderName?: string; holderDocument?: string };
         legalName?: string;
         stateRegistration?: string;
         updatePersonAddress?: boolean;
@@ -1069,7 +1070,7 @@ export const linksApi = {
         pis: string;
         notes: string;
         contacts: Array<{ name: string; phone?: string; email?: string; relation?: string }>;
-        paymentAccount: { bankCode?: string; accountType?: string; agency?: string; account?: string; pixKey?: string };
+        paymentAccount: { bankCode?: string; accountType?: string; agency?: string; account?: string; pixKey?: string; pixKeyType?: string; holderName?: string; holderDocument?: string };
         updatePersonAddress: boolean;
         address: {
             cep: string;

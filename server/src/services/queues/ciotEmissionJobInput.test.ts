@@ -141,10 +141,10 @@ describe('buildCiotEmissionInputForJob fiscal emitter resolution and eFrete envi
         process.env.EFRETE_HOMOLOGACAO_INTEGRADOR_CNPJ = '11.222.333/0001-81';
         const integrator = { ...explicitEmitter.person, document: '11222333000181', legalName: 'Integrador Ltda', address: 'Rua do Integrador', number: 'S/N', cep: '01310-930', city: 'São Paulo', cityIbgeCode: '3550308' };
         const deps = makeDeps(jobRecord, manifestRecord, explicitEmitter) as any;
-        deps.prisma.person = { findFirst: async (args: any) => {
-            assert.deepEqual(args.where.document.in, ['11222333000181', '11.222.333/0001-81']);
+        deps.ensureIntegratorPerson = async (environment: string) => {
+            assert.equal(environment, 'homologacao');
             return integrator;
-        } };
+        };
         const { mapperInput } = await buildCiotEmissionInputForJob('job-1', deps);
         assert.equal(mapperInput.matrizCnpj, integrator.document);
         assert.equal(mapperInput.contratante.cpfOuCnpj, integrator.document);
@@ -155,7 +155,9 @@ describe('buildCiotEmissionInputForJob fiscal emitter resolution and eFrete envi
     it('sem pessoa do integrador ou CEP completo falha antes da emissão', async () => {
         const { jobRecord, manifestRecord, explicitEmitter } = createBaseEntities();
         process.env.EFRETE_HOMOLOGACAO_INTEGRADOR_CNPJ = '11222333000181';
-        await assert.rejects(() => buildCiotEmissionInputForJob('job-1', makeDeps(jobRecord, manifestRecord, explicitEmitter) as any), /Cadastre a pessoa do CNPJ do integrador/);
+        const deps = makeDeps(jobRecord, manifestRecord, explicitEmitter) as any;
+        deps.ensureIntegratorPerson = async () => { throw new Error('Cadastre a pessoa em Gestão → Pessoas com endereço completo.'); };
+        await assert.rejects(() => buildCiotEmissionInputForJob('job-1', deps), /Gestão → Pessoas/);
         delete process.env.EFRETE_HOMOLOGACAO_INTEGRADOR_CNPJ;
         explicitEmitter.person.cep = '';
         await assert.rejects(() => buildCiotEmissionInputForJob('job-1', makeDeps(jobRecord, manifestRecord, explicitEmitter) as any), /Contratante do CIOT.*CEP válido com 8 dígitos/);

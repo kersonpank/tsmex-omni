@@ -1,3 +1,4 @@
+import { ensureEfreteIntegratorPerson } from '../efrete/ensureEfreteIntegratorPerson.js';
 import { linkVehicleInclude, manifestVehicleAssignmentsInclude } from '../vehicleUnitService.js';
 import { resolveManifestComposition, tractionRntrc } from '../vehicleUnitRules.js';
 import prisma from '../../lib/prisma.js';
@@ -26,6 +27,7 @@ export interface BuildCiotEmissionInputDeps {
         };
         person?: { findFirst: (...args: any[]) => Promise<any> };
     };
+    ensureIntegratorPerson?: typeof ensureEfreteIntegratorPerson;
     resolveIbgeMunicipio?: typeof requireSelectedIbge;
 }
 
@@ -85,10 +87,7 @@ export async function buildCiotEmissionInputForJob(
     const environment: EfreteEnvironment = efreteEnv === 'PRODUCAO' ? 'producao' : 'homologacao';
     const contratanteDoc = digits(fiscalEmitter.person.document).padStart(14, '0').slice(0, 14);
     const matrizCnpj = resolveMatrizCnpj(contratanteDoc, environment);
-    const formattedCnpj = matrizCnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
-    const integradorPerson = matrizCnpj !== contratanteDoc
-        ? await db.person?.findFirst({ where: { document: { in: [matrizCnpj, formattedCnpj] } } })
-        : null;
+    const integradorPerson = matrizCnpj === contratanteDoc ? null : await (deps.ensureIntegratorPerson ?? ensureEfreteIntegratorPerson)(environment);
     const contratantePerson = resolveCiotContratante(fiscalEmitter.person, integradorPerson, environment);
 
     const origin = manifest.originCity || manifest.originCityIbgeCode

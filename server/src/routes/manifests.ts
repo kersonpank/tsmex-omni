@@ -1,3 +1,4 @@
+import { ensureEfreteIntegratorPerson } from '../services/efrete/ensureEfreteIntegratorPerson.js';
 import { validateSelectedAddress } from '../services/selectedCity.js';
 import { freightDocState, type FreightDocState } from '../services/freight/freightDocRules.js';
 import { selectedManifestCity } from '../services/manifestSelectedCity.js';
@@ -260,11 +261,11 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
             where: { id: id },
             include: {
                 vehicleType: true,
-                link: { include: { vehicleType: true, person: true, ...linkVehicleInclude } },
+                link: { include: { vehicleType: true, person: { include: { paymentAccounts: { where: { isPrimary: true } } } }, ...linkVehicleInclude } },
                 driver: { include: { person: true } },
                 driverAssignments: { orderBy: { sequence: 'asc' }, include: { driver: { include: { person: true } } } },
                 hub: true,
-                destHub: true,
+                destHub: { include: { person: true } },
                 fiscalEmitter: true,
                 fiscalDocuments: { orderBy: { createdAt: 'desc' } },
                 vehicleAssignments: manifestVehicleAssignmentsInclude,
@@ -283,7 +284,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
                                     select: { id: true, legalName: true, tradeName: true, document: true, city: true, state: true },
                                 },
                                 destinatarioPerson: {
-                                    select: { id: true, legalName: true, tradeName: true, document: true, city: true, state: true },
+                                    select: { id: true, legalName: true, tradeName: true, document: true, city: true, state: true, cep: true, address: true, number: true, complement: true, neighborhood: true, cityIbgeCode: true },
                                 },
                                 invoicesRel: {
                                     orderBy: { createdAt: 'asc' },
@@ -354,6 +355,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
                               id: leg.order.id,
                               status: leg.order.status,
                               nfNumber: leg.order.nfNumber,
+                              destinatarioPerson: leg.order.destinatarioPerson,
                               freightDocState: (leg.order as unknown as { freightDocState?: FreightDocState }).freightDocState ?? 'none',
                               freightCalculations: leg.order.freightCalculations,
                               demand: leg.order.demand
@@ -1658,10 +1660,8 @@ router.post('/:id/emit-ciot', authenticate, authorize('ADMIN', 'HUB'), async (re
         } catch (error) {
             throw new AppError(error instanceof Error ? error.message : 'CNPJ do integrador eFrete inválido.', 400);
         }
-        const formattedCnpj = contratanteDocument.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
-        const integradorPerson = contratanteDocument === emitterDocument ? null : await prisma.person.findFirst({
-            where: { document: { in: [contratanteDocument, formattedCnpj] } },
-        });
+        // Integrador = próprio emitente dispensa a pessoa separada (e a consulta pública).
+        const integradorPerson = contratanteDocument === emitterDocument ? null : await ensureEfreteIntegratorPerson(environment);
         let contratante;
         try {
             contratante = resolveCiotContratante(fiscalEmitter.person, integradorPerson, environment);

@@ -156,6 +156,8 @@ describe('efreteConfig credential & context resolver', () => {
         assert.strictEqual(resolveCiotContratante(emitter, null, 'homologacao'), emitter);
         process.env.EFRETE_HOMOLOGACAO_INTEGRADOR_CNPJ = emitter.document;
         assert.strictEqual(resolveCiotContratante(emitter, null, 'homologacao'), emitter);
+        const completed = { ...emitter, legalName: 'Integrador completo' };
+        assert.strictEqual(resolveCiotContratante(emitter, completed, 'homologacao'), completed);
         process.env.EFRETE_HOMOLOGACAO_INTEGRADOR_CNPJ = '123';
         assert.throws(() => resolveMatrizCnpj(emitter.document, 'homologacao'), /14 dígitos/);
         assert.strictEqual(resolveCiotContratante(emitter, null, 'producao'), emitter);

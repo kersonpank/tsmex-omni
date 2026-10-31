@@ -1,8 +1,59 @@
 import { describe, expect, it } from 'vitest';
 import type { CiotTipoViagem, Manifest } from '../../../types/index';
 import { buildCiotRequest, ciotDispensaError, ciotFixGroup, emptyCiotAddress, initialCiotForm, type CiotFormState } from './ciot';
+import { CIOT_CARGO_TYPES, ciotNcmOptions, ciotPaymentFromAccount, ciotPaymentAccount, ciotRecipientFromHub, ciotRecipientFromPerson } from './ciot';
 
 const now = new Date('2026-10-25T10:00:00Z');
+
+describe('sugestões do CIOT', () => {
+    it('conta todas as NFs e produtos por NCM4, sem duplicar produtos ou pernas', () => {
+        const first = { id: 'd1', rawInputData: { nfeXmlData: { chave: 'nf1', produtos: [{ ncm: '87089990', descricao: 'Peças' }, { ncm: '87081000' }, { ncm: '73181500' }] } } };
+        const second = { id: 'd2', rawInputData: { nfeXmlData: { chave: 'nf2', produtos: [{ ncm: '87089990', descricao: 'Peças' }] } } };
+        expect(ciotNcmOptions({ demands: [first], legs: [{ order: { demand: first } }, { order: { demand: second } }] })).toEqual([
+            { ncm4: '8708', description: 'Peças', count: 2 }, { ncm4: '7318', description: 'Natureza da carga', count: 1 },
+        ]);
+    });
+    it('ignora NCM inválido e resolve empate por código para manter a sugestão estável', () => {
+        expect(ciotNcmOptions({ demands: [{ rawInputData: { nfeXmlData: { produtos: [
+            { ncm: '' }, { ncm: '123' }, { ncm: 'abcd1234' }, { ncm: '87089990' }, { ncm: '7318' },
+        ] } } }] }).map((option) => option.ncm4)).toEqual(['7318', '8708']);
+        expect(ciotNcmOptions({})).toEqual([]);
+    });
+    it('pré-preenche o NCM mais frequente entre todas as demandas', () => {
+        const demands = ['73181500', '87089990', '87081000'].map((ncm, index) => ({ id: String(index), rawInputData: { nfeXmlData: { produtos: [{ ncm }] } } }));
+        expect(initialCiotForm({ ...manifest, demands } as unknown as Manifest, now).form.codigoNcmNaturezaCarga).toBe('8708');
+    });
+    it('mantém os 12 códigos de tipo de carga e carga geral como padrão', () => {
+        expect(CIOT_CARGO_TYPES.map((option) => option.value)).toEqual(Array.from({ length: 12 }, (_, index) => String(index + 1)));
+        expect(CIOT_CARGO_TYPES[4]).toEqual({ value: '5', label: 'Carga geral' });
+        expect(CIOT_CARGO_TYPES[11].label).toBe('Granel pressurizada');
+        expect(initialCiotForm(manifest, now).form.codigoTipoCarga).toBe('5');
+    });
+    it('preenche PIX com tipo e titular, e conta sem presumir chave PIX', () => {
+        const pix = ciotPaymentFromAccount({ pixKey: 'email@example.com', pixKeyType: 'Email', holderName: 'Titular', holderDocument: '111.222.333-44' });
+        expect(pix.paymentMethod).toBe('PIX');
+        expect(pix.pixKeyType).toBe('Email');
+        expect(ciotPaymentFromAccount({ pixKey: 'chave-sem-tipo' }).pixKeyType).toBe('');
+        expect(ciotPaymentAccount(pix)).toMatchObject({ pixKey: 'email@example.com', pixKeyType: 'Email', holderName: 'Titular', holderDocument: '11122233344', bankCode: '' });
+        expect(ciotPaymentFromAccount({ bankCode: '341', agency: '1234', account: '5678-9', accountType: 'ContaPoupanca' })).toMatchObject({
+            paymentMethod: 'BANK', pixKey: '', paymentBankCode: '341', paymentAgency: '1234', paymentAccount: '5678-9', paymentAccountType: 'ContaPoupanca',
+        });
+    });
+    it('preenche todos os campos de endereço da pessoa e usa o endereço do hub como fallback', () => {
+        const person = { document: '11222333000181', legalName: 'Destino Ltda', cep: '01310930', address: 'Rua A', number: '10', complement: 'Sala 2', neighborhood: 'Centro', city: 'São Paulo', state: 'SP', cityIbgeCode: '3550308' };
+        expect(ciotRecipientFromPerson(person)).toEqual({ form: { destNome: person.legalName, destCpfCnpj: person.document }, address: {
+            cep: person.cep, address: person.address, number: person.number, complement: person.complement, neighborhood: person.neighborhood, city: person.city, state: person.state, cityIbgeCode: person.cityIbgeCode,
+        } });
+        expect(ciotRecipientFromHub({ name: 'Hub destino', city: 'São Paulo', state: 'SP', address: 'Rua do hub', cityIbgeCode: '3550308', person })).toEqual(ciotRecipientFromPerson(person));
+        expect(ciotRecipientFromHub({ name: 'Hub sem pessoa', city: 'São Paulo', state: 'SP', address: 'Rua do hub' })).toMatchObject({ form: { destNome: 'Hub sem pessoa', destCpfCnpj: '' }, address: { address: 'Rua do hub', cep: '' } });
+    });
+    it('limpa a chave anterior ao salvar uma conta bancária e envia documento do titular', () => {
+        const { form, address } = readyForm();
+        const changed = { ...form, pixKey: 'chave-antiga', holderDocument: '111.222.333-44' };
+        expect(ciotPaymentAccount(changed).pixKey).toBe('');
+        expect(buildCiotRequest(manifest.id, changed, address, '', '999', now).request?.requestData.pagamentos[0].cpfCnpjCreditado).toBe('11122233344');
+    });
+});
 const manifest = {
     id: 'abcdef12-0000',
     totalWeight: 1200.4,

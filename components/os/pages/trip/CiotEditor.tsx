@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { manifestsApi } from '../../../../lib/api';
+import { hubsApi, linksApi, manifestsApi } from '../../../../lib/api';
 import { FiscalAddressFields } from '../../../manifest/FiscalAddressFields';
-import type { CiotEmissionJob, CiotTipoViagem, CiotTipoViagemSuggestion } from '../../../../types/index';
+import type { CiotEmissionJob, CiotTipoViagem, CiotTipoViagemSuggestion, Hub } from '../../../../types/index';
 import type { ManifestWithLegs } from '../../lib/arrival';
 import {
     buildCiotRequest,
@@ -12,6 +12,10 @@ import {
     ciotFixGroup,
     ciotDispensaError,
     initialCiotForm,
+    CIOT_CARGO_TYPES,
+    ciotNcmOptions,
+    ciotPaymentFromAccount,
+    ciotPaymentAccount,
     type CiotAddressState,
     type CiotFixGroup,
     type CiotFormState,
@@ -19,6 +23,8 @@ import {
 } from '../../lib/ciot';
 import { OsBadge, OsButton, OsErrorNotice } from '../../ui/kit';
 import OsSheet, { apiErrorMessage, osFieldClass } from '../../ui/Sheet';
+import PaymentAccountFields from './PaymentAccountFields';
+import CiotRecipientPicker from './CiotRecipientPicker';
 
 const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
     <label className="block text-[13px] font-bold text-tower-600 dark:text-tower-300">
@@ -50,6 +56,9 @@ const CiotEditor: React.FC<{
     const [error, setError] = useState<string | null>(null);
     const [motivo, setMotivo] = useState<CiotDispensaReason | ''>('');
     const [observacao, setObservacao] = useState('');
+    const [hubs, setHubs] = useState<Hub[]>([]);
+    const [savePayment, setSavePayment] = useState(true);
+    const [paymentEdited, setPaymentEdited] = useState(false);
     const timer = useRef<number | null>(null);
     const alive = useRef(true);
 
@@ -58,6 +67,8 @@ const CiotEditor: React.FC<{
     const dispensed = Boolean(manifest.ciotDispensado) && !authorized;
     const jobRunning = Boolean(job && !CIOT_FINAL_PHASES.includes(job.phase));
     const selectedType = override || suggestion?.tipoViagem || 'PADRAO';
+    const ncmOptions = ciotNcmOptions(manifest);
+    const carrierAccount = manifest.link?.person?.paymentAccounts?.find((account) => account.isPrimary !== false);
 
     const stopPolling = useCallback(() => {
         if (timer.current != null) window.clearTimeout(timer.current);
@@ -105,7 +116,10 @@ const CiotEditor: React.FC<{
         setAddress(initial.address);
         setOverride(manifest.ciotTipoViagemOverride ?? '');
         setFormError(null);
+        setSavePayment(true);
+        setPaymentEdited(false);
         setFormOpen(true);
+        void hubsApi.list().then((res) => { if (alive.current) setHubs(res.data ?? []); }).catch(() => setHubs([]));
         void manifestsApi.ciotSuggestion(manifest.id).then((res) => alive.current && setSuggestion(res.data ?? null)).catch(() => setSuggestion(null));
     };
 
@@ -118,6 +132,9 @@ const CiotEditor: React.FC<{
         setBusy(true);
         setFormError(null);
         try {
+            if (paymentEdited && savePayment && form.tipoPagamento !== 'eFRETE' && manifest.linkId) {
+                await linksApi.updateOwnerPerson(manifest.linkId, { paymentAccount: ciotPaymentAccount(form) });
+            }
             const res = await manifestsApi.emitCiot(manifest.id, built.request);
             setJob(res.data ?? null);
             setFormOpen(false);
@@ -281,8 +298,17 @@ const CiotEditor: React.FC<{
                         {selectedType !== 'TAC_AGREGADO' ? (
                             <>
                                 <Field label="NCM da natureza da carga (4 dígitos)*">{text('codigoNcmNaturezaCarga')}</Field>
+                                <div className="flex flex-wrap gap-2">
+                                    {ncmOptions.map((option) => <OsButton key={option.ncm4} variant={form.codigoNcmNaturezaCarga === option.ncm4 ? 'primary' : 'secondary'} onClick={() => set('codigoNcmNaturezaCarga', option.ncm4)}>
+                                        {option.ncm4} · {option.description} ({option.count} {option.count === 1 ? 'NF' : 'NFs'})
+                                    </OsButton>)}
+                                </div>
                                 <Field label="Peso da carga (kg)*">{text('pesoCarga', 'number')}</Field>
-                                <Field label="Tipo de carga ANTT (1-12)* · 5 = carga geral">{text('codigoTipoCarga', 'number')}</Field>
+                                <Field label="Tipo de carga*">
+                                    <select value={form.codigoTipoCarga} onChange={(event) => set('codigoTipoCarga', event.target.value)} className={osFieldClass}>
+                                        {CIOT_CARGO_TYPES.map((option) => <option key={option.value} value={option.value}>{option.value} · {option.label}</option>)}
+                                    </select>
+                                </Field>
                             </>
                         ) : null}
                         {selectedType === 'PADRAO' ? (
@@ -328,36 +354,22 @@ const CiotEditor: React.FC<{
                         <>
                             <Legend>Conta real do beneficiário</Legend>
                             <p className="mb-2 text-[12px] text-tower-500">Confirme os dados de pagamento com o contratado. O CPF/CNPJ não será presumido como chave PIX.</p>
-                            <div className="mb-3 flex gap-5 text-[14px]">
-                                <label className="flex min-h-[44px] items-center gap-2"><input type="radio" checked={form.paymentMethod === 'BANK'} onChange={() => set('paymentMethod', 'BANK')} /> Conta bancária</label>
-                                <label className="flex min-h-[44px] items-center gap-2"><input type="radio" checked={form.paymentMethod === 'PIX'} onChange={() => set('paymentMethod', 'PIX')} /> PIX</label>
-                            </div>
-                            {form.paymentMethod === 'PIX' ? (
-                                <div className="flex flex-col gap-3">
-                                    <Field label="Tipo de chave">
-                                        <select value={form.pixKeyType} onChange={(e) => set('pixKeyType', e.target.value as CiotFormState['pixKeyType'])} className={osFieldClass}>
-                                            <option value="CpfOuCnpj">CPF/CNPJ</option>
-                                            <option value="Email">E-mail</option>
-                                            <option value="TelefoneCelular">Celular</option>
-                                            <option value="ChaveAleatoria">Chave aleatória</option>
-                                        </select>
-                                    </Field>
-                                    <Field label="Chave PIX confirmada">{text('pixKey')}</Field>
-                                </div>
-                            ) : (
-                                <div className="flex flex-col gap-3">
-                                    <Field label="Código do banco">{text('paymentBankCode')}</Field>
-                                    <Field label="Agência (número-dígito, quando houver)">{text('paymentAgency')}</Field>
-                                    <Field label="Conta (número-dígito)">{text('paymentAccount')}</Field>
-                                    <Field label="Tipo de conta">
-                                        <select value={form.paymentAccountType} onChange={(e) => set('paymentAccountType', e.target.value)} className={osFieldClass}>
-                                            <option value="ContaCorrente">Corrente</option>
-                                            <option value="ContaPoupanca">Poupança</option>
-                                            <option value="ContaPagamento">Pagamento</option>
-                                        </select>
-                                    </Field>
-                                </div>
-                            )}
+                            {carrierAccount ? <OsButton full variant="secondary" className="mb-3" onClick={() => {
+                                setForm((current) => ({ ...current, ...ciotPaymentFromAccount(carrierAccount) }));
+                                setPaymentEdited(false);
+                            }}>
+                                Usar dados bancários do transportador: {carrierAccount.pixKey
+                                    ? `PIX ${carrierAccount.pixKeyType === 'CpfOuCnpj' ? 'CPF/CNPJ' : carrierAccount.pixKeyType ?? ''} ${carrierAccount.pixKey}`
+                                    : `Banco ${carrierAccount.bankCode ?? ''} ag ${carrierAccount.agency ?? ''} cc ${carrierAccount.account ?? ''}`}
+                            </OsButton> : null}
+                            <PaymentAccountFields value={form} disabled={busy} onChange={(payment) => {
+                                setForm((current) => ({ ...current, ...payment }));
+                                setPaymentEdited(true);
+                            }} />
+                            {paymentEdited && manifest.linkId ? <label className="mt-3 flex min-h-[44px] items-center gap-2 text-[14px]">
+                                <input type="checkbox" checked={savePayment} onChange={(event) => setSavePayment(event.target.checked)} className="h-5 w-5" />
+                                Salvar no cadastro do transportador
+                            </label> : null}
 
                         </>
                     ) : <p className="mt-4 text-[13px] text-tower-600 dark:text-tower-300">Pagamento pela e-Frete. Dados bancários e chave PIX não são necessários.</p>}
@@ -379,6 +391,10 @@ const CiotEditor: React.FC<{
                     </div>
 
                     <Legend>Destinatário</Legend>
+                    <CiotRecipientPicker manifest={manifest} hubs={hubs} onChange={(recipient) => {
+                        setForm((current) => ({ ...current, ...recipient.form }));
+                        setAddress(recipient.address);
+                    }} />
                     <div className="flex flex-col gap-3">
                         <Field label="Nome/Razão social*">{text('destNome')}</Field>
                         <Field label="CPF/CNPJ*">{text('destCpfCnpj')}</Field>

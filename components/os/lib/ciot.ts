@@ -1,4 +1,4 @@
-import type { CiotEmissionJob, CiotTipoViagem, EmitCiotRequest, Manifest } from '../../../types/index';
+import type { CiotEmissionJob, CiotTipoViagem, EmitCiotRequest, Hub, Manifest, Person, PersonPaymentAccount } from '../../../types/index';
 
 /** Lógica pura do formulário de CIOT do TSM O.S. (sem React, sem rede). */
 
@@ -25,8 +25,10 @@ export interface CiotFormState {
     paymentBankCode: string;
     paymentAgency: string;
     paymentAccount: string;
-    pixKeyType: 'CpfOuCnpj' | 'Email' | 'TelefoneCelular' | 'ChaveAleatoria';
+    pixKeyType: 'CpfOuCnpj' | 'Email' | 'TelefoneCelular' | 'ChaveAleatoria' | '';
     pixKey: string;
+    holderName: string;
+    holderDocument: string;
     indicadorPagamento: 'Avista' | 'Aprazo';
     numeroParcela: string;
     destNome: string;
@@ -68,13 +70,75 @@ function localDateTime(value: Date): string {
     return new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 }
 
-/** O XML da NF-e, quando disponível na demanda, contém o NCM do primeiro produto. AP12 usa os primeiros 4 dígitos. */
-function firstOrderNcm(manifest: Manifest): string {
-    const xml = manifest.demands?.[0]?.rawInputData?.nfeXmlData;
-    if (!xml || typeof xml !== 'object') return '';
-    const products = (xml as { produtos?: Array<{ ncm?: unknown }> }).produtos;
-    const ncm = products?.[0]?.ncm;
-    return typeof ncm === 'string' && /^\d{4}(?:\d{4})?$/.test(ncm) ? ncm.slice(0, 4) : '';
+/** CodigoTipoCarga (ANTT / e-Frete): valores aceitos de 1 a 12. */
+export const CIOT_CARGO_TYPES = [
+    'Granel sólido', 'Granel líquido', 'Frigorificada', 'Conteinerizada', 'Carga geral', 'Neogranel',
+    'Perigosa granel sólido', 'Perigosa granel líquido', 'Perigosa frigorificada',
+    'Perigosa conteinerizada', 'Perigosa carga geral', 'Granel pressurizada',
+].map((label, index) => ({ value: String(index + 1), label }));
+
+type CiotDemand = { id?: string; rawInputData?: Record<string, unknown> | null };
+type CiotCargo = { demands?: CiotDemand[]; legs?: Array<{ order?: { demand?: CiotDemand | null } | null }> };
+
+/** Cada capítulo NCM conta uma vez por NF, inclusive quando há vários produtos/pernas. */
+export function ciotNcmOptions(manifest: CiotCargo): Array<{ ncm4: string; description: string; count: number }> {
+    const options = new Map<string, { ncm4: string; description: string; invoices: Set<string> }>();
+    const demands = [...(manifest.demands ?? []), ...(manifest.legs ?? []).flatMap((leg) => leg.order?.demand ? [leg.order.demand] : [])];
+    demands.forEach((demand, index) => {
+        const xml = demand.rawInputData?.nfeXmlData as { chave?: string; produtos?: Array<{ ncm?: unknown; descricao?: string }> } | undefined;
+        if (!Array.isArray(xml?.produtos)) return;
+        const invoice = xml.chave || demand.id || `nf-${index}`;
+        for (const product of xml.produtos) {
+            const ncm = String(product.ncm ?? '').trim();
+            if (!/^\d{4}(?:\d{4})?$/.test(ncm)) continue;
+            const ncm4 = ncm.slice(0, 4);
+            const option = options.get(ncm4) ?? { ncm4, description: product.descricao?.trim() || 'Natureza da carga', invoices: new Set<string>() };
+            option.invoices.add(invoice);
+            options.set(ncm4, option);
+        }
+    });
+    return [...options.values()].map(({ invoices, ...option }) => ({ ...option, count: invoices.size }))
+        .sort((a, b) => b.count - a.count || a.ncm4.localeCompare(b.ncm4));
+}
+
+export function ciotRecipientFromPerson(person: Partial<Person>) {
+    return {
+        form: { destNome: person.legalName ?? '', destCpfCnpj: person.document ?? '' },
+        address: {
+            cep: person.cep ?? '', address: person.address ?? '', number: person.number ?? '',
+            complement: person.complement ?? '', neighborhood: person.neighborhood ?? '',
+            city: person.city ?? '', state: person.state ?? '', cityIbgeCode: person.cityIbgeCode ?? '',
+        },
+    };
+}
+
+export function ciotRecipientFromHub(hub: Pick<Hub, 'name' | 'city' | 'state' | 'cityIbgeCode' | 'address' | 'person'>) {
+    return ciotRecipientFromPerson({
+        legalName: hub.name, city: hub.city, state: hub.state, cityIbgeCode: hub.cityIbgeCode,
+        address: hub.address, ...Object.fromEntries(Object.entries(hub.person ?? {}).filter(([, value]) => value != null && value !== '')),
+    });
+}
+
+export function ciotPaymentFromAccount(account: PersonPaymentAccount): Pick<CiotFormState,
+    'paymentMethod' | 'paymentBankCode' | 'paymentAgency' | 'paymentAccount' | 'paymentAccountType' | 'pixKeyType' | 'pixKey' | 'holderName' | 'holderDocument'> {
+    const pixKeyType = ['CpfOuCnpj', 'Email', 'TelefoneCelular', 'ChaveAleatoria'].includes(account.pixKeyType ?? '')
+        ? account.pixKeyType as CiotFormState['pixKeyType'] : account.pixKey ? '' : 'CpfOuCnpj';
+    return {
+        paymentMethod: account.pixKey ? 'PIX' : 'BANK', paymentBankCode: account.bankCode ?? '',
+        paymentAgency: account.agency ?? '', paymentAccount: account.account ?? '',
+        paymentAccountType: account.accountType || 'ContaCorrente', pixKeyType, pixKey: account.pixKey ?? '',
+        holderName: account.holderName ?? '', holderDocument: account.holderDocument ?? '',
+    };
+}
+
+export function ciotPaymentAccount(form: ReturnType<typeof ciotPaymentFromAccount>) {
+    return {
+        bankCode: form.paymentMethod === 'BANK' ? form.paymentBankCode.trim() : '',
+        agency: form.paymentMethod === 'BANK' ? form.paymentAgency.trim() : '',
+        account: form.paymentMethod === 'BANK' ? form.paymentAccount.trim() : '',
+        accountType: form.paymentAccountType, pixKey: form.paymentMethod === 'PIX' ? form.pixKey.trim() : '',
+        pixKeyType: form.pixKeyType || undefined, holderName: form.holderName.trim(), holderDocument: form.holderDocument.replace(/\D/g, ''),
+    };
 }
 
 /** Pré-preenche a partir da Carta Frete, do transportador e do hub de destino (destinatário da viagem). */
@@ -89,7 +153,7 @@ export function initialCiotForm(manifest: Manifest, now = new Date()): { form: C
         distanciaPercorrida: '',
         dataInicioViagem: plannedStart,
         dataFimViagem: plannedEnd,
-        codigoNcmNaturezaCarga: firstOrderNcm(manifest),
+        codigoNcmNaturezaCarga: ciotNcmOptions(manifest)[0]?.ncm4 ?? '',
         pesoCarga: manifest.totalWeight > 0 ? String(manifest.totalWeight) : '',
         // Tabela ANTT (Res. 5.867/2020): 5 = carga geral — o caso comum da teia.
         codigoTipoCarga: '5',
@@ -111,16 +175,16 @@ export function initialCiotForm(manifest: Manifest, now = new Date()): { form: C
         paymentAccount: '',
         pixKeyType: 'CpfOuCnpj',
         pixKey: '',
+        holderName: '',
+        holderDocument: '',
         indicadorPagamento: 'Avista',
         numeroParcela: '',
         destNome: manifest.destHub?.name ?? '',
         destCpfCnpj: manifest.destHub?.person?.document ?? '',
     };
-    const address: CiotAddressState = {
-        ...emptyCiotAddress,
-        city: manifest.destHub?.city ?? '',
-        cityIbgeCode: manifest.destHub?.cityIbgeCode ?? '',
-    };
+    const recipient = manifest.destHub ? ciotRecipientFromHub(manifest.destHub) : null;
+    if (recipient) Object.assign(form, recipient.form);
+    const address: CiotAddressState = recipient?.address ?? { ...emptyCiotAddress };
     return { form, address };
 }
 
@@ -223,7 +287,7 @@ export function buildCiotRequest(
                 valor: total,
                 tipoPagamento: form.tipoPagamento,
                 categoria: 'SemCategoria',
-                cpfCnpjCreditado: linkDocument,
+                cpfCnpjCreditado: form.holderDocument.replace(/\D/g, '') || linkDocument,
                 // O formulário gera um pagamento único: a soma coincide com TotalViagem e SemCategoria serve aos três tipos.
                 indicadorPagamento: form.indicadorPagamento,
                 ...(form.indicadorPagamento === 'Aprazo' ? { numeroParcela: Number(form.numeroParcela) } : {}),
