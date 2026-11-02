@@ -5,7 +5,7 @@ import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { requireSelectedIbge } from '../selectedCity.js';
 import { resolveCiotContratante, resolveMatrizCnpj, type EfreteEnvironment } from '../efrete/efreteConfig.js';
-import { digits, normalizeEfreteAddressNumber, normalizeEfreteCep, splitPhone } from '../efrete/efreteUtil.js';
+import { digits, normalizeEfreteRntrc, normalizeEfreteAddressNumber, normalizeEfreteCep, splitPhone } from '../efrete/efreteUtil.js';
 import type { CiotMapperInput, CiotRequestData, CiotTipoViagemApi } from '../efrete/efreteCiotMapper.js';
 
 /** Formato persistido em `CiotEmissionJob.requestData` — Carta Frete + campos que só existem no Fracionado. */
@@ -133,11 +133,9 @@ export async function buildCiotEmissionInputForJob(
                 numero: normalizeEfreteAddressNumber(contratantePerson.number),
                 ...(contratantePerson.complement ? { complemento: contratantePerson.complement } : {}),
             },
-            // TODO: validar em sandbox os 9 dígitos do manual eFrete versus 8 dígitos ANTT/massa de teste.
-            ...(tipoViagem === 'TAC_Agregado' ? { rntrc: digits(contratantePerson === fiscalEmitter.person ? fiscalEmitter.rntrc : contratantePerson.rntrc).padStart(9, '0').slice(0, 9) } : {}),
+            ...(tipoViagem === 'TAC_Agregado' ? { rntrc: normalizeEfreteRntrc(contratantePerson === fiscalEmitter.person ? fiscalEmitter.rntrc : contratantePerson.rntrc) } : {}),
         },
-        // TODO: validar em sandbox os 9 dígitos do manual eFrete versus 8 dígitos ANTT/massa de teste.
-        contratado: { cpfOuCnpj: linkDoc, rntrc: contratadoRntrc.padStart(9, '0').slice(0, 9) },
+        contratado: { cpfOuCnpj: linkDoc, rntrc: normalizeEfreteRntrc(contratadoRntrc) },
         motorista: { cpfOuCnpj: driverDoc, cnh: manifest.driver.cnhNumber, celular: { ddd: driverPhone.ddd, numero: driverPhone.numero } },
         codigoMunicipioOrigem: Number(origemMunicipio),
         codigoMunicipioDestino: Number(destinoMunicipio),

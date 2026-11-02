@@ -11,6 +11,7 @@ const prismaSnapshot = {
     manifestFindUnique: prisma.manifest.findUnique.bind(prisma.manifest),
     orderLegFindMany: prisma.orderLeg.findMany,
     fiscalFindMany: prisma.manifestFiscalDocument.findMany,
+    ciotJobFindFirst: prisma.ciotEmissionJob.findFirst,
 };
 
 function restorePrismaMocks() {
@@ -21,6 +22,7 @@ function restorePrismaMocks() {
     prisma.manifest.findUnique = prismaSnapshot.manifestFindUnique;
     prisma.orderLeg.findMany = prismaSnapshot.orderLegFindMany;
     prisma.manifestFiscalDocument.findMany = prismaSnapshot.fiscalFindMany;
+    prisma.ciotEmissionJob.findFirst = prismaSnapshot.ciotJobFindFirst;
 }
 
 // Dates used throughout
@@ -46,7 +48,7 @@ const baseLink = {
     vehicleChassi: 'ABC123DEF456GHI78',
     vehiclePlate: 'ABC1234',
     vehicleRenavam: '12345678901',
-    person: { ...completeAddress },
+    person: { ...completeAddress, paymentAccounts: [{ isPrimary: true, pixKey: 'frete@example.com' }] },
 };
 
 const baseDriver = {
@@ -72,6 +74,9 @@ const baseManifest = {
     plannedDepartureAt: new Date('2026-09-20T10:00:00Z'),
     plannedArrivalAt: new Date('2026-09-20T18:00:00Z'),
     fiscalEmitterId: 'fe-1',
+    totalValue: 1000,
+    totalWeight: 100,
+    fiscalEmitter: { person: { ...completeAddress, document: '11111111111111', stateRegistration: '110042490114' } },
     linkId: 'link-1',
     link: baseLink,
     driverId: 'driver-1',
@@ -92,6 +97,7 @@ describe('manifestReadinessService', () => {
         prisma.link.findUnique = (async () => baseLink) as any;
         prisma.driver.findMany = (async () => []) as any;
         prisma.orderLeg.findMany = (async () => []) as any;
+        prisma.ciotEmissionJob.findFirst = (async () => null) as any;
         const link = linkOverrides !== undefined ? { ...baseLink, ...linkOverrides } : baseLink;
         const driver = driverOverrides !== undefined ? { ...baseDriver, ...driverOverrides } : baseDriver;
         prisma.manifest.findUnique = (async () => ({
@@ -101,6 +107,62 @@ describe('manifestReadinessService', () => {
             driver,
         })) as any;
     }
+
+    it('emitente incompleto bloqueia cedo e enumera os campos', async () => {
+        mockWith(undefined, undefined, { fiscalEmitter: { person: { document: '26879820000270' } } });
+        const result = await getManifestReadiness('manifest-1');
+        const issue = result.issues.find((item) => item.code === 'FISCAL_EMITTER_DATA_PENDING');
+        assert.equal(issue?.step, 'cover');
+        assert.equal(issue?.severity, 'blocking');
+        assert.match(issue!.message, /IE, logradouro, número, bairro, cidade, código IBGE, UF, CEP/);
+        assert.equal(result.canOffer, false);
+    });
+
+    it('carga sem valor/peso e CT-e de outro CNPJ aparecem nos pedidos', async () => {
+        mockWith();
+        prisma.orderLeg.findMany = (async () => [{ orderId: 'order-112', order: {
+            demand: { orderNumber: 112, nfValue: 0, weight: 0 },
+            freightCalculations: [{ cteAccessKey: '35261026879820000270570010000001121000000000', cteProtocol: 'protocol', cteXml: '<xml/>' }],
+        } }]) as any;
+        const result = await getManifestReadiness('manifest-1');
+        const totals = result.issues.find((item) => item.code === 'MANIFEST_TOTALS_PENDING');
+        assert.equal(totals?.severity, 'blocking');
+        assert.equal(totals?.step, 'orders');
+        assert.match(totals!.message, /valor.*112.*peso.*112/);
+        const mismatch = result.issues.find((item) => item.code === 'CTE_EMITTER_MISMATCH');
+        assert.equal(mismatch?.message, 'O CT-e do pedido 112 foi emitido por outro CNPJ (26879820000270). O MDF-e precisa do mesmo emitente.');
+        assert.equal(mismatch?.step, 'orders');
+    });
+
+    it('responsável RNTRC diferente bloqueia ETC; frota própria não exige CIOT', async () => {
+        const truck = { id: 'truck', plate: 'BWP6E54', role: 'TRACTION', chassi: '9BWZZZ377VT004251', renavam: '12345678901', axles: 3, rntrc: '55887888',
+            rntrcHolderPersonId: 'holder', rntrcHolderPerson: { id: 'holder', document: '48384601000171', legalName: 'Transportador', rntrc: '55887888', ...completeAddress } };
+        for (const carrierType of ['ETC', 'FROTA']) {
+            mockWith({ personId: 'other', carrierType }, undefined, { vehicleAssignments: [{ slot: 0, vehicleUnitId: 'truck', vehicleUnit: truck }] });
+            const result = await getManifestReadiness('manifest-1');
+            const issue = result.issues.find((item) => item.code === 'RNTRC_HOLDER_NOT_CARRIER');
+            if (carrierType === 'ETC') {
+                assert.equal(issue?.severity, 'blocking');
+                assert.match(issue!.message, /cavalo BWP6E54.*CNPJ 48384601000171.*não é o transportador contratado/);
+            } else assert.equal(issue, undefined);
+        }
+    });
+
+    it('pagamento sem conta ou vencimento aparece cedo, aceitando PIX do CIOT', async () => {
+        mockWith({ person: { ...completeAddress } }, undefined, {
+            status: 'ACCEPTED', freightAgreement: { id: 'fa', freteBruto: 1000, adiantamento: 300, saldoLiquido: 700, pedagio: 0 },
+        });
+        prisma.manifestFiscalDocument.findMany = (async () => []) as any;
+        const pending = await getManifestReadiness('manifest-1');
+        for (const code of ['MDFE_PAYMENT_ACCOUNT_PENDING', 'MDFE_PAYMENT_SCHEDULE_PENDING']) {
+            const issue = pending.issues.find((item) => item.code === code);
+            assert.equal(issue?.step, 'fiscal');
+            assert.equal(issue?.severity, 'blocking');
+        }
+        prisma.ciotEmissionJob.findFirst = (async () => ({ requestData: { pagamentos: [{ categoria: 'SemCategoria', indicadorPagamento: 'Avista', valor: 1000, dataLiberacao: '2026-11-08T12:00:00Z', pix: { valorChave: 'pix-ciot' } }] } })) as any;
+        const ready = await getManifestReadiness('manifest-1');
+        assert.ok(!ready.issues.some((item) => item.code === 'MDFE_PAYMENT_ACCOUNT_PENDING' || item.code === 'MDFE_PAYMENT_SCHEDULE_PENDING'));
+    });
 
     it('base fixture: no blocking issues, canOffer true', async () => {
         mockWith();
@@ -151,7 +213,7 @@ describe('manifestReadinessService', () => {
 
     it('permite planejar e ofertar com CT-e pendente, mostrando atenção nos pedidos', async () => {
         mockWith();
-        prisma.orderLeg.findMany = (async () => [{ order: { freightCalculations: [] } }]) as any;
+        prisma.orderLeg.findMany = (async () => [{ order: { demand: { orderNumber: 112, nfValue: 1000, weight: 100 }, freightCalculations: [] } }]) as any;
         const result = await getManifestReadiness('manifest-1');
         assert.equal(result.canOffer, true);
         assert.equal(result.steps.orders.state, 'attention');
@@ -161,8 +223,8 @@ describe('manifestReadinessService', () => {
     it('bloqueia saída quando o segundo pedido não tem CT-e e não dispensa CIOT por FROTA', async () => {
         mockWith({ carrierType: 'FROTA' }, undefined, { status: 'ACCEPTED' });
         prisma.orderLeg.findMany = (async () => [
-            { orderId: 'order-1', order: { freightCalculations: [{ cteAccessKey: '1'.repeat(44), cteProtocol: 'protocol', cteXml: '<xml/>' }] } },
-            { orderId: 'order-2', order: { freightCalculations: [] } },
+            { orderId: 'order-1', order: { demand: { orderNumber: 112, nfValue: 1000, weight: 100 }, freightCalculations: [{ cteAccessKey: '1'.repeat(44), cteProtocol: 'protocol', cteXml: '<xml/>' }] } },
+            { orderId: 'order-2', order: { demand: { orderNumber: 113, nfValue: 1000, weight: 100 }, freightCalculations: [] } },
         ]) as any;
         prisma.manifestFiscalDocument.findMany = (async () => [{ documentType: 'MDFE', accessKey: '2'.repeat(44), protocol: 'protocol', xmlUrl: 'stored' }]) as any;
         const result = await getManifestReadiness('manifest-1');

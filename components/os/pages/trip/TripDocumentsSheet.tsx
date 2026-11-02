@@ -4,12 +4,13 @@ import { manifestsApi } from '../../../../lib/api';
 import type { ManifestReadiness } from '../../../../types/index';
 import type { ManifestWithLegs } from '../../lib/arrival';
 import { docBadge, isDocumented, orderLabel } from '../../lib/readiness';
+import { mdfeFixGroup, type TripFixGroup } from '../../lib/trip';
 import { OsBadge, OsButton, OsErrorNotice, OsRow } from '../../ui/kit';
 import OsSheet, { apiErrorMessage } from '../../ui/Sheet';
 import CiotEditor from './CiotEditor';
 
 export type TripDocumentStep = 'cte' | 'ciot' | 'mdfe';
-export type TripDocumentResolution = 'responsible' | 'registry' | 'freight' | 'departure' | 'emitter' | 'confirm';
+export type TripDocumentResolution = TripFixGroup | 'confirm';
 
 const StepHeading: React.FC<{ number: number; title: string; done: boolean; locked?: boolean }> = ({ number, title, done, locked }) => (
     <div className="mb-3 flex items-center gap-2.5">
@@ -70,6 +71,12 @@ const TripDocumentsSheet: React.FC<{
         }
     };
 
+    const resolveFix = (group: TripFixGroup) => {
+        if (group === 'documents') ciotRef.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+        else onResolve(group);
+    };
+    const mdfeFix = error ? mdfeFixGroup(error) : null;
+
     const emitMdfe = async () => {
         if (busy || !canEmitMdfe) return;
         setBusy(true);
@@ -118,12 +125,17 @@ const TripDocumentsSheet: React.FC<{
                         <OsButton full onClick={() => onResolve('confirm')}>Confirmar transportador</OsButton>
                     </div>
                 ) : null}
-                <CiotEditor manifest={manifest} disabled={!cteDone || !accepted} onUpdated={onUpdated} onResolve={onResolve} />
+                <CiotEditor manifest={manifest} readiness={readiness} disabled={!cteDone || !accepted} onUpdated={onUpdated} onResolve={onResolve} />
             </section>
 
             <section ref={mdfeRef} className="scroll-mt-2 border-t border-tower-200 py-4 dark:border-tower-700">
                 <StepHeading number={3} title="MDF-e" done={Boolean(mdfe)} locked={!cteDone || !ciotDone} />
-                {error ? <div className="mb-3" role="alert"><OsErrorNotice message={error} /></div> : null}
+                {error ? (
+                    <div className="mb-3 flex flex-col gap-2" role="alert">
+                        <OsErrorNotice message={error} />
+                        {mdfeFix ? <OsButton full variant="secondary" onClick={() => resolveFix(mdfeFix.group)}>{mdfeFix.label}</OsButton> : null}
+                    </div>
+                ) : null}
                 {mdfe ? (
                     <p className="text-[14px] font-bold text-emerald-700 dark:text-emerald-300">MDF-e autorizado{mdfe.number ? ` · nº ${mdfe.number}` : ''}</p>
                 ) : processing ? (

@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { planningActionsFor, type PlanningFacts } from './manifestPlanningChanges.js';
+import { reopenAcceptedManifest } from './manifestPlanningChanges.js';
+import prisma from '../lib/prisma.js';
+import { Prisma } from '@prisma/client';
 
 const base: PlanningFacts = {
     status: 'DRAFT', started: false, legsStarted: false, fiscalActivity: false, billing: false,
@@ -49,4 +52,48 @@ describe('planningActionsFor', () => {
         assert.deepEqual(allowed({ status: 'COMPLETED', everOffered: true, started: true }), []);
         assert.deepEqual(allowed({ status: 'CANCELLED', hasHistory: true }), []);
     });
+});
+
+it('reabre viagem com CT-e do pedido, ignora jobs terminais e limpa retrato', async () => {
+    const original = { find: prisma.manifest.findUnique, transaction: prisma.$transaction };
+    let updated: any;
+    let documentQuery: any;
+    let jobQuery: any;
+    try {
+        prisma.manifest.findUnique = (async () => ({ status: 'ACCEPTED', startedAt: null })) as any;
+        prisma.$transaction = (async (callback: any) => callback({
+            $queryRaw: async () => [],
+            manifestFiscalDocument: { findFirst: async (query: any) => { documentQuery = query; return null; } },
+            ciotEmissionJob: { findFirst: async (query: any) => { jobQuery = query; return null; } },
+            orderLeg: { findFirst: () => { throw new Error('CT-e pertence ao pedido, não à viagem'); } },
+            manifest: { updateMany: async (query: any) => { updated = query.data; return { count: 1 }; }, findUniqueOrThrow: async () => ({ status: 'DRAFT' }) },
+            manifestCorrection: { create: async () => ({}) },
+        })) as any;
+        await reopenAcceptedManifest('trip', 'operator', 'Corrigir composição');
+        assert.equal(updated.status, 'DRAFT');
+        assert.equal(updated.compositionSnapshot, Prisma.DbNull);
+        assert.equal(updated.acceptedAt, null);
+        assert.deepEqual(documentQuery.where.documentType.in, ['MDFE', 'CIOT']);
+        assert.deepEqual(documentQuery.where.status.in, ['SENT', 'READY', 'AUTHORIZED']);
+        assert.deepEqual(jobQuery.where.phase.notIn, ['DONE', 'FAILED']);
+    } finally {
+        prisma.manifest.findUnique = original.find;
+        prisma.$transaction = original.transaction;
+    }
+});
+
+it('não reabre com MDF-e/CIOT ativo ou job pendente', async () => {
+    const original = { find: prisma.manifest.findUnique, transaction: prisma.$transaction };
+    try {
+        prisma.manifest.findUnique = (async () => ({ status: 'ACCEPTED', startedAt: null })) as any;
+        for (const [document, job] of [[{ documentType: 'MDFE', status: 'SENT' }, null], [{ documentType: 'CIOT', status: 'AUTHORIZED' }, null], [null, { id: 'pending' }]]) {
+            prisma.$transaction = (async (callback: any) => callback({
+                $queryRaw: async () => [], manifestFiscalDocument: { findFirst: async () => document }, ciotEmissionJob: { findFirst: async () => job },
+            })) as any;
+            await assert.rejects(() => reopenAcceptedManifest('trip', 'operator', 'Corrigir'), /emissão fiscal/);
+        }
+    } finally {
+        prisma.manifest.findUnique = original.find;
+        prisma.$transaction = original.transaction;
+    }
 });

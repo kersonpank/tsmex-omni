@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
 import { emitCiotSchema, validateCiotPersonAddress, validateCiotPreflight } from './ciotPreflight.js';
+
+it('TAC agregado rejeita contratado CNPJ e orienta Padrão', () => {
+    assert.throws(() => check(requestData(), { tipoViagem: 'TAC_AGREGADO', contratadoDocument: '48384601000171' }), /TAC agregado só vale.*CPF.*Padrão/);
+});
 import type { CiotRequestData } from './efreteCiotMapper.js';
 import { resolveManifestComposition, type VehicleComposition } from '../vehicleUnitRules.js';
 
@@ -33,7 +37,7 @@ function composition(wheelType = 'Truck', trailers = 0): VehicleComposition {
 }
 
 function check(rd = requestData(), overrides: Partial<Parameters<typeof validateCiotPreflight>[0]> = {}) {
-    return validateCiotPreflight({ tipoViagem: 'PADRAO', requestData: rd, composition: composition(), contratanteDocument: principal, now, ...overrides });
+    return validateCiotPreflight({ tipoViagem: 'PADRAO', requestData: rd, composition: composition(), contratanteDocument: principal, contratadoDocument: '12345678901', now, ...overrides });
 }
 
 it('preflight aceita carta frete completa antes de persistir/enfileirar', () => {

@@ -1,7 +1,7 @@
 import type { Driver, Link, Person } from '@prisma/client';
 import { requireSelectedIbge } from '../selectedCity.js';
 import { efreteAuthedPost } from './efreteAuth.js';
-import { digits, normalizeEfreteAddressNumber, normalizeEfreteCep, splitPhone } from './efreteUtil.js';
+import { digits, normalizeEfreteRntrc, normalizeEfreteAddressNumber, normalizeEfreteCep, splitPhone } from './efreteUtil.js';
 import type { EfreteEnvironment } from './efreteConfig.js';
 
 async function buildEndereco(person: Person | null | undefined): Promise<Record<string, unknown>> {
@@ -72,7 +72,7 @@ export async function ensureProprietarioRegistrado(proprietario: EfreteProprieta
             CNPJ: digits(proprietario.document), // campo se chama CNPJ no manual, mas aceita CPF (11) ou CNPJ (14)
             Endereco: await buildEndereco(proprietario.person),
             // TODO: validar em sandbox os 9 dígitos do manual eFrete versus 8 dígitos ANTT/massa de teste.
-            RNTRC: digits(proprietario.rntrc).padStart(9, '0').slice(0, 9),
+            RNTRC: normalizeEfreteRntrc(proprietario.rntrc),
             RazaoSocial: proprietario.name,
         },
         { versao: 4, environment },
@@ -109,7 +109,7 @@ export async function ensureVeiculoRegistrado(unit: EfreteVeiculoInput, environm
                 NumeroDeEixos: unit.axles,
                 Placa: plate,
                 // TODO: validar em sandbox os 9 dígitos do manual eFrete versus 8 dígitos ANTT/massa de teste.
-                RNTRC: digits(unit.rntrc).padStart(9, '0').slice(0, 9),
+                RNTRC: normalizeEfreteRntrc(unit.rntrc),
                 Renavam: Number(digits(unit.renavam)),
                 TipoCarroceria: unit.bodyType || 'NaoAplicavel',
                 TipoRodado: unit.wheelType || 'NaoAplicavel',

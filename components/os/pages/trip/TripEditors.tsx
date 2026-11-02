@@ -76,10 +76,11 @@ export const DepartureEditor: React.FC<EditorProps & { departure?: string | null
     );
 };
 
-export const EmitterEditor: React.FC<EditorProps & { hubId: string; current?: string | null }> = ({
+export const EmitterEditor: React.FC<EditorProps & { hubId: string; current?: string | null; messages?: string[] }> = ({
     manifestId,
     hubId,
     current,
+    messages = [],
     onClose,
     onSaved,
 }) => {
@@ -117,6 +118,14 @@ export const EmitterEditor: React.FC<EditorProps & { hubId: string; current?: st
     return (
         <OsSheet title="Emitente fiscal" subtitle="Empresa que emite CT-e e MDF-e e contrata o CIOT desta viagem" onClose={onClose}>
             <ErrorLine message={error} />
+            {messages.length > 0 ? (
+                <ul className="mb-3 flex flex-col gap-1.5">
+                    {messages.map((message) => (
+                        <li key={message} className="rounded-lg bg-brand-red-500/10 p-3 text-[13px] font-semibold text-brand-red-600 dark:text-brand-red-400">{message}</li>
+                    ))}
+                </ul>
+            ) : null}
+            {messages.length > 0 ? <p className="mb-3 text-[12px] text-tower-500 dark:text-tower-400">Dados do emitente (IE, endereço) são corrigidos no cadastro fiscal pela torre.</p> : null}
             {efrete ? (
                 <p className="mb-3 rounded-xl bg-tower-100 px-3 py-2.5 text-[12px] leading-snug text-tower-600 dark:bg-tower-800 dark:text-tower-300">
                     {efrete.configured

@@ -6,12 +6,13 @@ import { useOs } from '../../OsContext';
 import type { ManifestWithLegs } from '../../lib/arrival';
 import { docBadge, legsWithoutDoc, orderLabel } from '../../lib/readiness';
 import { tripNextStep, type TripNextStepAction } from '../../lib/nextStep';
-import { GROUP_TITLES, groupIssues, occupancy, primaryAction, STATUS_LABEL, type TripGroupKey } from '../../lib/trip';
+import { canReopenPlanning, GROUP_TITLES, groupIssues, groupOf, occupancy, primaryAction, STATUS_LABEL, tripVehicleLabel, type TripGroupKey } from '../../lib/trip';
 import { OsActionBar, OsBadge, OsButton, OsEmpty, OsErrorNotice, OsRow, OsSectionTitle, OsSkeletonRows } from '../../ui/kit';
 import OsSheet, { apiErrorMessage, osFieldClass } from '../../ui/Sheet';
 import ResponsibleEditor from './ResponsibleEditor';
 import { DepartureEditor, EmitterEditor, FreightEditor } from './TripEditors';
 import TripDocumentsSheet, { type TripDocumentResolution, type TripDocumentStep } from './TripDocumentsSheet';
+import RouteEditor from './RouteEditor';
 import TripInfoEditor from './TripInfoEditor';
 
 /**
@@ -47,6 +48,9 @@ const TripPrepPage: React.FC = () => {
     const [open, setOpen] = useState<TripGroupKey | null>(null);
     const [docStep, setDocStep] = useState<TripDocumentStep>('cte');
     const [startOpen, setStartOpen] = useState(false);
+    const [reopenOpen, setReopenOpen] = useState(false);
+    const [reopenReason, setReopenReason] = useState('');
+    const [reopenError, setReopenError] = useState<string | null>(null);
     const [km, setKm] = useState('');
     const [acting, setActing] = useState(false);
     const [addCode, setAddCode] = useState('');
@@ -159,8 +163,8 @@ const TripPrepPage: React.FC = () => {
 
     const next = tripNextStep(manifest, readiness);
     const openNext = (action: TripNextStepAction = next.action) => {
-        if (action === 'responsible' || action === 'freight' || action === 'departure' || action === 'emitter' || action === 'registry') {
-            setOpen(action);
+        if (['responsible', 'freight', 'departure', 'emitter', 'registry', 'route', 'cargo'].includes(action)) {
+            setOpen(action as TripGroupKey);
         } else if (action === 'documents_cte' || action === 'documents_ciot' || action === 'documents_mdfe') {
             setDocStep(action === 'documents_ciot' ? 'ciot' : action === 'documents_mdfe' ? 'mdfe' : 'cte');
             setOpen('documents');
@@ -176,6 +180,22 @@ const TripPrepPage: React.FC = () => {
             onPrimary();
         } else {
             setOpen(group);
+        }
+    };
+
+    const confirmReopen = async () => {
+        if (reopenReason.trim().length < 3) return;
+        setActing(true);
+        setReopenError(null);
+        try {
+            await manifestsApi.reopen(manifest.id, reopenReason.trim());
+            setReopenOpen(false);
+            setReopenReason('');
+            await load();
+        } catch (cause) {
+            setReopenError(apiErrorMessage(cause, 'Não foi possível reabrir o planejamento.'));
+        } finally {
+            setActing(false);
         }
     };
 
@@ -197,7 +217,7 @@ const TripPrepPage: React.FC = () => {
                     {manifest.origin} → {manifest.destination}
                 </p>
                 <p className="mt-0.5 text-[13px] text-brand-100">
-                    {STATUS_LABEL[manifest.status]} · {manifest.vehicleType?.name ?? 'veículo'}
+                    {STATUS_LABEL[manifest.status]} · {tripVehicleLabel(manifest)}
                     {manifest.link?.name ? ` · ${manifest.link.name}` : ''}
                 </p>
                 <div className="mt-3 flex flex-col gap-1.5">
@@ -358,6 +378,13 @@ const TripPrepPage: React.FC = () => {
                 <OsButton full disabled={!primary.enabled || acting} onClick={onPrimary}>
                     {acting ? 'Processando…' : primary.label}
                 </OsButton>
+                {canReopenPlanning(manifest, readiness) ? (
+                    <div className="mt-2">
+                        <OsButton full variant="secondary" disabled={acting} onClick={() => { setReopenError(null); setReopenOpen(true); }}>
+                            Reabrir planejamento
+                        </OsButton>
+                    </div>
+                ) : null}
             </OsActionBar>
 
             {open === 'responsible' && editable ? (
@@ -377,9 +404,12 @@ const TripPrepPage: React.FC = () => {
                     manifestId={manifest.id}
                     hubId={manifest.hubId ?? hubId ?? ''}
                     current={manifest.fiscalEmitterId}
+                    messages={(readiness?.issues ?? []).filter((issue) => groupOf(issue) === 'emitter').map((issue) => issue.message)}
                     onClose={() => setOpen(null)}
                     onSaved={closeAndReload}
                 />
+            ) : open === 'route' ? (
+                <RouteEditor manifest={manifest} onClose={() => setOpen(null)} onSaved={closeAndReload} />
             ) : open === 'documents' ? (
                 <TripDocumentsSheet
                     manifest={manifest}
@@ -391,6 +421,33 @@ const TripPrepPage: React.FC = () => {
                 />
             ) : openGroup ? (
                 <TripInfoEditor manifestId={manifest.id} group={openGroup} onClose={closeAndReload} onUpdated={load} onOpenResponsible={() => setOpen('responsible')} />
+            ) : null}
+
+            {reopenOpen ? (
+                <OsSheet
+                    title="Reabrir planejamento"
+                    subtitle="A viagem volta a rascunho. Depois de corrigir, confirme o transportador de novo."
+                    onClose={() => setReopenOpen(false)}
+                    footer={
+                        <div className="flex flex-col gap-2">
+                            {reopenError ? <div role="alert"><OsErrorNotice message={reopenError} /></div> : null}
+                            <OsButton full disabled={acting || reopenReason.trim().length < 3} onClick={() => void confirmReopen()}>
+                                {acting ? 'Reabrindo…' : 'Reabrir planejamento'}
+                            </OsButton>
+                        </div>
+                    }
+                >
+                    <label className="block text-[13px] font-bold text-tower-600 dark:text-tower-300">
+                        Motivo
+                        <textarea
+                            value={reopenReason}
+                            onChange={(e) => setReopenReason(e.target.value)}
+                            rows={3}
+                            placeholder="Ex.: corrigir a rota antes de emitir o CIOT"
+                            className={`${osFieldClass} mt-1.5 h-auto py-3`}
+                        />
+                    </label>
+                </OsSheet>
             ) : null}
 
             {startOpen ? (

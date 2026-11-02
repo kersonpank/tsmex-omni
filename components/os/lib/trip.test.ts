@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ManifestReadiness, ManifestReadinessIssue } from '../../../types/index';
-import { groupIssues, groupOf, linkCompositionPlates, occupancy, parseMoney, primaryAction } from './trip';
+import { canReopenPlanning, groupIssues, groupOf, linkCompositionPlates, mdfeFixGroup, occupancy, parseMoney, primaryAction, tripVehicleLabel } from './trip';
 
 function issue(partial: Partial<ManifestReadinessIssue>): ManifestReadinessIssue {
     return { step: 'responsible', code: 'X', severity: 'blocking', message: 'm', ...partial } as ManifestReadinessIssue;
@@ -110,5 +110,68 @@ describe('parseMoney', () => {
         expect(parseMoney('1500.50')).toBe(1500.5);
         expect(parseMoney('')).toBe(0);
         expect(parseMoney('abc')).toBe(0);
+    });
+});
+
+describe('novos códigos de prontidão', () => {
+    it('mapeia cada código ao grupo que o resolve', () => {
+        expect(groupOf(issue({ code: 'FISCAL_EMITTER_DATA_PENDING', step: 'fiscal' }))).toBe('emitter');
+        expect(groupOf(issue({ code: 'MANIFEST_TOTALS_PENDING', step: 'review' }))).toBe('cargo');
+        expect(groupOf(issue({ code: 'CTE_EMITTER_MISMATCH', step: 'review' }))).toBe('documents');
+        expect(groupOf(issue({ code: 'RNTRC_HOLDER_NOT_CARRIER', step: 'fiscal' }))).toBe('registry');
+        expect(groupOf(issue({ code: 'ORIGIN_IBGE_PENDING', step: 'route' }))).toBe('route');
+    });
+});
+
+describe('mdfeFixGroup', () => {
+    it.each([
+        ['UF de licenciamento do veículo ausente', 'registry'],
+        ['Informe a tara do cavalo', 'registry'],
+        ['Capacidade do veículo pendente', 'registry'],
+        ['RNTRC do proprietário inválido', 'registry'],
+        ['IE do emitente não informada', 'emitter'],
+        ['Endereço do emitente incompleto', 'emitter'],
+        ['Percurso inválido', 'route'],
+        ['CIOT não encontrado', 'documents'],
+        ['Valor total da carga zerado', 'cargo'],
+        ['Peso bruto inválido', 'cargo'],
+    ])('%s -> %s', (message, group) => {
+        expect(mdfeFixGroup(message)?.group).toBe(group);
+    });
+    it('não inventa correção para erro desconhecido', () => {
+        expect(mdfeFixGroup('Rejeição 999: falha genérica')).toBeNull();
+    });
+});
+
+describe('canReopenPlanning', () => {
+    const doc = (documentType: 'CIOT' | 'MDFE', status: string) => ({ documentType, status }) as never;
+    it('permite reabrir viagem confirmada sem CIOT/MDF-e vivos', () => {
+        expect(canReopenPlanning({ status: 'ACCEPTED', fiscalDocuments: [] })).toBe(true);
+        expect(canReopenPlanning({ status: 'ACCEPTED', fiscalDocuments: [doc('CIOT', 'REJECTED')] })).toBe(true);
+    });
+    it('bloqueia com CIOT autorizado, MDF-e em processamento ou outro status', () => {
+        expect(canReopenPlanning({ status: 'ACCEPTED', fiscalDocuments: [doc('CIOT', 'AUTHORIZED')] })).toBe(false);
+        expect(canReopenPlanning({ status: 'ACCEPTED', fiscalDocuments: [doc('MDFE', 'SENT')] })).toBe(false);
+        expect(canReopenPlanning({ status: 'DRAFT', fiscalDocuments: [] })).toBe(false);
+    });
+    it('respeita a decisão do servidor', () => {
+        const blocked = readiness([], { planningActions: { reopen: { allowed: false, reason: 'x' } } as never });
+        expect(canReopenPlanning({ status: 'ACCEPTED', fiscalDocuments: [] }, blocked)).toBe(false);
+    });
+});
+
+describe('tripVehicleLabel', () => {
+    const unit = (slot: number, plate: string, role: string, wheelType?: string) => ({ slot, vehicleUnit: { plate, role, wheelType } }) as never;
+    it('troca "Van" pelas placas quando a composição tem cavalo', () => {
+        const label = tripVehicleLabel({
+            vehicleType: { name: 'Van' } as never,
+            vehicleAssignments: [unit(0, 'AAA1A11', 'TRACTION', 'Cavalo'), unit(1, 'BBB2B22', 'TRAILER')],
+        });
+        expect(label).toBe('AAA1A11 + BBB2B22');
+    });
+    it('mantém o nome do tipo nos demais casos', () => {
+        expect(tripVehicleLabel({ vehicleType: { name: 'Van' } as never, vehicleAssignments: [] })).toBe('Van');
+        expect(tripVehicleLabel({ vehicleType: { name: 'Carreta' } as never, vehicleAssignments: [unit(0, 'AAA1A11', 'TRACTION', 'Cavalo')] })).toBe('Carreta');
+        expect(tripVehicleLabel({ vehicleType: undefined, vehicleAssignments: [] })).toBe('veículo');
     });
 });

@@ -1,4 +1,10 @@
 import prisma from '../../lib/prisma.js';
+import { buildMdfeAntt, persistedCiotContratante } from './acbrMdfeAntt.js';
+import { cteEmitterMismatchMessage, missingMdfeEmitterData } from '../fiscal/mdfePreflight.js';
+import { resolvePercursoUfs } from '../fiscal/ufPercurso.js';
+import { resolveCiotContratante } from '../efrete/efreteConfig.js';
+import { ensureEfreteIntegratorPerson } from '../efrete/ensureEfreteIntegratorPerson.js';
+import type { CiotRequestData } from '../efrete/efreteCiotMapper.js';
 import { getAcbrAccessToken } from './acbrAuth.js';
 import { getAcbrApiBaseUrlForEnvironment, type AcbrFiscalEnvironment } from './acbrConfig.js';
 import { ufToCuf } from './acbrIbge.js';
@@ -135,7 +141,8 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
         where: { id: manifestId },
         include: {
             hub: { include: { person: true } },
-            link: { include: linkVehicleInclude },
+            link: { include: { ...linkVehicleInclude, person: { include: { paymentAccounts: { where: { isPrimary: true }, take: 1 } } } } },
+            freightAgreement: true,
             vehicleAssignments: manifestVehicleAssignmentsInclude,
             driver: { include: { carriers: { where: { active: true }, select: { linkId: true } } } },
             driverAssignments: { orderBy: { sequence: 'asc' }, include: { driver: { include: { carriers: { where: { active: true }, select: { linkId: true } } } } } },
@@ -159,7 +166,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
     }
     const legs = await prisma.orderLeg.findMany({
         where: { manifestId },
-        include: { order: { select: { demand: { select: { orderNumber: true } }, freightCalculations: {
+        include: { order: { select: { demand: { select: { orderNumber: true, nfValue: true, weight: true } }, freightCalculations: {
             where: { status: 'CTE_AUTHORIZED', documentType: 'CTE' }, orderBy: { createdAt: 'desc' },
             select: { cteAccessKey: true, cteProtocol: true, cteXml: true, cteXmlStorageKey: true },
         } } } },
@@ -189,6 +196,17 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
 
     // Emitente explícito da viagem (Fatia C) tem prioridade; senão cai no Hub de origem (compat).
     const emit = manifest.fiscalEmitter?.person ?? manifest.hub.person;
+    const missingEmitter = missingMdfeEmitterData(emit);
+    if (missingEmitter.length) return { ok: false, error: `Complete os dados do emitente para o MDF-e: ${missingEmitter.join(', ')}.` };
+    for (const leg of legs) {
+        for (const doc of leg.order.freightCalculations) {
+            const mismatch = cteEmitterMismatchMessage(leg.order.demand.orderNumber, doc.cteAccessKey, emit.document);
+            if (mismatch) return { ok: false, error: mismatch };
+        }
+    }
+    if (!manifest.freightAgreement) return { ok: false, error: 'Informe a Carta Frete antes de emitir MDF-e.' };
+    const missingCargo = legs.filter((leg) => !(leg.order.demand.nfValue > 0) || !(leg.order.demand.weight > 0));
+    if (missingCargo.length) return { ok: false, error: `Informe valor da carga e peso físico nos pedidos: ${missingCargo.map((leg) => leg.order.demand.orderNumber).join(', ')}.` };
     const emitCmun = await requireSelectedIbge(emit.city, emit.state, emit.cityIbgeCode);
     const loadingCity = manifest.originCity;
     const loadingState = manifest.originState;
@@ -278,11 +296,29 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
         });
     }
 
-    const percursoUfs = Array.from(new Set(
-        manifest.tripStops
-            .map((stop) => (stop.destHub?.state ?? stop.destState ?? '').slice(0, 2).toUpperCase())
-            .filter((state) => state && state !== ufIni && state !== ufFim),
-    ));
+    let percursoUfs: string[];
+    let infANTT: ReturnType<typeof buildMdfeAntt>;
+    try {
+        percursoUfs = resolvePercursoUfs(ufIni, ufFim, manifest.tripStops.map((stop) => (stop.destHub?.state ?? stop.destState ?? '').slice(0, 2).toUpperCase()));
+        let ciotContratante = persistedCiotContratante(ciotDoc?.rawPayload);
+        if (ciotDoc && !ciotContratante) {
+            const environment = ciotDoc.environment === 'PRODUCAO' ? 'producao' : 'homologacao';
+            const integrator = environment === 'homologacao' ? await ensureEfreteIntegratorPerson(environment) : null;
+            ciotContratante = resolveCiotContratante(emit, integrator, environment).document;
+        }
+        const job = await prisma.ciotEmissionJob.findFirst({ where: { manifestId }, orderBy: { createdAt: 'desc' }, select: { requestData: true } });
+        const request = job?.requestData as unknown as CiotRequestData | undefined;
+        infANTT = buildMdfeAntt({
+            rntrc,
+            ciot: ciotDoc ? { number: ciotDoc.number, contratanteDocument: ciotContratante! } : null,
+            contratante: { document: emit.document, name: emit.legalName },
+            agreement: manifest.freightAgreement,
+            account: manifest.link.person?.paymentAccounts[0],
+            payments: request?.pagamentos,
+        });
+    } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
 
     // Todas as validações acima já passaram: só agora consumimos um número. O número e o cMDF ficam
     // gravados no documento (status SENT) ANTES de chamar o provedor — assim timeout/queda nunca
@@ -366,7 +402,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
         infModal: {
             versaoModal: '3.00',
             rodo: {
-                infANTT: { RNTRC: rntrc, ...(ciotDoc?.number ? { infCIOT: [{ CIOT: ciotDoc.number }] } : {}) },
+                infANTT,
                 veicTracao,
                 ...(veicReboque.length ? { veicReboque } : {}),
             },

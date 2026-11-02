@@ -1,4 +1,4 @@
-import type { ManifestReadiness, ManifestReadinessIssue, ManifestStatus } from '../../../types/index';
+import type { Manifest, ManifestReadiness, ManifestReadinessIssue, ManifestStatus } from '../../../types/index';
 
 /**
  * Lógica pura da estação "Preparar e despachar" (spec 2026-10-20 §6).
@@ -47,7 +47,40 @@ const BY_CODE: Record<string, TripGroupKey> = {
     CTE_AUTHORIZATION_REQUIRED: 'documents',
     MDFE_AUTHORIZATION_REQUIRED: 'documents',
     CIOT_REQUIRED: 'documents',
+    FISCAL_EMITTER_DATA_PENDING: 'emitter',
+    MANIFEST_TOTALS_PENDING: 'cargo',
+    CTE_EMITTER_MISMATCH: 'documents',
+    RNTRC_HOLDER_NOT_CARRIER: 'registry',
+    // Dados bancários ficam no cadastro do transportador; parcelas/vencimento, no formulário do CIOT.
+    MDFE_PAYMENT_ACCOUNT_PENDING: 'registry',
+    MDFE_PAYMENT_SCHEDULE_PENDING: 'documents',
+    ORIGIN_REQUIRED: 'route',
+    DESTINATION_REQUIRED: 'route',
+    DEST_HUB_REQUIRED: 'route',
+    ORIGIN_IBGE_PENDING: 'route',
+    DESTINATION_IBGE_PENDING: 'route',
 };
+
+/** Pendências de rota que o editor de rota (PATCH /manifests/:id/setup) resolve. */
+export const ROUTE_EDITABLE_CODES = ['ORIGIN_REQUIRED', 'DESTINATION_REQUIRED', 'DEST_HUB_REQUIRED', 'ORIGIN_IBGE_PENDING', 'DESTINATION_IBGE_PENDING'];
+
+/** Grupos que uma mensagem de erro pode apontar como correção. */
+export type TripFixGroup = 'responsible' | 'registry' | 'freight' | 'departure' | 'emitter' | 'cargo' | 'route' | 'documents';
+
+/** Qual grupo da viagem resolve a mensagem de erro do MDF-e (pré-validação ou SEFAZ). */
+export function mdfeFixGroup(message: string): { group: TripFixGroup; label: string } | null {
+    const text = message.toLowerCase();
+    if (/uf de licenciamento|propriet[aá]rio|tara|capacidade|rntrc|ao menos um implemento|implemento/.test(text)) {
+        return { group: 'registry', label: 'Completar cadastro' };
+    }
+    if (/inscri[cç][aã]o estadual|(^|[^a-z])ie([^a-z]|$)|endere[cç]o do emitente|emitente/.test(text)) {
+        return { group: 'emitter', label: 'Revisar emitente fiscal' };
+    }
+    if (/percurso|rota/.test(text)) return { group: 'route', label: 'Corrigir rota' };
+    if (/ciot/.test(text)) return { group: 'documents', label: 'Ir para o CIOT' };
+    if (/valor|peso/.test(text)) return { group: 'cargo', label: 'Revisar carga' };
+    return null;
+}
 
 const BY_STEP: Record<ManifestReadinessIssue['step'], TripGroupKey> = {
     route: 'route',
@@ -169,4 +202,29 @@ export function parseMoney(value: string): number {
     const normalized = t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t;
     const n = Number(normalized);
     return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Reabrir o planejamento é possível depois do "Confirmar transportador" enquanto não há CIOT/MDF-e
+ * autorizado ou em processamento. O servidor continua decidindo (planningActions.reopen).
+ */
+export function canReopenPlanning(
+    manifest: Pick<Manifest, 'status' | 'fiscalDocuments'>,
+    readiness?: ManifestReadiness | null,
+): boolean {
+    if (manifest.status !== 'ACCEPTED') return false;
+    if (readiness?.planningActions?.reopen?.allowed === false) return false;
+    const live = (manifest.fiscalDocuments ?? []).some(
+        (doc) => (doc.documentType === 'CIOT' || doc.documentType === 'MDFE') && !['REJECTED', 'CANCELLED', 'ERROR'].includes(String(doc.status)),
+    );
+    return !live;
+}
+
+/** Cavalo + implementos como "ABC1D23 + XYZ9K88" quando o tipo de veículo diz "Van" mas a composição é carreta. */
+export function tripVehicleLabel(manifest: Pick<Manifest, 'vehicleType' | 'vehicleAssignments'>): string {
+    const typeName = manifest.vehicleType?.name ?? 'veículo';
+    const units = [...(manifest.vehicleAssignments ?? [])].sort((a, b) => a.slot - b.slot).map((a) => a.vehicleUnit);
+    const hasCavalo = units.some((unit) => unit.role === 'TRACTION' && unit.wheelType === 'Cavalo');
+    if (/(^|[^a-z])van([^a-z]|$)/i.test(typeName) && hasCavalo) return units.map((unit) => unit.plate).join(' + ');
+    return typeName;
 }

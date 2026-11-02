@@ -1,4 +1,7 @@
 import type { ManifestStatus } from '@prisma/client';
+import { cteEmitterMismatchMessage, missingMdfeEmitterData } from './fiscal/mdfePreflight.js';
+import { mdfeBankInfo, mdfePaymentTerms } from './acbr/acbrMdfeAntt.js';
+import type { CiotRequestData } from './efrete/efreteCiotMapper.js';
 import prisma from '../lib/prisma.js';
 import { resolveDefaultTripEmitter } from './fiscal/resolveDefaultTripEmitter.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -73,13 +76,14 @@ function isPlanningLocked(status: ManifestStatus) {
     return status !== 'DRAFT';
 }
 
-export async function getManifestReadiness(manifestId: string): Promise<ManifestReadiness> {
+export async function getManifestReadiness(manifestId: string, ciotRequestData?: CiotRequestData): Promise<ManifestReadiness> {
     const manifest = await prisma.manifest.findUnique({
         where: { id: manifestId },
         include: {
             vehicleAssignments: manifestVehicleAssignmentsInclude,
             vehicleType: { select: { id: true, active: true } },
-            fiscalEmitter: { select: { person: { select: { document: true } } } },
+            fiscalEmitter: { include: { person: true } },
+            hub: { include: { person: true } },
             link: {
                 select: {
                     id: true,
@@ -96,7 +100,7 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
                     trailer2Plate: true,
                     trailer3Plate: true,
                     ...linkVehicleInclude,
-                    person: { select: { neighborhood: true, cep: true, address: true, number: true, city: true, state: true, cityIbgeCode: true } },
+                    person: { include: { paymentAccounts: { where: { isPrimary: true }, take: 1 } } },
                 },
             },
             driver: {
@@ -113,7 +117,7 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
                 },
             },
             driverAssignments: { orderBy: { sequence: 'asc' }, include: { driver: { include: { person: true, carriers: { where: { active: true } } } } } },
-            freightAgreement: { select: { id: true, freteBruto: true } },
+            freightAgreement: true,
             tripStops: {
                 orderBy: { sequence: 'asc' },
                 select: {
@@ -137,6 +141,48 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
     const add = (value: ManifestReadinessIssue) => {
         byStep.set(value.step, [...(byStep.get(value.step) ?? []), value]);
     };
+
+    const defaultEmitter = !manifest.fiscalEmitterId ? await resolveDefaultTripEmitter(manifest.hubId).catch(() => null) : null;
+    const resolvedEmitter = defaultEmitter ? await prisma.fiscalEmitter.findUnique({ where: { id: defaultEmitter.id }, include: { person: true } }) : null;
+    const emitter = manifest.fiscalEmitter?.person ?? resolvedEmitter?.person ?? manifest.hub?.person;
+    const missingEmitter = missingMdfeEmitterData(emitter ?? {});
+    if (missingEmitter.length) {
+        add(issue('cover', 'FISCAL_EMITTER_DATA_PENDING', `Complete os dados do emitente para o MDF-e: ${missingEmitter.join(', ')}.`, 'fiscalEmitterId'));
+    }
+    if (manifest._count.legs > 0) {
+        const cargo = await prisma.orderLeg.findMany({ where: { manifestId }, select: { orderId: true, order: { select: {
+            demand: { select: { orderNumber: true, nfValue: true, weight: true } },
+            freightCalculations: { where: { status: 'CTE_AUTHORIZED', documentType: 'CTE' }, orderBy: { createdAt: 'desc' }, select: { cteAccessKey: true } },
+        } } } });
+        const withoutValue = cargo.filter((leg) => !(leg.order.demand.nfValue > 0));
+        const withoutWeight = cargo.filter((leg) => !(leg.order.demand.weight > 0));
+        if (withoutValue.length || withoutWeight.length) {
+            const labels = (legs: typeof cargo) => legs.map((leg) => leg.order.demand.orderNumber).join(', ');
+            const details = [withoutValue.length ? `valor da carga nos pedidos ${labels(withoutValue)}` : '', withoutWeight.length ? `peso físico nos pedidos ${labels(withoutWeight)}` : ''].filter(Boolean);
+            add(issue('orders', 'MANIFEST_TOTALS_PENDING', `Informe ${details.join('; ')} antes do MDF-e.`));
+        } else if (cargo.length && (!(manifest.totalValue > 0) || !(manifest.totalWeight > 0))) {
+            add(issue('orders', 'MANIFEST_TOTALS_PENDING', 'Atualize os totais de valor da carga e peso físico da viagem antes do MDF-e.'));
+        }
+        if (emitter?.document) for (const leg of cargo) {
+            for (const doc of leg.order.freightCalculations) {
+                const message = cteEmitterMismatchMessage(leg.order.demand.orderNumber, doc.cteAccessKey, emitter.document);
+                if (message) add(issue('orders', 'CTE_EMITTER_MISMATCH', message, leg.orderId));
+            }
+        }
+    }
+    if (manifest.freightAgreement && manifest.link?.person) {
+        const account = manifest.link.person.paymentAccounts?.[0];
+        if (!mdfeBankInfo(account) || (manifest.freightAgreement.adiantamento > 0 && manifest.freightAgreement.saldoLiquido > 0)) {
+            const job = !ciotRequestData ? await prisma.ciotEmissionJob.findFirst({ where: { manifestId }, orderBy: { createdAt: 'desc' }, select: { requestData: true } }) : null;
+            const request = ciotRequestData ?? job?.requestData as unknown as CiotRequestData | undefined;
+            if (!mdfeBankInfo(account, request?.pagamentos)) add(issue('fiscal', 'MDFE_PAYMENT_ACCOUNT_PENDING', 'Informe a chave PIX ou banco e agência do transportador para o MDF-e.', 'paymentAccount', manifest.status === 'ACCEPTED' ? 'blocking' : 'warning'));
+            try {
+                mdfePaymentTerms(manifest.freightAgreement, request?.pagamentos ?? []);
+            } catch (error) {
+                add(issue('fiscal', 'MDFE_PAYMENT_SCHEDULE_PENDING', (error as Error).message, undefined, manifest.status === 'ACCEPTED' ? 'blocking' : 'warning'));
+            }
+        }
+    }
 
     if (!manifest.origin.trim()) add(issue('route', 'ORIGIN_REQUIRED', 'Informe a origem da viagem.', 'origin'));
     if (!manifest.destination.trim()) add(issue('route', 'DESTINATION_REQUIRED', 'Informe o destino principal.', 'destination'));
@@ -258,8 +304,10 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
                     add(issue('responsible', 'RNTRC_HOLDER_ADDRESS_PENDING', `${label}: endereço de ${holder.legalName} (responsável RNTRC) incompleto para Gravar Proprietário na eFrete.`, `rntrcHolder:${holder.id}`, 'blocking', { plate: unit.plate, vehicleUnitId: unit.id }));
                 }
             }
-            if (tractionHolderDiffersFromCarrier(composition, manifest.link.personId)) {
-                add(issue('responsible', 'RNTRC_HOLDER_NOT_CARRIER', `Cavalo ${composition.traction!.plate}: o CIOT sairá no RNTRC de ${composition.traction!.rntrcHolder!.name}, responsável pelo cavalo, e não do transportador que recebe a oferta. Confirme que é frota agregada.`, 'rntrcHolder', 'warning', { plate: composition.traction!.plate, vehicleUnitId: composition.traction!.id ?? undefined }));
+            if (manifest.link.carrierType !== 'FROTA' && tractionHolderDiffersFromCarrier(composition, manifest.link.personId)) {
+                const holder = composition.traction!.rntrcHolder!;
+                const document = holder.document.replace(/\D/g, '');
+                add(issue('responsible', 'RNTRC_HOLDER_NOT_CARRIER', `O responsável RNTRC do cavalo ${composition.traction!.plate} (${document.length === 14 ? 'CNPJ' : 'CPF'} ${document}) não é o transportador contratado. Para CIOT, o veículo precisa estar no RNTRC do transportador.`, 'rntrcHolder', 'blocking', { plate: composition.traction!.plate, vehicleUnitId: composition.traction!.id ?? undefined }));
             }
         } else {
             const lp = manifest.link.person;

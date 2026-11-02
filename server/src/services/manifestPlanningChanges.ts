@@ -7,12 +7,11 @@ const blockingFiscalStatuses = ['SENT', 'READY', 'AUTHORIZED'] as const;
 type Db = Prisma.TransactionClient | typeof prisma;
 
 async function hasFiscalActivity(manifestId: string, db: Db = prisma): Promise<boolean> {
-    const [document, ciotJob, cte] = await Promise.all([
-        db.manifestFiscalDocument.findFirst({ where: { manifestId, status: { in: [...blockingFiscalStatuses] } }, select: { documentType: true, status: true } }),
-        db.ciotEmissionJob.findFirst({ where: { manifestId }, select: { id: true } }),
-        db.orderLeg.findFirst({ where: { manifestId, order: { freightCalculations: { some: { documentType: 'CTE', status: 'CTE_AUTHORIZED' } } } }, select: { id: true } }),
+    const [document, ciotJob] = await Promise.all([
+        db.manifestFiscalDocument.findFirst({ where: { manifestId, documentType: { in: ['MDFE', 'CIOT'] }, status: { in: [...blockingFiscalStatuses] } }, select: { documentType: true, status: true } }),
+        db.ciotEmissionJob.findFirst({ where: { manifestId, phase: { notIn: ['DONE', 'FAILED'] } }, select: { id: true } }),
     ]);
-    return Boolean(document || ciotJob || cte);
+    return Boolean(document || ciotJob);
 }
 
 async function assertNoFiscalActivity(manifestId: string, db: Db = prisma) {

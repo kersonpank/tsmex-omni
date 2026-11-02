@@ -20,6 +20,7 @@ import { isEfreteCredentialsConfigured, resolveCiotContratante, resolveMatrizCnp
 import { ciotCompositionFlag, emitCiotSchema, validateCiotPersonAddress, validateCiotPreflight } from '../services/efrete/ciotPreflight.js';
 import { splitPhone } from '../services/efrete/efreteUtil.js';
 import { suggestCiotTipoViagem } from '../services/efrete/ciotTipoViagemRule.js';
+import { ciotSuggestionDefaults } from '../services/efrete/ciotSuggestionDefaults.js';
 import { cancelarCiot } from '../services/efrete/efreteCiotEmit.js';
 import { getObjectDownloadUrl } from '../lib/objectStorage.js';
 import { enqueueCiotEmissionJob } from '../services/queues/ciotEmissionQueue.js';
@@ -369,6 +370,9 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
                         : null,
                 })),
                 ...marginInfo,
+                ...(req.user!.roles.some((role) => role === 'ADMIN' || role === 'HUB') ? {
+                    ciotSuggestion: { ...await suggestCiotTipoViagem(id), ...ciotSuggestionDefaults(manifest), override: manifest.ciotTipoViagemOverride },
+                } : {}),
             },
         });
     } catch (error) {
@@ -1579,7 +1583,7 @@ router.get('/:id/ciot-suggestion', authenticate, authorize('ADMIN', 'HUB'), asyn
         }
 
         const suggestion = await suggestCiotTipoViagem(id);
-        res.json({ success: true, data: { ...suggestion, override: manifest.ciotTipoViagemOverride } });
+        res.json({ success: true, data: { ...suggestion, ...ciotSuggestionDefaults(manifest), override: manifest.ciotTipoViagemOverride } });
     } catch (error) {
         next(error);
     }
@@ -1689,14 +1693,16 @@ router.post('/:id/emit-ciot', authenticate, authorize('ADMIN', 'HUB'), async (re
             requestData: body.requestData,
             composition,
             contratanteDocument,
+            contratadoDocument: manifest.link.document,
             contratantesCargaFracionada: body.contratantesCargaFracionada ?? suggestion.clientDocuments,
         });
         if (tipoViagem === 'TAC_AGREGADO' && !(contratanteDocument === emitterDocument ? fiscalEmitter.rntrc : contratante.rntrc)) {
             throw new AppError('TAC Agregado exige RNTRC do contratante (emitente fiscal ou integrador em homologação).', 400);
         }
-        const readiness = await getManifestReadiness(id);
-        if (readiness.issues.some((issue) => issue.step !== 'fiscal' && issue.severity === 'blocking')) {
-            throw new AppError('A viagem ainda possui pendências operacionais para emissão do CIOT.', 400);
+        const readiness = await getManifestReadiness(id, body.requestData);
+        const pendingOperational = readiness.issues.filter((issue) => issue.step !== 'fiscal' && issue.severity === 'blocking');
+        if (pendingOperational.length) {
+            throw new AppError(pendingOperational.map((issue) => issue.message).join(' '), 400);
         }
         if (tipoViagem !== 'TAC_AGREGADO') {
             const recipientAddress = body.requestData.destinatario.endereco;

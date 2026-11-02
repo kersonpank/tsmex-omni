@@ -13,6 +13,12 @@ export function normalizeEfreteCep(value: string | null | undefined, label = 'En
     return cep;
 }
 
+/** Manual eFrete v8.2 exige 9 dígitos; massa ANTT usa 8 (55887888).
+ * Preserva o padding atual. Se o sandbox exigir 8, mudar somente esta função. */
+export function normalizeEfreteRntrc(value: string | null | undefined): string {
+    return digits(value).padStart(9, '0').slice(0, 9);
+}
+
 export function splitPhone(phone: string | null | undefined): { ddd: number; numero: number } | undefined {
     const d = digits(phone);
     if (d.length < 10) return undefined;

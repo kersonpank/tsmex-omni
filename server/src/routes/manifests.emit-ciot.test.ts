@@ -99,8 +99,8 @@ beforeEach(() => {
         origin: 'São Paulo/SP', destination: 'São Paulo/SP', originCityIbgeCode: '3550308', destinationCityIbgeCode: '3550308',
         vehicleType: { id: 'vehicle-type-id', active: true }, tripStops: [], _count: { legs: 1 },
         plannedDepartureAt: new Date(Date.now() + 3600000), plannedArrivalAt: new Date(Date.now() + 7200000),
-        fiscalEmitter: { efreteEnvironment: 'HOMOLOGACAO', rntrc: '12345678', person: { ...person(), document: emitterDocument, legalName: 'Emitente de teste' } },
-        link: { id: 'link-id', userId: 'link-user-id', personId: 'link-person-id', approvalStatus: 'APPROVED', rntrc: '12345678', carrierType: 'ETC', person: person() },
+        fiscalEmitter: { efreteEnvironment: 'HOMOLOGACAO', rntrc: '12345678', person: { ...person(), document: emitterDocument, legalName: 'Emitente de teste', stateRegistration: '110042490114' } },
+        link: { id: 'link-id', userId: 'link-user-id', personId: 'link-person-id', document: '48384601000171', approvalStatus: 'APPROVED', rntrc: '12345678', carrierType: 'ETC', person: person() },
         driver: { id: 'driver-id', name: 'Motorista de teste', phone: '11999998888', linkId: 'link-id', active: true, cnhNumber: '12345678901', birthDate: new Date('1980-01-01'), person: person(), carriers: [] },
         driverAssignments: [], vehicleAssignments: [{ slot: 0, vehicleUnit: unit() }],
         freightAgreement: { id: 'agreement-id', freteBruto: 100 },
@@ -143,6 +143,10 @@ it('rejeita o tipo PIX inexistente antes de criar um job', async () => {
     const body = requestBody();
     body.requestData.pagamentos[0].pix.tipoChave = 'IdentificadorPix';
     await rejectsBeforeJob(body);
+});
+
+it('rejeita TAC agregado para ETC/CNPJ antes de criar job', async () => {
+    await rejectsBeforeJob({ ...requestBody(), tipoViagemOverride: 'TAC_AGREGADO' }, /TAC agregado só vale.*CPF.*Padrão/);
 });
 
 it('rejeita CEP incompleto sem preencher zeros nem criar um job', async () => {

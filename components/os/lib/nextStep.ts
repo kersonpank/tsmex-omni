@@ -1,13 +1,15 @@
 import type { FreightDocState, ManifestReadiness, ManifestReadinessIssue } from '../../../types/index';
 import type { ManifestWithLegs } from './arrival';
 import { isDocumented } from './readiness';
-import { groupOf } from './trip';
+import { groupOf, ROUTE_EDITABLE_CODES } from './trip';
 
 export type TripNextStepAction =
     | 'responsible'
     | 'freight'
     | 'departure'
     | 'emitter'
+    | 'route'
+    | 'cargo'
     | 'registry'
     | 'documents_cte'
     | 'documents_ciot'
@@ -53,10 +55,16 @@ export function tripNextStep(manifest: ManifestWithLegs, readiness: ManifestRead
         return next('departure', 'Definir saída prevista', departure?.message ?? 'Informe quando o veículo deve sair.');
     }
 
-    const emitter = issues.find((issue) => issue.code === 'FISCAL_EMITTER_PENDING');
+    const route = blocking.find((issue) => ROUTE_EDITABLE_CODES.includes(issue.code));
+    if (route) return next('route', 'Corrigir rota da viagem', route.message);
+
+    const totals = blocking.find((issue) => issue.code === 'MANIFEST_TOTALS_PENDING');
+    if (totals) return next('cargo', 'Conferir peso e valor da carga', totals.message);
+
+    const emitter = issues.find((issue) => ['FISCAL_EMITTER_PENDING', 'FISCAL_EMITTER_DATA_PENDING'].includes(issue.code));
     // Só trava quando o servidor não decidiu sozinho (vários emitentes sem padrão).
     if (emitter) {
-        return next('emitter', 'Definir emitente fiscal', emitter?.message ?? 'Escolha o emitente para preparar os documentos da viagem.');
+        return next('emitter', emitter.code === 'FISCAL_EMITTER_DATA_PENDING' ? 'Completar dados do emitente' : 'Definir emitente fiscal', emitter?.message ?? 'Escolha o emitente para preparar os documentos da viagem.');
     }
 
     const registry = issues.find((issue) => groupOf(issue) === 'registry' && (
@@ -65,7 +73,7 @@ export function tripNextStep(manifest: ManifestWithLegs, readiness: ManifestRead
     if (registry) return next('registry', 'Completar cadastro', registry.message);
 
     // "emitted" também pode representar uma minuta: uma pendência CT-e do servidor sempre prevalece.
-    const cte = issues.find((issue) => ['ORDER_DOCUMENTATION_PENDING', 'CTE_AUTHORIZATION_REQUIRED'].includes(issue.code));
+    const cte = issues.find((issue) => ['ORDER_DOCUMENTATION_PENDING', 'CTE_AUTHORIZATION_REQUIRED', 'CTE_EMITTER_MISMATCH'].includes(issue.code));
     if (cte || manifest.legs?.some((leg) => !isDocumented(leg.order?.freightDocState))) {
         return next('documents_cte', 'Autorizar CT-e dos pedidos', cte?.message ?? 'Abra os pedidos para concluir seus documentos antes de emitir o CIOT.');
     }

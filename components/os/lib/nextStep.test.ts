@@ -147,4 +147,19 @@ describe('tripNextStep', () => {
     it.each(['IN_PROGRESS', 'COMPLETED', 'CANCELLED'] as const)('não sugere preparação para status %s', (status) => {
         expect(tripNextStep(manifest({ status, linkId: undefined, freightAgreement: null }), readiness()).action).toBe('none');
     });
+
+    it('abre o editor de rota quando a origem, o destino ou o hub travam a viagem', () => {
+        for (const code of ['ORIGIN_IBGE_PENDING', 'DESTINATION_IBGE_PENDING', 'DEST_HUB_REQUIRED']) {
+            const step = tripNextStep(manifest({ status: 'DRAFT' }), readiness([issue(code, 'route')]));
+            expect(step.action, code).toBe('route');
+            expect(step.hint).toBe(`Resolver ${code}`);
+        }
+    });
+
+    it('mostra os novos bloqueios do servidor com a ação certa', () => {
+        expect(tripNextStep(manifest(), readiness([issue('FISCAL_EMITTER_DATA_PENDING', 'fiscal')])).action).toBe('emitter');
+        expect(tripNextStep(manifest(), readiness([issue('MANIFEST_TOTALS_PENDING', 'orders')])).action).toBe('cargo');
+        expect(tripNextStep(manifest(), readiness([issue('CTE_EMITTER_MISMATCH', 'fiscal')])).action).toBe('documents_cte');
+        expect(tripNextStep(manifest(), readiness([issue('RNTRC_HOLDER_NOT_CARRIER', 'responsible')])).action).toBe('registry');
+    });
 });

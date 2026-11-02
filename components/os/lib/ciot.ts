@@ -1,4 +1,5 @@
-import type { CiotEmissionJob, CiotTipoViagem, EmitCiotRequest, Hub, Manifest, Person, PersonPaymentAccount } from '../../../types/index';
+import type { CiotEmissionJob, CiotTipoViagem, CiotTipoViagemSuggestion, EmitCiotRequest, Hub, Manifest, ManifestReadiness, Person, PersonPaymentAccount } from '../../../types/index';
+import { groupIssues, type TripFixGroup } from './trip';
 
 /** Lógica pura do formulário de CIOT do TSM O.S. (sem React, sem rede). */
 
@@ -77,6 +78,37 @@ export const CIOT_CARGO_TYPES = [
     'Perigosa conteinerizada', 'Perigosa carga geral', 'Granel pressurizada',
 ].map((label, index) => ({ value: String(index + 1), label }));
 
+export const CIOT_PACKAGING = [
+    { value: 'Bigbag', label: 'Big bag' }, { value: 'Pallet', label: 'Pallet' }, { value: 'Granel', label: 'Granel' },
+    { value: 'Container', label: 'Contêiner' }, { value: 'Saco', label: 'Saco' }, { value: 'Caixa', label: 'Caixa' },
+    { value: 'Unitario', label: 'Unitário' }, { value: 'Fardo', label: 'Fardo' },
+] as const;
+
+/** Embalagem mais genérica para carga geral (o caso comum da teia), usada quando o servidor não sugere. */
+export const CIOT_DEFAULT_PACKAGING = 'Caixa';
+
+/**
+ * Quando a sugestão do servidor chega depois da abertura do formulário, troca só os campos
+ * que o operador ainda não mexeu (iguais ao padrão anterior).
+ */
+export function mergeCiotDefaults(current: CiotFormState, baseline: CiotFormState, next: CiotFormState): CiotFormState {
+    const keys = ['distanciaPercorrida', 'dataFimViagem', 'tipoEmbalagem'] as const;
+    const merged = { ...current };
+    for (const key of keys) if (current[key] === baseline[key]) merged[key] = next[key];
+    return merged;
+}
+
+/** O início do CIOT (tipo não-TAC) não pode estar no passado: o operador corrige a saída prevista. */
+export function ciotStartInPast(startInput: string, now = new Date()): boolean {
+    const start = new Date(startInput);
+    return Number.isFinite(start.getTime()) && start.getTime() < now.getTime();
+}
+
+/** TAC Agregado é do transportador pessoa física: CNPJ (14 dígitos) não pode. */
+export function isTacAgregadoAllowed(carrierDocument?: string | null): boolean {
+    return (carrierDocument ?? '').replace(/\D/g, '').length !== 14;
+}
+
 type CiotDemand = { id?: string; rawInputData?: Record<string, unknown> | null };
 type CiotCargo = { demands?: CiotDemand[]; legs?: Array<{ order?: { demand?: CiotDemand | null } | null }> };
 
@@ -142,22 +174,34 @@ export function ciotPaymentAccount(form: ReturnType<typeof ciotPaymentFromAccoun
 }
 
 /** Pré-preenche a partir da Carta Frete, do transportador e do hub de destino (destinatário da viagem). */
-export function initialCiotForm(manifest: Manifest, now = new Date()): { form: CiotFormState; address: CiotAddressState } {
+export function initialCiotForm(
+    manifest: Manifest,
+    now = new Date(),
+    suggestion: Partial<Pick<CiotTipoViagemSuggestion, 'distanceKm' | 'endDate' | 'embalagem'>> | null = null,
+): { form: CiotFormState; address: CiotAddressState } {
     const fa = manifest.freightAgreement;
-    const plannedEnd = manifest.plannedArrivalAt ? localDateTime(new Date(manifest.plannedArrivalAt)) : '';
-    const plannedStart = localDateTime(manifest.plannedDepartureAt ? new Date(manifest.plannedDepartureAt) : new Date(now.getTime() + 3_600_000));
+    const startDate = manifest.plannedDepartureAt ? new Date(manifest.plannedDepartureAt) : new Date(now.getTime() + 3_600_000);
+    const plannedStart = localDateTime(startDate);
+    // Fim: chegada prevista → sugestão do servidor → saída + 1 dia. Sempre editável.
+    const suggestedEnd = suggestion?.endDate ? new Date(suggestion.endDate) : null;
+    const plannedEnd = manifest.plannedArrivalAt
+        ? localDateTime(new Date(manifest.plannedArrivalAt))
+        : suggestedEnd && Number.isFinite(suggestedEnd.getTime())
+            ? localDateTime(suggestedEnd)
+            : localDateTime(new Date(startDate.getTime() + 86_400_000));
+    const distanceKm = suggestion?.distanceKm;
     const assignments = manifest.vehicleAssignments ?? [];
     const money = (value?: number | null) => (value != null && Number.isFinite(value) ? String(value) : '');
     const form: CiotFormState = {
         documentoViagem: `OS-${manifest.id.slice(0, 8)}`,
-        distanciaPercorrida: '',
+        distanciaPercorrida: distanceKm != null && Number.isFinite(distanceKm) && distanceKm > 0 ? String(Math.round(distanceKm)) : '',
         dataInicioViagem: plannedStart,
         dataFimViagem: plannedEnd,
         codigoNcmNaturezaCarga: ciotNcmOptions(manifest)[0]?.ncm4 ?? '',
         pesoCarga: manifest.totalWeight > 0 ? String(manifest.totalWeight) : '',
         // Tabela ANTT (Res. 5.867/2020): 5 = carga geral — o caso comum da teia.
         codigoTipoCarga: '5',
-        tipoEmbalagem: '',
+        tipoEmbalagem: CIOT_PACKAGING.some((option) => option.value === suggestion?.embalagem) ? suggestion!.embalagem! : CIOT_DEFAULT_PACKAGING,
         altoDesempenho: false,
         retornoVazio: false,
         composicaoVeicular: assignments.some(({ vehicleUnit }) => vehicleUnit.role === 'TRACTION' && vehicleUnit.wheelType === 'Cavalo')
@@ -213,6 +257,7 @@ export function buildCiotRequest(
     }
     if (!Number.isFinite(end.getTime())) return fail('Informe uma data válida para o fim da viagem.');
     if (!isTac && (!form.dataInicioViagem || !Number.isFinite(start.getTime()))) return fail('Informe o início da viagem para o CIOT.');
+    if (isTac && !isTacAgregadoAllowed(linkDocument)) return fail('TAC agregado só para transportador pessoa física.');
     if (!isTac && start.getTime() < now.getTime()) return fail('O início da viagem deve ser maior ou igual à data e hora atuais.');
     const periodStart = isTac ? now : start;
     if (end.getTime() < periodStart.getTime()) return fail('O fim da viagem deve ser igual ou posterior ao início.');
@@ -318,17 +363,34 @@ export function buildCiotRequest(
     return { request, error: null };
 }
 
-export type CiotFixGroup = 'responsible' | 'registry' | 'freight' | 'departure' | 'emitter';
+export type CiotFixGroup = TripFixGroup;
 
-/** Qual grupo da viagem resolve a mensagem de pré-validação do servidor (400). */
-export function ciotFixGroup(message: string): { group: CiotFixGroup; label: string } | null {
+/**
+ * Qual grupo da viagem resolve a mensagem de erro do CIOT (400 do servidor ou falha do job e-Frete).
+ * `readiness` permite apontar o primeiro bloqueio quando o servidor só diz "pendências operacionais".
+ */
+export function ciotFixGroup(message: string, readiness?: ManifestReadiness | null): { group: CiotFixGroup; label: string } | null {
     const text = message.toLowerCase();
-    if (/cnh|nascimento|ibge|composi|eixo|rntrc|ve[ií]culo|placa|tipo de transportador|carriertype/.test(text)) {
+    if (/contratante|integrador/.test(text)) return null;
+    if (/pend[eê]ncias? operacionais?/.test(text)) {
+        const first = groupIssues(readiness?.issues ?? []).find((group) => group.blocking.length > 0 && group.key !== 'documents');
+        return first ? { group: first.key, label: `Resolver: ${first.title}` } : null;
+    }
+    if (/in[ií]cio da viagem|data e hora atuais|sa[ií]da prevista/.test(text)) return { group: 'departure', label: 'Ajustar saída prevista' };
+    if (/ao menos um implemento|implemento|cnh|nascimento|ibge|composi|eixo|rntrc|ve[ií]culo|placa|tipo de transportador|carriertype/.test(text)) {
         return { group: 'registry', label: 'Completar cadastro' };
     }
     if (/motorista|transportador|link/.test(text)) return { group: 'responsible', label: 'Ajustar transportador e motorista' };
     if (/carta frete|frete|adiantamento|valor/.test(text)) return { group: 'freight', label: 'Ajustar Carta Frete' };
     if (/emitente/.test(text)) return { group: 'emitter', label: 'Definir emitente fiscal' };
+    return null;
+}
+
+/** Erros do CIOT que não têm botão de correção, só uma explicação para o operador. */
+export function ciotFixNote(message: string): string | null {
+    if (/contratante|integrador/i.test(message)) {
+        return 'O contratante do CIOT vem do emitente fiscal e das credenciais do integrador e-Frete, configuradas pela torre. Não há correção nesta tela.';
+    }
     return null;
 }
 

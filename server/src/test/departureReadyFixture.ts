@@ -4,6 +4,8 @@ export function departureReadyManifest<T extends { legs: unknown[]; linkId?: str
     const linkId = base.linkId ?? 'link-ready';
     return {
         ...base,
+        totalValue: (base as { totalValue?: number }).totalValue ?? base.legs.length * 500,
+        totalWeight: (base as { totalWeight?: number }).totalWeight ?? base.legs.length * 100,
         originCityIbgeCode: '3550308',
         destinationCityIbgeCode: '2105302',
         vehicleType: { ...((base as { vehicleType?: object }).vehicleType ?? {}), active: true },
@@ -11,9 +13,10 @@ export function departureReadyManifest<T extends { legs: unknown[]; linkId?: str
         tripStops: [],
         plannedDepartureAt: new Date('2026-09-26T12:00:00Z'),
         fiscalEmitterId: 'emitter-ready',
+        fiscalEmitter: { person: { ...address, document: '22222222222222', stateRegistration: '110042490114' } },
         linkId,
         link: {
-            id: linkId, approvalStatus: 'APPROVED', carrierType: 'FROTA', person: address,
+            id: linkId, approvalStatus: 'APPROVED', carrierType: 'FROTA', person: { ...address, paymentAccounts: [{ pixKey: 'frete@example.com' }] },
             tractionUnit: { plate: 'ABC1D23', role: 'TRACTION', chassi: '9BWZZZ377VT004251', renavam: '12345678901', axles: 3, rntrc: '12345678', tareKg: 7200, capacityKg: 18000, bodyType: 'FechadaOuBau', wheelType: 'Cavalo', licensedState: 'SP' },
         },
         driverId: 'driver-ready',
@@ -28,5 +31,5 @@ export const authorizedMdfeFixture = {
 };
 
 export function authorizedCteLegFixture(orderId: string) {
-    return { orderId, order: { freightCalculations: [{ cteAccessKey: '2'.repeat(44), cteProtocol: '987654321', cteXml: '<cteProc />', cteXmlStorageKey: null }] } };
+    return { orderId, order: { demand: { orderNumber: orderId, nfValue: 500, weight: 100 }, freightCalculations: [{ cteAccessKey: '2'.repeat(44), cteProtocol: '987654321', cteXml: '<cteProc />', cteXmlStorageKey: null }] } };
 }

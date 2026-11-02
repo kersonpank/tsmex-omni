@@ -1251,6 +1251,10 @@ export interface CiotTipoViagemSuggestion {
     tipoViagem: 'PADRAO' | 'FRACIONADO';
     clientDocuments: string[];
     override?: CiotTipoViagem | null;
+    /** Padrões da viagem sugeridos pelo servidor; todos opcionais e editáveis no formulário. */
+    distanceKm?: number | null;
+    endDate?: string | null;
+    embalagem?: string | null;
 }
 
 export interface CiotEndereco {

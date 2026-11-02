@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CiotTipoViagem, Manifest } from '../../../types/index';
-import { buildCiotRequest, ciotDispensaError, ciotFixGroup, emptyCiotAddress, initialCiotForm, type CiotFormState } from './ciot';
+import { buildCiotRequest, CIOT_DEFAULT_PACKAGING, ciotDispensaError, ciotFixGroup, ciotFixNote, ciotStartInPast, emptyCiotAddress, initialCiotForm, isTacAgregadoAllowed, mergeCiotDefaults, type CiotFormState } from './ciot';
 import { CIOT_CARGO_TYPES, ciotNcmOptions, ciotPaymentFromAccount, ciotPaymentAccount, ciotRecipientFromHub, ciotRecipientFromPerson } from './ciot';
 
 const now = new Date('2026-10-25T10:00:00Z');
@@ -234,5 +234,73 @@ describe('ciot form', () => {
         expect(ciotFixGroup('Motorista sem CNH cadastrada')?.group).toBe('registry');
         expect(ciotFixGroup('Defina o motorista da viagem')?.group).toBe('responsible');
         expect(ciotFixGroup('algo inesperado')).toBeNull();
+    });
+});
+
+describe('padrões sugeridos do CIOT', () => {
+    const trip = { ...manifest, plannedDepartureAt: '2026-10-25T12:00:00Z', plannedArrivalAt: null } as unknown as Manifest;
+    const local = (iso: string) => {
+        const d = new Date(iso);
+        return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+    };
+
+    it('usa a distância do servidor e deixa em branco sem sugestão', () => {
+        expect(initialCiotForm(trip, now, { distanceKm: 412.6 }).form.distanciaPercorrida).toBe('413');
+        expect(initialCiotForm(trip, now).form.distanciaPercorrida).toBe('');
+        expect(initialCiotForm(trip, now, { distanceKm: null }).form.distanciaPercorrida).toBe('');
+    });
+
+    it('fim da viagem: chegada prevista, depois sugestão, depois saída + 1 dia', () => {
+        const withArrival = { ...trip, plannedArrivalAt: '2026-10-26T08:00:00Z' } as Manifest;
+        expect(initialCiotForm(withArrival, now, { endDate: '2026-10-29T08:00:00Z' }).form.dataFimViagem).toBe(local('2026-10-26T08:00:00Z'));
+        expect(initialCiotForm(trip, now, { endDate: '2026-10-29T08:00:00Z' }).form.dataFimViagem).toBe(local('2026-10-29T08:00:00Z'));
+        expect(initialCiotForm(trip, now).form.dataFimViagem).toBe(local('2026-10-26T12:00:00Z'));
+    });
+
+    it('embalagem: sugestão válida, senão a mais genérica', () => {
+        expect(initialCiotForm(trip, now, { embalagem: 'Pallet' }).form.tipoEmbalagem).toBe('Pallet');
+        expect(initialCiotForm(trip, now, { embalagem: 'Inexistente' }).form.tipoEmbalagem).toBe(CIOT_DEFAULT_PACKAGING);
+        expect(initialCiotForm(trip, now).form.tipoEmbalagem).toBe(CIOT_DEFAULT_PACKAGING);
+    });
+
+    it('a sugestão tardia só troca o que o operador não editou', () => {
+        const base = initialCiotForm(trip, now).form;
+        const next = initialCiotForm(trip, now, { distanceKm: 300, embalagem: 'Pallet' }).form;
+        const untouched = mergeCiotDefaults(base, base, next);
+        expect(untouched.distanciaPercorrida).toBe('300');
+        expect(untouched.tipoEmbalagem).toBe('Pallet');
+        const edited = mergeCiotDefaults({ ...base, distanciaPercorrida: '999' }, base, next);
+        expect(edited.distanciaPercorrida).toBe('999');
+    });
+
+    it('detecta início no passado', () => {
+        expect(ciotStartInPast('2026-10-24T09:00', now)).toBe(true);
+        expect(ciotStartInPast('2026-10-27T23:00', now)).toBe(false);
+        expect(ciotStartInPast('', now)).toBe(false);
+    });
+});
+
+describe('TAC agregado', () => {
+    it('só para transportador pessoa física', () => {
+        expect(isTacAgregadoAllowed('111.222.333-44')).toBe(true);
+        expect(isTacAgregadoAllowed('12.345.678/0001-90')).toBe(false);
+        expect(isTacAgregadoAllowed(undefined)).toBe(true);
+    });
+});
+
+describe('atalhos de erro do CIOT', () => {
+    it('implemento vai ao cadastro e início no passado à saída prevista', () => {
+        expect(ciotFixGroup('É necessário ao menos um implemento na composição')?.group).toBe('registry');
+        expect(ciotFixGroup('O início da viagem deve ser maior ou igual à data e hora atuais.')?.group).toBe('departure');
+    });
+    it('pendências operacionais apontam o primeiro grupo bloqueado', () => {
+        const readiness = { issues: [{ step: 'freight', code: 'FREIGHT_AGREEMENT_REQUIRED', severity: 'blocking', message: 'm' }] } as never;
+        expect(ciotFixGroup('Existem pendências operacionais na viagem', readiness)?.group).toBe('freight');
+        expect(ciotFixGroup('Existem pendências operacionais na viagem', null)).toBeNull();
+    });
+    it('contratante e integrador não ganham botão, só explicação', () => {
+        expect(ciotFixGroup('Contratante não configurado para o integrador')).toBeNull();
+        expect(ciotFixNote('CNPJ do integrador ausente')).toMatch(/torre/);
+        expect(ciotFixNote('Motorista sem CNH')).toBeNull();
     });
 });

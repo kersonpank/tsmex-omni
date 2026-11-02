@@ -120,6 +120,7 @@ export function validateCiotPreflight(input: {
     requestData: CiotRequestData;
     composition: VehicleComposition;
     contratanteDocument: string;
+    contratadoDocument: string;
     contratantesCargaFracionada?: string[];
     now?: Date;
 }): { composicaoVeicular: boolean; contratantesCargaFracionada?: string[] } {
@@ -127,6 +128,9 @@ export function validateCiotPreflight(input: {
     const fail = (message: string): never => { throw new AppError(message, 400); };
     const now = (input.now ?? new Date()).getTime();
     const tac = tipoViagem === 'TAC_AGREGADO';
+    if (tac && digits(input.contratadoDocument).length === 14) {
+        fail('TAC agregado só vale para transportador pessoa física (CPF). Use Padrão.');
+    }
     const start = tac ? now : Date.parse(rd.dataInicioViagem ?? '');
     if (!tac) {
         if (!rd.dataInicioViagem || !Number.isFinite(start)) fail('Informe a data de início da viagem para o CIOT.');

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { hubsApi, linksApi, manifestsApi } from '../../../../lib/api';
 import { FiscalAddressFields } from '../../../manifest/FiscalAddressFields';
-import type { CiotEmissionJob, CiotTipoViagem, CiotTipoViagemSuggestion, Hub } from '../../../../types/index';
+import type { CiotEmissionJob, CiotTipoViagem, CiotTipoViagemSuggestion, Hub, ManifestReadiness } from '../../../../types/index';
 import type { ManifestWithLegs } from '../../lib/arrival';
 import {
     buildCiotRequest,
@@ -10,6 +10,11 @@ import {
     CIOT_POLL_ATTEMPTS,
     CIOT_POLL_INTERVAL_MS,
     ciotFixGroup,
+    ciotFixNote,
+    ciotStartInPast,
+    CIOT_PACKAGING,
+    isTacAgregadoAllowed,
+    mergeCiotDefaults,
     ciotDispensaError,
     initialCiotForm,
     CIOT_CARGO_TYPES,
@@ -41,9 +46,10 @@ const Legend: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 const CiotEditor: React.FC<{
     manifest: ManifestWithLegs;
     disabled?: boolean;
+    readiness?: ManifestReadiness | null;
     onUpdated: () => Promise<void>;
     onResolve: (group: CiotFixGroup) => void;
-}> = ({ manifest, disabled = false, onUpdated, onResolve }) => {
+}> = ({ manifest, disabled = false, readiness = null, onUpdated, onResolve }) => {
     const [formOpen, setFormOpen] = useState(false);
     const [dispenseOpen, setDispenseOpen] = useState(false);
     const [form, setForm] = useState<CiotFormState>(() => initialCiotForm(manifest).form);
@@ -59,6 +65,7 @@ const CiotEditor: React.FC<{
     const [hubs, setHubs] = useState<Hub[]>([]);
     const [savePayment, setSavePayment] = useState(true);
     const [paymentEdited, setPaymentEdited] = useState(false);
+    const baseline = useRef<CiotFormState | null>(null);
     const timer = useRef<number | null>(null);
     const alive = useRef(true);
 
@@ -112,6 +119,7 @@ const CiotEditor: React.FC<{
 
     const openForm = () => {
         const initial = initialCiotForm(manifest);
+        baseline.current = initial.form;
         setForm(initial.form);
         setAddress(initial.address);
         setOverride(manifest.ciotTipoViagemOverride ?? '');
@@ -120,7 +128,18 @@ const CiotEditor: React.FC<{
         setPaymentEdited(false);
         setFormOpen(true);
         void hubsApi.list().then((res) => { if (alive.current) setHubs(res.data ?? []); }).catch(() => setHubs([]));
-        void manifestsApi.ciotSuggestion(manifest.id).then((res) => alive.current && setSuggestion(res.data ?? null)).catch(() => setSuggestion(null));
+        void manifestsApi.ciotSuggestion(manifest.id).then((res) => {
+            if (!alive.current) return;
+            const data = res.data ?? null;
+            setSuggestion(data);
+            // Distância, fim e embalagem sugeridos entram só nos campos que o operador ainda não mexeu.
+            const base = baseline.current;
+            if (data && base) {
+                const next = initialCiotForm(manifest, new Date(), data).form;
+                setForm((current) => mergeCiotDefaults(current, base, next));
+                baseline.current = next;
+            }
+        }).catch(() => setSuggestion(null));
     };
 
     const emit = async () => {
@@ -206,13 +225,21 @@ const CiotEditor: React.FC<{
         />
     );
     const fixHint = (message: string | null) => {
-        const fix = message ? ciotFixGroup(message) : null;
-        return fix ? (
-            <OsButton full variant="secondary" onClick={() => { setFormOpen(false); setDispenseOpen(false); onResolve(fix.group); }}>
-                {fix.label}
-            </OsButton>
-        ) : null;
+        const fix = message ? ciotFixGroup(message, readiness) : null;
+        const note = message ? ciotFixNote(message) : null;
+        return (
+            <>
+                {note ? <p className="text-[12px] text-tower-600 dark:text-tower-300">{note}</p> : null}
+                {fix ? (
+                    <OsButton full variant="secondary" onClick={() => { setFormOpen(false); setDispenseOpen(false); onResolve(fix.group); }}>
+                        {fix.label}
+                    </OsButton>
+                ) : null}
+            </>
+        );
     };
+    const tacAllowed = isTacAgregadoAllowed(manifest.link?.document);
+    const startInPast = selectedType !== 'TAC_AGREGADO' && ciotStartInPast(form.dataInicioViagem);
 
     const failed = job && (job.phase === 'FAILED' || job.phase === 'PENDING_RECONCILIATION');
 
@@ -251,6 +278,7 @@ const CiotEditor: React.FC<{
                             </div>
                             {jobRunning ? <p className="mt-1 text-[12px] text-tower-500">Acompanhando a fila — não emita novamente.</p> : null}
                             {job.lastError ? <p className="mt-1 text-[12px] text-brand-red-600 dark:text-brand-red-400">{job.lastError}</p> : null}
+                            {failed && job.lastError ? <div className="mt-2 flex flex-col gap-2">{fixHint(job.lastError)}</div> : null}
                             {job.phase === 'PENDING_RECONCILIATION' ? <p className="mt-1 text-[12px] text-tower-500">Aguardando conciliação: consulte antes de tentar de novo.</p> : null}
                             {jobRunning && !timer.current ? (
                                 <div className="mt-2"><OsButton full variant="ghost" onClick={() => poll(CIOT_POLL_ATTEMPTS)}>Consultar andamento</OsButton></div>
@@ -287,12 +315,19 @@ const CiotEditor: React.FC<{
                                 <option value="">Automático ({suggestion?.tipoViagem === 'FRACIONADO' ? 'Fracionado' : 'Lotação'})</option>
                                 <option value="PADRAO">Lotação (Padrão)</option>
                                 <option value="FRACIONADO">Fracionado</option>
-                                <option value="TAC_AGREGADO">TAC Agregado</option>
+                                <option value="TAC_AGREGADO" disabled={!tacAllowed}>TAC Agregado</option>
                             </select>
+                            {!tacAllowed ? <p className="mt-1 text-[12px] font-normal text-tower-500">TAC agregado só para transportador pessoa física</p> : null}
                         </Field>
                         <Field label="Documento da viagem">{text('documentoViagem')}</Field>
                         {selectedType !== 'TAC_AGREGADO' ? <Field label="Distância percorrida (km)*">{text('distanciaPercorrida', 'number')}</Field> : null}
                         {selectedType !== 'TAC_AGREGADO' ? <Field label="Início da viagem*">{text('dataInicioViagem', 'datetime-local')}</Field> : null}
+                        {startInPast ? (
+                            <div role="alert" className="flex flex-col gap-2 rounded-xl bg-brand-red-500/10 p-3">
+                                <p className="text-[13px] font-semibold text-brand-red-600 dark:text-brand-red-400">O início da viagem já passou. Atualize a saída prevista.</p>
+                                <OsButton full variant="secondary" onClick={() => { setFormOpen(false); onResolve('departure'); }}>Ajustar saída prevista</OsButton>
+                            </div>
+                        ) : null}
                         <Field label="Fim da viagem*">{text('dataFimViagem', 'datetime-local')}</Field>
                         <p className="text-[12px] text-tower-500">{selectedType === 'TAC_AGREGADO' ? 'Até 30 dias da declaração.' : 'Início a partir de agora. Término em até 90 dias do início.'}</p>
                         {selectedType !== 'TAC_AGREGADO' ? (
@@ -315,14 +350,7 @@ const CiotEditor: React.FC<{
                             <Field label="Tipo de embalagem*">
                                 <select value={form.tipoEmbalagem} onChange={(e) => set('tipoEmbalagem', e.target.value)} className={osFieldClass}>
                                     <option value="">Selecione a embalagem</option>
-                                    <option value="Bigbag">Big bag</option>
-                                    <option value="Pallet">Pallet</option>
-                                    <option value="Granel">Granel</option>
-                                    <option value="Container">Contêiner</option>
-                                    <option value="Saco">Saco</option>
-                                    <option value="Caixa">Caixa</option>
-                                    <option value="Unitario">Unitário</option>
-                                    <option value="Fardo">Fardo</option>
+                                    {CIOT_PACKAGING.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                                 </select>
                             </Field>
                         ) : null}

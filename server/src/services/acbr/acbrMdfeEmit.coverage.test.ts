@@ -45,3 +45,30 @@ it('CT-e duplicado nas paradas não mascara pedido omitido', async () => {
     assert.equal(result.ok, false);
     assert.match(result.error!, /paradas/);
 });
+
+it('preflight MDF-e rejeita CT-e de outro emitente antes de consumir número', async () => {
+    const person = { document: '26879820000270', legalName: 'TransMesquita', stateRegistration: '110042490114', address: 'Rua A', number: '1', neighborhood: 'Centro', city: 'Guarulhos', cityIbgeCode: '3518800', state: 'SP', cep: '07000000' };
+    prisma.manifest.findUnique = (async () => ({
+        hub: { person }, fiscalEmitter: { person }, ciotDispensado: true,
+        link: { vehiclePlate: 'ABC1D23', vehicleChassi: '9BWZZZ377VT004251', vehicleRenavam: '12345678901', vehicleAxles: 3, rntrc: '123456789' },
+    })) as any;
+    prisma.orderLeg.findMany = (async () => [leg('112', [authorized('1')])]) as any;
+    prisma.manifestStop.findMany = (async () => []) as any;
+    prisma.manifestFiscalDocument.findFirst = (async () => null) as any;
+    const result = await emitMdfeViaAcbr('manifest', 'ref');
+    assert.equal(result.ok, false);
+    assert.equal(result.error, 'O CT-e do pedido 112 foi emitido por outro CNPJ (11111111111111). O MDF-e precisa do mesmo emitente.');
+});
+
+it('preflight MDF-e enumera dados do emitente sem chamar provedor', async () => {
+    prisma.manifest.findUnique = (async () => ({
+        hub: { person: {} }, ciotDispensado: true,
+        link: { vehiclePlate: 'ABC1D23', vehicleChassi: '9BWZZZ377VT004251', vehicleRenavam: '12345678901', vehicleAxles: 3, rntrc: '123456789' },
+    })) as any;
+    prisma.orderLeg.findMany = (async () => [leg('112', [authorized('1')])]) as any;
+    prisma.manifestStop.findMany = (async () => []) as any;
+    prisma.manifestFiscalDocument.findFirst = (async () => null) as any;
+    const result = await emitMdfeViaAcbr('manifest', 'ref');
+    assert.equal(result.ok, false);
+    assert.match(result.error!, /IE, logradouro, número, bairro, cidade, código IBGE, UF, CEP/);
+});
