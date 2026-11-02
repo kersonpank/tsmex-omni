@@ -7,6 +7,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, AuthRequest } from '../middleware/auth.js';
 import { getParamId } from '../lib/routeUtils.js';
 import { consultCNPJ } from '../services/cnpjService.js';
+import { fetchBrasilApiCnpj } from '../services/intake/publicCnpjParty.js';
 import { resolveIbgeCode } from '../services/acbr/acbrIbge.js';
 
 // Generate JWT token helper
@@ -1016,6 +1017,33 @@ router.get('/me/stats', authenticate, async (req: AuthRequest, res: Response, ne
 
 // ==================== CNPJ CONSULTATION ====================
 
+/**
+ * ReceitaWS (+ Sintegra) primeiro; se a fonte gratuita estiver fora (limite de 3/min, 400/5xx),
+ * usa a BrasilAPI para não travar o cadastro. A IE fica como "unavailable" nesse caso.
+ */
+async function consultCnpjWithFallback(cnpj: string, sintegraToken?: string): Promise<Awaited<ReturnType<typeof consultCNPJ>>> {
+    try {
+        return await consultCNPJ(cnpj, sintegraToken);
+    } catch (error) {
+        if (error instanceof AppError && error.statusCode === 404) throw error;
+        const brasil = await fetchBrasilApiCnpj(cnpj);
+        if (!brasil) throw error;
+        return {
+            cnpj: brasil.cnpj,
+            legalName: brasil.legalName,
+            tradeName: brasil.tradeName,
+            situation: brasil.situation,
+            address: {
+                street: brasil.street, number: brasil.number, complement: brasil.complement, neighborhood: brasil.neighborhood,
+                city: brasil.city, state: brasil.uf, zipCode: brasil.cep, cityIbgeCode: brasil.ibge,
+            },
+            source: 'receitaws',
+            stateRegistration: brasil.stateRegistration,
+            stateRegistrationLookup: brasil.stateRegistration ? 'found' : 'unavailable',
+        };
+    }
+}
+
 // GET /api/accounts/cnpj/:cnpj - Consult CNPJ and return data for auto-fill
 router.get('/cnpj/:cnpj', async (req, res: Response, next: NextFunction) => {
     try {
@@ -1031,14 +1059,12 @@ router.get('/cnpj/:cnpj', async (req, res: Response, next: NextFunction) => {
             select: { stateRegistration: true },
         });
         const knownIe = knownPerson?.stateRegistration?.trim();
-        const cnpjData = await consultCNPJ(cnpj, knownIe ? undefined : process.env.SINTEGRA_TOKEN);
+        const cnpjData = await consultCnpjWithFallback(cnpj, knownIe ? undefined : process.env.SINTEGRA_TOKEN);
         if (knownIe) {
             cnpjData.stateRegistration = knownIe;
             cnpjData.stateRegistrationLookup = 'found';
-        } else if (cnpjData.stateRegistrationLookup === 'unavailable') {
-            // O formulário compartilhado já distingue erro de importação de consulta sem IE.
-            throw new AppError('Consulta de IE indisponível. Tente novamente ou informe a IE manualmente.', 503);
         }
+        // IE indisponível não descarta os dados cadastrais: o formulário avisa (stateRegistrationLookup) e o operador confere na NF-e.
 
         // Check if CNPJ already exists in database
         const existingCompany = await prisma.accountCompany.findUnique({
