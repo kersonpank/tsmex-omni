@@ -94,14 +94,30 @@ describe('Importar no cadastro do hub: GET /accounts/cnpj/:cnpj', () => {
         assert.equal(body.data.stateRegistrationLookup, 'found');
     });
 
-    it('retorna erro recuperável quando a consulta da IE falha, em vez de dizer que não existe', async () => {
+    it('IE indisponível não descarta os dados: devolve a empresa com stateRegistrationLookup "unavailable"', async () => {
         process.env.SINTEGRA_TOKEN = 'token-ficticio';
         prisma.person.findUnique = (async () => null) as any;
+        prisma.accountCompany.findUnique = (async () => null) as any;
         axios.get = (async (url: string) => url.includes('receitaws')
             ? { data: { nome: 'Empresa' } }
             : { data: { status: 'ERROR' } }) as any;
-        const { error } = await callRoute();
-        assert.equal(error.statusCode, 503);
-        assert.match(error.message, /IE indisponível/);
+        const { body, error } = await callRoute();
+        assert.equal(error, undefined);
+        assert.equal(body.data.legalName, 'Empresa');
+        assert.equal(body.data.stateRegistrationLookup, 'unavailable');
+    });
+
+    it('ReceitaWS fora do ar: usa a BrasilAPI em vez de responder 503', async () => {
+        delete process.env.SINTEGRA_TOKEN;
+        prisma.person.findUnique = (async () => null) as any;
+        prisma.accountCompany.findUnique = (async () => null) as any;
+        axios.get = (async (url: string) => {
+            if (url.includes('receitaws')) throw Object.assign(new Error('Request failed with status code 400'), { response: { status: 400 } });
+            return { data: { cnpj: CNPJ, razao_social: 'W MESQUITA LTDA', uf: 'MA', municipio: 'Pinheiro', cep: '65470000' } };
+        }) as any;
+        const { body, error } = await callRoute();
+        assert.equal(error, undefined);
+        assert.equal(body.data.legalName, 'W MESQUITA LTDA');
+        assert.equal(body.data.stateRegistrationLookup, 'unavailable');
     });
 });
