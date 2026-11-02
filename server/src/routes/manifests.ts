@@ -1,3 +1,6 @@
+import { replaceManifestDrivers } from '../services/manifestDriverAssignments.js';
+import { applyTripCompositionDefaults, resolveTripCompositionDefaults } from '../services/tripCompositionDefaults.js';
+import { normalizePlate } from '../services/vehicleUnitRules.js';
 import { ensureEfreteIntegratorPerson } from '../services/efrete/ensureEfreteIntegratorPerson.js';
 import { validateSelectedAddress } from '../services/selectedCity.js';
 import { freightDocState, type FreightDocState } from '../services/freight/freightDocRules.js';
@@ -255,6 +258,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
         // Antes da leitura, para o updatedAt devolvido já refletir a gravação (concorrência otimista).
         if (req.user!.roles.includes('ADMIN') || req.user!.roles.includes('HUB')) {
             await ensureTripEmitter(id).catch(() => null);
+            await applyTripCompositionDefaults(id).catch(() => null);
         }
 
         const manifest = await prisma.manifest.findUnique({
@@ -984,34 +988,6 @@ const manifestAssignmentSchema = z.object({
     driverId: z.string().uuid().nullable().optional(),
 });
 
-// associateLinkId: o motorista é independente do transportador; ao escolhê-lo para a viagem, o vínculo
-// (DriverCarrier) é criado/reativado na mesma transação em vez de recusar o motorista.
-async function replaceManifestDrivers(manifestId: string, driverIds: string[], expectedUpdatedAt: Date, linkId?: string | null, associateLinkId?: string | null) {
-    return prisma.$transaction(async (tx) => {
-        const updated = await tx.manifest.updateMany({
-            where: { id: manifestId, status: 'DRAFT', updatedAt: expectedUpdatedAt },
-            data: { driverId: driverIds[0] ?? null, ...(linkId !== undefined ? { linkId } : {}), updatedAt: new Date() },
-        });
-        if (updated.count !== 1) throw new AppError('A viagem mudou durante a edição. Recarregue e tente novamente.', 409);
-        await tx.manifestDriverAssignment.deleteMany({ where: { manifestId } });
-        if (associateLinkId) {
-            for (const driverId of driverIds) {
-                await tx.driverCarrier.upsert({
-                    where: { driverId_linkId: { driverId, linkId: associateLinkId } },
-                    create: { driverId, linkId: associateLinkId },
-                    update: { active: true },
-                });
-            }
-        }
-        if (driverIds.length) {
-            await tx.manifestDriverAssignment.createMany({ data: driverIds.map((driverId, index) => ({
-                manifestId, driverId, sequence: index + 1, isPrimary: index === 0,
-            })) });
-        }
-        return tx.manifest.findUniqueOrThrow({ where: { id: manifestId }, include: { link: true, driver: true, vehicleType: true, driverAssignments: { orderBy: { sequence: 'asc' }, include: { driver: true } } } });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-}
-
 // PATCH /api/manifests/:id/assignment — escolhe o responsável sem enviar a oferta.
 router.patch('/:id/assignment', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('HUB')) {
@@ -1031,7 +1007,7 @@ router.patch('/:id/assignment', authenticate, async (req: AuthRequest, res: Resp
 
         if (!data.linkId) {
             const cleared = await replaceManifestDrivers(id, [], manifest.updatedAt, null);
-            return res.json({ success: true, data: cleared, message: 'Responsável removido.' });
+            return res.json({ success: true, data: cleared, defaultsApplied: null, message: 'Responsável removido.' });
         }
 
         const link = await prisma.link.findUnique({ where: { id: data.linkId } });
@@ -1046,6 +1022,10 @@ router.patch('/:id/assignment', authenticate, async (req: AuthRequest, res: Resp
         // Motorista é global (por CPF): se o escolhido está ativo mas ainda sem vínculo com este transportador, vincula.
         let selectedExternal: { id: string } | null = null;
 
+        const existingAssignments = await prisma.manifestDriverAssignment.findMany({ where: { manifestId: id }, orderBy: { sequence: 'asc' } });
+        const retained = existingAssignments.map((assignment) => assignment.driverId).filter((id) => linkDrivers.some((driver) => driver.id === id));
+        const defaults = data.driverId || retained.length ? null : await resolveTripCompositionDefaults(link.id, id);
+        const suggestedDrivers = defaults?.source === 'LAST_TRIP' ? defaults.driverIds : [];
         let driverId: string | null = null;
         if (data.driverId) {
             const selectedDriver = linkDrivers.find((driver) => driver.id === data.driverId)
@@ -1053,24 +1033,56 @@ router.patch('/:id/assignment', authenticate, async (req: AuthRequest, res: Resp
             if (!selectedDriver) throw new AppError('Motorista não encontrado ou inativo.', 404);
             if (!linkDrivers.some((driver) => driver.id === selectedDriver.id)) selectedExternal = selectedDriver;
             driverId = selectedDriver.id;
+        } else if (retained.length) {
+            driverId = retained[0];
+        } else if (suggestedDrivers.length) {
+            driverId = suggestedDrivers[0];
         } else if (linkDrivers.length === 1) {
             driverId = linkDrivers[0].id;
         } else if (manifest.driverId && linkDrivers.some((driver) => driver.id === manifest.driverId)) {
             driverId = manifest.driverId;
         }
 
-        const existingAssignments = await prisma.manifestDriverAssignment.findMany({ where: { manifestId: id }, orderBy: { sequence: 'asc' } });
-        const retained = existingAssignments.map((assignment) => assignment.driverId).filter((id) => linkDrivers.some((driver) => driver.id === id));
-        const updated = await replaceManifestDrivers(id, driverId ? [driverId, ...retained.filter((id) => id !== driverId)] : [], manifest.updatedAt, link.id, selectedExternal ? link.id : null);
+        const chosenDrivers = data.driverId || retained.length ? retained : suggestedDrivers;
+        let updated = await replaceManifestDrivers(id, driverId ? [driverId, ...chosenDrivers.filter((id) => id !== driverId)] : [], manifest.updatedAt, link.id, selectedExternal ? link.id : null);
+        const defaultsApplied = await applyTripCompositionDefaults(id);
+        if (defaultsApplied) updated = await prisma.manifest.findUniqueOrThrow({ where: { id }, include: { link: true, driver: true, vehicleType: true, driverAssignments: { orderBy: { sequence: 'asc' }, include: { driver: true } } } });
         res.json({
             success: true,
             data: updated,
+            defaultsApplied,
             message: driverId
                 ? 'Responsável e dados fiscais vinculados.'
                 : 'Responsável vinculado. Complete os dados fiscais do motorista.',
         });
     } catch (error) {
         if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
+        next(error);
+    }
+});
+
+router.get('/:id/composition-suggestion', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const id = req.params.id as string;
+        const manifest = await prisma.manifest.findUnique({ where: { id }, include: { vehicleAssignments: manifestVehicleAssignmentsInclude, driverAssignments: { orderBy: { sequence: 'asc' } } } });
+        if (!manifest) throw new AppError('Viagem não encontrada.', 404);
+        if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && manifest.hubId !== req.user!.hubId) throw new AppError('Sem permissão para consultar esta viagem.', 403);
+        const suggestion = manifest.linkId ? await resolveTripCompositionDefaults(manifest.linkId, id) : null;
+        if (!suggestion) return res.json({ success: true, data: null });
+        const drivers = await prisma.driver.findMany({ where: { id: { in: suggestion.driverIds } }, select: { id: true, name: true } });
+        const current = resolveManifestComposition(manifest);
+        const plates = [current.traction?.plate ?? '', ...current.trailers.map((unit) => unit.plate)].map(normalizePlate);
+        const suggestedPlates = [suggestion.traction, ...suggestion.trailers].map((unit) => normalizePlate(unit.plate));
+        const driverIds = manifest.driverAssignments.length ? manifest.driverAssignments.map((item) => item.driverId) : manifest.driverId ? [manifest.driverId] : [];
+        res.json({ success: true, data: {
+            source: suggestion.source,
+            fromManifestId: suggestion.fromManifestId,
+            traction: { plate: suggestion.traction.plate },
+            trailers: suggestion.trailers.map(({ plate }) => ({ plate })),
+            drivers: suggestion.driverIds.flatMap((id) => { const driver = drivers.find((item) => item.id === id); return driver ? [{ id: driver.id, name: driver.name }] : []; }),
+            differsFromTrip: JSON.stringify(plates) !== JSON.stringify(suggestedPlates) || JSON.stringify(driverIds) !== JSON.stringify(suggestion.driverIds),
+        } });
+    } catch (error) {
         next(error);
     }
 });

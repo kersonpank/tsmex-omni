@@ -2,20 +2,15 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import { linksApi, manifestsApi, personsApi } from '../../../../lib/api';
-import type { Driver, Link, Manifest, Person } from '../../../../types/index';
+import type { Driver, Link, Manifest, Person, TripCompositionDefaults, TripCompositionSuggestion } from '../../../../types/index';
 import {
-    buildTripComposition,
     cnhStatus,
-    compositionSuggestion,
     digits,
     driverBelongsToLink,
-    driverSuggestion,
     manifestPlates,
     mergePersonDriverResults,
-    setTrailerAt,
     sortDriversForLink,
     type DriverSearchRow,
-    type TripCompositionPlates,
 } from '../../lib/carrier';
 import { linkCompositionPlates } from '../../lib/trip';
 import { OsButton, OsEmpty } from '../../ui/kit';
@@ -23,7 +18,7 @@ import OsSheet, { apiErrorMessage, osFieldClass } from '../../ui/Sheet';
 import DriverEditor from '../carrier/DriverEditor';
 import { assignCarrier } from './assignCarrier';
 import NewCarrierForm from './NewCarrierForm';
-import PlatePicker from './PlatePicker';
+import TripCompositionPicker from './TripCompositionPicker';
 
 /**
  * Responsável e composição da viagem: quatro escolhas INDEPENDENTES, cada uma trocável a qualquer
@@ -40,9 +35,18 @@ type DriverTarget = { mode: 'replace'; index: number } | { mode: 'add' };
 
 interface Offer {
     linkName: string;
-    driver: Driver | null;
-    plates: TripCompositionPlates | null;
+    suggestion: TripCompositionSuggestion;
 }
+
+/** Texto do aviso "Preenchido com…" a partir do que o servidor aplicou ao escolher o transportador. */
+const appliedSummary = (applied: TripCompositionDefaults, drivers: Driver[]): string => {
+    const origin = applied.source === 'LAST_TRIP' ? 'a última viagem deste transportador' : 'o cadastro do transportador';
+    const parts = [`cavalo ${applied.traction.plate}`];
+    if (applied.trailers.length) parts.push(`implementos ${applied.trailers.map((t) => t.plate).join(', ')}`);
+    const names = drivers.filter((d) => applied.driverIds.includes(d.id)).map((d) => d.name);
+    if (names.length) parts.push(`motorista ${names.join(', ')}`);
+    return `Preenchido com ${origin}: ${parts.join(' · ')}. Toque em Trocar em qualquer item.`;
+};
 
 const driversOf = (m: Manifest | null): Driver[] => {
     if (!m) return [];
@@ -113,6 +117,7 @@ const ResponsibleEditor: React.FC<{
     const [error, setError] = useState<string | null>(null);
     const [dirty, setDirty] = useState(false);
     const [offer, setOffer] = useState<Offer | null>(null);
+    const [applied, setApplied] = useState<TripCompositionDefaults | null>(null);
     // Transportador
     const [links, setLinks] = useState<Link[]>([]);
     const [q, setQ] = useState('');
@@ -123,9 +128,6 @@ const ResponsibleEditor: React.FC<{
     const [driverQ, setDriverQ] = useState('');
     const [pickingPerson, setPickingPerson] = useState<string | null>(null);
     const [prefill, setPrefill] = useState<(Driver & { person?: Person }) | null>(null);
-    // Placas
-    const [tractionDraft, setTractionDraft] = useState('');
-    const [trailersDraft, setTrailersDraft] = useState<string[]>([]);
     const navigate = useNavigate();
 
     const link = manifest?.link ?? null;
@@ -195,56 +197,43 @@ const ResponsibleEditor: React.FC<{
     }, [links, q]);
 
     const chooseCarrier = async (picked: Link) => {
-        const prevPlates = plates;
         const prevIds = driverIds;
+        const result: { defaults: TripCompositionDefaults | null } = { defaults: null };
+        setOffer(null);
+        setApplied(null);
         const ok = await change(async () => {
             // Pendente cadastrado por este hub: aprovar é dele (o backend recusa se for de outro hub).
             if (picked.approvalStatus === 'PENDING') await linksApi.approve(picked.id);
-            await assignCarrier(manifestId, picked.id, prevIds);
+            result.defaults = await assignCarrier(manifestId, picked.id, prevIds);
         }, 'Não foi possível trocar o transportador.');
         if (!ok) return;
         setView('main');
-        await suggestFromCarrier(picked, prevIds, prevPlates);
-    };
-
-    // O cadastro do transportador só sugere: vazio → preenche; já escolhido e diferente → pergunta.
-    const suggestFromCarrier = async (picked: Link, prevIds: string[], prevPlates: TripCompositionPlates) => {
-        setOffer(null);
+        if (result.defaults) {
+            setApplied(result.defaults);
+            return;
+        }
+        // Nada aplicado (a viagem já tinha escolhas): o servidor diz se o histórico do transportador difere.
         try {
-            const fresh = await load();
-            const registered = ((await linksApi.getDrivers(picked.id).catch(() => ({ data: [] as Driver[] }))).data ?? []).filter((d) => d.active !== false);
-            const candidate = registered.length === 1 ? registered[0] : null;
-            const currentIds = driversOf(fresh).map((d) => d.id);
-            const driverSug = driverSuggestion(candidate?.id, prevIds[0] ?? currentIds[0] ?? null);
-            const suggested = linkCompositionPlates(picked);
-            const plateSug = compositionSuggestion(suggested, prevPlates);
-            if (driverSug.apply && candidate) await manifestsApi.setDrivers(manifestId, [candidate.id]);
-            if (plateSug.apply) {
-                const composition = buildTripComposition(suggested.traction ?? '', suggested.trailers);
-                if (composition) await manifestsApi.setVehicles(manifestId, composition);
-            }
-            if (driverSug.apply || plateSug.apply) await load();
-            if ((driverSug.ask && candidate) || plateSug.ask) {
-                setOffer({ linkName: picked.name, driver: driverSug.ask ? candidate : null, plates: plateSug.ask ? suggested : null });
-            }
+            const body = await manifestsApi.compositionSuggestion(manifestId);
+            if (body.data?.differsFromTrip) setOffer({ linkName: picked.name, suggestion: body.data });
         } catch (cause) {
-            setError(apiErrorMessage(cause, 'Transportador trocado, mas não foi possível aplicar a composição cadastrada.'));
+            setError(apiErrorMessage(cause, 'Transportador trocado, mas não foi possível consultar a composição sugerida.'));
         }
     };
 
     const applyOffer = async () => {
         if (!offer) return;
-        const current = offer;
+        const { suggestion } = offer;
         const ok = await change(async () => {
-            if (current.driver) {
-                const first = current.driver.id;
-                await manifestsApi.setDrivers(manifestId, [first, ...driverIds.slice(1).filter((id) => id !== first)]);
+            if (suggestion.drivers.length) {
+                const first = suggestion.drivers.map((d) => d.id);
+                await manifestsApi.setDrivers(manifestId, [...first, ...driverIds.filter((id) => !first.includes(id))].slice(0, 3));
             }
-            if (current.plates) {
-                const composition = buildTripComposition(current.plates.traction ?? '', current.plates.trailers);
-                if (composition) await manifestsApi.setVehicles(manifestId, composition);
-            }
-        }, 'Não foi possível usar a composição cadastrada.');
+            await manifestsApi.setVehicles(manifestId, {
+                traction: { plate: suggestion.traction.plate },
+                trailers: suggestion.trailers.map((t) => ({ plate: t.plate })),
+            });
+        }, 'Não foi possível usar a composição sugerida.');
         if (ok) setOffer(null);
     };
 
@@ -347,25 +336,10 @@ const ResponsibleEditor: React.FC<{
     };
 
     // ---------------- Veículos ----------------
-    const openTraction = () => {
-        setError(null);
-        setTractionDraft(plates.traction ?? '');
-        setView('traction');
-    };
-    const openTrailers = () => {
-        setError(null);
-        setTrailersDraft(plates.trailers.slice(0, 3));
-        setView('trailers');
-    };
-
-    const saveComposition = async (traction: string, trailers: string[]) => {
-        const composition = buildTripComposition(traction, trailers);
-        if (!composition) {
-            setError('Informe a placa do cavalo com 7 letras/números.');
-            return;
-        }
-        const ok = await change(() => manifestsApi.setVehicles(manifestId, composition), 'Não foi possível salvar os veículos.');
-        if (ok) setView('main');
+    const afterVehicles = async () => {
+        await load();
+        setDirty(true);
+        setView('main');
     };
 
     const finish = () => (dirty ? onSaved() : onClose());
@@ -549,70 +523,16 @@ const ResponsibleEditor: React.FC<{
         );
     }
 
-    if (view === 'traction') {
+    if ((view === 'traction' || view === 'trailers') && manifest) {
         return (
-            <OsSheet
-                title="Cavalo da viagem"
-                subtitle="Qualquer cavalo, por placa"
+            <TripCompositionPicker
+                manifestId={manifestId}
+                mode={view}
+                plates={plates}
                 onClose={finish}
-                footer={
-                    <>
-                        {errorBox}
-                        <OsButton full disabled={busy} onClick={() => void saveComposition(tractionDraft, plates.trailers)}>
-                            {busy ? 'Salvando…' : 'Salvar cavalo'}
-                        </OsButton>
-                        <OsButton full variant="ghost" className="mt-1" disabled={busy} onClick={back}>
-                            Voltar
-                        </OsButton>
-                    </>
-                }
-            >
-                <PlatePicker label="Cavalo" role="TRACTION" value={tractionDraft} onChange={setTractionDraft} />
-                <p className="mt-1.5 text-[12px] text-tower-500 dark:text-tower-400">
-                    Vale só para esta viagem; não depende do transportador nem do motorista.
-                </p>
-            </OsSheet>
-        );
-    }
-
-    if (view === 'trailers') {
-        return (
-            <OsSheet
-                title="Implementos da viagem"
-                subtitle="Até 3, qualquer combinação por placa"
-                onClose={finish}
-                footer={
-                    <>
-                        {errorBox}
-                        <OsButton full disabled={busy} onClick={() => void saveComposition(plates.traction ?? '', trailersDraft)}>
-                            {busy ? 'Salvando…' : 'Salvar implementos'}
-                        </OsButton>
-                        <OsButton full variant="ghost" className="mt-1" disabled={busy} onClick={back}>
-                            Voltar
-                        </OsButton>
-                    </>
-                }
-            >
-                {!plates.traction ? (
-                    <p className="mb-2 text-[13px] font-semibold text-brand-red-600 dark:text-brand-red-400">Informe o cavalo antes dos implementos.</p>
-                ) : null}
-                {[0, 1, 2].slice(0, Math.min(3, trailersDraft.length + 1)).map((index) => (
-                    <PlatePicker
-                        key={index}
-                        label={`Implemento ${index + 1}`}
-                        role="TRAILER"
-                        value={trailersDraft[index] ?? ''}
-                        onChange={(plate) =>
-                            setTrailersDraft((list) => {
-                                const next = [...list];
-                                next[index] = plate;
-                                return next;
-                            })
-                        }
-                        onClear={trailersDraft[index] ? () => setTrailersDraft((list) => setTrailerAt(list, index, null)) : undefined}
-                    />
-                ))}
-            </OsSheet>
+                onBack={back}
+                onSaved={afterVehicles}
+            />
         );
     }
 
@@ -644,21 +564,28 @@ const ResponsibleEditor: React.FC<{
             {locked ? (
                 <p className="mb-3 rounded-lg bg-brand-yellow-400/25 p-3 text-[13px] font-semibold text-[#6b5900] dark:bg-brand-yellow-400/15 dark:text-brand-yellow-400">{lockedMessage}</p>
             ) : null}
+            {applied ? (
+                <p className="mb-3 rounded-lg bg-brand-500/10 p-3 text-[13px] font-semibold text-tower-700 dark:text-tower-200">
+                    {appliedSummary(applied, drivers)}
+                </p>
+            ) : null}
             {offer ? (
                 <div className="mb-3 rounded-xl border-2 border-brand-500 bg-brand-500/8 p-3.5">
-                    <p className="text-[14px] font-bold text-tower-900 dark:text-white">Usar a composição cadastrada deste transportador?</p>
-                    <p className="mt-1 text-[12px] text-tower-600 dark:text-tower-300">
-                        {offer.linkName} tem cadastro próprio, diferente do que já está nesta viagem.
+                    <p className="text-[14px] font-bold text-tower-900 dark:text-white">
+                        {offer.suggestion.source === 'LAST_TRIP' ? 'Usar a composição da última viagem deste transportador?' : 'Usar a composição cadastrada deste transportador?'}
                     </p>
-                    {offer.driver ? <p className="mt-1 text-[13px] text-tower-700 dark:text-tower-200">Motorista: {offer.driver.name}</p> : null}
-                    {offer.plates ? (
-                        <p className="text-[13px] text-tower-700 dark:text-tower-200">
-                            Cavalo {offer.plates.traction ?? '—'}
-                            {offer.plates.trailers.length ? ` · Implementos ${offer.plates.trailers.join(', ')}` : ''}
-                        </p>
+                    <p className="mt-1 text-[12px] text-tower-600 dark:text-tower-300">
+                        {offer.linkName} tem uma composição diferente do que já está nesta viagem.
+                    </p>
+                    {offer.suggestion.drivers.length ? (
+                        <p className="mt-1 text-[13px] text-tower-700 dark:text-tower-200">Motorista: {offer.suggestion.drivers.map((d) => d.name).join(', ')}</p>
                     ) : null}
+                    <p className="text-[13px] text-tower-700 dark:text-tower-200">
+                        Cavalo {offer.suggestion.traction.plate}
+                        {offer.suggestion.trailers.length ? ` · Implementos ${offer.suggestion.trailers.map((t) => t.plate).join(', ')}` : ''}
+                    </p>
                     <OsButton full className="mt-3" disabled={busy} onClick={() => void applyOffer()}>
-                        {busy ? 'Aplicando…' : 'Usar composição cadastrada'}
+                        {busy ? 'Aplicando…' : 'Usar esta composição'}
                     </OsButton>
                     <OsButton full variant="ghost" className="mt-1" disabled={busy} onClick={() => setOffer(null)}>
                         Manter o que está na viagem
@@ -711,7 +638,7 @@ const ResponsibleEditor: React.FC<{
                 detail="Placa da viagem, independente do transportador"
                 action={plates.traction ? 'Trocar' : 'Informar'}
                 disabled={busy || locked || !manifest}
-                onAction={openTraction}
+                onAction={() => { setError(null); setView('traction'); }}
             />
             <Row
                 label="Implementos"
@@ -719,7 +646,7 @@ const ResponsibleEditor: React.FC<{
                 detail={plates.trailers.length ? `${plates.trailers.length} de 3` : 'Até 3 implementos'}
                 action={plates.trailers.length ? 'Trocar' : 'Informar'}
                 disabled={busy || locked || !manifest}
-                onAction={openTrailers}
+                onAction={() => { setError(null); setView('trailers'); }}
             />
         </OsSheet>
     );

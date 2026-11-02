@@ -32,9 +32,14 @@ export function tripNextStep(manifest: ManifestWithLegs, readiness: ManifestRead
 
     const issues = readiness?.issues ?? [];
     const blocking = issues.filter((issue) => issue.severity === 'blocking');
-    const groupIssue = (group: 'responsible' | 'freight' | 'departure') => blocking.find((issue) => groupOf(issue) === group);
-    const responsible = groupIssue('responsible');
+    const groupIssue = (group: 'freight' | 'departure') => blocking.find((issue) => groupOf(issue) === group);
+    // O cavalo só vira o passo quando o resto do responsável (transportador/motorista) já está resolvido.
+    const responsibleIssues = blocking.filter((issue) => groupOf(issue) === 'responsible');
+    const responsible = responsibleIssues.find((issue) => issue.code !== 'VEHICLE_TRACTION_REQUIRED') ?? responsibleIssues[0];
     if (!manifest.linkId || !manifest.driverId || responsible) {
+        if (manifest.linkId && manifest.driverId && responsible?.code === 'VEHICLE_TRACTION_REQUIRED') {
+            return next('responsible', 'Escolher cavalo', responsible.message);
+        }
         return next('responsible', 'Definir transportador e motorista', responsible?.message ?? 'Escolha quem transporta e quem dirige esta viagem.');
     }
 

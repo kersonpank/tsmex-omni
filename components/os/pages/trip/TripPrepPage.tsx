@@ -390,7 +390,7 @@ const TripPrepPage: React.FC = () => {
                     onResolve={resolveFromDocuments}
                 />
             ) : openGroup ? (
-                <TripInfoEditor manifestId={manifest.id} group={openGroup} onClose={closeAndReload} onUpdated={load} />
+                <TripInfoEditor manifestId={manifest.id} group={openGroup} onClose={closeAndReload} onUpdated={load} onOpenResponsible={() => setOpen('responsible')} />
             ) : null}
 
             {startOpen ? (

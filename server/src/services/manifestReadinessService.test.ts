@@ -4,12 +4,20 @@ import prisma from '../lib/prisma.js';
 import { getManifestReadiness } from './manifestReadinessService.js';
 
 const prismaSnapshot = {
+    manifestFindFirst: prisma.manifest.findFirst,
+    manifestFindMany: prisma.manifest.findMany,
+    linkFindUnique: prisma.link.findUnique,
+    driversFindMany: prisma.driver.findMany,
     manifestFindUnique: prisma.manifest.findUnique.bind(prisma.manifest),
     orderLegFindMany: prisma.orderLeg.findMany,
     fiscalFindMany: prisma.manifestFiscalDocument.findMany,
 };
 
 function restorePrismaMocks() {
+    prisma.manifest.findFirst = prismaSnapshot.manifestFindFirst;
+    prisma.manifest.findMany = prismaSnapshot.manifestFindMany;
+    prisma.link.findUnique = prismaSnapshot.linkFindUnique;
+    prisma.driver.findMany = prismaSnapshot.driversFindMany;
     prisma.manifest.findUnique = prismaSnapshot.manifestFindUnique;
     prisma.orderLeg.findMany = prismaSnapshot.orderLegFindMany;
     prisma.manifestFiscalDocument.findMany = prismaSnapshot.fiscalFindMany;
@@ -79,6 +87,10 @@ describe('manifestReadinessService', () => {
     afterEach(() => restorePrismaMocks());
 
     function mockWith(linkOverrides?: object, driverOverrides?: object, manifestOverrides?: object) {
+        prisma.manifest.findFirst = (async () => null) as any;
+        prisma.manifest.findMany = (async () => []) as any;
+        prisma.link.findUnique = (async () => baseLink) as any;
+        prisma.driver.findMany = (async () => []) as any;
         prisma.orderLeg.findMany = (async () => []) as any;
         const link = linkOverrides !== undefined ? { ...baseLink, ...linkOverrides } : baseLink;
         const driver = driverOverrides !== undefined ? { ...baseDriver, ...driverOverrides } : baseDriver;
@@ -96,6 +108,45 @@ describe('manifestReadinessService', () => {
         const blocking = r.issues.filter((i) => i.severity === 'blocking');
         assert.equal(blocking.length, 0, `unexpected blocking: ${blocking.map((i) => i.code).join(', ')}`);
         assert.equal(r.canOffer, true);
+    });
+
+    it('reserva vira aviso por unidade, com placa, id, status e data', async () => {
+        const truck = { id: 'truck', plate: 'BWP6E54', role: 'TRACTION', chassi: '9BWZZZ377VT004251', renavam: '12345678901', axles: 3, rntrc: '12345678' };
+        mockWith(undefined, undefined, { vehicleAssignments: [{ slot: 0, vehicleUnitId: 'truck', vehicleUnit: truck }] });
+        for (const [status, label] of [['PENDING_ACCEPT', 'oferta enviada'], ['ACCEPTED', 'aceita'], ['IN_PROGRESS', 'em viagem']]) {
+            prisma.manifest.findMany = (async () => [{ id: '4f95e673-other', status, plannedDepartureAt: new Date('2026-10-31T12:00:00Z'), vehicleAssignments: [{ vehicleUnitId: 'truck' }] }]) as any;
+            const result = await getManifestReadiness('manifest-1');
+            const warning = result.issues.find((item) => item.code === 'VEHICLE_RESERVED_ELSEWHERE');
+            assert.equal(warning?.severity, 'warning');
+            assert.equal(warning?.plate, 'BWP6E54');
+            assert.equal(warning?.vehicleUnitId, 'truck');
+            assert.equal(warning?.message, `BWP6E54 também está na viagem 4f95e673 (${label}, saída 31/10). Confira se o veículo estará livre.`);
+            assert.equal(result.canOffer, true);
+        }
+    });
+
+    it('cavalo ausente aponta a última composição, sem pendência genérica de placa', async () => {
+        mockWith(undefined, undefined, { vehicleAssignments: [] });
+        prisma.manifest.findFirst = (async () => ({ id: 'last', status: 'ACCEPTED', driverId: null, driverAssignments: [], vehicleAssignments: [
+            { slot: 0, vehicleUnit: { id: 'truck', plate: 'BWP6E54' } }, { slot: 1, vehicleUnit: { id: 'trailer', plate: 'AFY2E46' } },
+        ] })) as any;
+        const result = await getManifestReadiness('manifest-1');
+        const missing = result.issues.find((item) => item.code === 'VEHICLE_TRACTION_REQUIRED');
+        assert.equal(missing?.message, 'Escolha o cavalo desta viagem. Última viagem: BWP6E54 + AFY2E46.');
+        assert.equal(missing?.step, 'responsible');
+        assert.ok(!result.issues.some((item) => item.code === 'VEHICLE_PLATE_PENDING'));
+    });
+
+    it('reserva avisa cada unidade e omite data desconhecida', async () => {
+        const unit = (id: string, plate: string, role: string) => ({ id, plate, role, chassi: '9BWZZZ377VT004251', renavam: '12345678901', axles: 3, rntrc: '12345678' });
+        mockWith(undefined, undefined, { vehicleAssignments: [
+            { slot: 0, vehicleUnitId: 'truck', vehicleUnit: unit('truck', 'BWP6E54', 'TRACTION') },
+            { slot: 1, vehicleUnitId: 'trailer', vehicleUnit: unit('trailer', 'AFY2E46', 'TRAILER') },
+        ] });
+        prisma.manifest.findMany = (async () => [{ id: 'other-trip', status: 'ACCEPTED', plannedDepartureAt: null, vehicleAssignments: [{ vehicleUnitId: 'truck' }, { vehicleUnitId: 'trailer' }] }]) as any;
+        const warnings = (await getManifestReadiness('manifest-1')).issues.filter((item) => item.code === 'VEHICLE_RESERVED_ELSEWHERE');
+        assert.deepEqual(warnings.map((item) => [item.plate, item.vehicleUnitId]), [['BWP6E54', 'truck'], ['AFY2E46', 'trailer']]);
+        assert.ok(warnings.every((item) => item.message.includes('(aceita).') && !item.message.includes('saída')));
     });
 
     it('permite planejar e ofertar com CT-e pendente, mostrando atenção nos pedidos', async () => {
@@ -133,7 +184,10 @@ describe('manifestReadinessService', () => {
         mockWith(undefined, undefined, { vehicleAssignments: [], compositionSnapshot: null });
         const readiness = await getManifestReadiness('manifest-1');
         assert.equal(readiness.canOffer, false);
-        assert.ok(readiness.issues.some((item) => item.code === 'VEHICLE_PLATE_PENDING'));
+        const missing = readiness.issues.find((item) => item.code === 'VEHICLE_TRACTION_REQUIRED');
+        assert.equal(missing?.field, 'vehicleTraction');
+        assert.equal(missing?.severity, 'blocking');
+        assert.equal(missing?.message, 'Escolha o cavalo desta viagem. Cadastro do transportador: ABC1234.');
     });
 
     // --- Driver address ---

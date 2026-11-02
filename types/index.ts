@@ -772,6 +772,25 @@ export interface ManifestReadinessIssue {
     message: string;
 }
 
+/** Composição que o servidor sugere para a viagem (última viagem do transportador ou cadastro padrão). */
+export interface TripCompositionDefaults {
+    source: 'LAST_TRIP' | 'CARRIER_DEFAULT';
+    fromManifestId: string | null;
+    traction: { plate: string; vehicleUnitId: string | null };
+    trailers: Array<{ plate: string; vehicleUnitId: string | null }>;
+    driverIds: string[];
+}
+
+export interface TripCompositionSuggestion {
+    source: 'LAST_TRIP' | 'CARRIER_DEFAULT';
+    fromManifestId: string | null;
+    traction: { plate: string };
+    trailers: Array<{ plate: string }>;
+    drivers: Array<{ id: string; name: string }>;
+    /** true quando a sugestão difere do que já está na viagem. */
+    differsFromTrip: boolean;
+}
+
 export interface DeliveryProgress {
     legId: string;
     orderId: string;

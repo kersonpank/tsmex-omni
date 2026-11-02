@@ -79,6 +79,7 @@ describe('manifests lifecycle TRANSFER E2E (mocked)', () => {
     const vehicleType = { maxWeight: 20000, maxVolume: 100, maxValue: 2_000_000 };
 
     const original = {
+        assignmentFindMany: prisma.manifestVehicleAssignment.findMany,
         manifestFindUnique: prisma.manifest.findUnique.bind(prisma.manifest),
         demandFindUnique: prisma.demand.findUnique.bind(prisma.demand),
         demandFindFirst: prisma.demand.findFirst.bind(prisma.demand),
@@ -201,6 +202,7 @@ describe('manifests lifecycle TRANSFER E2E (mocked)', () => {
     }
 
     function installPrismaMocks() {
+        prisma.manifestVehicleAssignment.findMany = (async () => []) as any;
         prisma.manifest.findUnique = (async () => ({
             ...store.manifest,
             vehicleType,
@@ -251,6 +253,7 @@ describe('manifests lifecycle TRANSFER E2E (mocked)', () => {
     }
 
     function restorePrismaMocks() {
+        prisma.manifestVehicleAssignment.findMany = original.assignmentFindMany;
         prisma.manifest.findUnique = original.manifestFindUnique;
         prisma.demand.findUnique = original.demandFindUnique;
         prisma.demand.findFirst = original.demandFindFirst;

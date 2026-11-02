@@ -36,6 +36,8 @@ const BY_CODE: Record<string, TripGroupKey> = {
     LINK_NOT_APPROVED: 'responsible',
     LINK_ACCESS_PENDING: 'responsible',
     DRIVER_LINK_MISMATCH: 'responsible',
+    VEHICLE_TRACTION_REQUIRED: 'responsible',
+    VEHICLE_RESERVED_ELSEWHERE: 'registry',
     DEPARTURE_REQUIRED: 'departure',
     ARRIVAL_BEFORE_DEPARTURE: 'departure',
     FREIGHT_AGREEMENT_REQUIRED: 'freight',

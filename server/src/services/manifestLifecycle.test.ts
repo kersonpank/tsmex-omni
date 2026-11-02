@@ -13,6 +13,9 @@ import {
 type TxOp = { model: string; action: string; args: Record<string, unknown> };
 
 const prismaSnapshot = {
+    assignmentFindMany: prisma.manifestVehicleAssignment.findMany,
+    assignmentFindFirst: prisma.manifestVehicleAssignment.findFirst,
+    manifestFindMany: prisma.manifest.findMany,
     manifestFindUnique: prisma.manifest.findUnique.bind(prisma.manifest),
     orderFindUnique: prisma.order.findUnique.bind(prisma.order),
     orderFindMany: prisma.order.findMany.bind(prisma.order),
@@ -28,6 +31,9 @@ const prismaSnapshot = {
 };
 
 function restorePrismaMocks() {
+    prisma.manifestVehicleAssignment.findMany = prismaSnapshot.assignmentFindMany;
+    prisma.manifestVehicleAssignment.findFirst = prismaSnapshot.assignmentFindFirst;
+    prisma.manifest.findMany = prismaSnapshot.manifestFindMany;
     prisma.manifest.findUnique = prismaSnapshot.manifestFindUnique;
     prisma.order.findUnique = prismaSnapshot.orderFindUnique;
     prisma.order.findMany = prismaSnapshot.orderFindMany;
@@ -47,8 +53,19 @@ function restorePrismaMocks() {
 }
 
 describe('manifestLifecycle', () => {
-    beforeEach(() => restorePrismaMocks());
+    beforeEach(() => {
+        restorePrismaMocks();
+        prisma.manifestVehicleAssignment.findMany = (async () => []) as any;
+        prisma.manifest.findMany = (async () => []) as any;
+    });
     afterEach(() => restorePrismaMocks());
+
+    it('bloqueia saída com 409 quando um veículo ainda está em outra viagem', async () => {
+        prisma.manifest.findUnique = (async () => ({ status: 'ACCEPTED', legs: [] })) as any;
+        prisma.manifestVehicleAssignment.findMany = (async () => [{ vehicleUnitId: 'truck' }]) as any;
+        prisma.manifestVehicleAssignment.findFirst = (async () => ({ manifestId: '4f95e673-other', vehicleUnit: { plate: 'BWP6E54' } })) as any;
+        await assert.rejects(startManifest('current'), (error: any) => error.statusCode === 409 && error.message === 'O veículo BWP6E54 ainda está em viagem (4f95e673). Conclua aquela viagem antes de registrar esta saída.');
+    });
 
     const manifestId = 'manifest-transfer-1';
     const destHubId = 'hub-imp-ma';

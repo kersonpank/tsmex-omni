@@ -2,8 +2,9 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { linksApi, manifestsApi } from '../../../../lib/api';
 import type { Manifest, ManifestReadiness } from '../../../../types/index';
-import type { CarrierRegistry, RegistryDriver, RegistryUnit } from '../../lib/carrier';
-import { tripRegistryUnits } from '../../lib/tripRegistry';
+import { manifestPlates, type CarrierRegistry, type RegistryDriver, type RegistryUnit } from '../../lib/carrier';
+import { carrierDefaultForTrip, tripRegistryUnits } from '../../lib/tripRegistry';
+import { apiErrorMessage } from '../../ui/Sheet';
 import { OsActionBar, OsBadge, OsButton, OsEmpty, OsErrorNotice, OsRow, OsSectionTitle, OsSkeletonRows } from '../../ui/kit';
 import CarrierInfoEditor from './CarrierInfoEditor';
 import DriverEditor from './DriverEditor';
@@ -37,6 +38,8 @@ const CarrierPage: React.FC = () => {
     const [trip, setTrip] = useState<Manifest | null>(null);
     const [readiness, setReadiness] = useState<ManifestReadiness | null>(null);
     const [tripError, setTripError] = useState(false);
+    const [applying, setApplying] = useState(false);
+    const [applyError, setApplyError] = useState<string | null>(null);
 
     const load = useCallback(async () => {
         const tripData = tripId
@@ -75,12 +78,28 @@ const CarrierPage: React.FC = () => {
         await load();
     };
 
+    const useDefaultOnTrip = async (composition: { traction: { plate: string }; trailers: Array<{ plate: string }> }) => {
+        if (!tripId || applying) return;
+        setApplying(true);
+        setApplyError(null);
+        try {
+            await manifestsApi.setVehicles(tripId, composition);
+            await load();
+        } catch (cause) {
+            setApplyError(apiErrorMessage(cause, 'Não foi possível usar esta composição na viagem.'));
+        } finally {
+            setApplying(false);
+        }
+    };
+
     if (loading) return <OsSkeletonRows count={4} />;
     if (!registry) return <OsErrorNotice message={error ?? 'Transportador não encontrado.'} onRetry={() => void load()} />;
 
     const traction = registry.units.find((u) => u.role === 'TRACTION') ?? null;
     const trailers = registry.units.filter((u) => u.role === 'TRAILER');
     const tripTraction = trip ? tripRegistryUnits(trip, readiness?.issues ?? []).find((unit) => unit.slot === 0) : null;
+    const tripPlates = manifestPlates(trip?.vehicleAssignments);
+    const defaultForTrip = trip && !tripError && trip.status === 'DRAFT' ? carrierDefaultForTrip(registry.units, tripPlates) : null;
     const total =
         registry.carrierIssues.length +
         registry.units.reduce((n, u) => n + u.issues.length, 0) +
@@ -100,9 +119,15 @@ const CarrierPage: React.FC = () => {
                 <div className="mb-3 rounded-xl bg-tower-100 p-3 text-[13px] text-tower-600 dark:bg-tower-800 dark:text-tower-300">
                     <p>
                         {tripTraction
-                            ? `Nesta viagem: cavalo ${tripTraction.plate} — ${tripTraction.issues.length ? 'dados incompletos' : 'cadastro completo'}`
+                            ? `Nesta viagem: cavalo ${tripTraction.plate}${tripPlates.trailers.length ? ` + ${tripPlates.trailers.join(' + ')}` : ''} — ${tripTraction.issues.length ? 'dados incompletos' : 'cadastro completo'}`
                             : tripError ? 'Não foi possível conferir o cadastro desta viagem.' : 'Nesta viagem: cavalo ainda não definido.'}
                     </p>
+                    {defaultForTrip ? (
+                        <OsButton full className="mt-2" disabled={applying} onClick={() => void useDefaultOnTrip(defaultForTrip)}>
+                            {applying ? 'Aplicando…' : `Usar ${defaultForTrip.label} nesta viagem`}
+                        </OsButton>
+                    ) : null}
+                    {applyError ? <p className="mt-1.5 font-semibold text-brand-red-600 dark:text-brand-red-400">{applyError}</p> : null}
                     <button type="button" className="mt-1.5 font-bold text-brand-600 underline underline-offset-2 dark:text-brand-300" onClick={() => navigate(`/hubs/viagens/${tripId}?cadastro=1`)}>
                         Ver cadastro desta viagem
                     </button>

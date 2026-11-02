@@ -41,6 +41,18 @@ describe('tripNextStep', () => {
         expect(tripNextStep(manifest(), readiness([pending]))).toMatchObject({ action: 'responsible', hint: pending.message });
     });
 
+    it('cavalo ausente vira "Escolher cavalo" com a mensagem do servidor', () => {
+        const traction = { ...issue('VEHICLE_TRACTION_REQUIRED', 'responsible'), message: 'Escolha o cavalo desta viagem. Última viagem: A + B.' };
+        expect(tripNextStep(manifest(), readiness([traction]))).toEqual({
+            label: 'Escolher cavalo', action: 'responsible', hint: traction.message,
+        });
+        // Outro bloqueio do responsável (ex.: vínculo do motorista) continua na frente.
+        const mismatch = issue('DRIVER_LINK_MISMATCH', 'responsible');
+        expect(tripNextStep(manifest(), readiness([traction, mismatch]))).toMatchObject({ label: 'Definir transportador e motorista', hint: mismatch.message });
+        // Sem motorista, o passo continua sendo transportador e motorista.
+        expect(tripNextStep(manifest({ driverId: null }), readiness([traction])).label).toBe('Definir transportador e motorista');
+    });
+
     it('pede Carta Frete antes da saída prevista e aceita frete zero', () => {
         expect(tripNextStep(manifest({ freightAgreement: null, plannedDepartureAt: null }), readiness()).action).toBe('freight');
         expect(tripNextStep(manifest(), readiness()).action).toBe('start');

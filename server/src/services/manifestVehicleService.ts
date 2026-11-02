@@ -8,9 +8,14 @@ import { normalizePlate, resolveManifestComposition } from './vehicleUnitRules.j
 export const manifestVehiclesSchema = linkCompositionSchema;
 export type ManifestVehiclesInput = z.infer<typeof manifestVehiclesSchema>;
 
-function overlaps(aStart: Date | null, aEnd: Date | null, bStart: Date | null, bEnd: Date | null): boolean {
-    if (!aStart || !aEnd || !bStart || !bEnd) return true;
-    return aStart < bEnd && bStart < aEnd;
+export async function assertManifestVehiclesAvailableForDeparture(manifestId: string) {
+    const assignments = await prisma.manifestVehicleAssignment.findMany({ where: { manifestId }, select: { vehicleUnitId: true } });
+    if (!assignments.length) return;
+    const conflict = await prisma.manifestVehicleAssignment.findFirst({
+        where: { manifestId: { not: manifestId }, manifest: { status: 'IN_PROGRESS' }, vehicleUnitId: { in: assignments.map((item) => item.vehicleUnitId) } },
+        include: { vehicleUnit: { select: { plate: true } } },
+    });
+    if (conflict) throw new AppError(`O veículo ${conflict.vehicleUnit.plate} ainda está em viagem (${conflict.manifestId.slice(0, 8)}). Conclua aquela viagem antes de registrar esta saída.`, 409);
 }
 
 export async function setManifestVehicles(manifestId: string, input: ManifestVehiclesInput) {
@@ -26,13 +31,6 @@ export async function setManifestVehicles(manifestId: string, input: ManifestVeh
         for (const [index, item] of all.entries()) {
             units.push(await upsertVehicleUnit(tx, index === 0 ? 'TRACTION' : 'TRAILER', item, { defaultHolderPersonId: manifest.link?.personId }));
         }
-        const conflicts = await tx.manifest.findMany({
-            where: { id: { not: manifestId }, status: { in: ['PENDING_ACCEPT', 'ACCEPTED', 'IN_PROGRESS'] }, vehicleAssignments: { some: { vehicleUnitId: { in: units.map((unit) => unit.id) } } } },
-            select: { id: true, status: true, plannedDepartureAt: true, plannedArrivalAt: true, vehicleAssignments: { select: { vehicleUnitId: true } } },
-        });
-        const conflict = conflicts.find((other) => other.status === 'IN_PROGRESS' || overlaps(manifest.plannedDepartureAt, manifest.plannedArrivalAt, other.plannedDepartureAt, other.plannedArrivalAt));
-        if (conflict) throw new AppError(`Um veículo selecionado já está reservado na viagem ${conflict.id.slice(0, 8)}.`, 409);
-
         await tx.manifestVehicleAssignment.deleteMany({ where: { manifestId } });
         await tx.manifestVehicleAssignment.createMany({ data: units.map((unit, slot) => ({ manifestId, vehicleUnitId: unit.id, slot })) });
         const updated = await tx.manifest.updateMany({ where: { id: manifestId, status: 'DRAFT' }, data: { compositionSnapshot: Prisma.DbNull, updatedAt: new Date() } });

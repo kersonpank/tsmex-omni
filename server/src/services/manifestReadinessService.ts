@@ -3,6 +3,7 @@ import prisma from '../lib/prisma.js';
 import { resolveDefaultTripEmitter } from './fiscal/resolveDefaultTripEmitter.js';
 import { AppError } from '../middleware/errorHandler.js';
 import type { PlanningActions } from './manifestPlanningChanges.js';
+import { resolveTripCompositionDefaults } from './tripCompositionDefaults.js';
 import { linkVehicleInclude, manifestVehicleAssignmentsInclude } from './vehicleUnitService.js';
 import { compositionIssues, describeUnitIssues, mdfeUnitDataIssues, resolveManifestComposition, tractionHolderDiffersFromCarrier, type VehicleUnitField } from './vehicleUnitRules.js';
 
@@ -189,6 +190,12 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
         }
     }
 
+    const composition = resolveManifestComposition(manifest);
+    if (!composition.traction) {
+        const suggestion = manifest.linkId ? await resolveTripCompositionDefaults(manifest.linkId, manifestId).catch(() => null) : null;
+        const hint = suggestion ? ` ${suggestion.source === 'LAST_TRIP' ? 'Última viagem' : 'Cadastro do transportador'}: ${[suggestion.traction, ...suggestion.trailers].map((unit) => unit.plate).join(' + ')}.` : '';
+        add(issue('responsible', 'VEHICLE_TRACTION_REQUIRED', `Escolha o cavalo desta viagem.${hint}`, 'vehicleTraction'));
+    }
     if (!manifest.linkId || !manifest.link) {
         add(issue('responsible', 'LINK_REQUIRED', 'Selecione o responsável pela viagem.', 'linkId'));
     } else if (manifest.link.approvalStatus !== 'APPROVED') {
@@ -197,8 +204,8 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
         if (manifest.link.userId === null) add(issue('responsible', 'LINK_ACCESS_PENDING', 'Transportador sem acesso ao aplicativo: o hub de origem confirma e registra a saída em nome dele.', 'linkId', 'warning'));
         // Pendência só aparece quando a Unidade de Veículo realmente não tem o dado — cada unidade
         // (cavalo e reboques) carrega chassi, RENAVAM, eixos e RNTRC obrigatórios.
-        const composition = resolveManifestComposition(manifest);
         for (const unitIssue of compositionIssues(composition)) {
+            if (unitIssue.unit === 'TRACTION' && !composition.traction) continue;
             const unit = composition.units.find((item) => item.plate === unitIssue.plate && item.role === unitIssue.unit);
             const subject = { plate: unitIssue.plate ?? undefined, vehicleUnitId: unit?.id ?? undefined };
             if (unitIssue.unit === 'TRAILER') {
@@ -221,6 +228,22 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
             }
             if (!unit.tareKg || !unit.capacityKg) {
                 add(issue('fiscal', 'MDFE_VEHICLE_CAPACITY_PENDING', `${label}: informe tara e capacidade em kg reais.`, `vehicleUnit:${unit.plate}`, manifest.status === 'ACCEPTED' ? 'blocking' : 'warning', subject));
+            }
+        }
+        const unitIds = (manifest.vehicleAssignments ?? []).map((assignment) => assignment.vehicleUnitId ?? assignment.vehicleUnit.id).filter(Boolean);
+        if (unitIds.length) {
+            const reservations = await prisma.manifest.findMany({
+                where: { id: { not: manifestId }, status: { in: ['PENDING_ACCEPT', 'ACCEPTED', 'IN_PROGRESS'] }, vehicleAssignments: { some: { vehicleUnitId: { in: unitIds } } } },
+                select: { id: true, status: true, plannedDepartureAt: true, vehicleAssignments: { select: { vehicleUnitId: true } } },
+                orderBy: { updatedAt: 'desc' },
+            });
+            const labels = { PENDING_ACCEPT: 'oferta enviada', ACCEPTED: 'aceita', IN_PROGRESS: 'em viagem' };
+            for (const unit of composition.units) {
+                const reservation = reservations.find((other) => other.vehicleAssignments.some((assignment) => assignment.vehicleUnitId === unit.id));
+                if (!reservation) continue;
+                const date = reservation.plannedDepartureAt ? `, saída ${reservation.plannedDepartureAt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' })}` : '';
+                const status = labels[reservation.status as keyof typeof labels];
+                add(issue('responsible', 'VEHICLE_RESERVED_ELSEWHERE', `${unit.plate} também está na viagem ${reservation.id.slice(0, 8)} (${status}${date}). Confira se o veículo estará livre.`, `vehicleUnit:${unit.plate}`, 'warning', { plate: unit.plate, vehicleUnitId: unit.id ?? undefined }));
             }
         }
         const addressComplete = (p: { neighborhood?: string | null; cep?: string | null; address?: string | null; number?: string | null; city?: string | null; state?: string | null; cityIbgeCode?: string | null } | null | undefined) =>

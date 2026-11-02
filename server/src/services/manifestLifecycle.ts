@@ -9,6 +9,7 @@ import {
     UserRole,
 } from '@prisma/client';
 import prisma from '../lib/prisma.js';
+import { assertManifestVehiclesAvailableForDeparture } from './manifestVehicleService.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { getManifestMargin, allocateLegCosts } from './pricingService.js';
 import { getManifestReadiness } from './manifestReadinessService.js';
@@ -495,6 +496,7 @@ export async function startManifest(
         throw new AppError('Manifest not found or not in accepted status', 400);
     }
 
+    await assertManifestVehiclesAvailableForDeparture(manifestId);
     const readiness = await getManifestReadiness(manifestId);
     if (!readiness.canStart) {
         throw new AppError(`Saída bloqueada: ${readiness.issues.filter((item) => item.severity === 'blocking').map((item) => item.message).join(' ')}`, 422);

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Driver, ManifestReadinessIssue, VehicleUnit } from '../../../types/index';
-import type { RegistryUnit } from './carrier';
-import { completeTractionSuggestion, tripRegistryDrivers, tripRegistryUnits } from './tripRegistry';
+import { carrierDefaultForTrip, suggestionPlates, suggestionTitle, tripRegistryDrivers, tripRegistryUnits } from './tripRegistry';
 
 const issue = (partial: Partial<ManifestReadinessIssue>): ManifestReadinessIssue => ({
     step: 'responsible', code: 'VEHICLE_CHASSI_PENDING', message: 'Cavalo NXP0710: chassi obrigatório.', severity: 'blocking', ...partial,
@@ -9,7 +8,6 @@ const issue = (partial: Partial<ManifestReadinessIssue>): ManifestReadinessIssue
 const traction: VehicleUnit = { id: 'trip-traction', plate: 'NXP0710', role: 'TRACTION', chassi: null, renavam: null, axles: null };
 const trailer: VehicleUnit = { id: 'trip-trailer', plate: 'ABC1D23', role: 'TRAILER' };
 const assignments = [{ slot: 1, vehicleUnit: trailer }, { slot: 0, vehicleUnit: traction }];
-const standard: RegistryUnit = { id: 'carrier-traction', plate: 'GHN1C91', role: 'TRACTION', issues: [] };
 const primary: Driver = { id: 'primary', name: 'José', document: '12345678900', phone: '11912345678', linkId: 'carrier', active: true };
 const additional: Driver = { ...primary, id: 'additional', name: 'João' };
 
@@ -78,16 +76,39 @@ describe('motoristas da viagem', () => {
     });
 });
 
-describe('sugestão de cavalo com cadastro completo', () => {
-    it('propõe GHN1C91 e mantém os reboques escolhidos na viagem na ordem dos slots', () => {
-        const next = completeTractionSuggestion({ status: 'DRAFT', vehicleAssignments: assignments }, { units: [standard] });
-        expect(next).toEqual({ traction: { plate: 'GHN1C91' }, trailers: [{ plate: 'ABC1D23' }] });
+describe('texto da composição sugerida pelo servidor', () => {
+    const base = { traction: { plate: 'BWP6E54' }, trailers: [{ plate: 'AFY2E46' }] };
+
+    it('junta cavalo e implementos', () => {
+        expect(suggestionPlates(base)).toBe('BWP6E54 + AFY2E46');
+        expect(suggestionPlates({ traction: base.traction, trailers: [] })).toBe('BWP6E54');
     });
 
-    it('não oferece unidade incompleta, a placa atual nem troca após confirmar a viagem', () => {
-        const trip = { status: 'DRAFT' as const, vehicleAssignments: assignments };
-        expect(completeTractionSuggestion(trip, { units: [{ ...standard, issues: ['RENAVAM'] }] })).toBeNull();
-        expect(completeTractionSuggestion(trip, { units: [{ ...standard, plate: traction.plate }] })).toBeNull();
-        expect(completeTractionSuggestion({ ...trip, status: 'ACCEPTED' }, { units: [standard] })).toBeNull();
+    it('diferencia última viagem de cadastro do transportador', () => {
+        expect(suggestionTitle({ ...base, source: 'LAST_TRIP' })).toBe('Usar composição da última viagem: BWP6E54 + AFY2E46');
+        expect(suggestionTitle({ ...base, source: 'CARRIER_DEFAULT' })).toBe('Usar composição do cadastro do transportador: BWP6E54 + AFY2E46');
+    });
+});
+
+describe('composição padrão do transportador para a viagem', () => {
+    const units = [
+        { plate: 'BWP6E54', role: 'TRACTION' as const },
+        { plate: 'AFY2E46', role: 'TRAILER' as const },
+    ];
+
+    it('oferece a composição padrão quando a viagem não tem cavalo', () => {
+        expect(carrierDefaultForTrip(units, { traction: null, trailers: [] })).toEqual({
+            traction: { plate: 'BWP6E54' }, trailers: [{ plate: 'AFY2E46' }], label: 'BWP6E54 + AFY2E46',
+        });
+    });
+
+    it('oferece quando as placas diferem e some quando já são as mesmas', () => {
+        expect(carrierDefaultForTrip(units, { traction: 'NXP0710', trailers: ['AFY2E46'] })).not.toBeNull();
+        expect(carrierDefaultForTrip(units, { traction: 'BWP6E54', trailers: [] })).not.toBeNull();
+        expect(carrierDefaultForTrip(units, { traction: 'bwp-6e54', trailers: ['AFY2E46'] })).toBeNull();
+    });
+
+    it('não oferece sem cavalo cadastrado', () => {
+        expect(carrierDefaultForTrip([units[1]], { traction: null, trailers: [] })).toBeNull();
     });
 });

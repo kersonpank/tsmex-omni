@@ -15,8 +15,9 @@ const TripInfoEditor: React.FC<{
     group: TripGroup;
     onClose: () => void;
     onUpdated?: () => void | Promise<void>;
-}> = ({ manifestId, group, onClose, onUpdated }) => {
-    if (group.key === 'registry') return <TripRegistryEditor manifestId={manifestId} onClose={onClose} onUpdated={onUpdated} />;
+    onOpenResponsible?: () => void;
+}> = ({ manifestId, group, onClose, onUpdated, onOpenResponsible }) => {
+    if (group.key === 'registry') return <TripRegistryEditor manifestId={manifestId} onClose={onClose} onUpdated={onUpdated} onOpenResponsible={onOpenResponsible} />;
     const all = [...group.blocking, ...group.warnings];
 
     return (

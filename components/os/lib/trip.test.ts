@@ -19,6 +19,11 @@ describe('groupOf', () => {
         expect(groupOf(issue({ step: 'fiscal', code: 'MDFE_AUTHORIZATION_REQUIRED' }))).toBe('documents');
     });
 
+    it('cavalo obrigatório vai para o responsável e veículo em outra viagem para o cadastro', () => {
+        expect(groupOf(issue({ code: 'VEHICLE_TRACTION_REQUIRED', field: 'vehicleTraction' }))).toBe('responsible');
+        expect(groupOf(issue({ code: 'VEHICLE_RESERVED_ELSEWHERE', severity: 'warning' }))).toBe('registry');
+    });
+
     it('dados de veículo/motorista sem código mapeado viram cadastro', () => {
         expect(groupOf(issue({ code: 'VEHICLE_CHASSI_PENDING' }))).toBe('registry');
         expect(groupOf(issue({ code: 'DRIVER_CNH_PENDING' }))).toBe('registry');

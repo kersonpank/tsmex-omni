@@ -58,6 +58,7 @@ function requestBody(): any {
 }
 
 before(async () => {
+    stub(prisma.manifest, 'findMany', async () => []);
     Object.assign(process.env, { JWT_SECRET: secret, EFRETE_ENV: 'homologacao', EFRETE_HOMOLOGACAO_USUARIO: 'test', EFRETE_HOMOLOGACAO_SENHA: 'test', EFRETE_HOMOLOGACAO_INTEGRADOR: 'test', EFRETE_HOMOLOGACAO_INTEGRADOR_CNPJ: emitterDocument });
     stub(prisma.user, 'findUnique', async () => ({ id: 'admin-id', active: true, roles: ['ADMIN'], hubId: null }));
     stub(prisma.manifest, 'findFirst', async () => ({ id: manifestId }));

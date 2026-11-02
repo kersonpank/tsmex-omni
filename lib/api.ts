@@ -18,6 +18,8 @@ import type {
     ManifestFreightAgreement,
     TripPriceEstimate,
     ManifestReadiness,
+    TripCompositionDefaults,
+    TripCompositionSuggestion,
     DeliveryProgress,
     CreateManifestRequest,
     Hub,
@@ -669,7 +671,12 @@ export const manifestsApi = {
     },
 
     setResponsible: async (id: string, linkId: string | null, driverId?: string | null) => {
-        const response = await api.patch<ApiResponse<Manifest>>(`/manifests/${id}/assignment`, { linkId, driverId });
+        const response = await api.patch<ApiResponse<Manifest> & { defaultsApplied?: TripCompositionDefaults | null }>(`/manifests/${id}/assignment`, { linkId, driverId });
+        return response.data;
+    },
+
+    compositionSuggestion: async (id: string) => {
+        const response = await api.get<ApiResponse<TripCompositionSuggestion | null>>(`/manifests/${id}/composition-suggestion`);
         return response.data;
     },
 

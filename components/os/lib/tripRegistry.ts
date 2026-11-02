@@ -1,5 +1,5 @@
-import type { Driver, Manifest, ManifestReadinessIssue } from '../../../types/index';
-import { normalizePlate, type CarrierRegistry, type RegistryDriver, type RegistryUnit } from './carrier';
+import type { Driver, Manifest, ManifestReadinessIssue, TripCompositionSuggestion } from '../../../types/index';
+import { normalizePlate, type RegistryDriver, type RegistryUnit, type TripCompositionPlates } from './carrier';
 
 export interface TripRegistryUnit extends RegistryUnit {
     slot: number;
@@ -72,18 +72,34 @@ export function tripRegistryDrivers(
     });
 }
 
-/** Troca só o cavalo, mantendo os implementos escolhidos na viagem. */
-export function completeTractionSuggestion(
-    trip: Pick<Manifest, 'status' | 'vehicleAssignments'>,
-    registry: Pick<CarrierRegistry, 'units'>,
-): { traction: { plate: string }; trailers: Array<{ plate: string }> } | null {
-    if (trip.status !== 'DRAFT') return null;
-    const current = trip.vehicleAssignments?.find((assignment) => assignment.slot === 0)?.vehicleUnit;
-    const standard = registry.units.find((unit) => unit.role === 'TRACTION' && unit.issues.length === 0);
-    if (!current || !standard || normalizePlate(current.plate) === normalizePlate(standard.plate)) return null;
+/** Placas da composição sugerida pelo servidor, como "BWP6E54 + AFY2E46". */
+export function suggestionPlates(suggestion: Pick<TripCompositionSuggestion, 'traction' | 'trailers'>): string {
+    return [suggestion.traction.plate, ...suggestion.trailers.map((trailer) => trailer.plate)].join(' + ');
+}
+
+/** "Usar composição da última viagem: …" / "…do cadastro do transportador: …". */
+export function suggestionTitle(suggestion: Pick<TripCompositionSuggestion, 'source' | 'traction' | 'trailers'>): string {
+    const origin = suggestion.source === 'LAST_TRIP' ? 'da última viagem' : 'do cadastro do transportador';
+    return `Usar composição ${origin}: ${suggestionPlates(suggestion)}`;
+}
+
+/**
+ * Composição padrão do transportador (cavalo + até 3 reboques) quando ela difere do que a viagem tem.
+ * Devolve null se o transportador não tem cavalo ou se a viagem já usa exatamente essas placas.
+ */
+export function carrierDefaultForTrip(
+    units: Array<Pick<RegistryUnit, 'plate' | 'role'>>,
+    trip: TripCompositionPlates,
+): { traction: { plate: string }; trailers: Array<{ plate: string }>; label: string } | null {
+    const traction = units.find((unit) => unit.role === 'TRACTION');
+    if (!traction) return null;
+    const trailers = units.filter((unit) => unit.role === 'TRAILER').slice(0, 3);
+    const wanted = [traction, ...trailers].map((unit) => normalizePlate(unit.plate));
+    const current = [trip.traction, ...trip.trailers].map((plate) => normalizePlate(plate)).filter(Boolean);
+    if (wanted.length === current.length && wanted.every((plate, index) => plate === current[index])) return null;
     return {
-        traction: { plate: standard.plate },
-        trailers: [...(trip.vehicleAssignments ?? [])].sort((a, b) => a.slot - b.slot)
-            .filter((assignment) => assignment.slot > 0).map((assignment) => ({ plate: assignment.vehicleUnit.plate })),
+        traction: { plate: traction.plate },
+        trailers: trailers.map((unit) => ({ plate: unit.plate })),
+        label: [traction, ...trailers].map((unit) => unit.plate).join(' + '),
     };
 }
