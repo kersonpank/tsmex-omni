@@ -88,6 +88,7 @@ export interface CiotMapperInput {
     codigoMunicipioDestino: number;
     veiculos: string[]; // cavalo primeiro, depois carreta(s)
     contratantesCargaFracionada?: string[]; // obrigatório (mín. 1) só em Fracionado
+    notasFiscais: Array<{ cnpjEmissor?: string; numero: string; serie: string; valorTotal: number; pesoKg: number; ncm?: string }>;
     requestData: CiotRequestData;
 }
 
@@ -107,14 +108,21 @@ export interface AdicionarOperacaoTransporteV2Payload {
     RetornoVazio?: boolean;
     TipoPagamento: CiotTipoPagamento;
     EntregaDocumentacao: string;
-    Viagens?: {
+    Viagens?: Array<{
         DocumentoViagem: string;
         CodigoMunicipioOrigem: number;
         CodigoMunicipioDestino: number;
         DistanciaPercorrida: number;
         Valores: Record<string, number>;
         TipoPagamento: CiotTipoPagamento;
-    };
+        NotasFiscais: Array<{
+            CnpjEmissor?: string; Numero: string; Serie: string; ValorTotal: number;
+            ValorDaMercadoriaPorUnidade: number; CodigoNCMNaturezaCarga?: string;
+            UnidadeDeMedidaDaMercadoria: 'Kg'; TipoDeCalculo: 'SemQuebra';
+            QuantidadeDaMercadoriaNoEmbarque: number;
+            ToleranciaDePerdaDeMercadoria: { Tipo: 'Nenhum'; Valor: 0 };
+        }>;
+    }>;
     Impostos: Record<string, number | string>;
     Pagamentos: Array<Record<string, unknown>>;
     Contratado: { CpfOuCnpj: string; RNTRC: string };
@@ -185,7 +193,7 @@ export function buildCiotPayload(input: CiotMapperInput): AdicionarOperacaoTrans
         TipoPagamento: rd.tipoPagamento,
         EntregaDocumentacao: rd.entregaDocumentacao,
         // v8.2 AP15 e matriz p. 24: não enviar viagem na declaração inicial do TAC Agregado.
-        ...(!isTacAgregado ? { Viagens: {
+        ...(!isTacAgregado ? { Viagens: [{
             DocumentoViagem: rd.documentoViagem,
             CodigoMunicipioOrigem: input.codigoMunicipioOrigem,
             CodigoMunicipioDestino: input.codigoMunicipioDestino,
@@ -200,7 +208,19 @@ export function buildCiotPayload(input: CiotMapperInput): AdicionarOperacaoTrans
                 Seguro: rd.valores.seguro ?? 0,
             },
             TipoPagamento: rd.tipoPagamento,
-        } } : {}),
+            NotasFiscais: input.notasFiscais.map((nota) => ({
+                ...(nota.cnpjEmissor ? { CnpjEmissor: nota.cnpjEmissor } : {}),
+                Numero: nota.numero,
+                Serie: nota.serie,
+                ValorTotal: nota.valorTotal,
+                ValorDaMercadoriaPorUnidade: Math.max(0.01, Math.round(nota.valorTotal / (nota.pesoKg > 0 ? nota.pesoKg : 1) * 100) / 100),
+                CodigoNCMNaturezaCarga: digits(nota.ncm).slice(0, 4).length === 4 ? digits(nota.ncm).slice(0, 4) : rd.codigoNcmNaturezaCarga,
+                UnidadeDeMedidaDaMercadoria: 'Kg',
+                TipoDeCalculo: 'SemQuebra',
+                QuantidadeDaMercadoriaNoEmbarque: Math.max(1, nota.pesoKg),
+                ToleranciaDePerdaDeMercadoria: { Tipo: 'Nenhum', Valor: 0 },
+            })),
+        }] } : {}),
         Impostos: {
             IRRF: rd.impostos.irrf ?? 0,
             SestSenat: rd.impostos.sestSenat ?? 0,

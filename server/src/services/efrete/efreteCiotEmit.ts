@@ -79,11 +79,11 @@ export interface ConsultarCiotResult {
  * `submitCiotToEfrete` (inclusive em retry após timeout): se já existir CIOT pra esse id, reusa
  * em vez de reemitir (evita CIOT duplicado / multa ANTT).
  */
-export async function consultarStatusCiot(idOperacaoCliente: string, environment: EfreteEnvironment): Promise<ConsultarCiotResult> {
+export async function consultarStatusCiot(idOperacaoCliente: string, matrizCnpj: string, environment: EfreteEnvironment): Promise<ConsultarCiotResult> {
     try {
-        const res = await efreteAuthedGet<ConsultarCiotResponse>(
+        const res = await efreteAuthedPost<ConsultarCiotResponse>(
             '/services/Pef/ObterCodigoIdentificacaoOperacaoTransportePorIdOperacaoCliente',
-            { IdOperacaoCliente: idOperacaoCliente }, { environment },
+            { MatrizCNPJ: matrizCnpj, IdOperacaoCliente: idOperacaoCliente }, { environment, versao: 1 },
         );
         if (!res.CodigoIdentificacaoOperacao) return { exists: false };
         return { exists: true, codigoIdentificacaoOperacao: res.CodigoIdentificacaoOperacao, estado: res.EstadoCiot, protocoloServico: res.ProtocoloServico };
@@ -108,6 +108,7 @@ export function isCiotNotFoundError(err: unknown): boolean {
     // Sem excecaoMensagem/excecaoCodigo = timeout, rede, JSON inválido ou HTTP de infraestrutura.
     if (!err.excecaoMensagem && !err.excecaoCodigo) return false;
     if (err.httpStatus !== undefined && err.httpStatus !== 200) return false;
+    if (err.excecaoCodigo === 'Operacao.Nao.Localizada') return true;
     const extraCodes = (process.env.EFRETE_CONSULTA_NOT_FOUND_CODES ?? '').split(',').map((c) => c.trim()).filter(Boolean);
     if (err.excecaoCodigo && extraCodes.includes(err.excecaoCodigo)) return true;
     return /n[aã]o\s+(foi\s+)?(encontrad|localizad|existe)|inexist|n[aã]o\s+h[aá]\s+opera|nenhuma\s+opera/i.test(err.excecaoMensagem ?? '');

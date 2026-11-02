@@ -304,3 +304,13 @@ describe('atalhos de erro do CIOT', () => {
         expect(ciotFixNote('Motorista sem CNH')).toBeNull();
     });
 });
+
+it.each([
+    ['Distância não compatível com a Origem/Destino', null, 'Revise a distância: informe a quilometragem rodoviária real entre origem e destino.'],
+    ['valor do frete informado é menor do que o valor mínimo', 'freight', 'Frete abaixo do piso mínimo ANTT para esta distância e número de eixos. Aumente o valor na Carta Frete.'],
+    ['contratado(s) para outro contratante', 'registry', 'Esta placa tem CIOT ativo com outro contratante. Troque o veículo/implemento ou peça o encerramento daquele CIOT.'],
+    ['Integrador sem permissão para este cliente', null, 'O CNPJ emissor do CIOT não está liberado para o integrador e-Frete.'],
+])('orienta a rejeição ANTT: %s', (message, group, note) => {
+    expect(ciotFixGroup(message)?.group ?? null).toBe(group);
+    expect(ciotFixNote(message)).toBe(note);
+});

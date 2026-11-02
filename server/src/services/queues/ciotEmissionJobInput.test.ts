@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { buildCiotEmissionInputForJob } from './ciotEmissionJobInput.js';
+import { buildCiotEmissionInputForJob, ciotNotasFiscaisFromLegs } from './ciotEmissionJobInput.js';
 
 function createBaseEntities() {
     const jobRecord = {
@@ -64,6 +64,7 @@ function createBaseEntities() {
             phone: '81999346616',
             person: { id: 'person-driver', document: '69641536400', legalName: 'Motorista TAC' },
         },
+        legs: [{ order: { demand: { nfNumber: '69806', nfValue: 1930.75, weight: 315 } } }],
         tripStops: [],
         destinationCity: undefined,
         destinationState: undefined,
@@ -381,4 +382,21 @@ describe('buildCiotEmissionInputForJob fiscal emitter resolution and eFrete envi
             },
         );
     });
+});
+
+it('extrai emissor, série e NCM da NF-e, usa fallbacks e ignora notas sem número', () => {
+    const chave = '35261004949601000104550010000698061000000000';
+    assert.equal(chave.length, 44);
+    const legs = [{ order: { demand: { nfNumber: '69806', nfValue: 1930.75, weight: 315, rawInputData: { nfeXmlData: { chave, serie: '9', emitente: { cnpj: 'outro' }, produtos: [{ ncm: '25231000' }] } } } } }];
+    assert.deepEqual(ciotNotasFiscaisFromLegs(legs), [{ numero: '69806', valorTotal: 1930.75, pesoKg: 315, cnpjEmissor: '04949601000104', serie: '1', ncm: '2523' }]);
+    const demand = legs[0].order.demand;
+    demand.rawInputData.nfeXmlData.chave = '';
+    demand.rawInputData.nfeXmlData.emitente.cnpj = '04.949.601/0001-04';
+    assert.equal(ciotNotasFiscaisFromLegs(legs)[0].serie, '9');
+    assert.equal(ciotNotasFiscaisFromLegs(legs)[0].cnpjEmissor, '04949601000104');
+    demand.rawInputData.nfeXmlData.serie = '';
+    assert.equal(ciotNotasFiscaisFromLegs(legs)[0].serie, '1');
+    demand.nfNumber = '';
+    assert.throws(() => ciotNotasFiscaisFromLegs(legs), /Nenhuma NF-e com número/);
+    assert.deepEqual(ciotNotasFiscaisFromLegs(legs, true), []);
 });

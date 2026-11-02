@@ -24,7 +24,7 @@ import { ciotSuggestionDefaults } from '../services/efrete/ciotSuggestionDefault
 import { cancelarCiot } from '../services/efrete/efreteCiotEmit.js';
 import { getObjectDownloadUrl } from '../lib/objectStorage.js';
 import { enqueueCiotEmissionJob } from '../services/queues/ciotEmissionQueue.js';
-import type { StoredCiotRequestData } from '../services/queues/ciotEmissionJobInput.js';
+import { ciotNotasFiscaisFromLegs, type StoredCiotRequestData } from '../services/queues/ciotEmissionJobInput.js';
 import { getManifestReadiness } from '../services/manifestReadinessService.js';
 import { ciotDispensaSchema, dispenseManifestCiot, undoManifestCiotDispensa } from '../services/manifestCiotDispensa.js';
 import { ensureTripEmitter } from '../services/fiscal/resolveDefaultTripEmitter.js';
@@ -1624,7 +1624,7 @@ router.post('/:id/emit-ciot', authenticate, authorize('ADMIN', 'HUB'), async (re
         const id = req.params.id as string;
         const body = emitCiotSchema.parse(req.body);
 
-        const manifest = await prisma.manifest.findUnique({ where: { id }, include: { link: { include: { ...linkVehicleInclude, person: true } }, driver: { include: { person: true } }, fiscalEmitter: { include: { person: true } }, vehicleAssignments: manifestVehicleAssignmentsInclude } });
+        const manifest = await prisma.manifest.findUnique({ where: { id }, include: { link: { include: { ...linkVehicleInclude, person: true } }, driver: { include: { person: true } }, fiscalEmitter: { include: { person: true } }, vehicleAssignments: manifestVehicleAssignmentsInclude, legs: { include: { order: { include: { demand: true } } } } } });
         if (!manifest) throw new AppError('Manifest not found', 404);
         if (req.user!.roles.includes('HUB') && req.user!.hubId && manifest.hubId !== req.user!.hubId) {
             throw new AppError('Not authorized', 403);
@@ -1688,6 +1688,7 @@ router.post('/:id/emit-ciot', authenticate, authorize('ADMIN', 'HUB'), async (re
 
         const suggestion = await suggestCiotTipoViagem(id);
         const tipoViagem = body.tipoViagemOverride ?? manifest.ciotTipoViagemOverride ?? suggestion.tipoViagem;
+        ciotNotasFiscaisFromLegs(manifest.legs, tipoViagem === 'TAC_AGREGADO');
         const { contratantesCargaFracionada, composicaoVeicular } = validateCiotPreflight({
             tipoViagem,
             requestData: body.requestData,

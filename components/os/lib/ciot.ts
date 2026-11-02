@@ -371,6 +371,9 @@ export type CiotFixGroup = TripFixGroup;
  */
 export function ciotFixGroup(message: string, readiness?: ManifestReadiness | null): { group: CiotFixGroup; label: string } | null {
     const text = message.toLowerCase();
+    if (/contratado\(s\) para outro contratante/.test(text)) return { group: 'registry', label: 'Completar cadastro' };
+    if (/distância não compatível com a origem\/destino/.test(text)) return null;
+    if (/valor do frete informado é menor do que o valor mínimo/.test(text)) return { group: 'freight', label: 'Ajustar Carta Frete' };
     if (/contratante|integrador/.test(text)) return null;
     if (/pend[eê]ncias? operacionais?/.test(text)) {
         const first = groupIssues(readiness?.issues ?? []).find((group) => group.blocking.length > 0 && group.key !== 'documents');
@@ -388,6 +391,10 @@ export function ciotFixGroup(message: string, readiness?: ManifestReadiness | nu
 
 /** Erros do CIOT que não têm botão de correção, só uma explicação para o operador. */
 export function ciotFixNote(message: string): string | null {
+    if (/distância não compatível com a origem\/destino/i.test(message)) return 'Revise a distância: informe a quilometragem rodoviária real entre origem e destino.';
+    if (/valor do frete informado é menor do que o valor mínimo/i.test(message)) return 'Frete abaixo do piso mínimo ANTT para esta distância e número de eixos. Aumente o valor na Carta Frete.';
+    if (/contratado\(s\) para outro contratante/i.test(message)) return 'Esta placa tem CIOT ativo com outro contratante. Troque o veículo/implemento ou peça o encerramento daquele CIOT.';
+    if (/integrador sem permissão para este cliente/i.test(message)) return 'O CNPJ emissor do CIOT não está liberado para o integrador e-Frete.';
     if (/contratante|integrador/i.test(message)) {
         return 'O contratante do CIOT vem do emitente fiscal e das credenciais do integrador e-Frete, configuradas pela torre. Não há correção nesta tela.';
     }

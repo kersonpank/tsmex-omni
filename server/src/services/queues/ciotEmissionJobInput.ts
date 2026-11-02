@@ -11,6 +11,31 @@ import type { CiotMapperInput, CiotRequestData, CiotTipoViagemApi } from '../efr
 /** Formato persistido em `CiotEmissionJob.requestData` — Carta Frete + campos que só existem no Fracionado. */
 export type StoredCiotRequestData = CiotRequestData & { contratantesCargaFracionada?: string[] };
 
+/** Mesma extração no preflight da rota e no worker. */
+export function ciotNotasFiscaisFromLegs(legs: Array<{ order?: { demand?: {
+    nfNumber?: string | null; nfValue?: number | null; weight?: number | null; rawInputData?: unknown;
+} } }> = [], tacAgregado = false): CiotMapperInput['notasFiscais'] {
+    if (tacAgregado) return [];
+    const notas = legs.flatMap(({ order }) => {
+        const demand = order?.demand;
+        if (!demand?.nfNumber?.trim()) return [];
+        const raw = demand.rawInputData as { nfeXmlData?: { chave?: string; serie?: string | number; emitente?: { cnpj?: string }; produtos?: Array<{ ncm?: string }> } } | null;
+        const xml = raw?.nfeXmlData;
+        const chave = digits(xml?.chave);
+        const validKey = chave.length === 44;
+        return [{
+            numero: demand.nfNumber,
+            valorTotal: Number(demand.nfValue ?? 0),
+            pesoKg: Number(demand.weight ?? 0),
+            cnpjEmissor: validKey ? chave.slice(6, 20) : digits(xml?.emitente?.cnpj) || undefined,
+            serie: validKey ? String(Number(chave.slice(22, 25))) : String(xml?.serie || '1'),
+            ncm: digits(xml?.produtos?.[0]?.ncm).slice(0, 4) || undefined,
+        }];
+    });
+    if (!notas.length) throw new AppError('Nenhuma NF-e com número na viagem para informar ao CIOT.', 400);
+    return notas;
+}
+
 const tipoViagemToApi: Record<string, CiotTipoViagemApi> = {
     PADRAO: 'Padrao',
     FRACIONADO: 'Fracionado',
@@ -46,6 +71,7 @@ export async function buildCiotEmissionInputForJob(
         where: { id: job.manifestId },
         include: {
             vehicleAssignments: manifestVehicleAssignmentsInclude,
+            legs: { include: { order: { include: { demand: true } } } },
             hub: { include: { person: true } },
             destHub: { include: { person: true } },
             link: { include: { person: true, ...linkVehicleInclude } },
@@ -122,6 +148,7 @@ export async function buildCiotEmissionInputForJob(
         tipoViagem,
         idOperacaoCliente: job.idOperacaoCliente,
         matrizCnpj,
+        notasFiscais: ciotNotasFiscaisFromLegs(manifest.legs, tipoViagem === 'TAC_Agregado'),
         contratante: {
             nomeOuRazaoSocial: contratantePerson.legalName,
             cpfOuCnpj: digits(contratantePerson.document),

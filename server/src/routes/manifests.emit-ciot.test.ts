@@ -97,7 +97,7 @@ beforeEach(() => {
     manifest = {
         id: manifestId, status: 'ACCEPTED', hubId: 'hub-id', linkId: 'link-id', driverId: 'driver-id', fiscalEmitterId: 'emitter-id',
         origin: 'São Paulo/SP', destination: 'São Paulo/SP', originCityIbgeCode: '3550308', destinationCityIbgeCode: '3550308',
-        vehicleType: { id: 'vehicle-type-id', active: true }, tripStops: [], _count: { legs: 1 },
+        vehicleType: { id: 'vehicle-type-id', active: true }, tripStops: [], legs: [{ order: { demand: { nfNumber: '123', nfValue: 100, weight: 1000 } } }], _count: { legs: 1 },
         plannedDepartureAt: new Date(Date.now() + 3600000), plannedArrivalAt: new Date(Date.now() + 7200000),
         fiscalEmitter: { efreteEnvironment: 'HOMOLOGACAO', rntrc: '12345678', person: { ...person(), document: emitterDocument, legalName: 'Emitente de teste', stateRegistration: '110042490114' } },
         link: { id: 'link-id', userId: 'link-user-id', personId: 'link-person-id', document: '48384601000171', approvalStatus: 'APPROVED', rntrc: '12345678', carrierType: 'ETC', person: person() },
@@ -282,4 +282,13 @@ it('deriva composição verdadeira do cavalo e implemento ignorando false enviad
     assert.equal(createdJobs.length, 1);
     assert.equal(createdJobs[0].requestData.composicaoVeicular, true);
     assert.equal(updatedJobs.length, 0);
+});
+
+it('rejeita viagem sem NF-e numerada antes de enfileirar', async () => {
+    manifest.legs = [{ order: { demand: { nfNumber: null } } }];
+    const response = await request(requestBody());
+    assert.equal(response.status, 400);
+    const payload = await response.json() as any;
+    assert.match(payload.error, /Nenhuma NF-e com número/);
+    assert.equal(createdJobs.length, 0);
 });

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { EfreteApiError } from '../efrete/efreteHttp.js';
 import { processCiotEmissionJob } from './ciotEmissionProcessor.js';
 
 function setup(phase: string, existing: boolean) {
@@ -11,7 +12,7 @@ function setup(phase: string, existing: boolean) {
             manifest: { findUniqueOrThrow: async () => ({ link: { id: 'link', vehiclePlate: 'ABC1D23', rntrc: '123456789', trailerPlate: 'REB1A11', tractionUnit: { id: 'u1', plate: 'ABC1D23', role: 'TRACTION', chassi: '9BWZZZ377VT004251', renavam: '12345678901', axles: 3, rntrc: '987654321', ownerDocument: '11222333000181', ownerName: 'Dono' } }, driver: { id: 'driver' } }) },
             manifestFiscalDocument: { create: async (...args: unknown[]) => calls.push(['document', [...args]]), findFirst: async () => null, update: async (...args: unknown[]) => calls.push(['document-update', [...args]]) },
         },
-        buildCiotEmissionInputForJob: async () => ({ mapperInput: { tipoViagem: 'Padrao', idOperacaoCliente: 'op-1', matrizCnpj: '12345678901234', contratante: { nomeOuRazaoSocial: 'C', cpfOuCnpj: '12345678901234', endereco: { bairro: 'B', cep: '12345678', codigoMunicipio: 1, rua: 'R', numero: '1' } }, contratado: { cpfOuCnpj: '1', rntrc: '1' }, motorista: { cpfOuCnpj: '1', cnh: '1', celular: { ddd: 11, numero: 999999999 } }, codigoMunicipioOrigem: 1, codigoMunicipioDestino: 2, veiculos: ['ABC1D23'], requestData: { documentoViagem: 'D', distanciaPercorrida: 1, dataFimViagem: '2026-01-01', altoDesempenho: false, composicaoVeicular: false, tipoPagamento: 'TransferenciaBancaria', entregaDocumentacao: 'Cliente', valores: { totalOperacao: 1, totalViagem: 1, totalAdiantamento: 0, totalQuitacao: 1 }, impostos: {}, pagamentos: [], destinatario: { nomeOuRazaoSocial: 'D', cpfOuCnpj: '1', endereco: { bairro: 'B', cep: '12345678', codigoMunicipio: 2, rua: 'R', numero: '1' } } } }, environment: 'producao' }),
+        buildCiotEmissionInputForJob: async () => ({ mapperInput: { tipoViagem: 'Padrao', idOperacaoCliente: 'op-1', matrizCnpj: '12345678901234', contratante: { nomeOuRazaoSocial: 'C', cpfOuCnpj: '12345678901234', endereco: { bairro: 'B', cep: '12345678', codigoMunicipio: 1, rua: 'R', numero: '1' } }, contratado: { cpfOuCnpj: '1', rntrc: '1' }, motorista: { cpfOuCnpj: '1', cnh: '1', celular: { ddd: 11, numero: 999999999 } }, codigoMunicipioOrigem: 1, codigoMunicipioDestino: 2, veiculos: ['ABC1D23'], notasFiscais: [{ numero: '1', serie: '1', valorTotal: 1, pesoKg: 1 }], requestData: { documentoViagem: 'D', distanciaPercorrida: 1, dataFimViagem: '2026-01-01', altoDesempenho: false, composicaoVeicular: false, tipoPagamento: 'TransferenciaBancaria', entregaDocumentacao: 'Cliente', valores: { totalOperacao: 1, totalViagem: 1, totalAdiantamento: 0, totalQuitacao: 1 }, impostos: {}, pagamentos: [], destinatario: { nomeOuRazaoSocial: 'D', cpfOuCnpj: '1', endereco: { bairro: 'B', cep: '12345678', codigoMunicipio: 2, rua: 'R', numero: '1' } } } }, environment: 'producao' }),
         ensureMotoristaRegistrado: async (...args: unknown[]) => calls.push(['motorista', [...args]]),
         ensureProprietarioRegistrado: async (...args: unknown[]) => calls.push(['proprietario', [...args]]),
         ensureVeiculoRegistrado: async (...args: unknown[]) => calls.push(['veiculo', [...args]]),
@@ -65,7 +66,7 @@ describe('CIOT processor environment and idempotency', () => {
     it('consults existing CIOT with environment and does not submit', async () => {
         const { calls, deps, job } = setup('CADASTROS_ENSURING', true);
         await processCiotEmissionJob(job, deps);
-        assert.equal(calls.find(([kind]) => kind === 'consulta')?.[1].at(-1), 'producao');
+        assert.deepEqual(calls.find(([kind]) => kind === 'consulta')?.[1], ['op-1', '12345678901234', 'producao']);
         assert.equal(calls.some(([kind]) => kind === 'submit'), false);
     });
 
@@ -75,3 +76,17 @@ describe('CIOT processor environment and idempotency', () => {
         assert.deepEqual(calls, []);
     });
 });
+
+for (const stage of ['consultarStatusCiot', 'submitCiotToEfrete']) {
+    it(`registra aviso e preserva rejeições legíveis quando ${stage} falha`, async () => {
+        const { calls, deps, job } = setup('CADASTROS_ENSURING', false);
+        const warnings: unknown[] = [];
+        const original = console.warn;
+        console.warn = (value) => { warnings.push(value); };
+        deps[stage] = async () => { throw new EfreteApiError('wrapper', { excecaoCodigo: 'ANTT', excecaoMensagem: 'ANTT: ["Rejeição: distância", "Rejeição: frete"]' }); };
+        try { await processCiotEmissionJob(job, deps); } finally { console.warn = original; }
+        assert.deepEqual(warnings, [{ source: 'ciotEmission', manifestId: 'manifest-1', idOperacaoCliente: 'op-1', excecaoCodigo: 'ANTT', message: 'Rejeição: distância | Rejeição: frete' }]);
+        assert.ok(calls.some(([kind, args]) => kind === 'update' && (args[0] as any).data.lastError === 'Rejeição: distância | Rejeição: frete'));
+        assert.equal(calls.some(([kind, args]) => kind === 'document' && (args[0] as any).data.status === 'AUTHORIZED'), false);
+    });
+}

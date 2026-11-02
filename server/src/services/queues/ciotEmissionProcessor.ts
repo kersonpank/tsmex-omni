@@ -12,6 +12,16 @@ import { buildCiotEmissionInputForJob } from './ciotEmissionJobInput.js';
 import { uploadBase64Object } from '../../lib/objectStorage.js';
 import type { CiotEmissionJobData } from './ciotEmissionQueue.js';
 
+function readableEfreteMessage(message: string): string {
+    const start = message.indexOf('["Rejeição');
+    if (start < 0) return message;
+    try {
+        const rejections: unknown = JSON.parse(message.slice(start, message.lastIndexOf(']') + 1));
+        if (Array.isArray(rejections) && rejections.every((item) => typeof item === 'string')) return rejections.join(' | ');
+    } catch { /* Preserva a mensagem original quando o conteúdo não é JSON válido. */ }
+    return message;
+}
+
 const RETRY_DELAY_MS = 5_000;
 
 type CiotEmissionJobRecord = Awaited<ReturnType<typeof prisma.ciotEmissionJob.findUniqueOrThrow>>;
@@ -158,7 +168,7 @@ export async function processCiotEmissionJob(
         // Fase 2: idempotência — NUNCA reenviar sem checar primeiro se já existe CIOT pra este
         // idOperacaoCliente (timeout anterior pode ter sido aceito do lado da eFrete mesmo sem
         // resposta chegar aqui; reenviar direto duplicaria o CIOT e gera multa ANTT).
-        const existing = await deps.consultarStatusCiot(ciotJob.idOperacaoCliente, environment);
+        const existing = await deps.consultarStatusCiot(ciotJob.idOperacaoCliente, mapperInput.matrizCnpj, environment);
         let codigoIdentificacaoOperacao = existing.codigoIdentificacaoOperacao;
         let protocoloServico = existing.protocoloServico;
         let rawResponse: unknown = existing.exists ? existing : undefined;
@@ -217,8 +227,12 @@ export async function processCiotEmissionJob(
             throw err;
         }
 
+        const message = err instanceof EfreteApiError ? readableEfreteMessage(err.excecaoMensagem || err.message) : err instanceof Error ? err.message : String(err);
+        if (err instanceof EfreteApiError) {
+            console.warn({ source: 'ciotEmission', manifestId: ciotJob.manifestId, idOperacaoCliente: ciotJob.idOperacaoCliente, excecaoCodigo: err.excecaoCodigo, message });
+        }
         if (ciotJob.phase === 'DOWNLOADING_FILES' && ciotJob.codigoIdentificacaoOperacao) {
-            await deps.prisma.ciotEmissionJob.update({ where: { id: ciotEmissionJobId }, data: { phase: 'DOWNLOADING_FILES', lastError: err instanceof Error ? err.message : String(err) } });
+            await deps.prisma.ciotEmissionJob.update({ where: { id: ciotEmissionJobId }, data: { phase: 'DOWNLOADING_FILES', lastError: message } });
             return;
         }
 
@@ -230,7 +244,7 @@ export async function processCiotEmissionJob(
                 ciotEmissionJobId,
                 ciotJob.manifestId,
                 null,
-                err.excecaoMensagem,
+                message,
                 undefined,
                 { excecaoCodigo: err.excecaoCodigo, excecaoMensagem: err.excecaoMensagem },
             );
@@ -242,12 +256,12 @@ export async function processCiotEmissionJob(
         // outro lado; só reconciliação humana confirma).
         const nextAttempt = ciotJob.attemptCount + 1;
         if (nextAttempt >= ciotJob.maxAttempts) {
-            await markPendingReconciliation(deps, ciotEmissionJobId, `Falha de comunicação persistente com a eFrete: ${err instanceof Error ? err.message : String(err)}`);
+            await markPendingReconciliation(deps, ciotEmissionJobId, `Falha de comunicação persistente com a eFrete: ${message}`);
             return;
         }
         await deps.prisma.ciotEmissionJob.update({
             where: { id: ciotEmissionJobId },
-            data: { attemptCount: nextAttempt, lastError: err instanceof Error ? err.message : String(err) },
+            data: { attemptCount: nextAttempt, lastError: message },
         });
         await rescheduleJob(job, RETRY_DELAY_MS);
     }

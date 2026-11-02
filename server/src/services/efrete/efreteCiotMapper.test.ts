@@ -17,6 +17,7 @@ function baseInput(overrides: Partial<CiotMapperInput> = {}): CiotMapperInput {
         codigoMunicipioOrigem: 3550308,
         codigoMunicipioDestino: 2111300,
         veiculos: ['ABC1D23'],
+        notasFiscais: [{ cnpjEmissor: '04949601000104', numero: '69806', serie: '1', valorTotal: 1930.75, pesoKg: 315, ncm: '2523' }],
         requestData: {
             documentoViagem: 'OS-14573',
             distanciaPercorrida: 2200,
@@ -139,7 +140,7 @@ describe('buildCiotPayload', () => {
         const input = baseInput();
         input.requestData.pagamentos.push({ ...input.requestData.pagamentos[0], idPagamentoCliente: 'PAG-2' });
         const payload = buildCiotPayload(input);
-        assert.equal(payload.Viagens?.DocumentoViagem, 'OS-14573');
+        assert.equal(payload.Viagens?.[0].DocumentoViagem, 'OS-14573');
         assert.deepEqual(payload.Pagamentos.map((payment) => payment.Documento), ['OS-14573', 'OS-14573']);
     });
 
@@ -163,4 +164,21 @@ describe('buildCiotPayload', () => {
         assert.equal(payload.TipoEmbalagem, undefined);
         assert.equal(payload.Destinatario, undefined);
     });
+});
+
+it('envia viagens e notas como arrays com valores por kg e limites mínimos', () => {
+    const input = baseInput();
+    const payload = buildCiotPayload(input);
+    assert.ok(Array.isArray(payload.Viagens));
+    assert.deepEqual(payload.Viagens?.[0].NotasFiscais, [{
+        CnpjEmissor: '04949601000104', Numero: '69806', Serie: '1', ValorTotal: 1930.75,
+        ValorDaMercadoriaPorUnidade: 6.13, CodigoNCMNaturezaCarga: '2523',
+        UnidadeDeMedidaDaMercadoria: 'Kg', TipoDeCalculo: 'SemQuebra', QuantidadeDaMercadoriaNoEmbarque: 315,
+        ToleranciaDePerdaDeMercadoria: { Tipo: 'Nenhum', Valor: 0 },
+    }]);
+    input.notasFiscais = [{ numero: '2', serie: '1', valorTotal: 0, pesoKg: 0 }];
+    const nota = buildCiotPayload(input).Viagens![0].NotasFiscais[0];
+    assert.equal(nota.ValorDaMercadoriaPorUnidade, 0.01);
+    assert.equal(nota.QuantidadeDaMercadoriaNoEmbarque, 1);
+    assert.equal(nota.CodigoNCMNaturezaCarga, '2701');
 });
