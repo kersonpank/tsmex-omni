@@ -696,12 +696,13 @@ export interface TripPriceEstimate {
     sources: {
         linkFreight: 'CARTA_FRETE' | 'ACORDO_LINK' | 'UNAVAILABLE';
         toll: 'CARTA_FRETE' | 'ROUTE_PROVIDER_UNAVAILABLE';
-        anttFloor: 'ANTT_PROVIDER_UNAVAILABLE';
+        anttFloor: 'ANTT_TABLE' | 'ANTT_PROVIDER_UNAVAILABLE';
     };
 }
 
 export interface Manifest {
     id: string;
+    ciotSuggestion?: CiotTipoViagemSuggestion;
     vehicleAssignments?: Array<{ slot: number; vehicleUnit: VehicleUnit }>;
     compositionSnapshot?: unknown;
     firstOfferedAt?: string | null;
@@ -1247,12 +1248,29 @@ export interface CiotEmissionJob {
     updatedAt: string;
 }
 
+export interface AnttFloor {
+    value: number | null;
+    reason?: string;
+    ccd?: number;
+    cc?: number;
+    distanceKm?: number | null;
+    eixos: number | null;
+    eixosUsed?: number;
+    tipoCarga: number;
+    table: 'A' | 'C';
+    version: string;
+    legalReference: string;
+}
+
 export interface CiotTipoViagemSuggestion {
     tipoViagem: 'PADRAO' | 'FRACIONADO';
     clientDocuments: string[];
     override?: CiotTipoViagem | null;
     /** Padrões da viagem sugeridos pelo servidor; todos opcionais e editáveis no formulário. */
     distanceKm?: number | null;
+    distanceSource?: 'GOOGLE' | 'OSRM' | 'ESTIMATE' | null;
+    eixos?: number | null;
+    anttFloor?: AnttFloor | null;
     endDate?: string | null;
     embalagem?: string | null;
 }

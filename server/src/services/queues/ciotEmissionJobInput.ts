@@ -4,6 +4,7 @@ import { resolveManifestComposition, tractionRntrc } from '../vehicleUnitRules.j
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { requireSelectedIbge } from '../selectedCity.js';
+import { manifestRouteCities } from '../manifestAnttSuggestion.js';
 import { resolveCiotContratante, resolveMatrizCnpj, type EfreteEnvironment } from '../efrete/efreteConfig.js';
 import { digits, normalizeEfreteRntrc, normalizeEfreteAddressNumber, normalizeEfreteCep, splitPhone } from '../efrete/efreteUtil.js';
 import type { CiotMapperInput, CiotRequestData, CiotTipoViagemApi } from '../efrete/efreteCiotMapper.js';
@@ -116,21 +117,9 @@ export async function buildCiotEmissionInputForJob(
     const integradorPerson = matrizCnpj === contratanteDoc ? null : await (deps.ensureIntegratorPerson ?? ensureEfreteIntegratorPerson)(environment);
     const contratantePerson = resolveCiotContratante(fiscalEmitter.person, integradorPerson, environment);
 
-    const origin = manifest.originCity || manifest.originCityIbgeCode
-        ? { city: manifest.originCity, state: manifest.originState, code: manifest.originCityIbgeCode }
-        : { city: manifest.hub.city, state: manifest.hub.state, code: manifest.hub.cityIbgeCode };
-    const origemMunicipio = await resolveIbge(origin.city, origin.state, origin.code);
+    const { origin, destination } = manifestRouteCities(manifest);
+    const origemMunicipio = await resolveIbge(origin.city, origin.state, origin.ibge);
     const contratanteMunicipio = await resolveIbge(contratantePerson.city, contratantePerson.state, contratantePerson.cityIbgeCode);
-    const stops = [...(manifest.tripStops ?? [])].sort((a: any, b: any) => a.sequence - b.sequence);
-    const destination = [...stops].reverse().map((stop: any) => ({
-        city: stop.destHub?.city ?? stop.destCity,
-        state: stop.destHub?.state ?? stop.destState,
-        ibge: stop.destHub?.cityIbgeCode ?? stop.destCityIbgeCode,
-    })).find((value) => value.city && value.state) ?? {
-        city: manifest.destHub?.city ?? manifest.destinationCity,
-        state: manifest.destHub?.state ?? manifest.destinationState,
-        ibge: manifest.destHub?.cityIbgeCode ?? manifest.destinationCityIbgeCode,
-    };
     if (!destination.city || !destination.state) throw new AppError('CIOT sem destino canônico: informe cidade e UF no manifesto ou em uma parada.', 400);
     const destinoMunicipio = await resolveIbge(destination.city, destination.state, destination.ibge);
 

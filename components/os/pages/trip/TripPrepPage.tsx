@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { manifestsApi, ordersApi } from '../../../../lib/api';
-import type { ManifestReadiness, ResolvedOrderSummary } from '../../../../types/index';
+import type { AnttFloor, ManifestReadiness, ResolvedOrderSummary } from '../../../../types/index';
 import { useOs } from '../../OsContext';
 import type { ManifestWithLegs } from '../../lib/arrival';
 import { docBadge, legsWithoutDoc, orderLabel } from '../../lib/readiness';
@@ -46,6 +46,7 @@ const TripPrepPage: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [open, setOpen] = useState<TripGroupKey | null>(null);
+    const [freightFloor, setFreightFloor] = useState<AnttFloor | null>(null);
     const [docStep, setDocStep] = useState<TripDocumentStep>('cte');
     const [startOpen, setStartOpen] = useState(false);
     const [reopenOpen, setReopenOpen] = useState(false);
@@ -174,7 +175,8 @@ const TripPrepPage: React.FC = () => {
             void load();
         }
     };
-    const resolveFromDocuments = (group: TripDocumentResolution) => {
+    const resolveFromDocuments = (group: TripDocumentResolution, floor?: AnttFloor | null) => {
+        setFreightFloor(group === 'freight' ? floor ?? null : null);
         if (group === 'confirm') {
             setOpen(null);
             onPrimary();
@@ -398,7 +400,7 @@ const TripPrepPage: React.FC = () => {
                     onSaved={closeAndReload}
                 />
             ) : open === 'freight' ? (
-                <FreightEditor manifestId={manifest.id} onClose={() => setOpen(null)} onSaved={closeAndReload} />
+                <FreightEditor manifestId={manifest.id} initialFloor={freightFloor} onClose={() => { setFreightFloor(null); setOpen(null); }} onSaved={() => { setFreightFloor(null); closeAndReload(); }} />
             ) : open === 'emitter' ? (
                 <EmitterEditor
                     manifestId={manifest.id}

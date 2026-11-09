@@ -1,4 +1,4 @@
-import type { CiotEmissionJob, CiotTipoViagem, CiotTipoViagemSuggestion, EmitCiotRequest, Hub, Manifest, ManifestReadiness, Person, PersonPaymentAccount } from '../../../types/index';
+import type { AnttFloor, CiotEmissionJob, CiotTipoViagem, CiotTipoViagemSuggestion, EmitCiotRequest, Hub, Manifest, ManifestReadiness, Person, PersonPaymentAccount } from '../../../types/index';
 import { groupIssues, type TripFixGroup } from './trip';
 
 /** Lógica pura do formulário de CIOT do TSM O.S. (sem React, sem rede). */
@@ -87,6 +87,28 @@ export const CIOT_PACKAGING = [
 /** Embalagem mais genérica para carga geral (o caso comum da teia), usada quando o servidor não sugere. */
 export const CIOT_DEFAULT_PACKAGING = 'Caixa';
 
+export const formatAnttMoney = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+export function isBelowAnttFloor(total: number, floor?: AnttFloor | null): boolean {
+    return Number.isFinite(total) && floor?.value != null && Math.round(total * 100) < Math.round(floor.value * 100);
+}
+
+export function distanceSuggestionCaption(suggestion?: Pick<CiotTipoViagemSuggestion, 'distanceKm' | 'distanceSource'> | null): string | null {
+    if (suggestion?.distanceKm == null) return null;
+    const source = suggestion.distanceSource === 'GOOGLE' ? 'Google Maps' : suggestion.distanceSource === 'OSRM' ? 'rota OSRM' : 'estimativa em linha reta — confira';
+    return `Sugerido: ${suggestion.distanceKm.toLocaleString('pt-BR')} km (${source})`;
+}
+
+export function formatAnttFloor(floor?: AnttFloor | null): string {
+    if (floor?.value == null) return floor?.reason ?? 'Piso mínimo ANTT indisponível';
+    const cargo = CIOT_CARGO_TYPES.find((type) => Number(type.value) === floor.tipoCarga)?.label.toLocaleLowerCase('pt-BR') ?? `tipo ${floor.tipoCarga}`;
+    const axes = floor.eixosUsed !== floor.eixos ? `${floor.eixos} eixos, coluna de ${floor.eixosUsed}` : `${floor.eixos} eixos`;
+    return `Piso mínimo ANTT: ${formatAnttMoney(floor.value)} — ${(floor.distanceKm ?? 0).toLocaleString('pt-BR')} km × ${floor.ccd?.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })} + ${floor.cc?.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${cargo}, ${axes} · Portaria SUROC 22/2026)`;
+}
+
+/** Evita erro de ponto flutuante ao aplicar um valor já expresso em centavos. */
+export const ceilAnttCents = (value: number) => Math.ceil(Number((value * 100).toFixed(8))) / 100;
+
 /**
  * Quando a sugestão do servidor chega depois da abertura do formulário, troca só os campos
  * que o operador ainda não mexeu (iguais ao padrão anterior).
@@ -94,7 +116,7 @@ export const CIOT_DEFAULT_PACKAGING = 'Caixa';
 export function mergeCiotDefaults(current: CiotFormState, baseline: CiotFormState, next: CiotFormState): CiotFormState {
     const keys = ['distanciaPercorrida', 'dataFimViagem', 'tipoEmbalagem'] as const;
     const merged = { ...current };
-    for (const key of keys) if (current[key] === baseline[key]) merged[key] = next[key];
+    for (const key of keys) if (current[key] === baseline[key] && (key !== 'distanciaPercorrida' || current[key] === '')) merged[key] = next[key];
     return merged;
 }
 

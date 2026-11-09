@@ -1,4 +1,5 @@
 import prisma from '../lib/prisma.js';
+import { getManifestAnttSuggestion } from './manifestAnttSuggestion.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { buildTripPriceEstimate, type TripPriceEstimate } from './tripPriceEstimateService.js';
 
@@ -17,13 +18,13 @@ export interface ManifestTripPriceEstimate extends TripPriceEstimate {
     sources: {
         linkFreight: 'CARTA_FRETE' | 'ACORDO_LINK' | 'UNAVAILABLE';
         toll: 'CARTA_FRETE' | 'ROUTE_PROVIDER_UNAVAILABLE';
-        anttFloor: 'ANTT_PROVIDER_UNAVAILABLE';
+        anttFloor: 'ANTT_TABLE' | 'ANTT_PROVIDER_UNAVAILABLE';
     };
 }
 
 /**
  * Prévia auditável da viagem. Não escreve nem substitui a Carta Frete negociada.
- * A integração de rota/pedágio e tabela ANTT será adicionada por adapters separados.
+ * Rota e piso ANTT são sugestões; pedágio continua separado da remuneração.
  */
 export async function getManifestTripPriceEstimate(manifestId: string): Promise<ManifestTripPriceEstimate> {
     const manifest = await prisma.manifest.findUnique({
@@ -64,12 +65,13 @@ export async function getManifestTripPriceEstimate(manifestId: string): Promise<
     }
 
     const suggestedPedagio = manifest.freightAgreement ? manifest.freightAgreement.pedagio : null;
+    const { anttFloor } = await getManifestAnttSuggestion(manifestId, { tipoCarga: 5, useLastCiotDistance: true });
     const estimate = buildTripPriceEstimate({
         orderFreights,
         orderFreightMissingCount,
         suggestedFreteBruto,
         suggestedPedagio,
-        anttMinimumFreight: null,
+        anttMinimumFreight: anttFloor.value,
     });
 
     return {
@@ -77,7 +79,7 @@ export async function getManifestTripPriceEstimate(manifestId: string): Promise<
         sources: {
             linkFreight: linkFreightSource,
             toll: manifest.freightAgreement ? 'CARTA_FRETE' : 'ROUTE_PROVIDER_UNAVAILABLE',
-            anttFloor: 'ANTT_PROVIDER_UNAVAILABLE',
+            anttFloor: anttFloor.value == null ? 'ANTT_PROVIDER_UNAVAILABLE' : 'ANTT_TABLE',
         },
     };
 }

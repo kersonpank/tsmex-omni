@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import clsx from 'clsx';
 import { fiscalEmittersApi, manifestsApi } from '../../../../lib/api';
-import type { FiscalEmitter, TripPriceEstimate } from '../../../../types/index';
+import type { AnttFloor, FiscalEmitter, TripPriceEstimate } from '../../../../types/index';
+import { ceilAnttCents, formatAnttFloor, formatAnttMoney, isBelowAnttFloor } from '../../lib/ciot';
 import { parseMoney } from '../../lib/trip';
 import { OsButton } from '../../ui/kit';
 import OsSheet, { apiErrorMessage, osFieldClass } from '../../ui/Sheet';
@@ -170,25 +171,40 @@ const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' 
 const toNumber = parseMoney;
 const toField = (n: number | null | undefined) => (n == null ? '' : String(n).replace('.', ','));
 
-export const FreightEditor: React.FC<EditorProps> = ({ manifestId, onClose, onSaved }) => {
+export const FreightEditor: React.FC<EditorProps & { initialFloor?: AnttFloor | null }> = ({ manifestId, initialFloor, onClose, onSaved }) => {
     const [bruto, setBruto] = useState('');
     const [pedagio, setPedagio] = useState('');
     const [adiantamento, setAdiantamento] = useState('');
     const [estimate, setEstimate] = useState<TripPriceEstimate | null>(null);
+    const [floor, setFloor] = useState<AnttFloor | null>(initialFloor ?? null);
+    const [floorError, setFloorError] = useState<string | null>(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        let active = true;
+        const params = initialFloor?.distanceKm != null ? { distanceKm: initialFloor.distanceKm, tipoCarga: initialFloor.tipoCarga, altoDesempenho: initialFloor.table === 'C' } : undefined;
+        void manifestsApi.anttFloor(manifestId, params).then((res) => { if (active) setFloor(res.data ?? null); })
+            .catch((cause) => { if (active) setFloorError(apiErrorMessage(cause, 'Não foi possível calcular o piso mínimo ANTT.')); });
+        return () => { active = false; };
+    }, [manifestId, initialFloor]);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
+        let active = true;
         Promise.allSettled([manifestsApi.getFreightAgreement(manifestId), manifestsApi.getTripPriceEstimate(manifestId)]).then(
             ([agreement, est]) => {
+                if (!active) return;
                 const current = agreement.status === 'fulfilled' ? agreement.value.data : null;
                 const estimateData = est.status === 'fulfilled' ? (est.value.data as TripPriceEstimate) : null;
                 setEstimate(estimateData);
                 setBruto(toField(current?.freteBruto ?? estimateData?.suggestedFreteBruto));
                 setPedagio(toField(current?.pedagio ?? estimateData?.suggestedPedagio));
                 setAdiantamento(toField(current?.adiantamento));
+                setLoading(false);
             },
         );
+        return () => { active = false; };
     }, [manifestId]);
 
     const save = async () => {
@@ -210,7 +226,7 @@ export const FreightEditor: React.FC<EditorProps> = ({ manifestId, onClose, onSa
     const field = (label: string, value: string, set: (v: string) => void) => (
         <label className="mt-3 block text-[13px] font-bold text-tower-600 first:mt-0 dark:text-tower-300">
             {label}
-            <input inputMode="decimal" value={value} onChange={(e) => set(e.target.value)} placeholder="0,00" className={clsx(osFieldClass, 'mt-1.5')} />
+            <input disabled={loading || busy} inputMode="decimal" value={value} onChange={(e) => set(e.target.value)} placeholder="0,00" className={clsx(osFieldClass, 'mt-1.5')} />
         </label>
     );
 
@@ -222,7 +238,7 @@ export const FreightEditor: React.FC<EditorProps> = ({ manifestId, onClose, onSa
             footer={
                 <>
                     <ErrorLine message={error} />
-                    <OsButton full disabled={toNumber(bruto) <= 0 || busy} onClick={() => void save()}>
+                    <OsButton full disabled={toNumber(bruto) <= 0 || busy || loading} onClick={() => void save()}>
                         {busy ? 'Salvando…' : 'Salvar Carta Frete'}
                     </OsButton>
                 </>
@@ -234,7 +250,15 @@ export const FreightEditor: React.FC<EditorProps> = ({ manifestId, onClose, onSa
                     {estimate.marginEstimate != null ? ` · margem estimada ${brl.format(estimate.marginEstimate)}` : ''}
                 </p>
             ) : null}
-            {estimate?.floorComparison === 'BELOW' ? (
+            <div className="mb-3 space-y-2 text-[13px]" aria-live="polite">
+                <p>{floorError ?? (floor ? formatAnttFloor(floor) : 'Calculando piso mínimo ANTT…')}</p>
+                {floor?.value != null ? (
+                    <OsButton variant="secondary" disabled={loading || busy || Boolean(floorError)} onClick={() => setBruto(toField(ceilAnttCents(floor.value!)))}>
+                        Aplicar piso ({formatAnttMoney(floor.value)})
+                    </OsButton>
+                ) : null}
+            </div>
+            {isBelowAnttFloor(toNumber(bruto), floor) ? (
                 <p className="mb-3 rounded-lg bg-brand-red-500/10 p-3 text-[13px] font-semibold text-brand-red-600 dark:text-brand-red-400">
                     Abaixo do piso mínimo ANTT. Revise o valor.
                 </p>

@@ -41,6 +41,7 @@ const BY_CODE: Record<string, TripGroupKey> = {
     DEPARTURE_REQUIRED: 'departure',
     ARRIVAL_BEFORE_DEPARTURE: 'departure',
     FREIGHT_AGREEMENT_REQUIRED: 'freight',
+    ANTT_FLOOR_BELOW: 'freight',
     FISCAL_EMITTER_PENDING: 'emitter',
     MDFE_VEHICLE_CAPACITY_PENDING: 'registry',
     MDFE_VEHICLE_DATA_PENDING: 'registry',

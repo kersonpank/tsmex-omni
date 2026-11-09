@@ -1,5 +1,5 @@
-/** City não possui latitude/longitude no schema atual. Não inventar distância
- * fiscal; o operador deve confirmar o percurso no editor de CIOT. */
+/** Padrões de data/embalagem. A rota é acrescentada por getManifestAnttSuggestion;
+ * o operador confirma a distância no editor de CIOT. */
 export function ciotSuggestionDefaults(manifest: {
     plannedDepartureAt: Date | null;
     plannedArrivalAt: Date | null;

@@ -21,6 +21,7 @@ import { ciotCompositionFlag, emitCiotSchema, validateCiotPersonAddress, validat
 import { splitPhone } from '../services/efrete/efreteUtil.js';
 import { suggestCiotTipoViagem } from '../services/efrete/ciotTipoViagemRule.js';
 import { ciotSuggestionDefaults } from '../services/efrete/ciotSuggestionDefaults.js';
+import { getManifestAnttSuggestion } from '../services/manifestAnttSuggestion.js';
 import { cancelarCiot } from '../services/efrete/efreteCiotEmit.js';
 import { getObjectDownloadUrl } from '../lib/objectStorage.js';
 import { enqueueCiotEmissionJob } from '../services/queues/ciotEmissionQueue.js';
@@ -371,7 +372,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
                 })),
                 ...marginInfo,
                 ...(req.user!.roles.some((role) => role === 'ADMIN' || role === 'HUB') ? {
-                    ciotSuggestion: { ...await suggestCiotTipoViagem(id), ...ciotSuggestionDefaults(manifest), override: manifest.ciotTipoViagemOverride },
+                    ciotSuggestion: { ...await suggestCiotTipoViagem(id), ...ciotSuggestionDefaults(manifest), ...await getManifestAnttSuggestion(id), override: manifest.ciotTipoViagemOverride },
                 } : {}),
             },
         });
@@ -1583,8 +1584,28 @@ router.get('/:id/ciot-suggestion', authenticate, authorize('ADMIN', 'HUB'), asyn
         }
 
         const suggestion = await suggestCiotTipoViagem(id);
-        res.json({ success: true, data: { ...suggestion, ...ciotSuggestionDefaults(manifest), override: manifest.ciotTipoViagemOverride } });
+        res.json({ success: true, data: { ...suggestion, ...ciotSuggestionDefaults(manifest), ...await getManifestAnttSuggestion(id), override: manifest.ciotTipoViagemOverride } });
     } catch (error) {
+        next(error);
+    }
+});
+
+// GET /api/manifests/:id/antt-floor — prévia editável, sem gravar a Carta Frete.
+router.get('/:id/antt-floor', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const id = String(req.params.id);
+        const manifest = await prisma.manifest.findUnique({ where: { id }, select: { hubId: true } });
+        if (!manifest) throw new AppError('Viagem não encontrada.', 404);
+        if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && manifest.hubId !== req.user!.hubId) throw new AppError('Sem acesso a esta viagem.', 403);
+        const params = z.object({
+            tipoCarga: z.coerce.number().int().min(1).max(12).default(5),
+            distanceKm: z.coerce.number().positive().finite().optional(),
+            altoDesempenho: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+        }).parse(req.query);
+        const suggestion = await getManifestAnttSuggestion(id, { useLastCiotDistance: true, ...params });
+        res.json({ success: true, data: suggestion.anttFloor });
+    } catch (error) {
+        if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
         next(error);
     }
 });

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { manifestsApi } from '../../../../lib/api';
-import type { ManifestReadiness } from '../../../../types/index';
+import type { AnttFloor, ManifestReadiness } from '../../../../types/index';
 import type { ManifestWithLegs } from '../../lib/arrival';
 import { docBadge, isDocumented, orderLabel } from '../../lib/readiness';
 import { mdfeFixGroup, type TripFixGroup } from '../../lib/trip';
@@ -29,7 +29,7 @@ const TripDocumentsSheet: React.FC<{
     initialStep?: TripDocumentStep;
     onClose: () => void;
     onUpdated: () => Promise<void>;
-    onResolve: (group: TripDocumentResolution) => void;
+    onResolve: (group: TripDocumentResolution, floor?: AnttFloor | null) => void;
 }> = ({ manifest, readiness, initialStep = 'cte', onClose, onUpdated, onResolve }) => {
     const navigate = useNavigate();
     const cteRef = useRef<HTMLElement>(null);

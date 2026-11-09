@@ -108,6 +108,33 @@ describe('manifestReadinessService', () => {
         })) as any;
     }
 
+    it('avisa o piso pela distância do último CIOT, excluindo pedágio e sem bloquear', async () => {
+        mockWith(undefined, undefined, {
+            originCityIbgeCode: '3518800', destinationCityIbgeCode: '2111300',
+            vehicleAssignments: [
+                { slot: 0, vehicleUnit: { plate: 'BWP6E54', role: 'TRACTION', axles: 3 } },
+                { slot: 1, vehicleUnit: { plate: 'AFY2E46', role: 'TRAILER', axles: 4 } },
+            ],
+            ciotEmissionJobs: [{ requestData: { distanciaPercorrida: 2950 } }],
+            freightAgreement: { freteBruto: 25000, adiantamento: 10000, saldoLiquido: 16000, pedagio: 1000 },
+        });
+        const result = await getManifestReadiness('manifest-1');
+        const warning = result.issues.find((item) => item.code === 'ANTT_FLOOR_BELOW');
+        assert.equal(warning?.step, 'freight');
+        assert.equal(warning?.severity, 'warning');
+        assert.equal(warning?.message.replace(/\u00a0/g, ' '), 'Carta Frete R$ 25.000,00 abaixo do piso mínimo ANTT R$ 25.236,13 (2.950 km, 7 eixos, carga geral — Portaria SUROC 22/2026).');
+    });
+
+    it('não avisa quando frete bruto alcança o piso, mesmo com saldo após retenções menor', async () => {
+        mockWith(undefined, undefined, {
+            vehicleAssignments: [{ slot: 0, vehicleUnit: { plate: 'BWP6E54', role: 'TRACTION', axles: 7 } }],
+            ciotEmissionJobs: [{ requestData: { distanciaPercorrida: 2950 } }],
+            freightAgreement: { freteBruto: 25236.13, adiantamento: 10000, saldoLiquido: 15000, pedagio: 1000 },
+        });
+        const result = await getManifestReadiness('manifest-1');
+        assert.equal(result.issues.find((item) => item.code === 'ANTT_FLOOR_BELOW'), undefined);
+    });
+
     it('emitente incompleto bloqueia cedo e enumera os campos', async () => {
         mockWith(undefined, undefined, { fiscalEmitter: { person: { document: '26879820000270' } } });
         const result = await getManifestReadiness('manifest-1');

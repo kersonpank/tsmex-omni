@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type {
+    AnttFloor,
     NfSpecies,
     VehicleUnit,
     Demand,
@@ -777,6 +778,11 @@ export const manifestsApi = {
 
     ciotSuggestion: async (id: string) => {
         const response = await api.get<ApiResponse<CiotTipoViagemSuggestion>>(`/manifests/${id}/ciot-suggestion`);
+        return response.data;
+    },
+
+    anttFloor: async (id: string, params?: { tipoCarga?: number; distanceKm?: number; altoDesempenho?: boolean }) => {
+        const response = await api.get<ApiResponse<AnttFloor>>(`/manifests/${id}/antt-floor`, { params });
         return response.data;
     },
 

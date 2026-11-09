@@ -3,6 +3,7 @@ import { cteEmitterMismatchMessage, missingMdfeEmitterData } from './fiscal/mdfe
 import { mdfeBankInfo, mdfePaymentTerms } from './acbr/acbrMdfeAntt.js';
 import type { CiotRequestData } from './efrete/efreteCiotMapper.js';
 import prisma from '../lib/prisma.js';
+import { getManifestAnttSuggestion } from './manifestAnttSuggestion.js';
 import { resolveDefaultTripEmitter } from './fiscal/resolveDefaultTripEmitter.js';
 import { AppError } from '../middleware/errorHandler.js';
 import type { PlanningActions } from './manifestPlanningChanges.js';
@@ -141,6 +142,19 @@ export async function getManifestReadiness(manifestId: string, ciotRequestData?:
     const add = (value: ManifestReadinessIssue) => {
         byStep.set(value.step, [...(byStep.get(value.step) ?? []), value]);
     };
+
+    if (manifest.freightAgreement) {
+        const { anttFloor: floor } = await getManifestAnttSuggestion(manifestId, {
+            useLastCiotDistance: !ciotRequestData,
+            ...(ciotRequestData ? { distanceKm: ciotRequestData.distanciaPercorrida, tipoCarga: ciotRequestData.codigoTipoCarga, altoDesempenho: ciotRequestData.altoDesempenho } : {}),
+        });
+        // freteBruto é o total contratado; saldoLiquido já contém pedágio e retenções.
+        const total = manifest.freightAgreement.freteBruto;
+        if (floor.value != null && Math.round(total * 100) < Math.round(floor.value * 100)) {
+            const money = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+            add(issue('freight', 'ANTT_FLOOR_BELOW', `Carta Frete ${money(total)} abaixo do piso mínimo ANTT ${money(floor.value)} (${floor.distanceKm!.toLocaleString('pt-BR')} km, ${floor.eixos} eixos, ${floor.tipoCarga === 5 ? 'carga geral' : `tipo de carga ${floor.tipoCarga}`} — Portaria SUROC 22/2026).`, 'freteBruto', 'warning'));
+        }
+    }
 
     const defaultEmitter = !manifest.fiscalEmitterId ? await resolveDefaultTripEmitter(manifest.hubId).catch(() => null) : null;
     const resolvedEmitter = defaultEmitter ? await prisma.fiscalEmitter.findUnique({ where: { id: defaultEmitter.id }, include: { person: true } }) : null;

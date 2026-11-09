@@ -129,6 +129,43 @@ async function request(body: unknown) {
     });
 }
 
+it('GET antt-floor simula o piso com os eixos da composição sem gravar valores', async () => {
+    manifest.vehicleAssignments = [{ slot: 0, vehicleUnit: { ...unit(), axles: 3 } }, { slot: 1, vehicleUnit: { ...unit('TRAILER', 'AFY2E46'), axles: 4 } }];
+    const response = await fetch(`${baseUrl}/api/manifests/${manifestId}/antt-floor?tipoCarga=5&distanceKm=2950&altoDesempenho=false`, {
+        headers: { authorization: `Bearer ${jwt.sign({ userId: 'admin-id' }, secret)}` },
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json() as any;
+    assert.equal(body.data.value, 25236.13);
+    assert.equal(body.data.eixos, 7);
+    assert.equal(body.data.table, 'A');
+    assert.equal(manifestWrites, 0);
+});
+
+it('GET antt-floor valida parâmetros e mantém o motivo de eixos ausentes', async () => {
+    const headers = { authorization: `Bearer ${jwt.sign({ userId: 'admin-id' }, secret)}` };
+    for (const query of ['distanceKm=-1', 'tipoCarga=13', 'altoDesempenho=invalid']) {
+        assert.equal((await fetch(`${baseUrl}/api/manifests/${manifestId}/antt-floor?${query}`, { headers })).status, 400);
+    }
+    manifest.vehicleAssignments = [];
+    const response = await fetch(`${baseUrl}/api/manifests/${manifestId}/antt-floor?distanceKm=2950`, { headers });
+    const body = await response.json() as any;
+    assert.equal(body.data.value, null);
+    assert.equal(body.data.reason, 'Informe os eixos de cada placa');
+});
+
+it('GET antt-floor exige autenticação e o hub de origem para HUB', async () => {
+    const url = `${baseUrl}/api/manifests/${manifestId}/antt-floor?distanceKm=2950`;
+    assert.equal((await fetch(url)).status, 401);
+    const original = prisma.user.findUnique;
+    try {
+        prisma.user.findUnique = (async () => ({ id: 'hub-user', active: true, roles: ['HUB'], hubId: 'outro-hub' })) as any;
+        assert.equal((await fetch(url, { headers: { authorization: `Bearer ${jwt.sign({ userId: 'hub-user' }, secret)}` } })).status, 403);
+    } finally {
+        prisma.user.findUnique = original;
+    }
+});
+
 async function rejectsBeforeJob(body: unknown, message?: RegExp) {
     const response = await request(body);
     const payload = await response.json() as any;

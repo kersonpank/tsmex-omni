@@ -1,10 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { hubsApi, linksApi, manifestsApi } from '../../../../lib/api';
 import { FiscalAddressFields } from '../../../manifest/FiscalAddressFields';
-import type { CiotEmissionJob, CiotTipoViagem, CiotTipoViagemSuggestion, Hub, ManifestReadiness } from '../../../../types/index';
+import type { AnttFloor, CiotEmissionJob, CiotTipoViagem, CiotTipoViagemSuggestion, Hub, ManifestReadiness } from '../../../../types/index';
 import type { ManifestWithLegs } from '../../lib/arrival';
 import {
     buildCiotRequest,
+    distanceSuggestionCaption,
+    formatAnttFloor,
+    isBelowAnttFloor,
     CIOT_DISPENSA_REASONS,
     CIOT_FINAL_PHASES,
     CIOT_POLL_ATTEMPTS,
@@ -48,7 +51,7 @@ const CiotEditor: React.FC<{
     disabled?: boolean;
     readiness?: ManifestReadiness | null;
     onUpdated: () => Promise<void>;
-    onResolve: (group: CiotFixGroup) => void;
+    onResolve: (group: CiotFixGroup, floor?: AnttFloor | null) => void;
 }> = ({ manifest, disabled = false, readiness = null, onUpdated, onResolve }) => {
     const [formOpen, setFormOpen] = useState(false);
     const [dispenseOpen, setDispenseOpen] = useState(false);
@@ -56,6 +59,9 @@ const CiotEditor: React.FC<{
     const [address, setAddress] = useState<CiotAddressState>(() => initialCiotForm(manifest).address);
     const [override, setOverride] = useState<CiotTipoViagem | ''>(manifest.ciotTipoViagemOverride ?? '');
     const [suggestion, setSuggestion] = useState<CiotTipoViagemSuggestion | null>(null);
+    const [floor, setFloor] = useState<AnttFloor | null>(null);
+    const [floorError, setFloorError] = useState<string | null>(null);
+    const [floorLoading, setFloorLoading] = useState(false);
     const [job, setJob] = useState<CiotEmissionJob | null>(null);
     const [busy, setBusy] = useState(false);
     const [formError, setFormError] = useState<string | null>(null);
@@ -76,6 +82,27 @@ const CiotEditor: React.FC<{
     const selectedType = override || suggestion?.tipoViagem || 'PADRAO';
     const ncmOptions = ciotNcmOptions(manifest);
     const carrierAccount = manifest.link?.person?.paymentAccounts?.find((account) => account.isPrimary !== false);
+
+    useEffect(() => {
+        if (!formOpen) return;
+        let active = true;
+        setFloor(null);
+        setFloorError(null);
+        const distance = Number(form.distanciaPercorrida);
+        if (!Number.isFinite(distance) || distance <= 0) {
+            setFloorLoading(false);
+            setFloorError('Informe a distância da viagem para calcular o piso mínimo ANTT.');
+            return;
+        }
+        setFloorLoading(true);
+        const timeout = window.setTimeout(() => {
+            void manifestsApi.anttFloor(manifest.id, { distanceKm: distance, tipoCarga: Number(form.codigoTipoCarga), altoDesempenho: form.altoDesempenho })
+                .then((res) => { if (active) setFloor(res.data ?? null); })
+                .catch((cause) => { if (active) setFloorError(apiErrorMessage(cause, 'Não foi possível calcular o piso mínimo ANTT.')); })
+                .finally(() => { if (active) setFloorLoading(false); });
+        }, 400);
+        return () => { active = false; window.clearTimeout(timeout); };
+    }, [formOpen, manifest.id, form.distanciaPercorrida, form.codigoTipoCarga, form.altoDesempenho]);
 
     const stopPolling = useCallback(() => {
         if (timer.current != null) window.clearTimeout(timer.current);
@@ -118,7 +145,7 @@ const CiotEditor: React.FC<{
     }, [manifest.id]);
 
     const openForm = () => {
-        const initial = initialCiotForm(manifest);
+        const initial = initialCiotForm(manifest, new Date(), manifest.ciotSuggestion);
         baseline.current = initial.form;
         setForm(initial.form);
         setAddress(initial.address);
@@ -126,6 +153,7 @@ const CiotEditor: React.FC<{
         setFormError(null);
         setSavePayment(true);
         setPaymentEdited(false);
+        setSuggestion(manifest.ciotSuggestion ?? null);
         setFormOpen(true);
         void hubsApi.list().then((res) => { if (alive.current) setHubs(res.data ?? []); }).catch(() => setHubs([]));
         void manifestsApi.ciotSuggestion(manifest.id).then((res) => {
@@ -320,7 +348,15 @@ const CiotEditor: React.FC<{
                             {!tacAllowed ? <p className="mt-1 text-[12px] font-normal text-tower-500">TAC agregado só para transportador pessoa física</p> : null}
                         </Field>
                         <Field label="Documento da viagem">{text('documentoViagem')}</Field>
-                        {selectedType !== 'TAC_AGREGADO' ? <Field label="Distância percorrida (km)*">{text('distanciaPercorrida', 'number')}</Field> : null}
+                        {selectedType !== 'TAC_AGREGADO' ? (
+                            <div>
+                                <Field label="Distância percorrida (km)*">{text('distanciaPercorrida', 'number')}</Field>
+                                <p className="mt-1 text-[12px] text-tower-500 dark:text-tower-400">{distanceSuggestionCaption(suggestion ?? manifest.ciotSuggestion)}</p>
+                                {(suggestion ?? manifest.ciotSuggestion)?.distanceKm != null && Number(form.distanciaPercorrida) !== (suggestion ?? manifest.ciotSuggestion)?.distanceKm ? (
+                                    <button type="button" onClick={() => set('distanciaPercorrida', String((suggestion ?? manifest.ciotSuggestion)!.distanceKm))} className="min-h-11 text-[13px] font-semibold text-brand-600 underline dark:text-brand-300">Usar sugestão</button>
+                                ) : null}
+                            </div>
+                        ) : null}
                         {selectedType !== 'TAC_AGREGADO' ? <Field label="Início da viagem*">{text('dataInicioViagem', 'datetime-local')}</Field> : null}
                         {startInPast ? (
                             <div role="alert" className="flex flex-col gap-2 rounded-xl bg-brand-red-500/10 p-3">
@@ -404,6 +440,15 @@ const CiotEditor: React.FC<{
 
                     <Legend>Valores (Carta Frete)</Legend>
                     <div className="flex flex-col gap-3">
+                        <div className="col-span-full space-y-2 rounded-xl bg-tower-100 p-3 text-[13px] dark:bg-tower-800" aria-live="polite">
+                            <p>{floorLoading ? 'Calculando piso mínimo ANTT…' : floorError ?? formatAnttFloor(floor)}</p>
+                            {isBelowAnttFloor(Number(form.totalViagem), floor) ? (
+                                <>
+                                    <p className="font-semibold text-brand-red-600 dark:text-brand-red-400">Frete abaixo do piso</p>
+                                    <OsButton variant="secondary" onClick={() => { setFormOpen(false); onResolve('freight', floor); }}>Ajustar Carta Frete</OsButton>
+                                </>
+                            ) : null}
+                        </div>
                         <Field label="Frete bruto (total)*">{text('totalViagem', 'number')}</Field>
                         <Field label="Adiantamento">{text('totalAdiantamento', 'number')}</Field>
                         <Field label="Quitação">{text('totalQuitacao', 'number')}</Field>
