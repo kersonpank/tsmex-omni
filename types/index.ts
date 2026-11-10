@@ -219,6 +219,10 @@ export interface FiscalEmitter {
     defaultCteCfop?: string | null;
     /** Padrão fiscal do CT-e/DC-e quando o cálculo de frete não informa CST. */
     defaultCteCst?: string | null;
+    /** Seguro da carga (RCTR-C) enviado no grupo seg do MDF-e. */
+    cargoInsurerName?: string | null;
+    cargoInsurerCnpj?: string | null;
+    cargoInsurancePolicyNumber?: string | null;
     /** Opt-in: liga a varredura automática 2x/dia da Distribuição NF-e para este CNPJ como destinatário. */
     distribuicaoNfeEnabled: boolean;
     /** Status do checkpoint de NSU pro ambiente atual do emitente — `null` se o documento não for CNPJ.
@@ -742,6 +746,8 @@ export interface Manifest {
     plannedArrivalAt?: string | null;
     notes?: string | null;
     seloLacre?: string | null;
+    /** Número(s) de averbação do seguro da carga desta viagem (nAver do MDF-e). */
+    cargoInsuranceAverbacao?: string | null;
     liberacao?: string | null;
     kmSaida?: number | null;
     kmChegada?: number | null;

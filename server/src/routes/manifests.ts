@@ -877,6 +877,7 @@ const manifestCapaSchema = z.object({
     notes: z.string().optional(),
     seloLacre: z.string().optional(),
     liberacao: z.string().optional(),
+    cargoInsuranceAverbacao: z.string().trim().max(500).optional(),
 });
 
 // PATCH /api/manifests/:id/capa — dados de capa da viagem (emitente, datas previstas, lacre etc.)
@@ -906,6 +907,7 @@ router.patch('/:id/capa', authenticate, async (req: AuthRequest, res: Response, 
                 notes: data.notes,
                 seloLacre: data.seloLacre,
                 liberacao: data.liberacao,
+                cargoInsuranceAverbacao: data.cargoInsuranceAverbacao === undefined ? undefined : data.cargoInsuranceAverbacao || null,
             },
         });
 

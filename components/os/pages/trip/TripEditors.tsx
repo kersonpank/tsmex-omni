@@ -25,15 +25,17 @@ const ErrorLine: React.FC<{ message: string | null }> = ({ message }) =>
         </p>
     ) : null;
 
-export const DepartureEditor: React.FC<EditorProps & { departure?: string | null; arrival?: string | null }> = ({
+export const DepartureEditor: React.FC<EditorProps & { departure?: string | null; arrival?: string | null; averbacao?: string | null }> = ({
     manifestId,
     departure,
     arrival,
+    averbacao,
     onClose,
     onSaved,
 }) => {
     const [dep, setDep] = useState(() => toLocalInput(departure, 1));
     const [arr, setArr] = useState(() => (arrival ? toLocalInput(arrival, 0) : ''));
+    const [averb, setAverb] = useState(averbacao ?? '');
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -44,6 +46,7 @@ export const DepartureEditor: React.FC<EditorProps & { departure?: string | null
             await manifestsApi.updateCapa(manifestId, {
                 plannedDepartureAt: new Date(dep).toISOString(),
                 ...(arr ? { plannedArrivalAt: new Date(arr).toISOString() } : {}),
+                cargoInsuranceAverbacao: averb.trim(),
             });
             onSaved();
         } catch (cause) {
@@ -72,6 +75,17 @@ export const DepartureEditor: React.FC<EditorProps & { departure?: string | null
             <label className="mt-4 block text-[13px] font-bold text-tower-600 dark:text-tower-300">
                 Chegada prevista (opcional)
                 <input type="datetime-local" value={arr} onChange={(e) => setArr(e.target.value)} className={clsx(osFieldClass, 'mt-1.5')} />
+            </label>
+            <label className="mt-4 block text-[13px] font-bold text-tower-600 dark:text-tower-300">
+                Averbação do seguro
+                <input
+                    type="text"
+                    value={averb}
+                    maxLength={500}
+                    onChange={(e) => setAverb(e.target.value)}
+                    placeholder="Número da averbação (vários: separe por vírgula)"
+                    className={clsx(osFieldClass, 'mt-1.5')}
+                />
             </label>
         </OsSheet>
     );

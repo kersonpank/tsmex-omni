@@ -396,6 +396,7 @@ const TripPrepPage: React.FC = () => {
                     manifestId={manifest.id}
                     departure={manifest.plannedDepartureAt}
                     arrival={manifest.plannedArrivalAt}
+                    averbacao={manifest.cargoInsuranceAverbacao}
                     onClose={() => setOpen(null)}
                     onSaved={closeAndReload}
                 />

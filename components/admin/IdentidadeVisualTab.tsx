@@ -58,6 +58,9 @@ type FormState = {
   distribuicaoNfeEnabled: boolean;
   defaultCteCfop: string;
   defaultCteCst: string;
+  cargoInsurerName: string;
+  cargoInsurerCnpj: string;
+  cargoInsurancePolicyNumber: string;
 };
 
 const emptyForm: FormState = {
@@ -83,6 +86,9 @@ const emptyForm: FormState = {
   distribuicaoNfeEnabled: false,
   defaultCteCfop: '',
   defaultCteCst: '',
+  cargoInsurerName: '',
+  cargoInsurerCnpj: '',
+  cargoInsurancePolicyNumber: '',
 };
 
 function fileToBase64DataPart(file: File): Promise<string> {
@@ -122,6 +128,9 @@ function emitterToForm(emitter: FiscalEmitter): FormState {
     distribuicaoNfeEnabled: emitter.distribuicaoNfeEnabled ?? false,
     defaultCteCfop: emitter.defaultCteCfop ?? '',
     defaultCteCst: emitter.defaultCteCst ?? '',
+    cargoInsurerName: emitter.cargoInsurerName ?? '',
+    cargoInsurerCnpj: emitter.cargoInsurerCnpj ?? '',
+    cargoInsurancePolicyNumber: emitter.cargoInsurancePolicyNumber ?? '',
   };
 }
 
@@ -382,6 +391,9 @@ const IdentidadeVisualTab: React.FC = () => {
         distribuicaoNfeEnabled: form.distribuicaoNfeEnabled,
         defaultCteCfop: form.defaultCteCfop.trim() || null,
         defaultCteCst: form.defaultCteCst.trim() || null,
+        cargoInsurerName: form.cargoInsurerName.trim() || null,
+        cargoInsurerCnpj: form.cargoInsurerCnpj.trim() || null,
+        cargoInsurancePolicyNumber: form.cargoInsurancePolicyNumber.trim() || null,
       };
 
       const result = form.id
@@ -745,6 +757,41 @@ const IdentidadeVisualTab: React.FC = () => {
                         </option>
                       ))}
                     </select>
+                  </label>
+                </div>
+              </div>
+              <div className="block md:col-span-2 rounded-lg border border-tower-100 bg-tower-50/80 p-4 dark:border-tower-700 dark:bg-tower-950/30">
+                <p className="text-sm font-semibold text-tower-800 dark:text-tower-100">Seguro da carga (RCTR-C)</p>
+                <p className="mt-1 text-xs text-tower-500 dark:text-tower-400">
+                  Obrigatório no MDF-e rodoviário. A averbação de cada viagem é informada na preparação da viagem.
+                </p>
+                <div className="mt-3 grid gap-4 sm:grid-cols-3">
+                  <label className="block">
+                    <span className="text-sm font-medium text-tower-800 dark:text-tower-200">Seguradora</span>
+                    <input
+                      className="admin-focus mt-1 w-full rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900"
+                      maxLength={30}
+                      value={form.cargoInsurerName}
+                      onChange={(e) => update('cargoInsurerName', e.target.value)}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-medium text-tower-800 dark:text-tower-200">CNPJ da seguradora</span>
+                    <input
+                      className="admin-focus mt-1 w-full rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900"
+                      inputMode="numeric"
+                      value={form.cargoInsurerCnpj}
+                      onChange={(e) => update('cargoInsurerCnpj', e.target.value)}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-medium text-tower-800 dark:text-tower-200">Número da apólice</span>
+                    <input
+                      className="admin-focus mt-1 w-full rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900"
+                      maxLength={20}
+                      value={form.cargoInsurancePolicyNumber}
+                      onChange={(e) => update('cargoInsurancePolicyNumber', e.target.value)}
+                    />
                   </label>
                 </div>
               </div>

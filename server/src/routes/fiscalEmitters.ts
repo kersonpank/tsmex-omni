@@ -69,6 +69,17 @@ const nullableCteTaxString = z.preprocess(
     z.string().max(8).nullable().optional(),
 );
 
+/** Texto opcional: vazio vira null; limites do grupo seg do MDF-e (xSeg 30, nApol 20). */
+const nullableTrimmed = (max: number) => z.preprocess(
+    (v) => (typeof v === 'string' ? v.trim() || null : v),
+    z.string().max(max).nullable().optional(),
+);
+/** CNPJ da seguradora: aceita máscara, grava só os 14 dígitos. */
+const nullableInsurerCnpj = z.preprocess(
+    (v) => (typeof v === 'string' ? v.replace(/\D/g, '') || null : v),
+    z.string().length(14, 'CNPJ da seguradora deve ter 14 dígitos.').nullable().optional(),
+);
+
 const fiscalEmitterShape = z.object({
     personId: z.string().uuid(),
     hubId: z.string().uuid().nullable().optional(),
@@ -98,6 +109,10 @@ const fiscalEmitterShape = z.object({
     distribuicaoNfeEnabled: z.boolean().optional(),
     defaultCteCfop: nullableCteTaxString,
     defaultCteCst: nullableCteTaxString,
+    /** Seguro da carga (RCTR-C) — grupo seg do MDF-e. */
+    cargoInsurerName: nullableTrimmed(30),
+    cargoInsurerCnpj: nullableInsurerCnpj,
+    cargoInsurancePolicyNumber: nullableTrimmed(20),
 });
 
 function refineFiscalEmitterCteTax(

@@ -55,6 +55,9 @@ const BY_CODE: Record<string, TripGroupKey> = {
     // Dados bancários ficam no cadastro do transportador; parcelas/vencimento, no formulário do CIOT.
     MDFE_PAYMENT_ACCOUNT_PENDING: 'registry',
     MDFE_PAYMENT_SCHEDULE_PENDING: 'documents',
+    // Seguro: a torre cadastra seguradora/apólice no emitente; a averbação é digitada na saída/capa da viagem.
+    MDFE_CARGO_INSURANCE_PENDING: 'emitter',
+    MDFE_CARGO_AVERBACAO_PENDING: 'departure',
     ORIGIN_REQUIRED: 'route',
     DESTINATION_REQUIRED: 'route',
     DEST_HUB_REQUIRED: 'route',
@@ -74,6 +77,7 @@ export function mdfeFixGroup(message: string): { group: TripFixGroup; label: str
     if (/uf de licenciamento|propriet[aá]rio|tara|capacidade|rntrc|ao menos um implemento|implemento/.test(text)) {
         return { group: 'registry', label: 'Completar cadastro' };
     }
+    if (/seguro da carga|averba[cç][aã]o/.test(text)) return { group: 'departure', label: 'Informar averbação do seguro' };
     if (/inscri[cç][aã]o estadual|(^|[^a-z])ie([^a-z]|$)|endere[cç]o do emitente|emitente/.test(text)) {
         return { group: 'emitter', label: 'Revisar emitente fiscal' };
     }

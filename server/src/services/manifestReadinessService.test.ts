@@ -76,7 +76,8 @@ const baseManifest = {
     fiscalEmitterId: 'fe-1',
     totalValue: 1000,
     totalWeight: 100,
-    fiscalEmitter: { person: { ...completeAddress, document: '11111111111111', stateRegistration: '110042490114' } },
+    fiscalEmitter: { cargoInsurerName: 'Porto Seguro', cargoInsurerCnpj: '61198164000160', cargoInsurancePolicyNumber: 'APL-1', person: { ...completeAddress, document: '11111111111111', stateRegistration: '110042490114' } },
+    cargoInsuranceAverbacao: 'AV-1',
     linkId: 'link-1',
     link: baseLink,
     driverId: 'driver-1',
@@ -189,6 +190,26 @@ describe('manifestReadinessService', () => {
         prisma.ciotEmissionJob.findFirst = (async () => ({ requestData: { pagamentos: [{ categoria: 'SemCategoria', indicadorPagamento: 'Avista', valor: 1000, dataLiberacao: '2026-11-08T12:00:00Z', pix: { valorChave: 'pix-ciot' } }] } })) as any;
         const ready = await getManifestReadiness('manifest-1');
         assert.ok(!ready.issues.some((item) => item.code === 'MDFE_PAYMENT_ACCOUNT_PENDING' || item.code === 'MDFE_PAYMENT_SCHEDULE_PENDING'));
+    });
+
+    it('seguro da carga: pendencias aparecem sem dados, bloqueiam com a viagem aceita e somem quando completos', async () => {
+        prisma.manifestFiscalDocument.findMany = (async () => []) as any;
+        const person = { ...completeAddress, document: '11111111111111', stateRegistration: '110042490114' };
+        mockWith(undefined, undefined, { status: 'ACCEPTED', fiscalEmitter: { person }, cargoInsuranceAverbacao: ' ' });
+        const pending = await getManifestReadiness('manifest-1');
+        const insurance = pending.issues.find((item) => item.code === 'MDFE_CARGO_INSURANCE_PENDING');
+        const averbacao = pending.issues.find((item) => item.code === 'MDFE_CARGO_AVERBACAO_PENDING');
+        assert.equal(insurance?.step, 'fiscal');
+        assert.equal(insurance?.severity, 'blocking');
+        assert.equal(insurance?.message, 'Seguro da carga: informe seguradora, CNPJ e apólice no cadastro do emitente.');
+        assert.equal(averbacao?.severity, 'blocking');
+        assert.equal(averbacao?.message, 'Informe o número de averbação do seguro desta viagem.');
+        mockWith(undefined, undefined, { status: 'DRAFT', fiscalEmitter: { person, cargoInsurerName: 'X', cargoInsurerCnpj: '123', cargoInsurancePolicyNumber: 'A' } });
+        const draft = await getManifestReadiness('manifest-1');
+        assert.equal(draft.issues.find((item) => item.code === 'MDFE_CARGO_INSURANCE_PENDING')?.severity, 'warning');
+        mockWith(undefined, undefined, { status: 'ACCEPTED' });
+        const ready = await getManifestReadiness('manifest-1');
+        assert.ok(!ready.issues.some((item) => item.code === 'MDFE_CARGO_INSURANCE_PENDING' || item.code === 'MDFE_CARGO_AVERBACAO_PENDING'));
     });
 
     it('base fixture: no blocking issues, canOffer true', async () => {

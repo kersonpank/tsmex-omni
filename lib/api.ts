@@ -741,7 +741,7 @@ export const manifestsApi = {
         return response.data;
     },
 
-    updateCapa: async (id: string, data: { fiscalEmitterId?: string; plannedDepartureAt?: string; plannedArrivalAt?: string; notes?: string; seloLacre?: string; liberacao?: string }) => {
+    updateCapa: async (id: string, data: { fiscalEmitterId?: string; plannedDepartureAt?: string; plannedArrivalAt?: string; notes?: string; seloLacre?: string; liberacao?: string; cargoInsuranceAverbacao?: string }) => {
         const response = await api.patch<ApiResponse<Manifest>>(`/manifests/${id}/capa`, data);
         return response.data;
     },

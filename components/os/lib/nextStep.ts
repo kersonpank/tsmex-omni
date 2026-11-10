@@ -52,7 +52,7 @@ export function tripNextStep(manifest: ManifestWithLegs, readiness: ManifestRead
 
     const departure = groupIssue('departure');
     if (!manifest.plannedDepartureAt || departure) {
-        return next('departure', 'Definir saída prevista', departure?.message ?? 'Informe quando o veículo deve sair.');
+        return next('departure', departure?.code === 'MDFE_CARGO_AVERBACAO_PENDING' ? 'Informar averbação do seguro' : 'Definir saída prevista', departure?.message ?? 'Informe quando o veículo deve sair.');
     }
 
     const route = blocking.find((issue) => ROUTE_EDITABLE_CODES.includes(issue.code));

@@ -13,7 +13,8 @@ export function departureReadyManifest<T extends { legs: unknown[]; linkId?: str
         tripStops: [],
         plannedDepartureAt: new Date('2026-09-26T12:00:00Z'),
         fiscalEmitterId: 'emitter-ready',
-        fiscalEmitter: { person: { ...address, document: '22222222222222', stateRegistration: '110042490114' } },
+        fiscalEmitter: { cargoInsurerName: 'Seguradora Teste', cargoInsurerCnpj: '61198164000160', cargoInsurancePolicyNumber: 'APL-READY', person: { ...address, document: '22222222222222', stateRegistration: '110042490114' } },
+        cargoInsuranceAverbacao: 'AV-READY',
         linkId,
         link: {
             id: linkId, approvalStatus: 'APPROVED', carrierType: 'FROTA', person: { ...address, paymentAccounts: [{ pixKey: 'frete@example.com' }] },

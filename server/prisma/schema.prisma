@@ -932,6 +932,7 @@ model Manifest {
   plannedArrivalAt   DateTime?
   notes              String?                   @db.Text
   seloLacre          String? // lacre(s) da carroceria, separados por vírgula quando houver mais de um
+  cargoInsuranceAverbacao String? // número(s) de averbação do seguro da viagem (nAver do MDF-e), separados por vírgula/;/quebra de linha
   liberacao          String?
   kmSaida            Float? // gravado no início real da viagem (startManifest)
   kmChegada          Float? // gravado na conclusão da última parada
@@ -1161,6 +1162,10 @@ model FiscalEmitter {
   defaultCteCfop   String?
   /// CST do ICMS padrão do CT-e (e DC-e quando não informado no cálculo)
   defaultCteCst    String?
+  /// Seguro da carga (RCTR-C) do emitente — grupo seg do MDF-e (respSeg=1)
+  cargoInsurerName           String?
+  cargoInsurerCnpj           String?
+  cargoInsurancePolicyNumber String?
   environment      FiscalEnvironment @default(HOMOLOGACAO)
   efreteEnvironment FiscalEnvironment @default(HOMOLOGACAO)
 

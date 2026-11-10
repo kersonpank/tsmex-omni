@@ -19,6 +19,12 @@ describe('groupOf', () => {
         expect(groupOf(issue({ step: 'fiscal', code: 'MDFE_AUTHORIZATION_REQUIRED' }))).toBe('documents');
     });
 
+    it('seguro da carga: apólice vai ao emitente e averbação à saída da viagem', () => {
+        expect(groupOf(issue({ step: 'fiscal', code: 'MDFE_CARGO_INSURANCE_PENDING' }))).toBe('emitter');
+        expect(groupOf(issue({ step: 'fiscal', code: 'MDFE_CARGO_AVERBACAO_PENDING' }))).toBe('departure');
+        expect(mdfeFixGroup('Informe o seguro da carga (seguradora, CNPJ e apólice) no emitente e a averbação na viagem antes de emitir o MDF-e.')?.group).toBe('departure');
+    });
+
     it('cavalo obrigatório vai para o responsável e veículo em outra viagem para o cadastro', () => {
         expect(groupOf(issue({ code: 'VEHICLE_TRACTION_REQUIRED', field: 'vehicleTraction' }))).toBe('responsible');
         expect(groupOf(issue({ code: 'VEHICLE_RESERVED_ELSEWHERE', severity: 'warning' }))).toBe('registry');

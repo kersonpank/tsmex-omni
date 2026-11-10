@@ -3,10 +3,10 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { AnttFloor } from '../../../../types/index';
-import { FreightEditor } from './TripEditors';
+import { DepartureEditor, FreightEditor } from './TripEditors';
 
 const { manifestsApi } = vi.hoisted(() => ({ manifestsApi: {
-    anttFloor: vi.fn(), getFreightAgreement: vi.fn(), getTripPriceEstimate: vi.fn(), upsertFreightAgreement: vi.fn(),
+    updateCapa: vi.fn(), anttFloor: vi.fn(), getFreightAgreement: vi.fn(), getTripPriceEstimate: vi.fn(), upsertFreightAgreement: vi.fn(),
 } }));
 vi.mock('../../../../lib/api', () => ({ manifestsApi, fiscalEmittersApi: {} }));
 const floor: AnttFloor = { value: 25236.13, ccd: 8.2727, cc: 831.66, distanceKm: 2950, eixos: 7, eixosUsed: 7, tipoCarga: 5, table: 'A', version: 'SUROC-22-2026', legalReference: 'Portaria SUROC 22/2026' };
@@ -33,4 +33,18 @@ it('mantém o negociado até aplicar o piso, preserva pedágio e só grava ao sa
     await user.type(bruto, '26000');
     await user.click(screen.getByRole('button', { name: 'Salvar Carta Frete' }));
     expect(manifestsApi.upsertFreightAgreement).toHaveBeenCalledWith('trip', { freteBruto: 26000, pedagio: 1000, adiantamento: 10000 });
+});
+
+it('saída prevista grava a averbação do seguro pela mesma chamada de capa', async () => {
+    const user = userEvent.setup();
+    manifestsApi.updateCapa.mockResolvedValue({ success: true });
+    const onSaved = vi.fn();
+    render(<DepartureEditor manifestId="trip" departure="2026-11-20T12:00:00.000Z" averbacao="AV-1" onClose={vi.fn()} onSaved={onSaved} />);
+    const field = screen.getByLabelText('Averbação do seguro');
+    expect(field).toHaveValue('AV-1');
+    await user.clear(field);
+    await user.type(field, ' AV-2; AV-3 ');
+    await user.click(screen.getByRole('button', { name: 'Salvar' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(manifestsApi.updateCapa).toHaveBeenCalledWith('trip', expect.objectContaining({ cargoInsuranceAverbacao: 'AV-2; AV-3' }));
 });
