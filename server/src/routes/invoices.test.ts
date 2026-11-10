@@ -165,6 +165,22 @@ describe('invoices routes — validação de frete oficial (Brief 5)', () => {
         }
     });
 
+    it('reserves the invoice number with an advisory lock signature that Postgres has', async () => {
+        const statements: string[] = [];
+        prisma.$queryRaw = (async (strings: TemplateStringsArray) => { statements.push(strings.join('?')); return []; }) as any;
+        prisma.orderFreightCalculation.findFirst = (async () => ({ freightTotal: 750, status: 'CTE_AUTHORIZED' })) as any;
+        try {
+            const response = await httpPost(baseUrl, '/api/invoices', { orderId, accountId }, token);
+            assert.equal(response.status, 201);
+            const lock = statements.find((sql) => sql.includes('pg_advisory_xact_lock'));
+            assert.ok(lock, 'a numeração deve ser serializada por advisory lock');
+            // Prisma envia números como bigint; só existem as assinaturas (int, int) e (bigint).
+            assert.match(lock!, /pg_advisory_xact_lock\(\?::int, 742301\)::text/);
+        } finally {
+            prisma.$queryRaw = (async () => []) as any;
+        }
+    });
+
     it('increments invoice numbers numerically after 999', async () => {
         prisma.$queryRaw = (async () => [{ lastNumber: 999n }]) as any;
         prisma.orderFreightCalculation.findFirst = (async () => ({ freightTotal: 750, status: 'CTE_AUTHORIZED' })) as any;

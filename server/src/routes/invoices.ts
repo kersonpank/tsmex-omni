@@ -17,7 +17,9 @@ router.use(uuidParam(), ...resourceGuard('invoice'));
 async function generateInvoiceNumber(tx: Prisma.TransactionClient): Promise<string> {
     const year = new Date().getFullYear();
     // Lock is scoped to the transaction. Concurrent operators cannot reserve the same year/number.
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(${year}, 742301)`;
+    // O Postgres só tem pg_advisory_xact_lock(int, int) e (bigint): o parâmetro chega como bigint,
+    // então o cast é obrigatório. O ::text evita desserializar o retorno void.
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(${year}::int, 742301)::text AS "locked"`;
     const rows = await tx.$queryRaw<Array<{ lastNumber: bigint }>>`
         SELECT COALESCE(MAX(split_part("invoiceNumber", '-', 3)::BIGINT), 0)::BIGINT AS "lastNumber"
         FROM "Invoice"
