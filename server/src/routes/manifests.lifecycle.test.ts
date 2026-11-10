@@ -136,6 +136,8 @@ describe('manifests lifecycle TRANSFER E2E (mocked)', () => {
             },
             orderLeg: {
                 findFirst: async () => null,
+                // Chegada consulta pernas do pedido em outras viagens ativas; neste fluxo não há nenhuma.
+                findMany: async () => [],
                 create: async ({ data }: any) => {
                     const id = `leg-${Math.random()}`;
                     const leg = { id, ...data };

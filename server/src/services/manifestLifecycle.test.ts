@@ -28,6 +28,7 @@ const prismaSnapshot = {
     fiscalDocFindMany: prisma.manifestFiscalDocument.findMany.bind(prisma.manifestFiscalDocument),
     transaction: prisma.$transaction.bind(prisma),
     linkUpdate: prisma.link.update.bind(prisma.link),
+    stopFindMany: prisma.manifestStop.findMany.bind(prisma.manifestStop),
 };
 
 function restorePrismaMocks() {
@@ -50,6 +51,7 @@ function restorePrismaMocks() {
     prisma.manifestFiscalDocument.findMany = prismaSnapshot.fiscalDocFindMany;
     prisma.$transaction = prismaSnapshot.transaction;
     prisma.link.update = prismaSnapshot.linkUpdate;
+    prisma.manifestStop.findMany = prismaSnapshot.stopFindMany;
 }
 
 describe('manifestLifecycle', () => {
@@ -57,6 +59,7 @@ describe('manifestLifecycle', () => {
         restorePrismaMocks();
         prisma.manifestVehicleAssignment.findMany = (async () => []) as any;
         prisma.manifest.findMany = (async () => []) as any;
+        prisma.manifestStop.findMany = (async () => []) as any;
     });
     afterEach(() => restorePrismaMocks());
 
@@ -115,6 +118,7 @@ describe('manifestLifecycle', () => {
     ];
 
     const txLog: TxOp[] = [];
+    let staleLegs: any[] = [];
 
     function mockTx() {
         return {
@@ -159,6 +163,14 @@ describe('manifestLifecycle', () => {
             },
             orderLeg: {
                 findFirst: async () => null,
+                findMany: async (args: any) => {
+                    txLog.push({ model: 'orderLeg', action: 'findMany', args });
+                    return staleLegs;
+                },
+                delete: async (args: any) => {
+                    txLog.push({ model: 'orderLeg', action: 'delete', args });
+                    return {};
+                },
                 create: async (args: any) => {
                     txLog.push({ model: 'orderLeg', action: 'create', args });
                     return { id: 'leg-new', ...args.data };
@@ -250,6 +262,94 @@ describe('manifestLifecycle', () => {
 
         const orderHistories = txLog.filter((o) => o.model === 'orderHistory');
         assert.ok(orderHistories.length >= 2);
+    });
+
+    describe('chegada libera o pedido de planejamentos obsoletos', () => {
+        const guarulhosDraftId = 'aaaaaaaa-1111-2222-3333-444444444444';
+
+        function staleLeg(manifestOverrides: Record<string, unknown>, legOverrides: Record<string, unknown> = {}) {
+            return {
+                orderId: order1,
+                manifestId: guarulhosDraftId,
+                startedAt: null,
+                completedAt: null,
+                order: { ...orders[0], manifestId: guarulhosDraftId },
+                manifest: {
+                    id: guarulhosDraftId,
+                    status: 'DRAFT',
+                    hubId: originHubId,
+                    totalWeight: 300,
+                    totalVolume: 3,
+                    totalValue: 1500,
+                    hub: { code: 'GRU-SP' },
+                    ...manifestOverrides,
+                },
+                ...legOverrides,
+            };
+        }
+
+        async function arrive() {
+            txLog.length = 0;
+            const manifestWithLegs = { ...baseManifest, legs: orders.map((o) => ({ orderId: o.id, order: o })) };
+            prisma.manifest.findUnique = (async () => manifestWithLegs) as unknown as typeof prisma.manifest.findUnique;
+            prisma.$transaction = (async (fn: unknown) => {
+                if (typeof fn === 'function') return fn(mockTx());
+                throw new Error('batch transaction not mocked');
+            }) as unknown as typeof prisma.$transaction;
+            await completeManifest(manifestId, { userId: 'hub-user', role: 'HUB' });
+        }
+
+        afterEach(() => {
+            staleLegs = [];
+        });
+
+        it('remove perna nao iniciada de rascunho de OUTRO hub, ajusta totais e grava historico com ator', async () => {
+            staleLegs = [staleLeg({})];
+            await arrive();
+
+            const del = txLog.find((o) => o.model === 'orderLeg' && o.action === 'delete');
+            assert.deepEqual(del?.args.where, { orderId_manifestId: { orderId: order1, manifestId: guarulhosDraftId } });
+
+            const totals = txLog.find((o) => o.model === 'manifest' && (o.args.where as any).id === guarulhosDraftId);
+            assert.deepEqual(totals?.args.data, { totalWeight: 200, totalVolume: 2, totalValue: 1000 });
+
+            const unlink = txLog.find(
+                (o) => o.model === 'order' && (o.args.where as any).id === order1 && (o.args.data as any).manifestId === null,
+            );
+            assert.ok(unlink, 'Order.manifestId deve deixar de apontar para o rascunho');
+
+            const note = txLog.find(
+                (o) => o.model === 'orderHistory' && (o.args.data as any).eventType === 'NOTE' && /rascunho/.test(String((o.args.data as any).description)),
+            );
+            assert.ok(note);
+            assert.match(String((note!.args.data as any).description), /aaaaaaaa/);
+            assert.match(String((note!.args.data as any).description), /GRU-SP/);
+            assert.match(String((note!.args.data as any).description), /IMP-MA/);
+            assert.equal((note!.args.data as any).actorUserId, 'hub-user');
+
+            const arrival = txLog.find((o) => o.model === 'orderHistory' && (o.args.data as any).eventType === 'AT_HUB');
+            assert.equal((arrival!.args.data as any).actorUserId, 'hub-user');
+        });
+
+        it('nao remove perna de rascunho do PROPRIO hub de chegada', async () => {
+            staleLegs = [staleLeg({ hubId: destHubId })];
+            await arrive();
+            assert.equal(txLog.filter((o) => o.model === 'orderLeg' && o.action === 'delete').length, 0);
+        });
+
+        it('nao remove perna de viagem ACCEPTED de outro hub e apenas registra nota', async () => {
+            staleLegs = [staleLeg({ status: 'ACCEPTED' })];
+            await arrive();
+            assert.equal(txLog.filter((o) => o.model === 'orderLeg' && o.action === 'delete').length, 0);
+            assert.equal(
+                txLog.filter((o) => o.model === 'manifest' && (o.args.where as any).id === guarulhosDraftId).length,
+                0,
+            );
+            const note = txLog.find(
+                (o) => o.model === 'orderHistory' && (o.args.data as any).eventType === 'NOTE' && /aaaaaaaa/.test(String((o.args.data as any).description)),
+            );
+            assert.ok(note, 'deve registrar inconsistencia no historico');
+        });
     });
 
     it('syncs order.manifestId and creates leg', async () => {

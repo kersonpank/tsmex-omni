@@ -80,6 +80,20 @@ function orderEffectiveWeight(order: { demand: { weight: number; cubedWeight: nu
     return Math.max(order.demand.weight, order.demand.cubedWeight ?? 0);
 }
 
+type ManifestTotals = { totalWeight: number; totalVolume: number; totalValue: number };
+
+/** Totais do manifesto depois de retirar um pedido (regra unica de removeOrderFromManifest e da liberacao na chegada). */
+function totalsAfterRemovingOrder(
+    totals: ManifestTotals,
+    order: { demand: { weight: number; cubedWeight: number | null; volume: number; nfValue: number } },
+): ManifestTotals {
+    return {
+        totalWeight: Math.max(0, totals.totalWeight - orderEffectiveWeight(order)),
+        totalVolume: Math.max(0, totals.totalVolume - order.demand.volume),
+        totalValue: Math.max(0, totals.totalValue - order.demand.nfValue),
+    };
+}
+
 export async function assertOrderNotInOtherActiveManifest(
     orderId: string,
     exceptManifestId: string
@@ -357,8 +371,6 @@ export async function removeOrderFromManifest(
         throw new AppError('Cannot remove a leg that is already started or completed', 400);
     }
 
-    const effectiveWeight = orderEffectiveWeight(order);
-
     await prisma.$transaction(async (tx) => {
         // Calculate marginBefore
         const marginBeforeStats = await getManifestMargin(manifestId, tx);
@@ -389,9 +401,8 @@ export async function removeOrderFromManifest(
             },
         });
 
-        const newTotalWeight = Math.max(0, manifest.totalWeight - effectiveWeight);
-        const newTotalVolume = Math.max(0, manifest.totalVolume - order.demand.volume);
-        const newTotalValue = Math.max(0, manifest.totalValue - order.demand.nfValue);
+        const { totalWeight: newTotalWeight, totalVolume: newTotalVolume, totalValue: newTotalValue } =
+            totalsAfterRemovingOrder(manifest, order);
 
         await tx.manifest.update({
             where: { id: manifestId },
@@ -465,6 +476,94 @@ async function loadManifestForLifecycle(manifestId: string): Promise<ManifestWit
         throw new AppError('Manifest not found', 404);
     }
     return manifest;
+}
+
+/**
+ * Ao receber o pedido num hub, libera-o de planejamentos obsoletos de OUTRO hub (o pedido e a
+ * fonte unica do estado fisico): remove pernas nao iniciadas de viagens DRAFT/PENDING_ACCEPT cuja
+ * origem nao e o hub de chegada, recalcula os totais dessas viagens e desfaz o vinculo legado
+ * Order.manifestId. Viagens ACCEPTED/IN_PROGRESS de outro hub NAO sao tocadas nem bloqueiam a
+ * chegada: apenas registram uma nota no historico do pedido para revisao manual.
+ * Deve rodar dentro da mesma transacao que marca o pedido como AT_HUB.
+ */
+async function releaseStaleHubPlanning(
+    tx: Prisma.TransactionClient,
+    params: {
+        orderIds: string[];
+        arrivalHubId: string;
+        arrivalHubLabel: string;
+        completedManifestId: string;
+        actorUserId?: string | null;
+    },
+) {
+    if (params.orderIds.length === 0) return;
+    const otherLegs = await tx.orderLeg.findMany({
+        where: {
+            orderId: { in: params.orderIds },
+            manifestId: { not: params.completedManifestId },
+            manifest: { status: { in: HUB_CARGO_ACTIVE_MANIFEST_STATUSES } },
+        },
+        include: {
+            order: { include: { demand: true } },
+            manifest: {
+                select: {
+                    id: true,
+                    status: true,
+                    hubId: true,
+                    totalWeight: true,
+                    totalVolume: true,
+                    totalValue: true,
+                    hub: { select: { code: true } },
+                },
+            },
+        },
+    });
+
+    const runningTotals = new Map<string, ManifestTotals>();
+    const touchedManifestIds = new Set<string>();
+
+    for (const leg of otherLegs) {
+        const m = leg.manifest;
+        if (!m.hubId || m.hubId === params.arrivalHubId) continue;
+        const shortId = m.id.slice(0, 8);
+        const originLabel = m.hub?.code ?? m.hubId;
+        const removable = !leg.startedAt && (m.status === 'DRAFT' || m.status === 'PENDING_ACCEPT');
+
+        if (!removable) {
+            await tx.orderHistory.create({
+                data: {
+                    orderId: leg.orderId,
+                    eventType: 'NOTE',
+                    description: `Atenção: a carga chegou em ${params.arrivalHubLabel}, mas ainda consta na viagem ${m.status} ${shortId} de ${originLabel}. Revise esse planejamento.`,
+                    actorUserId: params.actorUserId ?? null,
+                },
+            });
+            continue;
+        }
+
+        await tx.orderLeg.delete({
+            where: { orderId_manifestId: { orderId: leg.orderId, manifestId: m.id } },
+        });
+        if (leg.order.manifestId === m.id) {
+            await tx.order.update({ where: { id: leg.orderId }, data: { manifestId: null } });
+        }
+        const next = totalsAfterRemovingOrder(runningTotals.get(m.id) ?? m, leg.order);
+        runningTotals.set(m.id, next);
+        touchedManifestIds.add(m.id);
+        await tx.manifest.update({ where: { id: m.id }, data: next });
+        await tx.orderHistory.create({
+            data: {
+                orderId: leg.orderId,
+                eventType: 'NOTE',
+                description: `Retirado da viagem em rascunho ${shortId} de ${originLabel}: a carga chegou em ${params.arrivalHubLabel}.`,
+                actorUserId: params.actorUserId ?? null,
+            },
+        });
+    }
+
+    for (const id of touchedManifestIds) {
+        await allocateLegCosts(id, tx);
+    }
 }
 
 function startStatuses(tripType: OperationalTripType): {
@@ -635,9 +734,18 @@ export async function completeManifest(
                         eventType: 'AT_HUB',
                         description: `Recebido no hub destino (${destCode})`,
                         location: manifest.destination,
+                        actorUserId: actor?.userId ?? null,
                     },
                 });
             }
+
+            await releaseStaleHubPlanning(tx, {
+                orderIds: manifest.legs.map((leg) => leg.orderId),
+                arrivalHubId: manifest.destHubId!,
+                arrivalHubLabel: destCode,
+                completedManifestId: manifestId,
+                actorUserId: actor?.userId ?? null,
+            });
 
             // Final cost allocation update
             await allocateLegCosts(manifestId, tx);
@@ -787,6 +895,7 @@ export async function completeManifestStop(
                         eventType: 'AT_HUB',
                         description: `Recebido no hub destino (${stop.destHub?.code ?? stop.destHubId})`,
                         location: stop.destinationLabel ?? manifest.destination,
+                        actorUserId: actor?.userId ?? null,
                     },
                 });
             } else {
@@ -803,6 +912,16 @@ export async function completeManifestStop(
                     },
                 });
             }
+        }
+
+        if (isTransfer && stop.destHubId) {
+            await releaseStaleHubPlanning(tx, {
+                orderIds: stop.legs.map((leg) => leg.orderId),
+                arrivalHubId: stop.destHubId,
+                arrivalHubLabel: stop.destHub?.code ?? stop.destHubId,
+                completedManifestId: manifestId,
+                actorUserId: actor?.userId ?? null,
+            });
         }
 
         await allocateLegCosts(manifestId, tx);
