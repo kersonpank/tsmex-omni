@@ -72,6 +72,9 @@ describe('acbrEmpresa sync', () => {
             assert.ok(calls.some((call) => call.url === 'https://hom.acbr.api.br/empresas/11222333000144/cte' && call.method === 'PUT'));
             const configCall = calls.find((call) => call.url.endsWith('/cte'));
             assert.deepEqual(configCall?.body, { CRT: 3, ambiente: 'homologacao' });
+            const mdfeCall = calls.find((call) => call.url === 'https://hom.acbr.api.br/empresas/11222333000144/mdfe');
+            assert.equal(mdfeCall?.method, 'PUT', 'MDF-e exige configuração própria da empresa');
+            assert.deepEqual(mdfeCall?.body, { ambiente: 'homologacao' });
         } finally {
             restoreAcbrEnv(env);
         }

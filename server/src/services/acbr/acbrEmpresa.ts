@@ -167,6 +167,28 @@ export async function putAcbrEmpresaCteConfig(
     return { ok: false, message: msg };
 }
 
+/**
+ * PUT /empresas/{cnpj}/mdfe — configuração de MDF-e da empresa (só o ambiente). É separada do
+ * cadastro e da configuração de CT-e: sem ela toda emissão de MDF-e falha com `ConfigMdfeNotFound`
+ * (descoberto na primeira emissão real em homologação). Idempotente.
+ */
+export async function putAcbrEmpresaMdfeConfig(
+    person: Pick<PersonLike, 'document'>,
+    apiEnvironment: AcbrFiscalEnvironment,
+): Promise<{ ok: boolean; message?: string }> {
+    const cnpj = digits(person.document);
+    if (cnpj.length !== 14) return { ok: false, message: 'CNPJ inválido para configuração MDF-e na ACBr.' };
+    const ambiente = apiEnvironment === 'PRODUCAO' ? 'producao' : 'homologacao';
+    const { status, json } = await acbrJsonRequest(`/empresas/${cnpj}/mdfe`, {
+        method: 'PUT',
+        body: { ambiente },
+        scopes: ['empresa'],
+        apiEnvironment,
+    });
+    if (status === 200 || status === 201) return { ok: true };
+    return { ok: false, message: extractErrorMessage(json, status) };
+}
+
 /** PUT /empresas/{cnpj}/certificado — certificado Base64 + senha. */
 export async function putAcbrEmpresaCertificado(
     person: PersonLike,
@@ -194,13 +216,15 @@ export type FiscalEmitterAcbrSyncInput = {
     person: PersonLike;
 };
 
-/** Cadastra empresa na ACBr + configuração CT-e (idempotente na empresa). */
+/** Cadastra empresa na ACBr + configurações de CT-e e MDF-e (idempotente na empresa). */
 export async function syncFiscalEmitterToAcbr(input: FiscalEmitterAcbrSyncInput): Promise<{ ok: boolean; message?: string }> {
     const email = `fiscal+${digits(input.person.document)}@emitente.tsm`.slice(0, 120);
     const emp = await createAcbrEmpresaForPerson(input.person, input.environment, email);
     if (!emp.ok) return emp;
     const cfg = await putAcbrEmpresaCteConfig(input.person, input.environment, input.crt);
     if (!cfg.ok) return cfg;
+    const mdfe = await putAcbrEmpresaMdfeConfig(input.person, input.environment);
+    if (!mdfe.ok) return mdfe;
     return { ok: true };
 }
 

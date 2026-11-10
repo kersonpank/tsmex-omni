@@ -10,6 +10,7 @@ import { getAcbrApiBaseUrlForEnvironment, type AcbrFiscalEnvironment } from './a
 import { ufToCuf } from './acbrIbge.js';
 import { requireSelectedIbge } from '../selectedCity.js';
 import { acbrFetchJson } from './acbrHttp.js';
+import { putAcbrEmpresaMdfeConfig } from './acbrEmpresa.js';
 import { cleanIe } from './acbrCteMapper.js';
 import { calculateMdfeCheckDigit, generateCMdf, isDefinitiveMdfeRejection, reserveNextMdfeNumber } from './mdfeNumbering.js';
 import { linkVehicleInclude, manifestVehicleAssignmentsInclude } from '../vehicleUnitService.js';
@@ -427,6 +428,13 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
         });
     } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+
+    // A ACBr exige a configuração de MDF-e da empresa, separada do cadastro e do CT-e. O PUT é
+    // idempotente e roda ANTES de reservar a numeração: falha aqui não consome número.
+    const mdfeConfig = await putAcbrEmpresaMdfeConfig({ document: emitCnpj }, apiEnv);
+    if (!mdfeConfig.ok) {
+        return { ok: false, error: `Não foi possível configurar o MDF-e do emitente na ACBr: ${mdfeConfig.message ?? 'erro desconhecido'}` };
     }
 
     // Todas as validações acima já passaram: só agora consumimos um número. O número e o cMDF ficam
