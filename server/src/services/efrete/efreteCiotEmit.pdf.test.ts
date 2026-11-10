@@ -4,14 +4,14 @@ import { obterCiotPdf } from './efreteCiotEmit.js';
 
 const pdf = Buffer.from('%PDF-1.7\n').toString('base64');
 
-test('obterCiotPdf sends authenticated PDF request with explicit environment', async () => {
+test('obterCiotPdf pede o PDF por POST versão 1 no ambiente informado', async () => {
     let seen: unknown;
     const result = await obterCiotPdf('CIOT-1', 'producao', undefined, (async (...args: unknown[]) => {
         seen = args;
         return { Pdf: pdf };
     }) as any);
     assert.equal(result, pdf);
-    assert.deepEqual(seen, ['/Services/Pef/ObterOperacaoTransportePdf', { CodigoIdentificacaoOperacao: 'CIOT-1' }, { environment: 'producao' }]);
+    assert.deepEqual(seen, ['/Services/Pef/ObterOperacaoTransportePdf', { CodigoIdentificacaoOperacao: 'CIOT-1' }, { environment: 'producao', versao: 1 }]);
 });
 
 test('obterCiotPdf rejects empty, malformed, and non-PDF responses', async () => {

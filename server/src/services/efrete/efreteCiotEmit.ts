@@ -44,17 +44,20 @@ interface ObterCiotPdfResponse {
 
 export type EfreteGet = typeof efreteAuthedGet;
 
-/** Obtém o PDF obrigatório do CIOT autorizado. */
+/**
+ * Obtém o PDF obrigatório do CIOT autorizado. Em homologação o GET é recusado com "Requisição
+ * inválida": como a consulta de operação, este serviço só responde a POST com Versao 1.
+ */
 export async function obterCiotPdf(
     codigoIdentificacaoOperacao: string,
     environment: EfreteEnvironment,
     documentoViagem?: string,
-    get: EfreteGet = efreteAuthedGet,
+    post: typeof efreteAuthedPost = efreteAuthedPost,
 ): Promise<string> {
-    const res = await get<ObterCiotPdfResponse>(
+    const res = await post<ObterCiotPdfResponse>(
         '/Services/Pef/ObterOperacaoTransportePdf',
         { CodigoIdentificacaoOperacao: codigoIdentificacaoOperacao, ...(documentoViagem ? { DocumentoViagem: documentoViagem } : {}) },
-        { environment },
+        { environment, versao: 1 },
     );
     const pdf = res.Pdf?.trim();
     if (!pdf || !/^[A-Za-z0-9+/]*={0,2}$/.test(pdf) || pdf.length % 4 !== 0) {
