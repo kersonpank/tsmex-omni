@@ -1683,6 +1683,16 @@ router.post('/:id/emit-ciot', authenticate, authorize('ADMIN', 'HUB'), async (re
         if (existingJob && ['QUEUED', 'CADASTROS_ENSURING', 'SUBMITTED', 'POLLING'].includes(existingJob.phase)) {
             throw new AppError('Já existe uma emissão de CIOT em processamento para este manifesto.', 409);
         }
+        // O CIOT já existe no provedor e só falta arquivar o PDF: retomar o MESMO job. Criar outro
+        // registro geraria um novo idOperacaoCliente e, com ele, um segundo CIOT para a mesma viagem.
+        if (existingJob && existingJob.phase === 'DOWNLOADING_FILES' && existingJob.codigoIdentificacaoOperacao) {
+            await enqueueCiotEmissionJob({ ciotEmissionJobId: existingJob.id });
+            return res.status(202).json({
+                success: true,
+                data: existingJob,
+                message: 'CIOT já emitido no provedor. Retomando o arquivamento do PDF.',
+            });
+        }
 
         const fiscalEmitter = manifest.fiscalEmitterId != null ? manifest.fiscalEmitter : await prisma.fiscalEmitter.findFirst({
             where: { hubId: manifest.hubId ?? undefined, active: true },

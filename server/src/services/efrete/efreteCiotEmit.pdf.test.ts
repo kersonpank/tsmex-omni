@@ -19,3 +19,11 @@ test('obterCiotPdf rejects empty, malformed, and non-PDF responses', async () =>
         await assert.rejects(() => obterCiotPdf('CIOT-1', 'homologacao', undefined, (async () => response) as any), /PDF/);
     }
 });
+
+test('efreteProtocolo converte o protocolo numérico do e-Frete em texto', async () => {
+    const { efreteProtocolo } = await import('./efreteCiotEmit.js');
+    assert.equal(efreteProtocolo(6176840), '6176840');
+    assert.equal(efreteProtocolo('P-1'), 'P-1');
+    assert.equal(efreteProtocolo(undefined), undefined);
+    assert.equal(efreteProtocolo(null), undefined);
+});

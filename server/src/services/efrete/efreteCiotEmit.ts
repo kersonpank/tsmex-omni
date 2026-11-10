@@ -6,9 +6,13 @@ import { EfreteApiError } from './efreteHttp.js';
 interface AdicionarOperacaoTransporteResponse {
     Sucesso?: boolean;
     CodigoIdentificacaoOperacao?: string;
-    ProtocoloServico?: string;
+    ProtocoloServico?: string | number;
     Excecao?: { Mensagem?: string; Codigo?: string };
 }
+
+/** O e-Frete devolve o protocolo como número; o documento fiscal guarda texto. */
+export const efreteProtocolo = (value: string | number | null | undefined): string | undefined =>
+    value === null || value === undefined || value === '' ? undefined : String(value);
 
 export interface SubmitCiotResult {
     codigoIdentificacaoOperacao: string;
@@ -25,14 +29,14 @@ export async function submitCiotToEfrete(payload: AdicionarOperacaoTransporteV2P
     if (!res.CodigoIdentificacaoOperacao) {
         throw new Error('eFrete AdicionarOperacaoTransporteV2: resposta sem CodigoIdentificacaoOperacao.');
     }
-    return { codigoIdentificacaoOperacao: res.CodigoIdentificacaoOperacao, protocoloServico: res.ProtocoloServico, raw: res };
+    return { codigoIdentificacaoOperacao: res.CodigoIdentificacaoOperacao, protocoloServico: efreteProtocolo(res.ProtocoloServico), raw: res };
 }
 
 interface ConsultarCiotResponse {
     Sucesso?: boolean;
     CodigoIdentificacaoOperacao?: string;
     EstadoCiot?: 'EmViagem' | 'Encerrado' | 'Cancelado';
-    ProtocoloServico?: string;
+    ProtocoloServico?: string | number;
     Excecao?: { Mensagem?: string; Codigo?: string };
 }
 
@@ -89,7 +93,7 @@ export async function consultarStatusCiot(idOperacaoCliente: string, matrizCnpj:
             { MatrizCNPJ: matrizCnpj, IdOperacaoCliente: idOperacaoCliente }, { environment, versao: 1 },
         );
         if (!res.CodigoIdentificacaoOperacao) return { exists: false };
-        return { exists: true, codigoIdentificacaoOperacao: res.CodigoIdentificacaoOperacao, estado: res.EstadoCiot, protocoloServico: res.ProtocoloServico };
+        return { exists: true, codigoIdentificacaoOperacao: res.CodigoIdentificacaoOperacao, estado: res.EstadoCiot, protocoloServico: efreteProtocolo(res.ProtocoloServico) };
     } catch (err) {
         // Só "operação inexistente" autoriza a emissão. Auth, timeout, rede, 5xx e resposta ilegível
         // PROPAGAM: o CIOT pode já existir na eFrete — tratar como "não existe" reemitiria (duplicado/multa ANTT).
