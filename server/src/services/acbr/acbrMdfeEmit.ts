@@ -136,6 +136,115 @@ export async function collectDescargaGroupsForManifest(manifestId: string): Prom
     ];
 }
 
+/**
+ * Converte os campos de infANTT que o schema do provedor (MdfeSefazInfPag/InfPrazo) exige como
+ * inteiro mas o builder ANTT expõe como string de dígitos (indPag, nParcela). Não altera regras.
+ */
+export function normalizeMdfeInfAntt<T extends { infPag?: unknown[] }>(antt: T): T {
+    if (!antt.infPag) return antt;
+    return {
+        ...antt,
+        infPag: antt.infPag.map((raw) => {
+            const pag = raw as Record<string, unknown>;
+            const prazo = pag.infPrazo as Record<string, unknown>[] | undefined;
+            return {
+                ...pag,
+                ...(pag.indPag !== undefined ? { indPag: Number(pag.indPag) } : {}),
+                ...(prazo ? { infPrazo: prazo.map((p) => ({ ...p, nParcela: Number(p.nParcela) })) } : {}),
+            };
+        }),
+    };
+}
+
+export interface MdfeInfMdfeInput {
+    cUF: number;
+    tpAmb: number;
+    carrierType?: string | null;
+    serie: number;
+    nMDF: number;
+    cMDF: string;
+    cDV: number;
+    issuedAt: Date;
+    dhIniViagem: Date;
+    ufIni: string;
+    ufFim: string;
+    loadingCmun: string;
+    loadingCity: string;
+    percursoUfs: string[];
+    emit: {
+        cnpj: string; ie: string; legalName: string; fantasy?: string | null; address: string; number: string;
+        neighborhood: string; cMun: string; city: string; uf: string; cep: string; phone?: string | null;
+    };
+    infANTT: { infPag?: unknown[] };
+    veicTracao: Record<string, unknown>;
+    veicReboque: Record<string, unknown>[];
+    infMunDescarga: Record<string, unknown>[];
+    qCTe: number;
+    totalValue: number;
+    totalWeight: number;
+}
+
+/**
+ * Monta infMDFe conforme MdfeSefazInfMDFe do provedor ACBr (OpenAPI de hom.acbr.api.br/openapi/swagger.json):
+ * procEmi/cMDF/cMunCarrega/cMunDescarga/RNTRC/CIOT são string; cUF/tpAmb/tpEmit/tpTransp/mod/serie/nMDF/cDV/modal/tpEmis/indPag/nParcela
+ * são inteiros; vCarga/qCarga/vContrato/vComp são number.
+ */
+export function buildMdfeInfMdfe(input: MdfeInfMdfeInput): Record<string, unknown> {
+    const { emit } = input;
+    const phone = digits(emit.phone ?? '');
+    const tpTransp = input.carrierType && input.carrierType !== 'FROTA' ? ({ ETC: 1, TAC: 2, CTC: 3 } as Record<string, number>)[input.carrierType] : undefined;
+    return {
+        versao: '3.00',
+        ide: {
+            cUF: input.cUF,
+            tpAmb: input.tpAmb,
+            tpEmit: 1,
+            ...(tpTransp ? { tpTransp } : {}),
+            mod: 58,
+            serie: input.serie,
+            nMDF: input.nMDF,
+            cMDF: input.cMDF,
+            cDV: input.cDV,
+            modal: 1,
+            dhEmi: input.issuedAt.toISOString(),
+            tpEmis: 1,
+            procEmi: '0',
+            verProc: 'TSM-EX-OMNI',
+            UFIni: input.ufIni,
+            UFFim: input.ufFim,
+            infMunCarrega: [{ cMunCarrega: input.loadingCmun, xMunCarrega: input.loadingCity.slice(0, 60) }],
+            ...(input.percursoUfs.length ? { infPercurso: input.percursoUfs.map((UFPer) => ({ UFPer })) } : {}),
+            dhIniViagem: input.dhIniViagem.toISOString(),
+        },
+        emit: {
+            CNPJ: emit.cnpj,
+            IE: emit.ie,
+            xNome: emit.legalName,
+            xFant: emit.fantasy?.slice(0, 60),
+            enderEmit: {
+                xLgr: emit.address.slice(0, 60),
+                nro: emit.number.slice(0, 60),
+                xBairro: emit.neighborhood.slice(0, 60),
+                cMun: emit.cMun,
+                xMun: emit.city.slice(0, 60),
+                CEP: emit.cep,
+                UF: emit.uf.slice(0, 2).toUpperCase(),
+                ...(phone ? { fone: phone.slice(0, 12) } : {}),
+            },
+        },
+        infModal: {
+            versaoModal: '3.00',
+            rodo: {
+                infANTT: normalizeMdfeInfAntt(input.infANTT),
+                veicTracao: input.veicTracao,
+                ...(input.veicReboque.length ? { veicReboque: input.veicReboque } : {}),
+            },
+        },
+        infDoc: { infMunDescarga: input.infMunDescarga },
+        tot: { qCTe: input.qCTe, qNFe: 0, qMDFe: 0, vCarga: input.totalValue, cUnid: '01', qCarga: input.totalWeight },
+    };
+}
+
 export async function emitMdfeViaAcbr(manifestId: string, referencia: string): Promise<MdfeEmitResult> {
     const manifest = await prisma.manifest.findUnique({
         where: { id: manifestId },
@@ -358,60 +467,17 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
     if (reservation.nMDF === 0) return { ok: false, pending: true, docId: reservation.docId, error: 'Já existe um MDF-e ativo para esta viagem. Consulte o mesmo documento; não reemita.' };
     const { nMDF, serie, docId } = reservation;
 
-    const infMDFe: Record<string, unknown> = {
-        versao: '3.00',
-        ide: {
-            cUF,
-            tpAmb,
-            tpEmit: 1,
-            ...(manifest.link.carrierType && manifest.link.carrierType !== 'FROTA'
-                ? { tpTransp: { ETC: 1, TAC: 2, CTC: 3 }[manifest.link.carrierType] }
-                : {}),
-            mod: 58,
-            serie,
-            nMDF,
-            cMDF,
-            cDV: calculateMdfeCheckDigit({ cUF, cnpj: emitCnpj, series: serie, number: nMDF, cMDF, issuedAt }),
-            modal: 1,
-            dhEmi: issuedAt.toISOString(),
-            tpEmis: 1,
-            procEmi: 0,
-            verProc: 'TSM-EX-OMNI',
-            UFIni: ufIni,
-            UFFim: ufFim,
-            infMunCarrega: [{ cMunCarrega: loadingCmun, xMunCarrega: loadingCity.slice(0, 60) }],
-            ...(percursoUfs.length ? { infPercurso: percursoUfs.map((UFPer) => ({ UFPer })) } : {}),
-            dhIniViagem: new Date().toISOString(),
-        },
+    const infMDFe = buildMdfeInfMdfe({
+        cUF, tpAmb, carrierType: manifest.link.carrierType, serie, nMDF, cMDF,
+        cDV: calculateMdfeCheckDigit({ cUF, cnpj: emitCnpj, series: serie, number: nMDF, cMDF, issuedAt }),
+        issuedAt, dhIniViagem: new Date(), ufIni, ufFim, loadingCmun, loadingCity, percursoUfs,
         emit: {
-            CNPJ: emitCnpj,
-            IE: emitIe,
-            xNome: emit.legalName,
-            xFant: manifest.hub.name?.slice(0, 60),
-            enderEmit: {
-                xLgr: emit.address.slice(0, 60),
-                nro: emit.number.slice(0, 60),
-                xBairro: emit.neighborhood.slice(0, 60),
-                cMun: emitCmun,
-                xMun: emit.city.slice(0, 60),
-                CEP: emitCep,
-                UF: emit.state.slice(0, 2).toUpperCase(),
-                ...(digits(manifest.hub.phone ?? '') ? { fone: digits(manifest.hub.phone ?? '').slice(0, 12) } : {}),
-            },
+            cnpj: emitCnpj, ie: emitIe, legalName: emit.legalName, fantasy: manifest.hub.name, address: emit.address, number: emit.number,
+            neighborhood: emit.neighborhood, cMun: emitCmun, city: emit.city, uf: emit.state, cep: emitCep, phone: manifest.hub.phone,
         },
-        infModal: {
-            versaoModal: '3.00',
-            rodo: {
-                infANTT,
-                veicTracao,
-                ...(veicReboque.length ? { veicReboque } : {}),
-            },
-        },
-        infDoc: {
-            infMunDescarga,
-        },
-        tot: { qCTe: allChaves.length, qNFe: 0, qMDFe: 0, vCarga: manifest.totalValue, cUnid: '01', qCarga: manifest.totalWeight },
-    };
+        infANTT, veicTracao, veicReboque, infMunDescarga, qCTe: allChaves.length,
+        totalValue: manifest.totalValue, totalWeight: manifest.totalWeight,
+    });
 
     const body = { infMDFe, ambiente, referencia };
     await prisma.manifestFiscalDocument.update({ where: { id: docId }, data: { rawPayload: body as unknown as Prisma.InputJsonValue } });
