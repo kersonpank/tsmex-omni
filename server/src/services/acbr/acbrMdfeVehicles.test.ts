@@ -70,8 +70,11 @@ describe('buildMdfeVehicles', () => {
             });
             const v = buildMdfeVehicles({ composition, carrier, emitterDocument, fallbackRntrc: '99999999' });
             assert.equal(v.rntrc, '11111111');
-            assert.deepEqual([(v.veicTracao.prop as any).CNPJ, v.veicTracao.prop!.RNTRC, v.veicTracao.prop!.UF], ['11444777000161', '11111111', 'MA']);
-            assert.deepEqual([(v.veicReboque[0].prop as any).CPF, v.veicReboque[0].prop!.RNTRC, v.veicReboque[0].prop!.UF], ['52998224725', '22222222', 'PI']);
+            assert.deepEqual([(v.veicTracao.prop as any).CNPJ, v.veicTracao.prop!.RNTRC], ['11444777000161', '11111111']);
+            assert.deepEqual([(v.veicReboque[0].prop as any).CPF, v.veicReboque[0].prop!.RNTRC], ['52998224725', '22222222']);
+            // XSD: UF do proprietário só é aceito depois de IE; sem IE no cadastro, o grupo não é enviado.
+            assert.equal('UF' in (v.veicTracao.prop as object), false);
+            assert.equal('UF' in (v.veicReboque[0].prop as object), false);
         });
 
         it('responsável sem RNTRC bloqueia, sem herdar o RNTRC do cavalo nem do legado', () => {

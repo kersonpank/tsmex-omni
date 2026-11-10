@@ -12,9 +12,13 @@ function buildProp(document: string, name: string, rntrc: string, uf: string, ow
     const doc = digitsOnly(document);
     if (!['0', '1', '2'].includes(ownerType ?? '')) throw new Error(`Informe o vínculo do proprietário ${name} no MDF-e.`);
     if (doc.length !== 11 && doc.length !== 14) throw new Error(`CPF/CNPJ do proprietário ${name} inválido.`);
+    // No XSD do MDF-e, IE e UF do proprietário formam um grupo opcional e ordenado (IE, UF): UF sem IE
+    // é recusado ("Element 'UF' is unexpected... Expecting: IE, tpProp"). O cadastro ainda não carrega
+    // a IE do proprietário, então o grupo inteiro fica de fora em vez de inventar "ISENTO".
+    void uf;
     return doc.length === 11
-        ? { CPF: doc, RNTRC: rntrc, xNome: name, UF: uf, tpProp: Number(ownerType) }
-        : { CNPJ: doc, RNTRC: rntrc, xNome: name, UF: uf, tpProp: Number(ownerType) };
+        ? { CPF: doc, RNTRC: rntrc, xNome: name, tpProp: Number(ownerType) }
+        : { CNPJ: doc, RNTRC: rntrc, xNome: name, tpProp: Number(ownerType) };
 }
 
 const bodyCodes: Record<string, string> = { NaoAplicavel: '00', Aberta: '01', FechadaOuBau: '02', Granelera: '03', PortaContainer: '04', Sider: '05' };
