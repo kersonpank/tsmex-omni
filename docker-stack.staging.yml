@@ -73,7 +73,11 @@ services:
       # NUNCA usar `push` (db push --accept-data-loss) em staging/prod: faz diff automático,
       # ignora as migrações versionadas e pode dropar dados / falhar em AlterEnum.
       MIGRATE_MODE: deploy
-      RUN_SEED: "true" # TEMP: rodar seed uma vez pós-reset. Reverter após confirmar acesso.
+      NODE_ENV: production
+      # Banco do staging já semeado. Para semear de novo, defina SEED_ADMIN_PASSWORD (>= 12 caracteres).
+      RUN_SEED: "false"
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
+      SEED_DEMO_USERS: ${SEED_DEMO_USERS:-false}
       RUN_MIGRATE_PERSONS: ${RUN_MIGRATE_PERSONS:-false}
     networks:
       - tsmex-staging-internal

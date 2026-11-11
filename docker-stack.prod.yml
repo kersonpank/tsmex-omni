@@ -74,7 +74,10 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL}
       MIGRATE_MODE: deploy
+      NODE_ENV: production
       RUN_SEED: ${RUN_SEED:-false}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
+      SEED_DEMO_USERS: ${SEED_DEMO_USERS:-false}
       RUN_MIGRATE_PERSONS: ${RUN_MIGRATE_PERSONS:-false}
     networks:
       - tsmex-prod-internal

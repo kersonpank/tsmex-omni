@@ -21,6 +21,10 @@ RUN npx prisma generate
 # Copy and prepare entrypoint (plain .sh avoids Dockerfile $→$$ parsing issues in CMD exec form)
 RUN chmod +x /app/prisma/migrate.sh
 
+# Fail-closed: o seed trata qualquer ambiente como produção (sem senhas fracas) a menos que
+# o orquestrador sobrescreva NODE_ENV (ex.: docker-compose de desenvolvimento).
+ENV NODE_ENV=production
+
 # MIGRATE_MODE options:
 # - deploy (recommended for staging/prod): prisma migrate deploy
 # - push (legacy/dev fallback): prisma db push --accept-data-loss
