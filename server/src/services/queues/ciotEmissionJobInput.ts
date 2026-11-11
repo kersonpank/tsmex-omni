@@ -6,6 +6,7 @@ import { AppError } from '../../middleware/errorHandler.js';
 import { requireSelectedIbge } from '../selectedCity.js';
 import { manifestRouteCities } from '../manifestAnttSuggestion.js';
 import { resolveCiotContratante, resolveMatrizCnpj, type EfreteEnvironment } from '../efrete/efreteConfig.js';
+import { resolveCiotRouteCeps } from '../efrete/ciotRouteCeps.js';
 import { digits, normalizeEfreteRntrc, normalizeEfreteAddressNumber, normalizeEfreteCep, splitPhone } from '../efrete/efreteUtil.js';
 import type { CiotMapperInput, CiotRequestData, CiotTipoViagemApi } from '../efrete/efreteCiotMapper.js';
 
@@ -72,7 +73,7 @@ export async function buildCiotEmissionInputForJob(
         where: { id: job.manifestId },
         include: {
             vehicleAssignments: manifestVehicleAssignmentsInclude,
-            legs: { include: { order: { include: { demand: true } } } },
+            legs: { include: { order: { include: { demand: true, destinatarioPerson: true } } } },
             hub: { include: { person: true } },
             destHub: { include: { person: true } },
             link: { include: { person: true, ...linkVehicleInclude } },
@@ -124,6 +125,8 @@ export async function buildCiotEmissionInputForJob(
     if (!destination.city || !destination.state) throw new AppError('CIOT sem destino canônico: informe cidade e UF no manifesto ou em uma parada.', 400);
     const destinoMunicipio = await resolveIbge(destination.city, destination.state, destination.ibge);
 
+    const routeCeps = resolveCiotRouteCeps({ manifest, emitterPerson: fiscalEmitter.person, destinatario: (job.requestData as StoredCiotRequestData | null)?.destinatario });
+
     const linkDoc = digits(manifest.link.document);
     const driverDoc = digits(manifest.driver.document);
     const driverPhone = splitPhone(manifest.driver.phone);
@@ -156,6 +159,7 @@ export async function buildCiotEmissionInputForJob(
         motorista: { cpfOuCnpj: driverDoc, cnh: manifest.driver.cnhNumber, celular: { ddd: driverPhone.ddd, numero: driverPhone.numero } },
         codigoMunicipioOrigem: Number(origemMunicipio),
         codigoMunicipioDestino: Number(destinoMunicipio),
+        ...routeCeps,
         veiculos,
         ...(tipoViagem === 'Fracionado' ? { contratantesCargaFracionada: requestData.contratantesCargaFracionada ?? [] } : {}),
         requestData: { ...requestData, composicaoVeicular: composition.traction?.wheelType === 'Cavalo' && composition.trailers.length > 0 },

@@ -26,6 +26,7 @@ import { getManifestAnttSuggestion } from '../services/manifestAnttSuggestion.js
 import { cancelarCiot } from '../services/efrete/efreteCiotEmit.js';
 import { getObjectDownloadUrl } from '../lib/objectStorage.js';
 import { enqueueCiotEmissionJob } from '../services/queues/ciotEmissionQueue.js';
+import { resolveCiotRouteCeps } from '../services/efrete/ciotRouteCeps.js';
 import { ciotNotasFiscaisFromLegs, type StoredCiotRequestData } from '../services/queues/ciotEmissionJobInput.js';
 import { getManifestReadiness } from '../services/manifestReadinessService.js';
 import { ciotDispensaSchema, dispenseManifestCiot, undoManifestCiotDispensa } from '../services/manifestCiotDispensa.js';
@@ -1771,6 +1772,12 @@ router.post('/:id/emit-ciot', authenticate, authorize('ADMIN', 'HUB'), async (re
         const suggestion = await suggestCiotTipoViagem(id);
         const tipoViagem = body.tipoViagemOverride ?? manifest.ciotTipoViagemOverride ?? suggestion.tipoViagem;
         ciotNotasFiscaisFromLegs(manifest.legs, tipoViagem === 'TAC_AGREGADO');
+        // Entrega no mesmo município do hub: a eFrete exige CEP; falha aqui, antes de enfileirar.
+        const routeManifest = await prisma.manifest.findUnique({ where: { id }, include: {
+            hub: { include: { person: true } }, destHub: true, tripStops: { orderBy: { sequence: 'asc' }, include: { destHub: true } },
+            legs: { include: { order: { include: { destinatarioPerson: true } } } },
+        } });
+        if (routeManifest) resolveCiotRouteCeps({ manifest: routeManifest, emitterPerson: fiscalEmitter.person, destinatario: body.requestData.destinatario });
         const { contratantesCargaFracionada, composicaoVeicular } = validateCiotPreflight({
             tipoViagem,
             requestData: body.requestData,
