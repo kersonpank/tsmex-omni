@@ -768,6 +768,12 @@ export const manifestsApi = {
         return response.data;
     },
 
+    /** Repete o encerramento de CIOT/MDF-e de uma viagem concluída (202 = reenfileirado). */
+    retryFiscalClosure: async (id: string) => {
+        const response = await api.post<{ success: boolean; message?: string }>(`/manifests/${id}/fiscal-closure/retry`, {});
+        return response.data;
+    },
+
     setDriver: async (id: string, driverId: string) => {
         const response = await api.patch<ApiResponse<Manifest>>(`/manifests/${id}/driver`, { driverId });
         return response.data;
