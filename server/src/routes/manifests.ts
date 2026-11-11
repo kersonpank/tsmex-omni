@@ -1647,7 +1647,6 @@ router.get('/:id/ciot-status', authenticate, authorize('ADMIN', 'HUB'), async (r
     }
 });
 
-// GET /api/manifests/:manifestId/fiscal-documents/:documentId/pdf
 // POST /api/manifests/:id/fiscal-closure/retry — repete o encerramento de CIOT/MDF-e que falhou ao
 // concluir a viagem. Sem isso o documento fica aberto para sempre e a SEFAZ recusa novo MDF-e da placa.
 router.post('/:id/fiscal-closure/retry', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -1678,6 +1677,7 @@ router.post('/:id/fiscal-closure/retry', authenticate, authorize('ADMIN', 'HUB')
     }
 });
 
+// GET /api/manifests/:manifestId/fiscal-documents/:documentId/pdf
 router.get('/:id/fiscal-documents/:documentId/pdf', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const manifestId = String(req.params.id);
