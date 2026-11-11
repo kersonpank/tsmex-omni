@@ -137,6 +137,19 @@ describe('prepareOrderPayer', () => {
         assert.equal(calls.updateMany.length, 0);
     });
 
+    it('CT-e cancelado não é frete oficial: 409 mesmo com valor; o novo CT-e autorizado vale', async () => {
+        const cancelledOnly = { ...base, freightCalculations: [{ status: 'CTE_CANCELLED', documentType: 'CTE', cteNumber: '10', freightTotal: 100.1 }] };
+        await assert.rejects(() => prepareOrderPayer('o2', 'a', mkDb(cancelledOnly).db), (e: any) => e.statusCode === 409);
+        const pending = { ...base, freightCalculations: [{ status: 'CTE_CANCEL_PENDING', documentType: 'CTE', cteNumber: '10', freightTotal: 100.1 }] };
+        await assert.rejects(() => prepareOrderPayer('o2', 'a', mkDb(pending).db), (e: any) => e.statusCode === 409);
+        const replaced = { ...base, freightCalculations: [
+            { status: 'CTE_CANCELLED', documentType: 'CTE', cteNumber: '10', freightTotal: 100.1 },
+            { status: 'CTE_AUTHORIZED', documentType: 'CTE', cteNumber: '11', freightTotal: 90 },
+        ] };
+        const r = await prepareOrderPayer('o2', 'a', mkDb(replaced).db);
+        assert.equal(r.amount, 90);
+    });
+
     it('pedido já faturado: 409', async () => {
         const { db } = mkDb({ ...base, invoices: [{ id: 'inv' }] });
         await assert.rejects(() => prepareOrderPayer('o2', 'a', db), (e: any) => e.statusCode === 409);

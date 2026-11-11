@@ -10,12 +10,17 @@ export type FreightTermValue = 'CIF' | 'FOB' | 'REDESPACHO';
 
 /** Documento válido emitido — o pedido está documentado. */
 export const EMITTED_STATUSES: FreightCalcStatus[] = ['CTE_AUTHORIZED', 'MINUTA_EMITTED', 'DCE_AUTHORIZED'];
-/** Já entregue ao provedor fiscal: não pode ser recriado nem duplicado. */
+/**
+ * Já entregue ao provedor fiscal: não pode ser recriado nem duplicado. `CTE_CANCEL_PENDING` entra aqui: o CT-e ainda
+ * existe até o evento de cancelamento ser confirmado, então não se emite outro em cima dele. `CTE_CANCELLED` fica de fora
+ * de propósito — cancelado = "sem documento ativo" (dá para preparar e emitir de novo).
+ */
 export const IN_FLIGHT_STATUSES: FreightCalcStatus[] = [
     'CTE_READY',
     'CTE_SENT',
     'CTE_PROCESSING',
     'CTE_PENDING_RECONCILIATION',
+    'CTE_CANCEL_PENDING',
     'DCE_READY',
     'DCE_SENT',
 ];

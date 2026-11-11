@@ -35,6 +35,10 @@ export interface FreightDocumentSummary {
     accessKey: string | null;
     attempt: { count: number; max: number } | null;
     createdAt: string;
+    /** Cancelamento do CT-e (em andamento ou concluído); null quando nunca foi pedido. */
+    cancel: { reason: string | null; protocol: string | null; requestedAt: string | null; cancelledAt: string | null } | null;
+    /** Cartas de correção (CC-e) já pedidas ao provedor. */
+    corrections: { id: string; status: string; protocol: string | null; requestedAt: string; reason: string | null; fields: string[] }[];
 }
 
 export interface FreightSuggestion {
@@ -104,7 +108,32 @@ export function summarizeDocuments(order: FreightOrder): FreightDocumentSummary[
         accessKey: c.cteAccessKey ?? c.dceAccessKey ?? null,
         attempt: c.cteEmissionJobs[0] ? { count: c.cteEmissionJobs[0].attemptCount, max: c.cteEmissionJobs[0].maxAttempts } : null,
         createdAt: c.createdAt.toISOString(),
+        cancel: c.status === 'CTE_CANCEL_PENDING' || c.status === 'CTE_CANCELLED'
+            ? {
+                reason: c.cteCancelReason ?? null,
+                protocol: c.cteCancelProtocol ?? null,
+                requestedAt: c.cteCancelRequestedAt?.toISOString() ?? null,
+                cancelledAt: c.cteCancelledAt?.toISOString() ?? null,
+            }
+            : null,
+        corrections: summarizeCorrections(c.cteCorrections),
     }));
+}
+
+function summarizeCorrections(raw: unknown): FreightDocumentSummary['corrections'] {
+    if (!Array.isArray(raw)) return [];
+    return raw.map((item) => {
+        const o = (item ?? {}) as Record<string, unknown>;
+        const fields = Array.isArray(o.correcoes) ? o.correcoes.map((x) => `${(x as Record<string, unknown>).grupo_alterado}.${(x as Record<string, unknown>).campo_alterado}`) : [];
+        return {
+            id: String(o.id ?? ''),
+            status: String(o.status ?? 'pendente'),
+            protocol: typeof o.protocol === 'string' ? o.protocol : null,
+            requestedAt: String(o.requestedAt ?? ''),
+            reason: typeof o.reason === 'string' ? o.reason : null,
+            fields,
+        };
+    });
 }
 
 export function suggestFreight(order: FreightOrder, ctx: FreightContext): FreightSuggestion {

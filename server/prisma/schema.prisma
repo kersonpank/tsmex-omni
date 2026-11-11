@@ -1957,7 +1957,8 @@ enum FreightCalcStatus {
   CTE_PENDING_RECONCILIATION // Timeout de polling OU fila pausada por crédito — precisa de ação manual, NUNCA é rejeição automática
   MINUTA_EMITTED // Minuta emitida
   CTE_AUTHORIZED // CT-e autorizado SEFAZ
-  CTE_CANCELLED // CT-e cancelado
+  CTE_CANCEL_PENDING // Pedido de cancelamento enviado ao provedor; evento ainda sem confirmação (conciliar por consulta)
+  CTE_CANCELLED // CT-e cancelado (evento 110111 registrado pelo provedor)
   DCE_READY // DC-e pronto para envio
   DCE_SENT
   DCE_REJECTED
@@ -2015,6 +2016,13 @@ model OrderFreightCalculation {
   cteAuthorizedAt  DateTime?
   cteRejectedAt    DateTime?
   cteCancelledAt   DateTime?
+  cteCancelReason  String?           @db.Text
+  cteCancelProtocol String?
+  cteCancelRequestedAt DateTime?
+  cteCancelRequestedByUserId String?
+  cteCancelXmlStorageKey String?
+  /// Cartas de correção (CC-e 110110) pedidas ao provedor: lista de eventos com correções, status e protocolo.
+  cteCorrections   Json?
   status           FreightCalcStatus @default(DRAFT)
 
   dceNumber       String?

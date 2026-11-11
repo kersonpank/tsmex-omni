@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { ordersFreightApi } from '../../../../lib/api';
 import { CTE_CFOP_SELECT_OPTIONS, cfopOptionSelectText } from '../../../../lib/cteTaxCatalog';
-import type { BrandingForDocuments, FreightDocumentSummary } from '../../../../types/index';
+import type { BrandingForDocuments, CteCancelEligibility, FreightDocumentSummary } from '../../../../types/index';
 import DactePrintPreview from '../../../ui/DactePrintPreview';
 import { loadFreightPrint } from '../../freightActions';
 import { documentStatusView, formatBRL } from '../../lib/freight';
@@ -10,7 +10,10 @@ import { apiErrorMessage, osFieldClass } from '../../ui/Sheet';
 import { partyFixForRejection, partyLabels, type PartyRole } from '../../lib/partyFix';
 
 const BADGE = { ok: 'ok', route: 'route', warn: 'warn', danger: 'bad', none: 'neutral' } as const;
-const PRINTABLE = new Set(['CTE_AUTHORIZED', 'MINUTA_EMITTED', 'DCE_AUTHORIZED']);
+const CANCEL_REASON_MIN = 15;
+const CANCEL_REASON_MAX = 255;
+const dateTimeBR = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : null);
+const PRINTABLE =new Set(['CTE_AUTHORIZED', 'MINUTA_EMITTED', 'DCE_AUTHORIZED']);
 
 /** Documentos do frete deste pedido (pode haver mais de um), com impressão do DACTE/minuta. */
 const FreightDocuments: React.FC<{ orderId: string; documents: FreightDocumentSummary[]; onResent: () => void | Promise<void>; onFixParty?: (role: PartyRole) => void; partiesCorrected?: boolean }> = ({ orderId, documents, onResent, onFixParty, partiesCorrected = false }) => {
@@ -21,6 +24,10 @@ const FreightDocuments: React.FC<{ orderId: string; documents: FreightDocumentSu
     const [cfop, setCfop] = useState('');
     const cfopRequest = useRef(0);
     const [deliveredDirectlyToHub, setDeliveredDirectlyToHub] = useState(false);
+    const [cancelingId, setCancelingId] = useState<string | null>(null);
+    const [cancelInfo, setCancelInfo] = useState<CteCancelEligibility | null>(null);
+    const [cancelReason, setCancelReason] = useState('');
+    const [notice, setNotice] = useState<string | null>(null);
     const shown = documents.filter((d) => (d.status !== 'DRAFT' && d.status !== 'CALCULATED') || Boolean(d.statusReason));
     if (shown.length === 0) return null;
 
@@ -68,6 +75,61 @@ const FreightDocuments: React.FC<{ orderId: string; documents: FreightDocumentSu
         }
     };
 
+    const openCancel = async (doc: FreightDocumentSummary) => {
+        if (busyId) return;
+        setCancelingId(doc.id);
+        setCancelInfo(null);
+        setCancelReason('');
+        setError(null);
+        setNotice(null);
+        try {
+            const body = await ordersFreightApi.cteCancelEligibility(orderId, doc.id);
+            setCancelInfo(body.data ?? null);
+        } catch (cause) {
+            setError(apiErrorMessage(cause, 'Não foi possível conferir se o CT-e pode ser cancelado.'));
+            setCancelingId(null);
+        }
+    };
+
+    const submitCancel = async (doc: FreightDocumentSummary) => {
+        const reason = cancelReason.trim();
+        if (busyId || reason.length < CANCEL_REASON_MIN) return;
+        setBusyId(doc.id);
+        setError(null);
+        try {
+            const body = await ordersFreightApi.cancelCte(orderId, doc.id, reason);
+            setNotice(body.data?.message ?? null);
+            setCancelingId(null);
+        } catch (cause) {
+            setError(apiErrorMessage(cause, 'Não foi possível cancelar o CT-e.'));
+        } finally {
+            try {
+                await onResent();
+            } finally {
+                setBusyId(null);
+            }
+        }
+    };
+
+    const consultCancel = async (doc: FreightDocumentSummary) => {
+        if (busyId) return;
+        setBusyId(doc.id);
+        setError(null);
+        setNotice(null);
+        try {
+            const body = await ordersFreightApi.reconcileCteCancel(orderId, doc.id);
+            setNotice(body.data?.message ?? null);
+        } catch (cause) {
+            setError(apiErrorMessage(cause, 'Não foi possível consultar o cancelamento.'));
+        } finally {
+            try {
+                await onResent();
+            } finally {
+                setBusyId(null);
+            }
+        }
+    };
+
     const retryRejected = async (doc: FreightDocumentSummary) => {
         if (busyId || doc.documentType !== 'CTE' || doc.status !== 'CTE_REJECTED' || !cfop) return;
         setBusyId(doc.id);
@@ -103,6 +165,32 @@ const FreightDocuments: React.FC<{ orderId: string; documents: FreightDocumentSu
                         {view.hint ? <p className="mt-1 text-[12px] text-tower-500 dark:text-tower-400">{view.hint}</p> : null}
                         {doc.statusReason && !['CTE_REJECTED', 'DCE_REJECTED', 'CTE_PENDING_RECONCILIATION'].includes(doc.status) ? (
                             <p className="mt-1 text-[12px] text-tower-500 dark:text-tower-400">Rejeição anterior: {doc.statusReason}</p>
+                        ) : null}
+                        {doc.documentType === 'CTE' && doc.status === 'CTE_AUTHORIZED' && doc.statusReason?.startsWith('Cancelamento') ? (
+                            <p className="mt-1 text-[12px] text-tower-500 dark:text-tower-400">{doc.statusReason}</p>
+                        ) : null}
+                        {doc.status === 'CTE_CANCEL_PENDING' ? (
+                            <>
+                                <p className="mt-1 text-[12px] text-tower-500 dark:text-tower-400">
+                                    Cancelamento em andamento{doc.cancel?.reason ? ` · motivo: ${doc.cancel.reason}` : ''}. O CT-e continua valendo até o provedor fiscal confirmar.
+                                </p>
+                                <OsButton type="button" variant="secondary" disabled={busyId !== null} aria-busy={busyId === doc.id} onClick={() => void consultCancel(doc)} className="mt-2 min-h-[44px]">
+                                    {busyId === doc.id ? 'Consultando…' : 'Consultar'}
+                                </OsButton>
+                            </>
+                        ) : null}
+                        {doc.status === 'CTE_CANCELLED' && doc.cancel ? (
+                            <p className="mt-1 text-[12px] text-tower-500 dark:text-tower-400">
+                                {doc.cancel.reason ? `Motivo: ${doc.cancel.reason}. ` : ''}
+                                {doc.cancel.protocol ? `Protocolo ${doc.cancel.protocol}. ` : ''}
+                                {dateTimeBR(doc.cancel.cancelledAt) ? `Cancelado em ${dateTimeBR(doc.cancel.cancelledAt)}. ` : ''}
+                                Agora você pode emitir outro documento para este pedido.
+                            </p>
+                        ) : null}
+                        {doc.corrections && doc.corrections.length > 0 ? (
+                            <p className="mt-1 text-[12px] text-tower-500 dark:text-tower-400">
+                                Cartas de correção: {doc.corrections.map((c) => `${c.fields.join(', ')} (${c.status}${c.protocol ? ` · protocolo ${c.protocol}` : ''})`).join('; ')}
+                            </p>
                         ) : null}
                         {doc.status === 'CTE_PENDING_RECONCILIATION' && doc.statusReason ? (
                             <p className="mt-1 line-clamp-3 text-[12px] text-tower-500 dark:text-tower-400">{doc.statusReason}</p>
@@ -156,6 +244,48 @@ const FreightDocuments: React.FC<{ orderId: string; documents: FreightDocumentSu
                                 {busyId === doc.id ? 'Reenviando…' : 'Reenviar à SEFAZ'}
                             </OsButton>
                         ) : null}
+                        {doc.documentType === 'CTE' && doc.status === 'CTE_AUTHORIZED' ? (
+                            cancelingId === doc.id ? (
+                                <form className="mt-3 flex flex-col gap-2" onSubmit={(event) => { event.preventDefault(); void submitCancel(doc); }}>
+                                    <p className="text-[12px] text-tower-500 dark:text-tower-400">
+                                        O CT-e só pode ser cancelado até 7 dias depois de autorizado{dateTimeBR(cancelInfo?.deadline) ? ` (até ${dateTimeBR(cancelInfo?.deadline)})` : ''} e antes de a carga sair em viagem.
+                                    </p>
+                                    {!cancelInfo ? (
+                                        <p className="text-[13px] text-tower-500">Conferindo…</p>
+                                    ) : !cancelInfo.canCancel ? (
+                                        <p role="status" className="text-[13px] font-semibold text-brand-red-600 dark:text-brand-red-400">Não dá para cancelar: {cancelInfo.blockReason}</p>
+                                    ) : (
+                                        <>
+                                            <label className="text-[13px] font-semibold text-tower-700 dark:text-tower-200">
+                                                Motivo do cancelamento
+                                                <textarea
+                                                    className={`${osFieldClass} mt-1 min-h-[88px]`}
+                                                    value={cancelReason}
+                                                    maxLength={CANCEL_REASON_MAX}
+                                                    onChange={(event) => setCancelReason(event.target.value)}
+                                                    disabled={busyId !== null}
+                                                    placeholder="Ex.: pagador informado errado no CT-e"
+                                                />
+                                            </label>
+                                            <p className="text-[12px] text-tower-400">{cancelReason.trim().length} de {CANCEL_REASON_MIN} a {CANCEL_REASON_MAX} caracteres</p>
+                                            <OsButton type="submit" disabled={busyId !== null || cancelReason.trim().length < CANCEL_REASON_MIN} aria-busy={busyId === doc.id}>
+                                                {busyId === doc.id ? 'Cancelando…' : 'Confirmar cancelamento do CT-e'}
+                                            </OsButton>
+                                        </>
+                                    )}
+                                    <button type="button" disabled={busyId !== null} onClick={() => setCancelingId(null)} className="min-h-[40px] self-start px-2 text-[13px] font-semibold text-tower-600 disabled:opacity-60 dark:text-tower-300">Fechar</button>
+                                </form>
+                            ) : (
+                                <button
+                                    type="button"
+                                    disabled={busyId !== null}
+                                    onClick={() => void openCancel(doc)}
+                                    className="ml-4 mt-2 min-h-[40px] text-[13px] font-bold text-brand-red-600 disabled:opacity-60 dark:text-brand-red-400"
+                                >
+                                    Cancelar CT-e
+                                </button>
+                            )
+                        ) : null}
                         {PRINTABLE.has(doc.status) ? (
                             <button
                                 type="button"
@@ -169,6 +299,7 @@ const FreightDocuments: React.FC<{ orderId: string; documents: FreightDocumentSu
                     </div>
                 );
             })}
+            {notice ? <p role="status" className="text-[13px] font-semibold text-tower-700 dark:text-tower-200">{notice}</p> : null}
             {error ? <p role="alert" className="text-[13px] font-semibold text-brand-red-600 dark:text-brand-red-400">{error}</p> : null}
             {print ? <DactePrintPreview payload={print.payload} branding={print.branding} onClose={() => setPrint(null)} /> : null}
         </div>
