@@ -13,7 +13,8 @@ import { assertManifestVehiclesAvailableForDeparture } from './manifestVehicleSe
 import { AppError } from '../middleware/errorHandler.js';
 import { getManifestMargin, allocateLegCosts } from './pricingService.js';
 import { getManifestReadiness } from './manifestReadinessService.js';
-import { assertDeliveryConfirmed } from './deliveryAttempts.js';
+import { resolveDeliveryOutcomes } from './deliveryAttempts.js';
+import { settleDeliveryLegs } from './deliveryOutcome.js';
 import {
     getManifestOrderEligibility,
     HUB_CARGO_ACTIVE_MANIFEST_STATUSES,
@@ -470,6 +471,7 @@ async function loadManifestForLifecycle(manifestId: string): Promise<ManifestWit
                 },
             },
             destHub: { select: { id: true, code: true } },
+            hub: { select: { id: true, code: true } },
         },
     });
     if (!manifest) {
@@ -695,7 +697,9 @@ export async function completeManifest(
     const now = new Date();
 
     if (tripType === 'TRANSFER_DELIVERY') throw new AppError('Viagem mista sem paradas de descarga definidas; regularize os trechos antes de concluir.', 422);
-    if (tripType === 'DELIVERY') await assertDeliveryConfirmed(manifest.legs.map((leg) => leg.id));
+    const deliveryOutcomes = tripType === 'DELIVERY'
+        ? await resolveDeliveryOutcomes(manifest.legs.map((leg) => leg.id))
+        : new Map();
 
     if (tripType === 'TRANSFER') {
         if (!manifest.destHubId) {
@@ -755,6 +759,7 @@ export async function completeManifest(
     }
 
     // tripType === 'DELIVERY' | 'TRANSFER_DELIVERY'
+    let deliveredCount = 0;
     await prisma.$transaction(async (tx) => {
         await tx.manifest.update({
             where: { id: manifestId },
@@ -770,33 +775,27 @@ export async function completeManifest(
             data: { completedAt: now }
         });
 
-        for (const leg of manifest.legs) {
-            await tx.order.update({
-                where: { id: leg.orderId },
-                data: {
-                    status: 'DELIVERED',
-                    currentHubId: null,
-                },
-            });
-            await tx.orderHistory.create({
-                data: {
-                    orderId: leg.orderId,
-                    eventType: 'DELIVERED',
-                    description: 'Carga entregue ao destinatário',
-                    location: manifest.destination,
-                },
-            });
-        }
+        const settled = await settleDeliveryLegs(tx, {
+            legs: manifest.legs,
+            outcomes: deliveryOutcomes,
+            hubId: manifest.hubId,
+            hubLabel: manifest.hub?.code ?? manifest.hubId ?? 'hub de origem',
+            location: manifest.destination,
+            deliveredDescription: 'Carga entregue ao destinatário',
+            actorUserId: actor?.userId ?? null,
+            now,
+        });
+        deliveredCount = settled.deliveredCount;
 
         // Final cost allocation update
         await allocateLegCosts(manifestId, tx);
         await tx.fiscalClosureTask.upsert({ where: { manifestId }, create: { manifestId }, update: { status: 'PENDING', reason: null } });
     });
 
-    if (manifest.linkId && manifest.legs.length > 0) {
+    if (manifest.linkId && deliveredCount > 0) {
         await prisma.link.update({
             where: { id: manifest.linkId },
-            data: { deliveryCount: { increment: manifest.legs.length } },
+            data: { deliveryCount: { increment: deliveredCount } },
         });
     }
 
@@ -833,7 +832,7 @@ export async function completeManifestStop(
     actor?: { userId: string; role: UserRole; adminId?: string },
     options?: { kmChegada?: number }
 ): Promise<{ allStopsCompleted: boolean }> {
-    const manifest = await prisma.manifest.findUnique({ where: { id: manifestId } });
+    const manifest = await prisma.manifest.findUnique({ where: { id: manifestId }, include: { hub: { select: { id: true, code: true } } } });
     if (!manifest) {
         throw new AppError('Manifest not found', 404);
     }
@@ -866,7 +865,10 @@ export async function completeManifestStop(
     if (isTransfer && !stop.destHubId) {
         throw new AppError('Parada de transferência sem hub de destino definido.', 400);
     }
-    if (isDelivery) await assertDeliveryConfirmed(stop.legs.map((leg) => leg.id));
+    const deliveryOutcomes = isDelivery
+        ? await resolveDeliveryOutcomes(stop.legs.map((leg) => leg.id))
+        : new Map();
+    let deliveredCount = 0;
 
     await prisma.$transaction(async (tx) => {
         await tx.manifestStop.update({
@@ -878,6 +880,20 @@ export async function completeManifestStop(
             where: { stopId },
             data: { completedAt: now },
         });
+
+        if (isDelivery) {
+            const settled = await settleDeliveryLegs(tx, {
+                legs: stop.legs,
+                outcomes: deliveryOutcomes,
+                hubId: manifest.hubId,
+                hubLabel: manifest.hub?.code ?? manifest.hubId ?? 'hub de origem',
+                location: stop.destinationLabel ?? manifest.destination,
+                deliveredDescription: `Carga entregue ao destinatário${stop.destinationLabel ? ` (${stop.destinationLabel})` : ''}.`,
+                actorUserId: actor?.userId ?? null,
+                now,
+            });
+            deliveredCount = settled.deliveredCount;
+        }
 
         for (const leg of stop.legs) {
             if (isTransfer) {
@@ -898,19 +914,6 @@ export async function completeManifestStop(
                         actorUserId: actor?.userId ?? null,
                     },
                 });
-            } else {
-                await tx.order.update({
-                    where: { id: leg.orderId },
-                    data: { status: 'DELIVERED', currentHubId: null },
-                });
-                await tx.orderHistory.create({
-                    data: {
-                        orderId: leg.orderId,
-                        eventType: 'DELIVERED',
-                        description: `Carga entregue ao destinatário${stop.destinationLabel ? ` (${stop.destinationLabel})` : ''}.`,
-                        location: stop.destinationLabel ?? manifest.destination,
-                    },
-                });
             }
         }
 
@@ -927,10 +930,10 @@ export async function completeManifestStop(
         await allocateLegCosts(manifestId, tx);
     });
 
-    if (isDelivery && manifest.linkId && stop.legs.length > 0) {
+    if (isDelivery && manifest.linkId && deliveredCount > 0) {
         await prisma.link.update({
             where: { id: manifest.linkId },
-            data: { deliveryCount: { increment: stop.legs.length } },
+            data: { deliveryCount: { increment: deliveredCount } },
         });
     }
 
