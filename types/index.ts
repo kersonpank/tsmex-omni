@@ -1217,6 +1217,27 @@ export interface HubCoverageEntry {
     active: boolean;
 }
 
+// Fila de exceções do hub (TSM O.S. — GET /api/hub/exceptions)
+export interface HubExceptionItem {
+    id: string;
+    category: string;
+    severity: 'INFO' | 'WARNING' | 'CRITICAL';
+    status: 'OPEN' | 'ACKNOWLEDGED';
+    title: string;
+    message: string;
+    hubId: string | null;
+    createdAt: string;
+    dueAt: string | null;
+    overdue: boolean;
+    orderId: string | null;
+    manifestId: string | null;
+}
+
+export interface HubExceptionList {
+    counts: { total: number; overdue: number; CRITICAL: number; WARNING: number; INFO: number };
+    items: HubExceptionItem[];
+}
+
 export interface HubCargoSummary {
     stock: {
         orders: number;

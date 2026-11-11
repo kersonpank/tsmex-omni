@@ -11,6 +11,8 @@ import { processCiotEmissionJob, handleCiotJobExhausted } from './services/queue
 import { WORKER_HEARTBEAT_KEY } from './services/health.js';
 import { processPendingFiscalClosures } from './services/queues/fiscalClosureProcessor.js';
 import { generatePendingManifestPayables } from './services/payables/manifestPayable.js';
+import { runExceptionRules } from './services/exceptions/exceptionRules.js';
+import { sweepPendingCteReconciliation } from './services/queues/cteReconciliationSweep.js';
 import { assertProductionEnv } from './lib/envValidation.js';
 import { installProcessErrorHandlers } from './lib/processHandlers.js';
 
@@ -131,6 +133,13 @@ void Promise.all([worker.waitUntilReady(), distribuicaoNfeWorker.waitUntilReady(
         const payableSweep = () => { void generatePendingManifestPayables().catch((error) => console.error('[worker] manifest payables failed', error)); };
         payableSweep();
         setInterval(payableSweep, 5 * 60_000).unref();
+        // Fila de exceções do O.S.: regras (estoque parado, viagem atrasada, sem rota) e CT-e preso em conciliação.
+        const exceptionSweep = () => {
+            void runExceptionRules().catch((error) => console.error('[worker] exception rules failed', error));
+            void sweepPendingCteReconciliation().catch((error) => console.error('[worker] cte reconciliation sweep failed', error));
+        };
+        exceptionSweep();
+        setInterval(exceptionSweep, 10 * 60_000).unref();
     })
     .catch((error) => console.error('[worker] startup failed', error));
 

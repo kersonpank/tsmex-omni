@@ -14,8 +14,9 @@ import TripsPage from './pages/TripsPage';
 import CoveragePage from './pages/CoveragePage';
 import TripPrepPage from './pages/trip/TripPrepPage';
 import CarrierPage from './pages/carrier/CarrierPage';
+import ExceptionsPage from './pages/ExceptionsPage';
 import { OsEmpty, OsRow, OsSectionTitle } from './ui/kit';
-import { IconDay, IconDeliver, IconReceive, IconTag, IconTower, IconTruck, type OsIconProps } from './ui/icons';
+import { IconAlert, IconDay, IconDeliver, IconReceive, IconTag, IconTower, IconTruck, type OsIconProps } from './ui/icons';
 
 /**
  * TSM O.S. — superfície operacional do hub (rota /hubs).
@@ -29,14 +30,8 @@ const TABS: Array<{ to: string; label: string; end: boolean; Icon: React.FC<OsIc
     { to: '/hubs/cargas', label: 'Cargas', end: false, Icon: IconTag },
     { to: '/hubs/viagens', label: 'Viagens', end: false, Icon: IconTruck },
     { to: '/hubs/entregar', label: 'Entregar', end: false, Icon: IconDeliver },
+    { to: '/hubs/excecoes', label: 'Exceções', end: false, Icon: IconAlert },
 ];
-
-const StubPage: React.FC<{ title: string; slice: string }> = ({ title, slice }) => (
-    <div className="pt-1">
-        <OsSectionTitle>{title}</OsSectionTitle>
-        <OsEmpty title="Em construção" detail={`Esta estação chega na ${slice} do TSM O.S.`} />
-    </div>
-);
 
 const HubPicker: React.FC = () => {
     const { hubs, selectHub } = useOs();
@@ -59,7 +54,7 @@ const HubPicker: React.FC = () => {
 };
 
 const OsShell: React.FC = () => {
-    const { hubId, hub, isAdmin, selectHub } = useOs();
+    const { hubId, hub, isAdmin, selectHub, exceptions } = useOs();
     const navigate = useNavigate();
 
     return (
@@ -119,13 +114,13 @@ const OsShell: React.FC = () => {
                         <Route path="transportadores/:linkId" element={<CarrierPage />} />
                         <Route path="entregar" element={<DeliverPage />} />
                         <Route path="cobertura" element={<CoveragePage />} />
-                        <Route path="excecoes" element={<StubPage title="Exceções" slice="Fatia 4" />} />
+                        <Route path="excecoes" element={<ExceptionsPage />} />
                     </Routes>
                 )}
             </main>
 
             <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-tower-200 bg-white pb-[max(env(safe-area-inset-bottom),4px)] dark:border-tower-800 dark:bg-tower-900">
-                <div className="mx-auto grid max-w-xl grid-cols-5">
+                <div className="mx-auto grid max-w-xl grid-cols-6">
                     {TABS.map(({ to, label, end, Icon }) => (
                         <NavLink
                             key={to}
@@ -147,7 +142,20 @@ const OsShell: React.FC = () => {
                                             isActive ? 'bg-brand-yellow-400' : 'bg-transparent',
                                         )}
                                     />
-                                    <Icon />
+                                    <span className="relative">
+                                        <Icon />
+                                        {to === '/hubs/excecoes' && exceptions.open > 0 ? (
+                                            <span
+                                                aria-label={`${exceptions.open} exceções abertas`}
+                                                className={clsx(
+                                                    'absolute -right-2.5 -top-1.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-extrabold leading-none text-white',
+                                                    exceptions.overdue > 0 ? 'bg-brand-red-500' : 'bg-brand-500',
+                                                )}
+                                            >
+                                                {exceptions.open > 99 ? '99+' : exceptions.open}
+                                            </span>
+                                        ) : null}
+                                    </span>
                                     {label}
                                 </>
                             )}

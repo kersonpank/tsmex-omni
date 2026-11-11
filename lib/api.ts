@@ -61,6 +61,7 @@ import type {
     HubCargoItem,
     HubCargoResolution,
     HubCargoSummary,
+    HubExceptionList,
     ConsolidationQueueGroup,
     HubCoverageEntry,
     FreightSuggestion,
@@ -1942,6 +1943,23 @@ export const ordersApi = {
                 hasCollectionDeclaration: boolean;
             }>
         >(`/orders/${orderId}/fiscal-doc-suggestion`);
+        return response.data;
+    },
+};
+
+// ========== HUB EXCEPTIONS (TSM O.S. — estação Exceções) ==========
+
+export const hubExceptionsApi = {
+    list: async (hubId?: string) => {
+        const response = await api.get<ApiResponse<HubExceptionList>>('/hub/exceptions', { params: hubId ? { hubId } : undefined });
+        return response.data;
+    },
+    acknowledge: async (id: string, hubId?: string) => {
+        const response = await api.post<ApiResponse<unknown>>(`/hub/exceptions/${id}/acknowledge`, {}, { params: hubId ? { hubId } : undefined });
+        return response.data;
+    },
+    resolve: async (id: string, resolutionNote: string, hubId?: string) => {
+        const response = await api.post<ApiResponse<unknown>>(`/hub/exceptions/${id}/resolve`, { resolutionNote }, { params: hubId ? { hubId } : undefined });
         return response.data;
     },
 };

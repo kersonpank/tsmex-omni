@@ -2527,6 +2527,9 @@ enum SystemAlertCategory {
   FISCAL_DISTRIBUICAO_NFE_NOT_SEEDED
   FISCAL_ENCERRAMENTO_PENDENTE
   OPERATIONAL_ARRIVAL_DIVERGENCE
+  OPERATIONAL_STOCK_AGING
+  OPERATIONAL_TRIP_LATE
+  OPERATIONAL_UNROUTED
   GENERIC
 }
 
@@ -2556,8 +2559,15 @@ model SystemAlert {
   acknowledgedByUserId String?
   resolvedAt           DateTime?
 
+  // Fila de exceções do hub (TSM O.S.): dono, prazo e desfecho.
+  hubId            String? // hub que precisa agir
+  dueAt            DateTime?
+  resolvedByUserId String? // null + resolutionNote = resolvido pelo sistema
+  resolutionNote   String? @db.Text
+
   @@index([status])
   @@index([category])
+  @@index([hubId, status])
 }
 
 // ========================================
