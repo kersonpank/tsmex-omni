@@ -6,7 +6,11 @@ import { confirmIntakeArrival } from './confirmIntakeArrival.js';
 const LOCAL_CARGO = { chave: '35260512345678000190550010000000012345678901', emitente: { cnpj: '11111111000111', razaoSocial: 'Emitente' }, destinatario: { cnpj: '22222222000122', razaoSocial: 'Destinatário' }, produtos: [], valorTotalNota: 100 };
 import { AppError } from '../../middleware/errorHandler.js';
 
-function stubTransactionDeps(options: { personsById?: Record<string, { city?: string | null; state?: string | null; cityIbgeCode?: string | null }> } = {}) {
+function stubTransactionDeps(options: {
+    personsById?: Record<string, { city?: string | null; state?: string | null; cityIbgeCode?: string | null }>;
+    /** Cliente que o reparo de conta do pagador (ensureBillingAccountForPayer) encontra/cria. */
+    ensuredClient?: { id: string; accountId: string } | null;
+} = {}) {
     const original = {
         opportunityFindFirst: prisma.opportunity.findFirst,
         personFindUnique: prisma.person.findUnique,
@@ -26,6 +30,9 @@ function stubTransactionDeps(options: { personsById?: Record<string, { city?: st
     }) as any;
     prisma.$transaction = (async (fn: any) =>
         fn({
+            $queryRaw: async () => [],
+            person: { findUnique: async () => (options.ensuredClient ? { id: 'p-remet', document: '11222333000181' } : null) },
+            client: { findFirst: async () => options.ensuredClient ?? null },
             demand: {
                 update: async ({ where, data }: any) => {
                     updateCalls.push({ where, data });
@@ -162,7 +169,7 @@ describe('confirmIntakeArrival', () => {
         deps.restore();
     });
 
-    it('Demand sem clientId: pagador não é Client → segue sem bloquear, clientId continua null', async () => {
+    it('Demand sem clientId: falha ao criar conta do pagador → segue sem bloquear, clientId continua null', async () => {
         const deps = stubTransactionDeps();
         prisma.person.findUnique = (async () => ({ id: 'p-remet', clients: [] })) as any;
         prisma.demand.findUnique = (async () => ({
@@ -191,6 +198,37 @@ describe('confirmIntakeArrival', () => {
 
         assert.equal(result.demand.clientId, undefined, 'não deve gravar clientId — chave nunca foi incluída no update');
         assert.equal(deps.updateCalls[0]?.data.clientId, undefined, 'update não deve tentar setar clientId quando não resolvido');
+        deps.restore();
+    });
+
+    it('Demand sem clientId: pagador sem Client ganha conta de faturamento e o pedido nasce faturável', async () => {
+        const deps = stubTransactionDeps({ ensuredClient: { id: 'client-novo', accountId: 'acc-novo' } });
+        prisma.person.findUnique = (async () => ({ id: 'p-remet', clients: [] })) as any;
+        prisma.demand.findUnique = (async () => ({
+            id: 'd1',
+            status: 'AWAITING_ARRIVAL',
+            sourceType: 'DFE_ACBR',
+            rawInputData: { nfeXmlData: LOCAL_CARGO },
+            clientId: null,
+            origin: 'A',
+            destination: 'B',
+            nfNumber: 'NF1',
+            manifestId: null,
+            client: null,
+            order: null,
+            expectedHubId: 'hub-1',
+        })) as unknown as typeof prisma.demand.findUnique;
+
+        await confirmIntakeArrival({
+            demandId: 'd1',
+            actingRoles: ['HUB'],
+            actingHubId: 'hub-1',
+            remetentePersonId: 'p-remet',
+            destinatarioPersonId: 'p-dest',
+            freightTerm: 'CIF',
+        });
+
+        assert.equal(deps.updateCalls[0]?.data.clientId, 'client-novo');
         deps.restore();
     });
 

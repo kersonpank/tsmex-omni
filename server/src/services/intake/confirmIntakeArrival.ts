@@ -3,6 +3,7 @@ import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { isIntakeSource } from './intakeDemandPolicy.js';
 import { resolvePayerClient } from './resolvePayerClient.js';
+import { ensureBillingAccountForPayer } from '../billing/ensureBillingAccountForPayer.js';
 import { parseChaveNfe } from '../../lib/nfeChaveIntake.js';
 import type { ParsedNfeCargo } from '../acbr/nfeXmlParser.js';
 import { resolveLocalNfeCargo } from './resolveLocalNfeCargo.js';
@@ -194,12 +195,25 @@ export async function confirmIntakeArrival(input: ConfirmIntakeArrivalInput): Pr
               destinatarioPersonId: input.destinatarioPersonId,
           });
 
+    // Pagador sem conta de cliente: cria Account + Client (sem credencial utilizável) para o pedido
+    // já nascer faturável. Nunca bloqueia a chegada — se falhar, o pedido entra sem cliente e o
+    // reparo sob demanda (POST /invoices/prepare-payer) cobre depois.
+    let billingClientId: string | null = payerResolution?.client?.id ?? null;
+    if (payerResolution && !payerResolution.client && payerResolution.person) {
+        try {
+            const ensured = await prisma.$transaction((tx) => ensureBillingAccountForPayer(payerResolution.person!.id, tx));
+            billingClientId = ensured.client.id;
+        } catch (error) {
+            console.warn('[confirmIntakeArrival] conta do pagador não criada; pedido segue sem cliente', error instanceof Error ? error.message : error);
+        }
+    }
+
     return prisma.$transaction(async (tx) => {
         const updatedDemand = await tx.demand.update({
             where: { id: demand.id },
             data: {
                 status: 'CONVERTED',
-                ...(payerResolution?.client ? { clientId: payerResolution.client.id } : {}),
+                ...(billingClientId ? { clientId: billingClientId } : {}),
                 ...(counterCargo
                     ? {
                           units: counterCargo.units,

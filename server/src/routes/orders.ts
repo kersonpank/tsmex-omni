@@ -16,6 +16,7 @@ import { freightCalculationsRouter } from './freightCalculations.js';
 import { resolveOrderByCode } from '../services/orderResolve.js';
 import { getNextOrderNumber } from '../services/orderSequence.js';
 import { resolvePayerClient } from '../services/intake/resolvePayerClient.js';
+import { ensureBillingAccountForPayer } from '../services/billing/ensureBillingAccountForPayer.js';
 import {
     suggestFiscalDocType,
     collectionDataHasDeclaracao,
@@ -649,7 +650,7 @@ router.post('/entrada', authenticate, authorize('ADMIN', 'HUB'), authorizeOperat
         }
 
         // Determine payer from freight term
-        const { payerPersonId, person: payerPerson, client: payerClient } = await resolvePayerClient({
+        const { payerPersonId, person: payerPerson, client: resolvedPayerClient } = await resolvePayerClient({
             freightTerm: data.freightTerm,
             remetentePersonId: data.remetentePersonId,
             destinatarioPersonId: data.destinatarioPersonId,
@@ -689,12 +690,10 @@ router.post('/entrada', authenticate, authorize('ADMIN', 'HUB'), authorizeOperat
             throw new AppError('Pessoa pagadora não encontrada', 404);
         }
 
-        if (!payerClient) {
-            throw new AppError(
-                `O pagador (${data.freightTerm === 'CIF' ? 'Remetente' : data.freightTerm === 'FOB' ? 'Destinatário' : 'Consignatário'}) deve ser um Cliente. Adicione-o como Cliente em Pessoas primeiro.`,
-                400
-            );
-        }
+        // Pagador sem conta de cliente: cria Account + Client sem credencial utilizável (o hub não
+        // cadastra clientes; o pedido nasce faturável e o Comercial completa o cadastro depois).
+        const payerClient = resolvedPayerClient?.accountId ? resolvedPayerClient
+            : (await prisma.$transaction((tx) => ensureBillingAccountForPayer(payerPerson.id, tx))).client;
 
         const result = await prisma.$transaction(async (tx) => {
             // Chave NF-e presente: reaproveita a Demand AWAITING_ARRIVAL que a varredura/conversão
