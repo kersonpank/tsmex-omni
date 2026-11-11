@@ -149,6 +149,10 @@ export async function consolidateFromQueue(
             orderIds: added,
             suggestedManifests: suggestedGroups.map((g) => ({
                 source: 'next_hop_queue', queueKey: g.key, kind: g.kind, destHubId: g.destHubId,
+                // próximo salto (= destHubId) e hub final (pode diferir quando há gateway no caminho)
+                nextHopHubId: g.destHubId,
+                finalHubId: g.finalHubId ?? g.destHubId,
+                finalHubIds: [...new Set(g.orders.map((o) => o.finalHubId ?? g.destHubId).filter((id): id is string => Boolean(id)))],
                 orderIds: g.orders.map((o) => o.orderId),
             })),
             finalManifests: [

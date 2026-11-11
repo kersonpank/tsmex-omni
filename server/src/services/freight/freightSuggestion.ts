@@ -1,7 +1,7 @@
 import type { FreightCalcStatus, Person } from '@prisma/client';
 import { getFiscalDocModeForFreight } from '../fiscal/fiscalDocPolicy.js';
 import { buildCteEmissionInputFromRecords } from '../fiscal/cteEmissionInputBuilder.js';
-import { resolveNextHop } from '../hubCargo/consolidationQueue.js';
+import { resolveFinalHub } from '../hubCargo/consolidationQueue.js';
 import { computeFreightFromTable, orderFreightParams, type FreightBreakdown } from './freightPricing.js';
 import {
     allowedDocTypes,
@@ -118,8 +118,9 @@ export function suggestFreight(order: FreightOrder, ctx: FreightContext): Freigh
 
     // Rota de preço = hub atual → hub que cobre o destino final (tabela de roteamento da teia).
     const destIbge = order.fimIbgeCode ?? order.destinatarioPerson?.cityIbgeCode ?? null;
-    const hop = resolveNextHop(ctx.coverage, destIbge, ctx.hub.id);
-    const destCode = hop.kind === 'TRANSFER' ? hop.target.hubCode : hop.kind === 'LOCAL' ? ctx.hub.code : null;
+    // O cliente paga a jornada inteira: usa o hub FINAL, nunca o próximo salto (gateways não alteram preço).
+    const finalHub = resolveFinalHub(ctx.coverage, destIbge);
+    const destCode = finalHub ? (finalHub.hubId === ctx.hub.id ? ctx.hub.code : finalHub.hubCode) : null;
     const coverageRoute = destCode ? ctx.routes.find((r) => r.originCode === ctx.hub.code && r.destCode === destCode) : undefined;
     const orderRoute = order.routeId ? ctx.routes.find((r) => r.id === order.routeId) : undefined;
     const destination = destinationForPricing(order, ctx);
@@ -173,7 +174,7 @@ export function suggestFreight(order: FreightOrder, ctx: FreightContext): Freigh
                 ? 'Não foi possível identificar a UF do destino para procurar uma rota de preço. Confira o destino ou informe o valor.'
                 : ufRoutes.length > 0
                     ? `Não há tabela de preço aplicável às rotas para ${destination.state} a partir deste hub. Confira as tabelas ou informe o valor.`
-                    : hop.kind === 'UNROUTED'
+                    : !finalHub
                         ? `${destination.label} não tem hub na cobertura e não há rota de preço para ${destination.state} a partir deste hub. Defina a cobertura ou informe o valor.`
                         : `Não há rota de preço para ${destination.state} a partir deste hub. Defina a rota ou informe o valor.`;
     const table = pricing ? ctx.tables.find((t) => t.id === pricing.tableId) : undefined;
