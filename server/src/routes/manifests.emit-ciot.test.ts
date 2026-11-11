@@ -329,3 +329,13 @@ it('rejeita viagem sem NF-e numerada antes de enfileirar', async () => {
     assert.match(payload.error, /Nenhuma NF-e com número/);
     assert.equal(createdJobs.length, 0);
 });
+
+it('origem e destino no mesmo município sem CEP de destino falha antes de enfileirar', async () => {
+    const body = requestBody();
+    body.requestData.destinatario.endereco.codigoMunicipio = 3304557;
+    const response = await request(body);
+    assert.equal(response.status, 400);
+    const payload = await response.json() as any;
+    assert.match(payload.error, /mesmo município/);
+    assert.equal(createdJobs.length, 0);
+});
