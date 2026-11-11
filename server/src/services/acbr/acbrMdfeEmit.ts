@@ -514,7 +514,10 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
         totalValue: manifest.totalValue, totalWeight: manifest.totalWeight, seg, prodPred: prodPredResult.prodPred,
     });
 
-    const body = { infMDFe, ambiente, referencia };
+    // A ACBr exige `referencia` única por documento e guarda as tentativas denegadas: reutilizar o id
+    // da viagem fazia a tentativa seguinte falhar com "O campo 'referencia' deve ser único". O id do
+    // nosso registro identifica a tentativa e ainda barra o envio duplicado dela.
+    const body = { infMDFe, ambiente, referencia: docId };
     await prisma.manifestFiscalDocument.update({ where: { id: docId }, data: { rawPayload: body as unknown as Prisma.InputJsonValue } });
 
     // Resultado desconhecido (timeout/rede/5xx): o MDF-e PODE existir no provedor. Mantém o documento
