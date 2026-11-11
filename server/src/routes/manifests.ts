@@ -232,10 +232,12 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
             orderBy: { createdAt: 'desc' },
         });
 
+        const canSeeMargin = req.user!.roles.some((role) => role === 'ADMIN' || role === 'HUB');
         const mappedManifests = manifests.map(mapManifestLegsToDemands);
         const dataWithMargins = await Promise.all(
             mappedManifests.map(async (m: any) => {
-                const marginInfo = await getManifestMargin(m.id);
+                // Receita, custo e margem são da TSM: o transportador (LINK sem papel de gestão) não os recebe.
+                const marginInfo = canSeeMargin ? await getManifestMargin(m.id) : {};
                 return {
                     ...m,
                     ...marginInfo,
@@ -343,7 +345,8 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
             }
         }
 
-        const marginInfo = await getManifestMargin(id);
+        // Receita, custo e margem são da TSM: o transportador (LINK sem papel de gestão) não os recebe.
+        const marginInfo = req.user!.roles.some((role) => role === 'ADMIN' || role === 'HUB') ? await getManifestMargin(id) : {};
 
         res.json({
             success: true,

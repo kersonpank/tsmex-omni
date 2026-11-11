@@ -14,6 +14,7 @@ import OrderScanInput from '../ui/OrderScanInput';
 import { CityAutocomplete } from '../ui/CityAutocomplete';
 import { manifestStatusLabels as statusLabels, manifestStatusTone } from '../../lib/manifestStatusUi';
 import { ManifestJourneyShell, manifestJourneySteps } from './ManifestJourneyShell';
+import TripClosingCard from './TripClosingCard';
 import TripResponsiblePanel from './TripResponsiblePanel';
 import DriverFiscalSheet from './DriverFiscalSheet';
 import type { DriverFiscalFormState } from './DriverFiscalSheet';
@@ -1462,6 +1463,7 @@ const ManifestDetailPage: React.FC = () => {
             <div className="mt-3 flex gap-2"><button type="button" disabled={managementBusy} onClick={() => void handleManagementAction()} className="admin-focus min-h-11 rounded-xl bg-brand-600 px-4 text-sm font-bold text-white disabled:opacity-50">{managementBusy ? 'Processando…' : 'Confirmar'}</button><button type="button" onClick={() => { setManagementAction(null); setManagementReason(''); }} className="admin-focus min-h-11 rounded-xl px-4 text-sm font-semibold">Voltar</button></div>
           </div>
         )}
+        {manifest.status === 'COMPLETED' && (!isHubOnly || manifest.hubId === user?.hubId) && <TripClosingCard data={manifest} />}
         {error && <div className="mb-5"><InlineNotice variant="error" message={error} onDismiss={() => setError(null)} /></div>}
         {success && <div className="mb-5"><InlineNotice variant="success" message={success} onDismiss={() => setSuccess(null)} /></div>}
 

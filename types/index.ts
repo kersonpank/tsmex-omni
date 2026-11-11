@@ -706,7 +706,30 @@ export interface TripPriceEstimate {
     };
 }
 
-export interface Manifest {
+/** Fechamento econômico da viagem (vem do servidor junto com a viagem; receita sempre líquida de ICMS). */
+export interface ManifestMarginInfo {
+    revenue: number;
+    revenueGross: number;
+    icms: number;
+    revenueNet: number;
+    revenueRealized: number;
+    revenueEstimated: boolean;
+    ordersWithoutOfficialFreight: number;
+    ordersWithoutFreightValue: number;
+    linkCost: number | null;
+    linkCostSource: 'CARTA_FRETE' | 'ACORDO' | 'NONE';
+    hubCost: number;
+    totalCost: number | null;
+    margin: number | null;
+    marginPercent: number | null;
+    costComplete: boolean;
+    missing: string[];
+    occupancyWeightPercent: number | null;
+    occupancyVolumePercent: number | null;
+    occupancyPercent: number | null;
+}
+
+export interface Manifest extends Partial<ManifestMarginInfo> {
     id: string;
     ciotSuggestion?: CiotTipoViagemSuggestion;
     vehicleAssignments?: Array<{ slot: number; vehicleUnit: VehicleUnit }>;
