@@ -4,6 +4,7 @@ import {
     buildCoverageIndex,
     groupOrdersByNextHop,
     resolveNextHop,
+    resolveFinalHub,
     IMPLICIT_PRIORITY,
     type QueueOrderInput,
 } from './consolidationQueue.js';
@@ -130,5 +131,91 @@ describe('freightDocState na fila', () => {
         );
         const byId = Object.fromEntries(groups[0].orders.map((o) => [o.orderId, o.freightDocState]));
         assert.deepEqual(byId, { a: 'emitted', b: 'rejected', c: 'none' });
+    });
+});
+
+describe('próximo salto por gateways (hub-and-spoke)', () => {
+    const SMT = { id: 'smt', name: 'HUB São Mateus', code: 'SMT-MA', cityIbgeCode: '2109908', active: true };
+    const hub = (h: typeof GRU, gatewayHubId: string | null) => ({ ...h, gatewayHubId });
+    const next = (index: ReturnType<typeof buildCoverageIndex>, city: string, from: string) => {
+        const hop = resolveNextHop(index, city, from);
+        return hop.kind === 'TRANSFER' ? hop.target.hubId : hop.kind;
+    };
+
+    it('(a) SMT abastecida por SLZ: GRU→SLZ, SLZ→SMT, SMT→LOCAL', () => {
+        const index = buildCoverageIndex([hub(GRU, null), hub(SLZ, null), hub(SMT, 'slz')], []);
+        assert.equal(next(index, SMT.cityIbgeCode!, 'gru'), 'slz');
+        assert.equal(next(index, SMT.cityIbgeCode!, 'slz'), 'smt');
+        assert.equal(next(index, SMT.cityIbgeCode!, 'smt'), 'LOCAL');
+        const hop = resolveNextHop(index, SMT.cityIbgeCode!, 'gru');
+        assert.equal(hop.kind === 'TRANSFER' && hop.final.hubId, 'smt');
+    });
+
+    it('(b) sem gateways o comportamento é o de antes (direto ao hub responsável)', () => {
+        const index = buildCoverageIndex([hub(GRU, null), hub(SLZ, null), hub(SMT, null)], []);
+        assert.equal(next(index, SMT.cityIbgeCode!, 'gru'), 'smt');
+        assert.equal(next(index, SMT.cityIbgeCode!, 'slz'), 'smt');
+    });
+
+    it('(c) cadeia de 3 níveis IMP ← ACA ← X', () => {
+        const ACA = { id: 'aca', name: 'HUB Açailândia', code: 'ACA-MA', cityIbgeCode: ACAILANDIA, active: true };
+        const index = buildCoverageIndex([hub(GRU, null), hub(SLZ, null), hub(ACA, 'slz'), hub(IMP, 'aca')], []);
+        assert.equal(next(index, IMP.cityIbgeCode!, 'gru'), 'slz');
+        assert.equal(next(index, IMP.cityIbgeCode!, 'slz'), 'aca');
+        assert.equal(next(index, IMP.cityIbgeCode!, 'aca'), 'imp');
+        assert.equal(next(index, IMP.cityIbgeCode!, 'imp'), 'LOCAL');
+    });
+
+    it('(d) ciclo A→B→A não trava e é tratado como sem gateway', () => {
+        const index = buildCoverageIndex([hub(GRU, null), hub(SLZ, 'smt'), hub(SMT, 'slz')], []);
+        assert.equal(next(index, SMT.cityIbgeCode!, 'gru'), 'smt');
+        assert.equal(next(index, SMT.cityIbgeCode!, 'slz'), 'smt');
+        assert.equal(next(index, GRU.cityIbgeCode!, 'smt'), 'gru');
+    });
+
+    it('(e) sentido inverso: SMT→cidade de GRU sobe pelo gateway de SMT', () => {
+        const index = buildCoverageIndex([hub(GRU, null), hub(SLZ, null), hub(SMT, 'slz')], []);
+        assert.equal(next(index, GRU.cityIbgeCode!, 'smt'), 'slz');
+        assert.equal(next(index, GRU.cityIbgeCode!, 'slz'), 'gru');
+    });
+
+    it('gateway inativo é ignorado', () => {
+        const index = buildCoverageIndex([hub(GRU, null), hub({ ...SLZ, active: false }, null), hub(SMT, 'slz')], []);
+        assert.equal(next(index, SMT.cityIbgeCode!, 'gru'), 'smt');
+    });
+
+    it('fila agrupa pelo próximo salto e informa o hub final e o prazo', () => {
+        const index = buildCoverageIndex(
+            [hub(GRU, null), hub(SLZ, null), hub(SMT, 'slz')],
+            [{ hubId: 'smt', cityIbgeCode: SMT.cityIbgeCode!, priority: 1, leadTimeDays: 4 }],
+        );
+        const groups = groupOrdersByNextHop(
+            [order({ id: 'x', fimIbgeCode: SMT.cityIbgeCode }), order({ id: 'y', fimIbgeCode: SLZ.cityIbgeCode })],
+            index,
+            'gru',
+        );
+        assert.equal(groups.length, 1);
+        const g = groups[0];
+        assert.equal(g.key, 'TRANSFER:slz');
+        assert.equal(g.destHubId, 'slz');
+        const x = g.orders.find((o) => o.orderId === 'x')!;
+        assert.equal(x.finalHubId, 'smt');
+        assert.equal(x.finalHubCode, 'SMT-MA');
+        assert.equal(x.leadTimeDays, 4);
+        const y = g.orders.find((o) => o.orderId === 'y')!;
+        assert.equal(y.finalHubId, null);
+        assert.equal(g.finalHubId, null); // finais diferentes → sem final único no grupo
+        const only = groupOrdersByNextHop([order({ fimIbgeCode: SMT.cityIbgeCode })], index, 'gru')[0];
+        assert.equal(only.finalHubId, 'smt');
+        assert.equal(only.leadTimeDays, 4);
+    });
+});
+
+describe('resolveFinalHub', () => {
+    it('é o hub responsável pela cidade, independente de gateways', () => {
+        const SMT = { id: 'smt', name: 'HUB São Mateus', code: 'SMT-MA', cityIbgeCode: '2109908', active: true };
+        const index = buildCoverageIndex([{ ...GRU, gatewayHubId: null }, { ...SLZ, gatewayHubId: null }, { ...SMT, gatewayHubId: 'slz' }], []);
+        assert.equal(resolveFinalHub(index, SMT.cityIbgeCode)?.hubId, 'smt');
+        assert.equal(resolveFinalHub(index, null), null);
     });
 });

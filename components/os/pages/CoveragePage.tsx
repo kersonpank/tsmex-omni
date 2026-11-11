@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { hubCoverageApi, locationsApi } from '../../../lib/api';
+import { hubCoverageApi, hubsApi, locationsApi } from '../../../lib/api';
 import { useOs } from '../OsContext';
 import { OsActionBar, OsButton, OsEmpty, OsErrorNotice, OsSectionTitle, OsSkeletonRows } from '../ui/kit';
 import { IconX } from '../ui/icons';
@@ -25,7 +25,9 @@ interface CityHit {
 }
 
 const CoveragePage: React.FC = () => {
-    const { hubId, hub, isAdmin } = useOs();
+    const { hubId, hub, hubs, isAdmin } = useOs();
+    const [gatewayId, setGatewayId] = useState<string>(hub?.gatewayHubId ?? '');
+    const [gatewayMsg, setGatewayMsg] = useState<{ ok: boolean; text: string } | null>(null);
     const [rows, setRows] = useState<Draft[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -59,6 +61,11 @@ const CoveragePage: React.FC = () => {
     }, [hubId]);
 
     useEffect(() => {
+        setGatewayId(hub?.gatewayHubId ?? '');
+        setGatewayMsg(null);
+    }, [hub?.id, hub?.gatewayHubId]);
+
+    useEffect(() => {
         const term = q.trim();
         if (term.length < 3) {
             setHits([]);
@@ -74,7 +81,13 @@ const CoveragePage: React.FC = () => {
     }, [q]);
 
     if (!isAdmin) {
-        return <OsEmpty title="Cobertura é configurada pela torre" detail="Peça à gestão para ajustar as cidades atendidas por este hub." />;
+        const gateway = hubs.find((h) => h.id === hub?.gatewayHubId);
+        return (
+            <OsEmpty
+                title="Cobertura é configurada pela torre"
+                detail={`Peça à gestão para ajustar as cidades atendidas por este hub. Abastecida por: ${gateway?.name ?? 'direto do tronco / nenhuma'}.`}
+            />
+        );
     }
     if (loading) return <OsSkeletonRows />;
 
@@ -92,6 +105,20 @@ const CoveragePage: React.FC = () => {
     const patch = (code: string, field: 'leadTimeDays' | 'priority', value: string) => {
         setRows((prev) => prev.map((r) => (r.cityIbgeCode === code ? { ...r, [field]: value.replace(/\D/g, '') } : r)));
         setSaved(false);
+    };
+
+    const saveGateway = async (value: string) => {
+        if (!hubId) return;
+        setGatewayId(value);
+        setGatewayMsg(null);
+        try {
+            await hubsApi.update(hubId, { gatewayHubId: value || null });
+            setGatewayMsg({ ok: true, text: 'Abastecimento salvo.' });
+        } catch (cause) {
+            const data = (cause as { response?: { data?: { error?: string; message?: string } } })?.response?.data;
+            setGatewayMsg({ ok: false, text: data?.error ?? data?.message ?? 'Não foi possível salvar o abastecimento.' });
+            setGatewayId(hub?.gatewayHubId ?? '');
+        }
     };
 
     const save = async () => {
@@ -125,6 +152,31 @@ const CoveragePage: React.FC = () => {
                 Cidades que este hub atende como próximo salto. A cidade-sede já conta automaticamente. Prioridade
                 menor vence quando dois hubs cobrem a mesma cidade.
             </p>
+
+            <label htmlFor="hub-gateway" className="mb-1.5 block text-[13px] font-bold text-tower-600 dark:text-tower-300">
+                Esta unidade é abastecida por
+            </label>
+            <select
+                id="hub-gateway"
+                value={gatewayId}
+                onChange={(e) => void saveGateway(e.target.value)}
+                className="mb-1 h-[48px] w-full rounded-xl border-2 border-tower-200 bg-white px-3 text-[15px] text-tower-900 focus:border-brand-400 focus:outline-none dark:border-tower-600 dark:bg-tower-900 dark:text-white"
+            >
+                <option value="">Direto do tronco / nenhuma</option>
+                {hubs
+                    .filter((h) => h.active && h.id !== hubId)
+                    .map((h) => (
+                        <option key={h.id} value={h.id}>
+                            {h.name}
+                        </option>
+                    ))}
+            </select>
+            <p className="mb-4 text-[12px] text-tower-500 dark:text-tower-400">
+                A carga para cá passa por esse hub antes (ex.: tronco → regional). Sem isso, vai direto.
+            </p>
+            {gatewayMsg ? (
+                <p className={`mb-3 text-[13px] ${gatewayMsg.ok ? 'text-tower-600 dark:text-tower-300' : 'text-red-600'}`}>{gatewayMsg.text}</p>
+            ) : null}
 
             <input
                 type="search"

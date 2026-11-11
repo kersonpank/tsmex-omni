@@ -42,7 +42,7 @@ export async function loadFreightContext(hubId: string): Promise<FreightContext>
             include: emitterInclude,
             orderBy: { createdAt: 'asc' },
         }),
-        prisma.hub.findMany({ select: { id: true, name: true, code: true, state: true, cityIbgeCode: true, active: true } }),
+        prisma.hub.findMany({ select: { id: true, name: true, code: true, state: true, cityIbgeCode: true, active: true, gatewayHubId: true } }),
         prisma.hubCoverage.findMany({
             where: { active: true },
             select: { hubId: true, cityIbgeCode: true, priority: true, leadTimeDays: true },

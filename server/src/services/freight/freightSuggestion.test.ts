@@ -183,6 +183,23 @@ describe('suggestFreight: rotas e opções de tabela', () => {
         assert.deepEqual(suggestion.tableOptions.map((option) => option.tableId), ['geral-for']);
     });
 
+    it('gateway não altera a rota de preço: continua origem → hub FINAL que cobre o destino', () => {
+        const { order, ctx } = fixture();
+        const slz = { id: 'slz', name: 'São Luís', code: 'SLZ-MA', cityIbgeCode: null, active: true, gatewayHubId: null };
+        const coverage = [{ hubId: 'for', cityIbgeCode: '2112803', priority: 1, leadTimeDays: 2 }];
+        const direct = suggestFreight(order, { ...ctx, coverage: buildCoverageIndex([...hubs, slz], coverage) });
+        const viaGateway = suggestFreight(order, {
+            ...ctx,
+            coverage: buildCoverageIndex([...hubs.map((h) => (h.id === 'for' ? { ...h, gatewayHubId: 'slz' } : h)), slz], coverage),
+        });
+
+        assert.equal(viaGateway.route?.id, 'gru-for');
+        assert.deepEqual(
+            { route: viaGateway.route?.id, source: viaGateway.routeSource, options: viaGateway.tableOptions.map((o) => [o.tableId, o.total]) },
+            { route: direct.route?.id, source: direct.routeSource, options: direct.tableOptions.map((o) => [o.tableId, o.total]) },
+        );
+    });
+
     it('preserva a rota explícita do pedido quando não há rota pela cobertura', () => {
         const { order, ctx } = fixture();
         order.routeId = 'gru-for';

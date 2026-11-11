@@ -6,6 +6,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { resolveCatalogCity } from '../services/selectedCity.js';
 import { getNextOrderNumber } from '../services/orderSequence.js';
+import { validateGatewayAssignment } from '../services/hubCargo/hubGateway.js';
 import { assertHubInvite, signHubInvite } from '../services/hubInvite.js';
 
 const router = Router();
@@ -44,6 +45,8 @@ const hubSchema = z.object({
     lastMinutaNumber: z.number().int().min(0).optional(),
     simplesNacional: z.boolean().optional().nullable(),
     cityIbgeCode: z.string().optional().nullable(),
+    // Topologia: hub tronco que abastece esta unidade (null = direto do tronco / nenhum)
+    gatewayHubId: z.string().uuid().optional().nullable(),
 });
 
 const addHubUserSchema = z.object({
@@ -528,6 +531,10 @@ router.post('/', authenticate, authorize('ADMIN'), async (req: AuthRequest, res:
             Object.assign(data, await resolveCatalogCity(data));
         }
 
+        if (data.gatewayHubId) {
+            validateGatewayAssignment(null, data.gatewayHubId, await prisma.hub.findMany({ select: { id: true, active: true, gatewayHubId: true } }));
+        }
+
         const hub = await prisma.hub.create({
             data,
         });
@@ -563,6 +570,10 @@ router.patch('/:id', authenticate, authorize('ADMIN'), async (req: AuthRequest, 
             // Hub antigo sem IBGE: qualquer edição completa a cidade pelo catálogo, sem travar a edição.
             const filled = await resolveCatalogCity({ city: current.city, state: current.state }).catch(() => null);
             if (filled) Object.assign(data, filled);
+        }
+
+        if (data.gatewayHubId) {
+            validateGatewayAssignment(id, data.gatewayHubId, await prisma.hub.findMany({ select: { id: true, active: true, gatewayHubId: true } }));
         }
 
         const hub = await prisma.hub.update({

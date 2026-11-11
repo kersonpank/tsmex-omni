@@ -41,10 +41,11 @@ function queue(kind: ConsolidationQueueGroup['kind'], ids: string[]): Consolidat
         destHubId: kind === 'TRANSFER' ? 'destination' : null,
         destHubName: kind === 'TRANSFER' ? 'Hub destino' : null,
         destHubCode: kind === 'TRANSFER' ? 'DEST' : null,
+        finalHubId: null, finalHubCode: null, finalHubName: null, leadTimeDays: null,
         orders: ids.map((orderId) => ({
             orderId, orderNumber: null, nfNumber: null, destination: null,
             weightKg: 100, volumeM3: 1, valueBRL: 1000, freightDocState: 'emitted',
-            sinceAt: '2026-10-01T00:00:00.000Z',
+            sinceAt: '2026-10-01T00:00:00.000Z', finalHubId: null, finalHubCode: null, finalHubName: null, leadTimeDays: null,
         })),
         totalWeightKg: ids.length * 100,
         totalVolumeM3: ids.length,
@@ -171,6 +172,18 @@ describe('consolidateFromQueue — destino escolhido e seleção do estoque', ()
             assert.equal(fixture.drafts[0].data.tripType, kind === 'TRANSFER' ? 'TRANSFER' : 'DELIVERY');
             assert.equal(feedback.action, 'ACCEPTED');
         }
+    });
+
+    it('feedback registra o próximo salto e o hub final sugeridos', async () => {
+        const group = queue('TRANSFER', ['a', 'b']);
+        group.orders = group.orders.map((o) => ({ ...o, finalHubId: 'final', finalHubCode: 'FIN', finalHubName: 'Hub final' }));
+        group.finalHubId = 'final';
+        const fixture = setup([group]);
+        await consolidateFromQueue({ ...fixture.input, groupKey: group.key }, fixture.deps);
+        assert.equal(feedback.suggestedManifests[0].destHubId, 'destination');
+        assert.equal(feedback.suggestedManifests[0].nextHopHubId, 'destination');
+        assert.equal(feedback.suggestedManifests[0].finalHubId, 'final');
+        assert.deepEqual(feedback.suggestedManifests[0].finalHubIds, ['final']);
     });
 
     it('não permite sobrescrever o destino de uma fila já roteada', async () => {

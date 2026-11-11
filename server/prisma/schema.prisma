@@ -352,12 +352,20 @@ model Hub {
   commissionAgreements HubCommissionAgreement[]
   coverage             HubCoverage[]
 
+  // Topologia hub-and-spoke: "esta unidade é abastecida por" o hub tronco indicado.
+  // O próximo salto de qualquer hub até este sobe/desce essa cadeia (ver consolidationQueue.ts).
+  gatewayHubId String?
+  gatewayHub   Hub?    @relation("HubGateway", fields: [gatewayHubId], references: [id], onDelete: SetNull)
+  gatewayFor   Hub[]   @relation("HubGateway")
+
   // Management
   canOrchestrate Boolean @default(false) // Can act as orchestrator
   active         Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([gatewayHubId])
 }
 
 // Cobertura rica do hub — a "tabela de roteamento" da teia: quais cidades este hub
