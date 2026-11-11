@@ -53,6 +53,15 @@ export const IconTruck: React.FC<OsIconProps> = ({ size = 22, className }) => (
     </svg>
 );
 
+/** Entregar — caixa saindo com seta de comprovação. */
+export const IconDeliver: React.FC<OsIconProps> = ({ size = 22, className }) => (
+    <svg {...base(size)} className={className}>
+        <path d="M4 8.5l8-3.4 8 3.4-8 3.4z" />
+        <path d="M4 8.5v6.6l8 3.4 8-3.4V8.5" />
+        <path d="M9.2 14.6l2 2 3.6-3.8" />
+    </svg>
+);
+
 export const IconCheck: React.FC<OsIconProps> = ({ size = 20, className }) => (
     <svg {...base(size)} className={className}>
         <path d="M4.5 12.8l4.6 4.6L19.5 7" />

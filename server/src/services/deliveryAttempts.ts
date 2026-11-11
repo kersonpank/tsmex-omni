@@ -19,7 +19,7 @@ export async function listManifestDeliveryProgress(manifestId: string) {
     const legs = await prisma.orderLeg.findMany({
         where: { manifestId, legType: 'ENTREGA' },
         include: {
-            order: { select: { nfNumber: true, demand: { select: { orderNumber: true, units: true } } } },
+            order: { select: { nfNumber: true, destinatarioPerson: { select: { legalName: true, tradeName: true, city: true, state: true } }, demand: { select: { orderNumber: true, units: true, destination: true } } } },
             deliveryAttempts: { orderBy: { createdAt: 'asc' } },
             stop: { select: { id: true, destinationLabel: true } },
         },
@@ -31,6 +31,10 @@ export async function listManifestDeliveryProgress(manifestId: string) {
             legId: leg.id, orderId: leg.orderId, stopId: leg.stopId,
             destinationLabel: leg.stop?.destinationLabel,
             orderNumber: leg.order.demand.orderNumber, nfNumber: leg.order.nfNumber,
+            recipientName: leg.order.destinatarioPerson?.tradeName || leg.order.destinatarioPerson?.legalName || null,
+            destinationCity: leg.order.destinatarioPerson?.city
+                ? `${leg.order.destinatarioPerson.city}${leg.order.destinatarioPerson.state ? `/${leg.order.destinatarioPerson.state}` : ''}`
+                : leg.order.demand.destination ?? null,
             expectedQuantity: leg.order.demand.units,
             deliveredQuantity: delivered,
             remainingQuantity: Math.max(0, leg.order.demand.units - delivered),

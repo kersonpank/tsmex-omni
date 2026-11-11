@@ -803,13 +803,16 @@ export interface DeliveryProgress {
     orderId: string;
     stopId: string | null;
     destinationLabel?: string | null;
+    /** Destinatário e cidade do pedido (para o operador reconhecer a entrega). */
+    recipientName?: string | null;
+    destinationCity?: string | null;
     orderNumber: number;
     nfNumber?: string | null;
     expectedQuantity: number;
     deliveredQuantity: number;
     remainingQuantity: number;
     complete: boolean;
-    attempts: Array<{ id: string; result: 'DELIVERED' | 'PARTIAL' | 'FAILED'; deliveredQuantity?: number | null; nextAction?: string | null; occurredAt: string }>;
+    attempts: Array<{ id: string; result: 'DELIVERED' | 'PARTIAL' | 'FAILED'; deliveredQuantity?: number | null; nextAction?: string | null; exceptionReason?: string | null; occurredAt: string }>;
 }
 
 export interface ManifestReadiness {
