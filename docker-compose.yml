@@ -49,10 +49,11 @@ services:
       - "3002:3002"
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/tsmex?schema=public}
-      JWT_SECRET: ${JWT_SECRET:-jwt_super_secret_key_development_only_1234567890}
+      # Obrigatório (>= 32 caracteres): sem valor padrão para não subir com segredo conhecido.
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET (>= 32 caracteres) no ambiente ou em .env}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
       PORT: ${PORT:-3002}
-      NODE_ENV: ${NODE_ENV:-production}
+      NODE_ENV: ${NODE_ENV:-development}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
       # ---------------------------------------------------------------------------
       # Portainer / host: variáveis abaixo devem ser definidas na stack (sem commitar valores).
@@ -169,6 +170,7 @@ services:
     image: ghcr.io/${GITHUB_REPOSITORY:-local/tsmex}/tsmex-migrate:${IMAGE_TAG:-local}
     container_name: tsmex-migrate
     environment:
+      NODE_ENV: ${NODE_ENV:-development}
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/tsmex?schema=public}
     depends_on:
       postgres:

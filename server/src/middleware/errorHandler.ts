@@ -26,6 +26,14 @@ export const errorHandler = (
         });
     }
 
+    const bodyErrorType = (err as { type?: string }).type;
+    if (bodyErrorType === 'entity.too.large') {
+        return res.status(413).json({ success: false, error: 'Corpo da requisição grande demais.' });
+    }
+    if (bodyErrorType === 'entity.parse.failed') {
+        return res.status(400).json({ success: false, error: 'JSON inválido.' });
+    }
+
     console.error('Unexpected error:', err);
 
     return res.status(500).json({

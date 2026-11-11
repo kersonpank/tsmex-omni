@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import morgan from 'morgan';
+import helmet from 'helmet';
 import { authRouter } from './routes/auth.js';
 import { vehicleTypesRouter } from './routes/vehicleTypes.js';
 import { vehicleUnitsRouter } from './routes/vehicleUnits.js';
@@ -36,10 +37,25 @@ import { hubCargoRouter } from './routes/hubCargo.js';
 import { systemAlertsRouter } from './routes/systemAlerts.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { getApiHealth } from './services/health.js';
+import prisma from './lib/prisma.js';
+import { assertProductionEnv } from './lib/envValidation.js';
+import { installProcessErrorHandlers } from './lib/processHandlers.js';
+import { createJsonBodyParser } from './middleware/bodyLimits.js';
+import { applyRateLimits } from './middleware/rateLimit.js';
 
 dotenv.config();
 
+installProcessErrorHandlers('api');
+try {
+    assertProductionEnv('api');
+} catch (err) {
+    console.error(err instanceof Error ? err.message : err);
+    process.exit(1);
+}
+
 const app = express();
+// A API fica atrás de Traefik/nginx: confia em 1 salto para obter o IP real do cliente (rate limit).
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST ?? '0.0.0.0';
 
@@ -49,6 +65,11 @@ const corsOrigins = (process.env.CORS_ORIGIN?.trim() || 'http://localhost:3000,h
     .filter(Boolean);
 
 // Middleware
+// API JSON pura: sem CSP de página; CORP cross-origin porque o front (outra origem) consome as respostas.
+app.use(helmet({
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
 app.use(cors({
     origin: (origin, callback) => {
         if (!origin) {
@@ -63,7 +84,7 @@ app.use(cors({
     },
     credentials: true,
 }));
-app.use(express.json({ limit: '50mb' }));
+app.use(createJsonBodyParser());
 app.use(morgan('dev'));
 
 // Health check
@@ -76,6 +97,7 @@ app.get('/api/health', async (_req, res) => {
 });
 
 // Routes
+applyRateLimits(app);
 app.use('/api/auth', authRouter);
 app.use('/api/vehicle-types', vehicleTypesRouter);
 app.use('/api/vehicle-units', vehicleUnitsRouter);
@@ -123,10 +145,30 @@ app.use(errorHandler);
         }
     }
 
-    app.listen(Number(PORT), HOST, () => {
+    const server = app.listen(Number(PORT), HOST, () => {
         console.log(`🚀 TSM EX API listening on http://${HOST}:${PORT}`);
         console.log(`📊 Health check: http://${HOST}:${PORT}/health`);
     });
+
+    let shuttingDown = false;
+    const shutdown = (signal: string) => {
+        if (shuttingDown) return;
+        shuttingDown = true;
+        console.log(`${signal} recebido: encerrando API...`);
+        // Teto de segurança: o orquestrador mata o container após o grace period de qualquer forma.
+        const force = setTimeout(() => process.exit(1), 25_000);
+        force.unref();
+        server.close(async () => {
+            try {
+                await prisma.$disconnect();
+            } finally {
+                process.exit(0);
+            }
+        });
+        server.closeIdleConnections?.();
+    };
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
 })();
 
 export default app;

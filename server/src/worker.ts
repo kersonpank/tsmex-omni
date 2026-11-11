@@ -11,8 +11,18 @@ import { processCiotEmissionJob, handleCiotJobExhausted } from './services/queue
 import { WORKER_HEARTBEAT_KEY } from './services/health.js';
 import { processPendingFiscalClosures } from './services/queues/fiscalClosureProcessor.js';
 import { generatePendingManifestPayables } from './services/payables/manifestPayable.js';
+import { assertProductionEnv } from './lib/envValidation.js';
+import { installProcessErrorHandlers } from './lib/processHandlers.js';
 
 dotenv.config();
+
+installProcessErrorHandlers('worker');
+try {
+    assertProductionEnv('worker');
+} catch (err) {
+    console.error(err instanceof Error ? err.message : err);
+    process.exit(1);
+}
 
 const worker = new Worker(CTE_EMISSION_QUEUE_NAME, (job) => processCteEmissionJob(job), {
     connection: createRedisConnection(),
@@ -162,7 +172,9 @@ void (async () => {
     }
 })();
 
-process.on('SIGTERM', async () => {
+const shutdownWorker = async () => {
     await Promise.all([worker.close(), distribuicaoNfeWorker.close(), ciotWorker.close(), heartbeatRedis.quit()]);
     process.exit(0);
-});
+};
+process.on('SIGTERM', shutdownWorker);
+process.on('SIGINT', shutdownWorker);

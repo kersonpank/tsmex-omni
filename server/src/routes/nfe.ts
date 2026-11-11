@@ -78,7 +78,7 @@ function extractChaveFromUrl(input: string): string {
 }
 
 // GET /api/nfe/:chave
-router.get('/:chave', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+router.get('/:chave', authenticate, authorize('ADMIN', 'HUB'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const raw = decodeURIComponent(Array.isArray(req.params.chave) ? req.params.chave[0] : req.params.chave);
     const chave = extractChaveFromUrl(raw);

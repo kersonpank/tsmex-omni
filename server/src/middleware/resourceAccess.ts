@@ -73,6 +73,33 @@ export function manifestScope(user: Actor): Prisma.ManifestWhereInput | null {
     return { OR: ors };
 }
 
+/**
+ * Filtro de demandas visíveis ao usuário. `null` = sem restrição (ADMIN).
+ * HUB: demandas previstas para o seu hub ou cujo pedido está no/passa pelo seu hub.
+ * CLIENT: demandas dos Clients da própria conta (ou do próprio Client, se o usuário não tem conta).
+ * LINK sozinho não enxerga demandas (vê pedidos/viagens pelos escopos próprios).
+ */
+export async function demandScope(user: Actor): Promise<Prisma.DemandWhereInput | null> {
+    if (isAdmin(user)) return null;
+    const ors: Prisma.DemandWhereInput[] = [];
+    if (user.roles.includes('HUB') && user.hubId) {
+        ors.push({ expectedHubId: user.hubId }, { order: buildHubOrderVisibilityWhere(user.hubId) });
+    }
+    if (user.roles.includes('CLIENT')) {
+        const row = await prisma.user.findUnique({ where: { id: user.id }, select: { accountId: true } });
+        ors.push(row?.accountId ? { client: { accountId: row.accountId } } : { client: { userId: user.id } });
+    }
+    if (!ors.length) throw new AppError('Demand not found', 404);
+    return { OR: ors };
+}
+
+/** 404 quando a demanda não existe ou está fora do escopo do usuário (não vaza existência). */
+export async function assertDemandAccess(user: Actor, id: string): Promise<void> {
+    const scope = await demandScope(user);
+    const found = await prisma.demand.findFirst({ where: { id, ...(scope ? { AND: [scope] } : {}) }, select: { id: true } });
+    if (!found) throw new AppError('Demand not found', 404);
+}
+
 async function assertAccess(kind: ResourceKind, user: Actor, id: string): Promise<void> {
     if (isAdmin(user)) return;
     switch (kind) {

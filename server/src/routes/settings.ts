@@ -3,6 +3,7 @@ import { z } from 'zod';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
+import { openSecretOrLegacy, sealSecret } from '../lib/secretBox.js';
 
 const router = Router();
 
@@ -96,7 +97,7 @@ router.get('/models', authenticate, authorize('ADMIN'), async (req: AuthRequest,
 });
 
 // GET /api/settings/llm/models/active - Get active model for capability
-router.get('/models/active', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/models/active', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const capability = (req.query.capability as string) || 'chat';
 
@@ -138,8 +139,7 @@ router.get('/models/active', authenticate, async (req: AuthRequest, res: Respons
             data: {
                 modelId: model.modelId,
                 providerCode: model.provider.code,
-                apiKey: model.provider.apiKey?.apiKey,
-                baseUrl: model.provider.baseUrl,
+                hasApiKey: Boolean(model.provider.apiKey?.active && model.provider.apiKey?.apiKey),
             },
         });
     } catch (error) {
@@ -319,7 +319,7 @@ router.post('/models/:id/test', authenticate, authorize('ADMIN'), async (req: Au
             {
                 apiFormat: model.provider.apiFormat,
                 baseUrl: model.provider.baseUrl,
-                apiKey: model.provider.apiKey.apiKey,
+                apiKey: openSecretOrLegacy(model.provider.apiKey.apiKey).trim(),
             },
             model.modelId
         );
@@ -363,18 +363,26 @@ router.post('/api-keys', authenticate, authorize('ADMIN'), async (req: AuthReque
         // Create preview (last 4 chars)
         const keyPreview = '...' + data.apiKey.slice(-4);
 
+        // Cifra em repouso (falha fechado sem FISCAL_SECRET_KEY)
+        let sealedKey: string;
+        try {
+            sealedKey = sealSecret(data.apiKey);
+        } catch {
+            return next(new AppError('FISCAL_SECRET_KEY não configurada no servidor: não é possível armazenar a chave de API com segurança.', 500));
+        }
+
         // Upsert (update or create)
         const apiKey = await prisma.lLMApiKey.upsert({
             where: { providerId: data.providerId },
             update: {
-                apiKey: data.apiKey,
+                apiKey: sealedKey,
                 keyPreview,
                 label: data.label,
                 active: true,
             },
             create: {
                 providerId: data.providerId,
-                apiKey: data.apiKey,
+                apiKey: sealedKey,
                 keyPreview,
                 label: data.label,
             },

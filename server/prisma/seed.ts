@@ -1,8 +1,208 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import axios from 'axios';
+import { resolveSeedPolicy, type SeedPolicy } from './seedPolicy.js';
 
 const prisma = new PrismaClient();
+
+async function seedDemoUsers(
+    prisma: PrismaClient,
+    policy: SeedPolicy,
+    vehicleTypes: Array<{ id: string; code: string }>,
+    hubs: Array<{ id: string; code: string }>,
+) {
+    // Create sample client with Account
+    console.log('🏢 Creating sample client with Account...');
+    const clientPassword = await bcrypt.hash(policy.demoPassword('cliente123'), 10);
+    
+    // Create Account first
+    const account = await prisma.account.upsert({
+        where: { id: 'account-exemplo-123' },
+        update: {},
+        create: {
+            id: 'account-exemplo-123',
+            name: 'Empresa Exemplo LTDA',
+            accountType: 'COMPANY',
+            companies: {
+                create: {
+                    cnpj: '12.345.678/0001-90',
+                    legalName: 'Empresa Exemplo LTDA',
+                    tradeName: 'Exemplo',
+                    city: 'São Paulo',
+                    state: 'SP',
+                    isPrimary: true,
+                }
+            },
+            contacts: {
+                create: {
+                    name: 'João Silva',
+                    role: 'Gerente de Logística',
+                    email: 'joao@exemplo.com',
+                    phone: '(11) 99999-9999',
+                    isPrimary: true,
+                }
+            }
+        },
+        include: {
+            companies: true,
+            contacts: true,
+        }
+    });
+    
+    const primaryCompany = account.companies[0];
+    
+    const clientUser = await prisma.user.upsert({
+        where: { email: 'cliente@exemplo.com' },
+        update: {},
+        create: {
+            email: 'cliente@exemplo.com',
+            password: clientPassword,
+            roles: ['CLIENT'],
+            accountId: account.id,
+            client: {
+                create: {
+                    companyName: 'Empresa Exemplo LTDA',
+                    tradeName: 'Exemplo',
+                    document: '12.345.678/0001-90',
+                    contactName: 'João Silva',
+                    phone: '(11) 99999-9999',
+                    defaultOrigin: 'São Paulo, SP',
+                    accountId: account.id,
+                    accountCompanyId: primaryCompany.id,
+                }
+            }
+        },
+        include: { client: true }
+    });
+    console.log(`   ✅ Client user created: ${clientUser.email} with Account`);
+
+    // Pessoas para smoke / POST /api/orders/entrada (pagador CIF = remetente com Client)
+    const remetDoc = '12345678000190';
+    const destDoc = '98765432000199';
+    const remetPerson = await prisma.person.upsert({
+        where: { document: remetDoc },
+        update: {},
+        create: {
+            documentType: 'CNPJ',
+            document: remetDoc,
+            legalName: 'Empresa Exemplo LTDA',
+            tradeName: 'Exemplo',
+            city: 'São Paulo',
+            state: 'SP',
+        },
+    });
+    await prisma.person.upsert({
+        where: { document: destDoc },
+        update: {},
+        create: {
+            documentType: 'CNPJ',
+            document: destDoc,
+            legalName: 'Destinatário Smoke LTDA',
+            city: 'Rio de Janeiro',
+            state: 'RJ',
+        },
+    });
+    await prisma.client.update({
+        where: { userId: clientUser.id },
+        data: { personId: remetPerson.id },
+    });
+    console.log('   ✅ Pessoas remetente/destinatário (entrada manual / smoke PR002)');
+
+    // Create sample link
+    console.log('🚛 Creating sample link...');
+    const truckType = vehicleTypes.find(v => v.code === 'TRUCK');
+    if (truckType) {
+        const linkPassword = await bcrypt.hash(policy.demoPassword('link123'), 10);
+        const carlosDoc = '12345678900'; // TAC autônomo: mesma Person para Link (proprietário) e Driver
+        const carlosPerson = await prisma.person.upsert({
+            where: { document: carlosDoc },
+            update: {},
+            create: {
+                documentType: 'CPF',
+                document: carlosDoc,
+                legalName: 'Carlos Motorista',
+                cep: '01310-100',
+                address: 'Av. Paulista',
+                number: '1578',
+                neighborhood: 'Bela Vista',
+                city: 'São Paulo',
+                state: 'SP',
+                cityIbgeCode: '3550308',
+            },
+        });
+        const linkUser = await prisma.user.upsert({
+            where: { email: 'motorista@exemplo.com' },
+            update: {},
+            create: {
+                email: 'motorista@exemplo.com',
+                password: linkPassword,
+                roles: ['LINK'],
+                link: {
+                    create: {
+                        personId: carlosPerson.id,
+                        name: 'Carlos Motorista',
+                        document: carlosDoc,
+                        phone: '(11) 98888-8888',
+                        vehicleTypeId: truckType.id,
+                        vehiclePlate: 'ABC-1234',
+                        vehicleYear: 2022,
+                        vehicleChassi: '9BWZZZ377VT004251',
+                        vehicleAxles: 3,
+                        rntrc: '12345678',
+                        carrierType: 'TAC',
+                        homeBase: 'São Paulo, SP',
+                        coverageStates: ['SP', 'MG', 'RJ', 'MA', 'CE'],
+                        approvalStatus: 'APPROVED',
+                        active: true,
+                        score: 4.8,
+                        drivers: {
+                            create: {
+                                personId: carlosPerson.id,
+                                name: 'Carlos Motorista',
+                                document: carlosDoc,
+                                phone: '(11) 98888-8888',
+                                birthDate: new Date('1985-03-15'),
+                                cnhNumber: '12345678901',
+                                cnhExpiry: new Date('2027-12-31'),
+                                active: true,
+                            },
+                        },
+                    }
+                }
+            },
+            include: { link: { include: { drivers: true } } }
+        });
+        // Motorista responsável default da viagem = o próprio Carlos (TAC autônomo)
+        const carlosDriver = linkUser.link?.drivers?.[0];
+        if (carlosDriver) {
+            console.log(`   ✅ Link user created: ${linkUser.email} (readiness completa: RNTRC, chassi, eixos, endereço e motorista)`);
+        } else {
+            console.log(`   ✅ Link user created: ${linkUser.email}`);
+        }
+    }
+
+    // Operador HUB (SP-GRU) — intake / smoke PR002
+    const spHub = hubs.find((h) => h.code === 'SP-GRU');
+    if (!spHub) {
+        throw new Error('Seed: HUB SP-GRU não encontrado');
+    }
+    const hubPassword = await bcrypt.hash(policy.demoPassword('hub123'), 10);
+    await prisma.user.upsert({
+        where: { email: 'hub.spgru@tsmex.com' },
+        update: {
+            roles: ['HUB'],
+            hubId: spHub.id,
+            active: true,
+        },
+        create: {
+            email: 'hub.spgru@tsmex.com',
+            password: hubPassword,
+            roles: ['HUB'],
+            hubId: spHub.id,
+        },
+    });
+    console.log('   ✅ Hub operator: hub.spgru@tsmex.com → SP-GRU');
+}
 
 async function main() {
     console.log('🌱 Starting seed...\n');
@@ -298,8 +498,12 @@ async function main() {
     console.log(`   ✅ Created ${speciesNames.length} NF species`);
 
     // Create admin user
+    const policy = resolveSeedPolicy(process.env);
+    policy.warnings.forEach((w) => console.warn(`⚠️  ${w}`));
+    if (policy.adminPassword !== null) {
     console.log('👤 Creating admin user...');
-    const hashedPassword = await bcrypt.hash('admin123', 10);
+    // upsert com `update: {}` — nunca sobrescreve a senha de um usuário que já existe.
+    const hashedPassword = await bcrypt.hash(policy.adminPassword, 10);
     const adminUser = await prisma.user.upsert({
         where: { email: 'admin@tsmex.com' },
         update: {},
@@ -315,200 +519,14 @@ async function main() {
         },
         include: { admin: true }
     });
-    console.log(`   ✅ Admin user created: ${adminUser.email}`);
-
-    // Create sample client with Account
-    console.log('🏢 Creating sample client with Account...');
-    const clientPassword = await bcrypt.hash('cliente123', 10);
-    
-    // Create Account first
-    const account = await prisma.account.upsert({
-        where: { id: 'account-exemplo-123' },
-        update: {},
-        create: {
-            id: 'account-exemplo-123',
-            name: 'Empresa Exemplo LTDA',
-            accountType: 'COMPANY',
-            companies: {
-                create: {
-                    cnpj: '12.345.678/0001-90',
-                    legalName: 'Empresa Exemplo LTDA',
-                    tradeName: 'Exemplo',
-                    city: 'São Paulo',
-                    state: 'SP',
-                    isPrimary: true,
-                }
-            },
-            contacts: {
-                create: {
-                    name: 'João Silva',
-                    role: 'Gerente de Logística',
-                    email: 'joao@exemplo.com',
-                    phone: '(11) 99999-9999',
-                    isPrimary: true,
-                }
-            }
-        },
-        include: {
-            companies: true,
-            contacts: true,
-        }
-    });
-    
-    const primaryCompany = account.companies[0];
-    
-    const clientUser = await prisma.user.upsert({
-        where: { email: 'cliente@exemplo.com' },
-        update: {},
-        create: {
-            email: 'cliente@exemplo.com',
-            password: clientPassword,
-            roles: ['CLIENT'],
-            accountId: account.id,
-            client: {
-                create: {
-                    companyName: 'Empresa Exemplo LTDA',
-                    tradeName: 'Exemplo',
-                    document: '12.345.678/0001-90',
-                    contactName: 'João Silva',
-                    phone: '(11) 99999-9999',
-                    defaultOrigin: 'São Paulo, SP',
-                    accountId: account.id,
-                    accountCompanyId: primaryCompany.id,
-                }
-            }
-        },
-        include: { client: true }
-    });
-    console.log(`   ✅ Client user created: ${clientUser.email} with Account`);
-
-    // Pessoas para smoke / POST /api/orders/entrada (pagador CIF = remetente com Client)
-    const remetDoc = '12345678000190';
-    const destDoc = '98765432000199';
-    const remetPerson = await prisma.person.upsert({
-        where: { document: remetDoc },
-        update: {},
-        create: {
-            documentType: 'CNPJ',
-            document: remetDoc,
-            legalName: 'Empresa Exemplo LTDA',
-            tradeName: 'Exemplo',
-            city: 'São Paulo',
-            state: 'SP',
-        },
-    });
-    await prisma.person.upsert({
-        where: { document: destDoc },
-        update: {},
-        create: {
-            documentType: 'CNPJ',
-            document: destDoc,
-            legalName: 'Destinatário Smoke LTDA',
-            city: 'Rio de Janeiro',
-            state: 'RJ',
-        },
-    });
-    await prisma.client.update({
-        where: { userId: clientUser.id },
-        data: { personId: remetPerson.id },
-    });
-    console.log('   ✅ Pessoas remetente/destinatário (entrada manual / smoke PR002)');
-
-    // Create sample link
-    console.log('🚛 Creating sample link...');
-    const truckType = vehicleTypes.find(v => v.code === 'TRUCK');
-    if (truckType) {
-        const linkPassword = await bcrypt.hash('link123', 10);
-        const carlosDoc = '12345678900'; // TAC autônomo: mesma Person para Link (proprietário) e Driver
-        const carlosPerson = await prisma.person.upsert({
-            where: { document: carlosDoc },
-            update: {},
-            create: {
-                documentType: 'CPF',
-                document: carlosDoc,
-                legalName: 'Carlos Motorista',
-                cep: '01310-100',
-                address: 'Av. Paulista',
-                number: '1578',
-                neighborhood: 'Bela Vista',
-                city: 'São Paulo',
-                state: 'SP',
-                cityIbgeCode: '3550308',
-            },
-        });
-        const linkUser = await prisma.user.upsert({
-            where: { email: 'motorista@exemplo.com' },
-            update: {},
-            create: {
-                email: 'motorista@exemplo.com',
-                password: linkPassword,
-                roles: ['LINK'],
-                link: {
-                    create: {
-                        personId: carlosPerson.id,
-                        name: 'Carlos Motorista',
-                        document: carlosDoc,
-                        phone: '(11) 98888-8888',
-                        vehicleTypeId: truckType.id,
-                        vehiclePlate: 'ABC-1234',
-                        vehicleYear: 2022,
-                        vehicleChassi: '9BWZZZ377VT004251',
-                        vehicleAxles: 3,
-                        rntrc: '12345678',
-                        carrierType: 'TAC',
-                        homeBase: 'São Paulo, SP',
-                        coverageStates: ['SP', 'MG', 'RJ', 'MA', 'CE'],
-                        approvalStatus: 'APPROVED',
-                        active: true,
-                        score: 4.8,
-                        drivers: {
-                            create: {
-                                personId: carlosPerson.id,
-                                name: 'Carlos Motorista',
-                                document: carlosDoc,
-                                phone: '(11) 98888-8888',
-                                birthDate: new Date('1985-03-15'),
-                                cnhNumber: '12345678901',
-                                cnhExpiry: new Date('2027-12-31'),
-                                active: true,
-                            },
-                        },
-                    }
-                }
-            },
-            include: { link: { include: { drivers: true } } }
-        });
-        // Motorista responsável default da viagem = o próprio Carlos (TAC autônomo)
-        const carlosDriver = linkUser.link?.drivers?.[0];
-        if (carlosDriver) {
-            console.log(`   ✅ Link user created: ${linkUser.email} (readiness completa: RNTRC, chassi, eixos, endereço e motorista)`);
-        } else {
-            console.log(`   ✅ Link user created: ${linkUser.email}`);
-        }
+    console.log(`   ✅ Admin user ready: ${adminUser.email}`);
     }
 
-    // Operador HUB (SP-GRU) — intake / smoke PR002
-    const spHub = hubs.find((h) => h.code === 'SP-GRU');
-    if (!spHub) {
-        throw new Error('Seed: HUB SP-GRU não encontrado');
+    if (policy.demoUsers) {
+        await seedDemoUsers(prisma, policy, vehicleTypes, hubs);
+    } else {
+        console.log('⏭️  Usuários de exemplo (cliente/link/hub) não criados.');
     }
-    const hubPassword = await bcrypt.hash('hub123', 10);
-    await prisma.user.upsert({
-        where: { email: 'hub.spgru@tsmex.com' },
-        update: {
-            password: hubPassword,
-            roles: ['HUB'],
-            hubId: spHub.id,
-            active: true,
-        },
-        create: {
-            email: 'hub.spgru@tsmex.com',
-            password: hubPassword,
-            roles: ['HUB'],
-            hubId: spHub.id,
-        },
-    });
-    console.log('   ✅ Hub operator: hub.spgru@tsmex.com → SP-GRU');
 
     // Create LLM providers (pre-configured)
     console.log('🤖 Creating LLM providers...');
@@ -594,11 +612,6 @@ async function main() {
     console.log('   ✅ States and cities created');
 
     console.log('\n✨ Seed completed successfully!\n');
-    console.log('📋 Test credentials:');
-    console.log('   Admin: admin@tsmex.com / admin123');
-    console.log('   Client: cliente@exemplo.com / cliente123');
-    console.log('   Link: motorista@exemplo.com / link123');
-    console.log('   Hub: hub.spgru@tsmex.com / hub123');
 }
 
 // Seed states and cities from IBGE API

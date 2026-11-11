@@ -5,6 +5,7 @@ import { z } from 'zod';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
+import { JWT_ALGORITHM } from '../lib/jwtConfig.js';
 import { verifyLinkInvite } from '../services/linkInvite.js';
 
 const router = Router();
@@ -43,6 +44,9 @@ function inferDocumentType(doc: string): 'CPF' | 'CNPJ' {
     return digits.length === 11 ? 'CPF' : 'CNPJ';
 }
 
+// Hash descartável (mesmo custo do cadastro) usado quando o usuário não existe.
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync('dummy-password-for-timing', 10);
+
 // Generate JWT token
 function generateToken(userId: string): string {
     const secret = process.env.JWT_SECRET;
@@ -53,7 +57,7 @@ function generateToken(userId: string): string {
     return jwt.sign(
         { userId },
         secret,
-        { expiresIn } as jwt.SignOptions
+        { expiresIn, algorithm: JWT_ALGORITHM } as jwt.SignOptions
     );
 }
 
@@ -390,16 +394,10 @@ router.post('/login', async (req, res: Response, next: NextFunction) => {
             }
         });
 
-        if (!user) {
-            throw new AppError('Invalid credentials', 401);
-        }
-
-        if (!user.active) {
-            throw new AppError('Account is inactive', 401);
-        }
-
-        const validPassword = await bcrypt.compare(data.password, user.password);
-        if (!validPassword) {
+        // Mesma resposta e mesmo trabalho de hash para inexistente / inativo / senha errada
+        // (evita enumeração de contas por mensagem ou por tempo de resposta).
+        const validPassword = await bcrypt.compare(data.password, user?.password ?? DUMMY_PASSWORD_HASH);
+        if (!user || !user.active || !validPassword) {
             throw new AppError('Invalid credentials', 401);
         }
 

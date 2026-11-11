@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+import { openSecret, sealSecret } from '../lib/secretBox.js';
 
 export type FiscalEnvironment = 'HOMOLOGACAO' | 'PRODUCAO';
 
@@ -37,38 +37,25 @@ function isPresent(value: string | null | undefined): boolean {
     return typeof value === 'string' && value.trim().length > 0;
 }
 
-function getEncryptionKey(secret: string): Buffer {
-    if (/^[a-fA-F0-9]{64}$/.test(secret)) {
-        return Buffer.from(secret, 'hex');
-    }
-    return crypto.createHash('sha256').update(secret).digest();
-}
-
 export function encryptCertificatePassword(password: string, secret = process.env.FISCAL_SECRET_KEY ?? ''): string {
     if (!secret) {
         throw new Error('FISCAL_SECRET_KEY is required to encrypt certificate passwords');
     }
-    const iv = crypto.randomBytes(12);
-    const cipher = crypto.createCipheriv('aes-256-gcm', getEncryptionKey(secret), iv);
-    const encrypted = Buffer.concat([cipher.update(password, 'utf8'), cipher.final()]);
-    const tag = cipher.getAuthTag();
-    return `v1:${iv.toString('base64')}:${tag.toString('base64')}:${encrypted.toString('base64')}`;
+    return sealSecret(password, secret);
 }
 
 export function decryptCertificatePassword(encryptedValue: string, secret = process.env.FISCAL_SECRET_KEY ?? ''): string {
     if (!secret) {
         throw new Error('FISCAL_SECRET_KEY is required to decrypt certificate passwords');
     }
-    const [version, ivRaw, tagRaw, dataRaw] = encryptedValue.split(':');
-    if (version !== 'v1' || !ivRaw || !tagRaw || !dataRaw) {
-        throw new Error('Unsupported certificate password format');
+    try {
+        return openSecret(encryptedValue, secret);
+    } catch (error) {
+        if (error instanceof Error && error.message === 'Unsupported secret format') {
+            throw new Error('Unsupported certificate password format');
+        }
+        throw error;
     }
-    const decipher = crypto.createDecipheriv('aes-256-gcm', getEncryptionKey(secret), Buffer.from(ivRaw, 'base64'));
-    decipher.setAuthTag(Buffer.from(tagRaw, 'base64'));
-    return Buffer.concat([
-        decipher.update(Buffer.from(dataRaw, 'base64')),
-        decipher.final(),
-    ]).toString('utf8');
 }
 
 export function buildFiscalEmitterReadiness(input: FiscalEmitterReadinessInput): FiscalEmitterReadiness {

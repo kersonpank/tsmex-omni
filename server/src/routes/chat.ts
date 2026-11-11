@@ -2,6 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import { callLLM, getActiveModel, ChatMessage } from '../services/llmService.js';
 import { AGENT_TOOLS, buildSystemPromptWithContext } from '../services/agentTools.js';
 import prisma from '../lib/prisma.js';
+import { assertSafeUpload } from '../lib/uploadGuards.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, AuthRequest } from '../middleware/auth.js';
 
@@ -29,11 +30,12 @@ export interface ToolResult {
     cnpjSuggest: string | null;
 }
 
-async function handleToolCalls(
+export async function handleToolCalls(
     toolCalls: Array<{ name: string; args: any }>,
     accountId: string | null,
     accountCnpjs: string[],
-    sessionId?: string
+    sessionId?: string,
+    isAdmin = false
 ): Promise<ToolResult> {
     const res: ToolResult = {
         opportunityId: null,
@@ -108,7 +110,8 @@ async function handleToolCalls(
 
             let opportunity;
             const existing = await prisma.opportunity.findFirst({
-                where: { sessionId: effectiveSessionId, stage: { not: 'CONVERTED' } },
+                // sessionId vem do cliente: restringe à conta para não editar oportunidade de terceiros.
+                where: { sessionId: effectiveSessionId, stage: { not: 'CONVERTED' }, accountId },
                 orderBy: { createdAt: 'desc' },
             });
 
@@ -132,6 +135,16 @@ async function handleToolCalls(
         if (call.name === 'request_collection') {
             const { opportunityId, contractor, senderContact, address, needsHelper, needsLoading, commodity, volumes, dimensions, weight, nfValue } = args;
             if (!opportunityId) continue;
+            if (!accountId && !isAdmin) {
+                res.needsAccount = true;
+                continue;
+            }
+            // opportunityId vem do modelo/usuário: só a conta dona (ADMIN: qualquer).
+            const owned = await prisma.opportunity.findFirst({
+                where: { id: opportunityId, ...(isAdmin || !accountId ? {} : { accountId }) },
+                select: { id: true },
+            });
+            if (!owned) continue;
 
             const collectionData = {
                 contractor: contractor ?? {},
@@ -239,7 +252,7 @@ router.post('/', authenticate, async (req: AuthRequest, res, next) => {
                 args: typeof tc.function.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function.arguments,
             }));
 
-            const toolResult = await handleToolCalls(toolCalls, finalAccountId, accountCnpjs, sessionId);
+            const toolResult = await handleToolCalls(toolCalls, finalAccountId, accountCnpjs, sessionId, req.user!.roles.includes('ADMIN'));
 
             if (toolResult.opportunityId) {
                 opportunity = await prisma.opportunity.findUnique({
@@ -288,6 +301,7 @@ router.post('/upload', authenticate, async (req: AuthRequest, res, next) => {
         if (!allowedMimeTypes.includes(mimeType)) {
             throw new AppError(`MIME type not allowed: ${mimeType}`, 400);
         }
+        assertSafeUpload(mimeType, file, fileName);
         const fileUrl = `data:${mimeType};base64,${file}`;
         const size = Math.round((file.length * 3) / 4);
         const maxSize = 10 * 1024 * 1024;
@@ -338,15 +352,13 @@ router.get('/session/:sessionId/messages', authenticate, async (req: AuthRequest
             throw new AppError('Chat session not found', 404);
         }
 
-        // Check authorization - client can only see their own sessions
-        if (req.user!.roles.includes('CLIENT') && session.accountId) {
-            const user = await prisma.user.findUnique({
-                where: { id: req.user!.id },
-                include: { account: true }
-            });
-
-            if (!user || !user.accountId || session.accountId !== user.accountId) {
-                throw new AppError('Not authorized', 403);
+        // Dono da sessão (a conta) ou ADMIN. Sessão anônima (sem conta) só ADMIN. Fora do escopo => 404.
+        if (!req.user!.roles.includes('ADMIN')) {
+            const user = req.user!.roles.includes('CLIENT')
+                ? await prisma.user.findUnique({ where: { id: req.user!.id }, select: { accountId: true } })
+                : null;
+            if (!user?.accountId || session.accountId !== user.accountId) {
+                throw new AppError('Chat session not found', 404);
             }
         }
 

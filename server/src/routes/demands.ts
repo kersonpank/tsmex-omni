@@ -8,6 +8,7 @@ import {
     INTAKE_AUTO_ORDER_BLOCKED_MESSAGE,
 } from '../services/intake/intakeDemandPolicy.js';
 import { getNextOrderNumber } from '../services/orderSequence.js';
+import { assertDemandAccess } from '../middleware/resourceAccess.js';
 
 const router = Router();
 
@@ -195,6 +196,7 @@ router.get('/pending', authenticate, authorize('ADMIN'), async (req: AuthRequest
 router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const id = req.params.id as string;
+        await assertDemandAccess(req.user!, id);
 
         const demand = await prisma.demand.findUnique({
             where: { id: id },
@@ -228,34 +230,6 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
 
         if (!demand) {
             throw new AppError('Demand not found', 404);
-        }
-
-        // Check access for clients (can see demands from all CNPJs in their account)
-        if (req.user!.roles.includes('CLIENT')) {
-            const user = await prisma.user.findUnique({
-                where: { id: req.user!.id },
-                include: { account: true }
-            });
-            
-            if (!user || !user.accountId) {
-                // Fallback to old behavior
-                const client = await prisma.client.findFirst({
-                    where: { userId: req.user!.id }
-                });
-                if (!client || client.id !== demand.clientId) {
-                    throw new AppError('Not authorized', 403);
-                }
-            } else {
-                // Check if demand belongs to any client in this account
-                const accountClients = await prisma.client.findMany({
-                    where: { accountId: user.accountId },
-                    select: { id: true }
-                });
-                const clientIds = accountClients.map(c => c.id);
-                if (!demand.clientId || !clientIds.includes(demand.clientId)) {
-                    throw new AppError('Not authorized', 403);
-                }
-            }
         }
 
         const activeLeg = (demand as any).order?.legs?.[0];
@@ -725,6 +699,7 @@ router.patch('/:id/quote', authenticate, authorize('ADMIN'), async (req: AuthReq
 router.get('/:id/events', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const id = req.params.id as string;
+        await assertDemandAccess(req.user!, id);
 
         const events = await prisma.demandEvent.findMany({
             where: { demandId: id },
