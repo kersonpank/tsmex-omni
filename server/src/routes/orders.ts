@@ -1,4 +1,5 @@
 import { assertSafeUpload } from '../lib/uploadGuards.js';
+import { isExternalClientView, sanitizeOrderForClient } from '../lib/orderClientView.js';
 import { orderPartiesRouter } from './orderParties.js';
 import { orderServiceStartRouter } from './orderServiceStart.js';
 import { Router, Response, NextFunction } from 'express';
@@ -540,7 +541,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
 
         res.json({
             success: true,
-            data: order,
+            data: isExternalClientView(req.user!.roles) ? sanitizeOrderForClient(order) : order,
         });
     } catch (error) {
         next(error);

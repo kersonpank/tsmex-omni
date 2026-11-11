@@ -239,6 +239,11 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
     try {
         const id = req.params.id as string;
 
+        // Dados cadastrais de transportador (documento, contato, onboarding): nunca para CLIENT puro.
+        if (!req.user!.roles.some((r) => r === 'ADMIN' || r === 'HUB' || r === 'LINK')) {
+            throw new AppError('Link not found', 404);
+        }
+
         // Links can only view their own profile
         if (req.user!.roles.includes('LINK')) {
             const link = await prisma.link.findFirst({
