@@ -3,6 +3,7 @@ import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { roundMoney } from '../../lib/money.js';
 import { createOrMergeSystemAlert } from '../systemAlertService.js';
+import { originHubIdOfManifest } from '../exceptions/alertOwner.js';
 
 export const MANIFEST_PAYABLE_DEFAULT_DUE_DAYS = 7;
 /** O sweep só olha viagens concluídas recentemente; as mais antigas seguem pelo botão manual. */
@@ -79,6 +80,7 @@ async function defaultAlert(alert: PayableSweepAlert): Promise<void> {
         title: alert.title,
         message: alert.message,
         context: alert.context,
+        hubId: await originHubIdOfManifest(alert.context.manifestId),
         dedupMatch: (context) => context.manifestId === alert.context.manifestId && context.reason === alert.context.reason,
     });
 }

@@ -7,9 +7,14 @@ export async function createSystemAlert(params: {
     title: string;
     message: string;
     context?: Record<string, unknown>;
+    /** Hub que precisa agir (fila de exceções do O.S.). */
+    hubId?: string | null;
+    dueAt?: Date | null;
 }): Promise<void> {
     await prisma.systemAlert.create({
         data: {
+            hubId: params.hubId ?? null,
+            dueAt: params.dueAt ?? null,
             category: params.category,
             severity: params.severity,
             title: params.title,
@@ -40,6 +45,8 @@ export async function createOrMergeSystemAlert(params: {
     title: string;
     message: string;
     context?: Record<string, unknown>;
+    hubId?: string | null;
+    dueAt?: Date | null;
     dedupWindowMs?: number;
     dedupMatch?: (context: Record<string, unknown>) => boolean;
 }): Promise<void> {

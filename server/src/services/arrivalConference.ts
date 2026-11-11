@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client';
+import { DEFAULT_DUE_HOURS, dueIn } from './exceptions/alertOwner.js';
 import { z } from 'zod';
 import { AppError } from '../middleware/errorHandler.js';
 
@@ -101,6 +102,8 @@ export async function receiveTransferLeg(
         await tx.systemAlert.create({
             data: {
                 category: 'OPERATIONAL_ARRIVAL_DIVERGENCE',
+                hubId: p.arrivalHub.id,
+                dueAt: dueIn(DEFAULT_DUE_HOURS.ARRIVAL_DIVERGENCE, p.now),
                 severity: result === 'MISSING' ? 'CRITICAL' : 'WARNING',
                 title: `${result === 'MISSING' ? 'Carga não chegou' : 'Carga com avaria'} em ${p.arrivalHub.label} — viagem ${shortId}`,
                 message: result === 'MISSING'

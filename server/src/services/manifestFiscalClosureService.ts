@@ -1,6 +1,7 @@
 import prisma from '../lib/prisma.js';
 import { encerrarCiot } from './efrete/efreteCiotEmit.js';
 import { encerrarMdfeViaAcbr } from './acbr/acbrMdfeEmit.js';
+import { DEFAULT_DUE_HOURS, dueIn, originHubIdOfManifest } from './exceptions/alertOwner.js';
 
 /**
  * Encerra (baixa) automaticamente o CIOT e o MDF-e da viagem quando ela é concluída
@@ -52,6 +53,8 @@ export async function closeFiscalDocumentsForCompletedManifest(manifestId: strin
                 data: {
                     category: 'FISCAL_ENCERRAMENTO_PENDENTE',
                     severity: 'WARNING',
+                    hubId: await originHubIdOfManifest(manifestId),
+                    dueAt: dueIn(DEFAULT_DUE_HOURS.FISCAL_CLOSURE),
                     title: `Encerramento de ${doc.documentType} pendente — manifesto ${manifestId.slice(0, 8)}`,
                     message: `Falha ao encerrar automaticamente ao concluir a viagem: ${message}. Encerre manualmente pelo canal do provider (console eFrete/ACBr) e atualize o documento.`,
                     context: { manifestId, documentId: doc.id, documentType: doc.documentType },

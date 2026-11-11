@@ -1,5 +1,6 @@
 import prisma from '../../lib/prisma.js';
 import { closeFiscalDocumentsForCompletedManifest } from '../manifestFiscalClosureService.js';
+import { DEFAULT_DUE_HOURS, dueIn, originHubIdOfManifest } from '../exceptions/alertOwner.js';
 
 /** A claim survives restarts. Unknown results are never repeated automatically. */
 export async function processPendingFiscalClosures(): Promise<void> {
@@ -8,6 +9,7 @@ export async function processPendingFiscalClosures(): Promise<void> {
         select: { id: true, manifestId: true }, take: 20,
     });
     for (const task of stale) {
+        const hubId = await originHubIdOfManifest(task.manifestId);
         await prisma.$transaction(async (tx) => {
             const changed = await tx.fiscalClosureTask.updateMany({
                 where: { id: task.id, status: 'PROCESSING' },
@@ -15,6 +17,7 @@ export async function processPendingFiscalClosures(): Promise<void> {
             });
             if (changed.count) await tx.systemAlert.create({ data: {
                 category: 'FISCAL_ENCERRAMENTO_PENDENTE', severity: 'WARNING',
+                hubId, dueAt: dueIn(DEFAULT_DUE_HOURS.FISCAL_CLOSURE),
                 title: `Conciliação fiscal pendente — viagem ${task.manifestId.slice(0, 8)}`,
                 message: 'O worker parou durante o encerramento. Confira o estado do CIOT e do MDF-e nos provedores antes de qualquer nova tentativa.',
                 context: { manifestId: task.manifestId, fiscalClosureTaskId: task.id },
