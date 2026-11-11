@@ -2,6 +2,8 @@ import { Prisma, type UserRole } from '@prisma/client';
 import { z } from 'zod';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { resolveManifestComposition, tractionRntrc, type VehicleComposition } from './vehicleUnitRules.js';
+import { linkVehicleInclude, manifestVehicleAssignmentsInclude } from './vehicleUnitService.js';
 
 interface FiscalActor {
     id: string;
@@ -34,6 +36,31 @@ export function formatCiotDispensaReason(input: CiotDispensaInput): string {
     const data = ciotDispensaSchema.parse(input);
     const reason = CIOT_DISPENSA_REASONS[data.motivo];
     return data.observacao ? `${reason}: ${data.observacao}` : reason;
+}
+
+const onlyDigits = (value: string | null | undefined) => (value ?? '').replace(/\D/g, '');
+
+/**
+ * Provado em homologação: a SEFAZ rejeita MDF-e com dispensa de CIOT quando o grupo `prop` traz
+ * RNTRC de transportador contratado ("CIOT obrigatório para RNTRC informado"). A dispensa só vale
+ * para frota própria (carrierType FROTA ou responsável RNTRC = emitente fiscal).
+ * Devolve o aviso em linguagem simples, ou null quando a dispensa é aceitável.
+ */
+export function ciotDispensaTerceiroWarning(input: {
+    carrierType?: string | null;
+    emitterDocument?: string | null;
+    composition: VehicleComposition;
+    linkDocument?: string | null;
+    linkRntrc?: string | null;
+}): string | null {
+    if (input.carrierType === 'FROTA') return null;
+    const emitter = onlyDigits(input.emitterDocument);
+    if (!emitter) return null;
+    const traction = input.composition.traction;
+    const holder = onlyDigits(traction?.rntrcHolder?.document) || onlyDigits(traction?.ownerDocument) || onlyDigits(input.linkDocument);
+    if (!holder || holder === emitter) return null;
+    if (!tractionRntrc(input.composition, input.linkRntrc)) return null;
+    return 'Esta viagem tem transportador contratado com RNTRC: a SEFAZ recusa MDF-e sem CIOT para transportador contratado; a dispensa só vale para frota própria. Emita o CIOT.';
 }
 
 const unresolvedCiotPhases = [
@@ -107,4 +134,25 @@ export function dispenseManifestCiot(manifestId: string, actor: FiscalActor, inp
 
 export function undoManifestCiotDispensa(manifestId: string, actor: FiscalActor) {
     return changeCiotDispensa(manifestId, actor, null);
+}
+
+/** Aviso (ou null) para devolver junto com a dispensa: a rota é mantida, mas o operador é avisado. */
+export async function ciotDispensaWarningForManifest(manifestId: string): Promise<string | null> {
+    const manifest = await prisma.manifest.findUnique({
+        where: { id: manifestId },
+        include: {
+            vehicleAssignments: manifestVehicleAssignmentsInclude,
+            link: { include: { person: true, ...linkVehicleInclude } },
+            fiscalEmitter: { include: { person: true } },
+            hub: { include: { person: true } },
+        },
+    });
+    if (!manifest?.link) return null;
+    return ciotDispensaTerceiroWarning({
+        carrierType: manifest.link.carrierType,
+        emitterDocument: (manifest.fiscalEmitter?.person ?? manifest.hub?.person)?.document,
+        composition: resolveManifestComposition(manifest),
+        linkDocument: manifest.link.document,
+        linkRntrc: manifest.link.rntrc,
+    });
 }

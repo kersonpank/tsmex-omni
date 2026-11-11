@@ -176,6 +176,21 @@ describe('manifestReadinessService', () => {
         }
     });
 
+    it('dispensa de CIOT com transportador contratado bloqueia na etapa fiscal; frota própria e emitente titular não', async () => {
+        const truck = (document: string) => ({ id: 'truck', plate: 'BWP6E54', role: 'TRACTION', chassi: '9BWZZZ377VT004251', renavam: '12345678901', axles: 3, rntrc: '55887888',
+            rntrcHolderPersonId: 'holder', rntrcHolderPerson: { id: 'holder', document, legalName: 'Titular', rntrc: '55887888', ...completeAddress } });
+        const cases: Array<[string, string, boolean]> = [['ETC', '48384601000171', true], ['FROTA', '48384601000171', false], ['ETC', '11111111111111', false]];
+        for (const [carrierType, holderDocument, expected] of cases) {
+            mockWith({ personId: 'holder', carrierType, person: { ...baseLink.person, document: holderDocument } }, undefined, { ciotDispensado: true, vehicleAssignments: [{ slot: 0, vehicleUnitId: 'truck', vehicleUnit: truck(holderDocument) }] });
+            const issue = (await getManifestReadiness('manifest-1')).issues.find((item) => item.code === 'CIOT_DISPENSA_NOT_ALLOWED');
+            if (expected) {
+                assert.equal(issue?.step, 'fiscal');
+                assert.equal(issue?.severity, 'blocking');
+                assert.match(issue!.message, /SEFAZ recusa MDF-e sem CIOT para transportador contratado/);
+            } else assert.equal(issue, undefined, `${carrierType}/${holderDocument}`);
+        }
+    });
+
     it('pagamento sem conta ou vencimento aparece cedo, aceitando PIX do CIOT', async () => {
         mockWith({ person: { ...completeAddress } }, undefined, {
             status: 'ACCEPTED', freightAgreement: { id: 'fa', freteBruto: 1000, adiantamento: 300, saldoLiquido: 700, pedagio: 0 },

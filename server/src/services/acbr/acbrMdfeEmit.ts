@@ -16,6 +16,7 @@ import { putAcbrEmpresaMdfeConfig } from './acbrEmpresa.js';
 import { cleanIe } from './acbrCteMapper.js';
 import { calculateMdfeCheckDigit, generateCMdf, isDefinitiveMdfeRejection, reserveNextMdfeNumber } from './mdfeNumbering.js';
 import { linkVehicleInclude, manifestVehicleAssignmentsInclude } from '../vehicleUnitService.js';
+import { ciotDispensaTerceiroWarning } from '../manifestCiotDispensa.js';
 import { compositionIssues, describeUnitIssues, resolveManifestComposition } from '../vehicleUnitRules.js';
 import { buildMdfeVehicles } from './acbrMdfeVehicles.js';
 import { XMLParser } from 'fast-xml-parser';
@@ -353,6 +354,14 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
     const emit = (manifest.fiscalEmitter?.person ?? manifest.hub.person)!;
     const missingEmitter = missingMdfeEmitterData(emit);
     if (missingEmitter.length) return { ok: false, error: `Complete os dados do emitente para o MDF-e: ${missingEmitter.join(', ')}.` };
+    // Antes de reservar número: a SEFAZ recusa com certeza MDF-e sem CIOT para transportador contratado.
+    if (!ciotDoc && manifest.ciotDispensado) {
+        const terceiro = ciotDispensaTerceiroWarning({
+            carrierType: manifest.link.carrierType, emitterDocument: emit.document, composition,
+            linkDocument: manifest.link.document, linkRntrc: manifest.link.rntrc,
+        });
+        if (terceiro) return { ok: false, error: terceiro };
+    }
     for (const leg of legs) {
         for (const doc of leg.order.freightCalculations) {
             const mismatch = cteEmitterMismatchMessage(leg.order.demand.orderNumber, doc.cteAccessKey, emit.document);

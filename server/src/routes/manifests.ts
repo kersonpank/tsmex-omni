@@ -29,7 +29,7 @@ import { enqueueCiotEmissionJob } from '../services/queues/ciotEmissionQueue.js'
 import { resolveCiotRouteCeps } from '../services/efrete/ciotRouteCeps.js';
 import { ciotNotasFiscaisFromLegs, type StoredCiotRequestData } from '../services/queues/ciotEmissionJobInput.js';
 import { getManifestReadiness } from '../services/manifestReadinessService.js';
-import { ciotDispensaSchema, dispenseManifestCiot, undoManifestCiotDispensa } from '../services/manifestCiotDispensa.js';
+import { ciotDispensaSchema, ciotDispensaWarningForManifest, dispenseManifestCiot, undoManifestCiotDispensa } from '../services/manifestCiotDispensa.js';
 import { ensureTripEmitter } from '../services/fiscal/resolveDefaultTripEmitter.js';
 import { createManifestDraft } from '../services/manifestCreate.js';
 import { manifestVehiclesSchema, setManifestVehicles, clearManifestVehicles, publishManifestOffer } from '../services/manifestVehicleService.js';
@@ -1582,7 +1582,8 @@ router.post('/:id/ciot-dispensa', authenticate, authorize('ADMIN', 'HUB'), async
     try {
         const data = ciotDispensaSchema.parse(req.body);
         const updated = await dispenseManifestCiot(String(req.params.id), req.user!, data);
-        res.json({ success: true, data: updated, message: 'Dispensa de CIOT registrada.' });
+        const warning = await ciotDispensaWarningForManifest(String(req.params.id)).catch(() => null);
+        res.json({ success: true, data: updated, message: 'Dispensa de CIOT registrada.', ...(warning ? { warning } : {}) });
     } catch (error) {
         if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
         next(error);

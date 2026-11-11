@@ -13,6 +13,7 @@ const motivoLegado = 'Frota própria — motorista empregado';
 const original = {
     user: prisma.user.findUnique,
     manifestAccess: prisma.manifest.findFirst,
+    manifestFind: prisma.manifest.findUnique,
     transaction: prisma.$transaction,
 };
 let server: ReturnType<express.Express['listen']>;
@@ -25,12 +26,14 @@ let events: any[];
 let transactionOptions: any;
 let locked: boolean;
 let auditFailure: boolean;
+let warningManifest: any = null;
 
 before(async () => {
     process.env.JWT_SECRET = secret;
     prisma.user.findUnique = (async () => actor) as any;
     // A destination hub can see a trip through the resource guard, but cannot change fiscal dispensation.
     prisma.manifest.findFirst = (async () => manifest && ({ id: manifest.id })) as any;
+    prisma.manifest.findUnique = (async () => warningManifest) as any;
     prisma.$transaction = (async (fn: any, options: any) => {
         transactionOptions = options;
         const previousManifest = manifest && { ...manifest };
@@ -83,12 +86,14 @@ beforeEach(() => {
     transactionOptions = null;
     locked = false;
     auditFailure = false;
+    warningManifest = null;
 });
 
 after(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     prisma.user.findUnique = original.user;
     prisma.manifest.findFirst = original.manifestAccess;
+    prisma.manifest.findUnique = original.manifestFind;
     prisma.$transaction = original.transaction;
 });
 
@@ -304,4 +309,29 @@ it('falha ao registrar auditoria reverte a dispensa na mesma transação', async
     assert.equal(manifest.ciotDispensado, false);
     assert.equal(manifest.ciotDispensadoMotivo, null);
     assert.equal(events.length, 0);
+});
+
+it('dispensa para transportador contratado continua aceita, mas a resposta avisa que a SEFAZ vai recusar', async () => {
+    warningManifest = {
+        id: manifestId,
+        link: { carrierType: 'ETC', document: '99888777000166', rntrc: '12345678', person: {} },
+        fiscalEmitter: { person: { document: '11222333000181' } },
+        vehicleAssignments: [],
+    };
+    const response = await request({ motivo: 'OUTRO_VALIDADO_TORRE', observacao: 'Validado pela torre em reunião.' });
+    assert.equal(response.status, 200);
+    const payload = await response.json() as any;
+    assert.equal(payload.data.ciotDispensado, true);
+    assert.match(payload.warning, /SEFAZ recusa MDF-e sem CIOT para transportador contratado; a dispensa só vale para frota própria/);
+});
+
+it('dispensa de frota própria não traz aviso', async () => {
+    warningManifest = {
+        id: manifestId,
+        link: { carrierType: 'FROTA', document: '99888777000166', rntrc: '12345678', person: {} },
+        fiscalEmitter: { person: { document: '11222333000181' } },
+        vehicleAssignments: [],
+    };
+    const payload = await (await request({ motivo })).json() as any;
+    assert.equal(payload.warning, undefined);
 });

@@ -72,3 +72,21 @@ it('preflight MDF-e enumera dados do emitente sem chamar provedor', async () => 
     assert.equal(result.ok, false);
     assert.match(result.error!, /IE, logradouro, número, bairro, cidade, código IBGE, UF, CEP/);
 });
+
+it('dispensa de CIOT com transportador contratado é barrada antes de reservar número de MDF-e', async () => {
+    const person = { document: '26879820000270', legalName: 'TransMesquita', stateRegistration: '110042490114', address: 'Rua A', number: '1', neighborhood: 'Centro', city: 'Guarulhos', cityIbgeCode: '3518800', state: 'SP', cep: '07000000' };
+    const link = { document: '99888777000166', carrierType: 'ETC', vehiclePlate: 'ABC1D23', vehicleChassi: '9BWZZZ377VT004251', vehicleRenavam: '12345678901', vehicleAxles: 3, rntrc: '123456789' };
+    const run = async (carrierType: string, document: string) => {
+        prisma.manifest.findUnique = (async () => ({ hub: { person }, fiscalEmitter: { person }, ciotDispensado: true, link: { ...link, carrierType, document } })) as any;
+        prisma.orderLeg.findMany = (async () => [leg('112', [authorized('1')])]) as any;
+        prisma.manifestStop.findMany = (async () => []) as any;
+        prisma.manifestFiscalDocument.findFirst = (async () => null) as any;
+        return emitMdfeViaAcbr('manifest', 'ref');
+    };
+    const blocked = await run('ETC', '99888777000166');
+    assert.equal(blocked.ok, false);
+    assert.match(blocked.error!, /SEFAZ recusa MDF-e sem CIOT para transportador contratado/);
+    // Frota própria segue adiante (e falha em outra validação posterior, não nesta).
+    const own = await run('FROTA', '99888777000166');
+    assert.doesNotMatch(own.error ?? '', /SEFAZ recusa MDF-e sem CIOT/);
+});

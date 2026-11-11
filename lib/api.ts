@@ -805,7 +805,7 @@ export const manifestsApi = {
     },
 
     dispenseCiot: async (id: string, motivo: 'FROTA_PROPRIA_CARGA_PROPRIA' | 'OUTRO_VALIDADO_TORRE', observacao?: string) => {
-        const response = await api.post<ApiResponse<Manifest>>(`/manifests/${id}/ciot-dispensa`, { motivo, observacao });
+        const response = await api.post<ApiResponse<Manifest> & { warning?: string }>(`/manifests/${id}/ciot-dispensa`, { motivo, observacao });
         return response.data;
     },
 
