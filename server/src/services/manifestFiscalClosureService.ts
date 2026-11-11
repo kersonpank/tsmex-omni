@@ -21,7 +21,9 @@ export async function closeFiscalDocumentsForCompletedManifest(manifestId: strin
                     throw new Error('CIOT autorizado sem número (codigoIdentificacaoOperacao) — não é possível encerrar.');
                 }
                 const previousJob = doc.environment ? null : await prisma.ciotEmissionJob.findFirst({ where: { manifestId, phase: 'DONE' }, orderBy: { createdAt: 'desc' }, select: { environment: true } });
-                await encerrarCiot(doc.number, doc.environment ?? previousJob?.environment ?? null);
+                // O e-Frete recusa o encerramento sem o peso transportado ("Verifique se peso da carga é maior que zero").
+                const trip = await prisma.manifest.findUnique({ where: { id: manifestId }, select: { totalWeight: true } });
+                await encerrarCiot(doc.number, doc.environment ?? previousJob?.environment ?? null, trip?.totalWeight ?? null);
             } else {
                 const result = await encerrarMdfeViaAcbr(manifestId);
                 if (!result.ok) {

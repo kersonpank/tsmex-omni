@@ -148,10 +148,8 @@ export async function encerrarCiot(
     post: typeof efreteAuthedPost = efreteAuthedPost,
 ): Promise<void> {
     if (environment !== 'PRODUCAO' && environment !== 'HOMOLOGACAO') throw new Error('Ambiente original do CIOT desconhecido; confira o documento antes de encerrar.');
-    const body = {
-        CodigoIdentificacaoOperacao: codigoIdentificacaoOperacao,
-        ...(pesoCargaKg && pesoCargaKg > 0 ? { PesoCarga: pesoCargaKg } : {}),
-    };
+    if (!pesoCargaKg || pesoCargaKg <= 0) throw new Error('Informe o peso transportado (kg) para encerrar o CIOT: o e-Frete não aceita peso zero.');
+    const body = { CodigoIdentificacaoOperacao: codigoIdentificacaoOperacao, PesoCarga: pesoCargaKg };
     const env = environment === 'PRODUCAO' ? 'producao' : 'homologacao';
     try {
         await post<CancelarEncerrarResponse>('/Services/Pef/EncerrarOperacaoTransporte', body, { environment: env, versao: 2 });

@@ -36,13 +36,14 @@ test('encerrarCiot usa a versão 2 e só tenta a 3 quando a versão é recusada'
     assert.deepEqual(seen, [['/Services/Pef/EncerrarOperacaoTransporte', { CodigoIdentificacaoOperacao: 'CIOT-1', PesoCarga: 315 }, { environment: 'homologacao', versao: 2 }]]);
 
     const versions: number[] = [];
-    await encerrarCiot('CIOT-1', 'PRODUCAO', null, (async (_path: string, _body: unknown, opts: { versao: number }) => {
+    await encerrarCiot('CIOT-1', 'PRODUCAO', 100, (async (_path: string, _body: unknown, opts: { versao: number }) => {
         versions.push(opts.versao);
         if (opts.versao === 2) throw new EfreteApiError('falhou', { excecaoMensagem: 'Erro encerrando operação de transporte: Versão inválida' });
         return { Sucesso: true };
     }) as any);
     assert.deepEqual(versions, [2, 3]);
 
-    await assert.rejects(() => encerrarCiot('CIOT-1', 'HOMOLOGACAO', null, (async () => { throw new EfreteApiError('x', { excecaoMensagem: 'CIOT já encerrado' }); }) as any), /x/);
+    await assert.rejects(() => encerrarCiot('CIOT-1', 'HOMOLOGACAO', 100, (async () => { throw new EfreteApiError('x', { excecaoMensagem: 'CIOT já encerrado' }); }) as any), /x/);
+    await assert.rejects(() => encerrarCiot('CIOT-1', 'HOMOLOGACAO', 0), /peso transportado/);
     await assert.rejects(() => encerrarCiot('CIOT-1', null), /Ambiente original/);
 });
