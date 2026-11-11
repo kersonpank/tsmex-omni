@@ -61,6 +61,16 @@ export function mdfePaymentTerms(agreement: Agreement, payments: CiotPagamentoIn
 /** Tags XML do modal rodoviário 3.00a. infPag identifica o responsável pelo
  * pagamento (contratante); infBanc identifica a conta que recebe o frete.
  * Fonte: ACBr/Exemplos/ACBrDFe/Schemas/MDFe/mdfeModalRodoviario_v3.00.xsd. */
+/**
+ * O e-Frete devolve o CIOT como "560000617007/2562" (12 dígitos + verificador). O MDF-e aceita só
+ * os 12 dígitos (`^[0-9]{12}$`); o verificador não faz parte do campo.
+ */
+export function mdfeCiotNumber(code: string): string {
+    const digits = code.split('/')[0].replace(/\D/g, '');
+    if (digits.length !== 12) throw new Error(`CIOT ${code} fora do formato esperado para o MDF-e (12 dígitos).`);
+    return digits;
+}
+
 export function buildMdfeAntt(input: {
     rntrc: string;
     ciot?: { number: string | null; contratanteDocument: string } | null;
@@ -94,7 +104,7 @@ export function buildMdfeAntt(input: {
     }
     return {
         RNTRC: input.rntrc,
-        ...(input.ciot?.number ? { infCIOT: [{ CIOT: input.ciot.number, ...documentFields(input.ciot.contratanteDocument) }] } : {}),
+        ...(input.ciot?.number ? { infCIOT: [{ CIOT: mdfeCiotNumber(input.ciot.number), ...documentFields(input.ciot.contratanteDocument) }] } : {}),
         infContratante: [documentFields(input.contratante.document)],
         ...(infPag ? { infPag } : {}),
     };

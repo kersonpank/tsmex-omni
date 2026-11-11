@@ -65,3 +65,10 @@ it('prefere Contratante persistido, depois MatrizCNPJ, sem usar CNPJ inválido',
     assert.equal(persistedCiotContratante(null), null);
     assert.equal(persistedCiotContratante({ Contratante: { CpfOuCnpj: '123' } }), null);
 });
+
+it('CIOT do e-Frete vai ao MDF-e só com os 12 dígitos, sem o verificador', async () => {
+    const { mdfeCiotNumber } = await import('./acbrMdfeAntt.js');
+    assert.equal(mdfeCiotNumber('560000617007/2562'), '560000617007');
+    assert.equal(mdfeCiotNumber('123456789012'), '123456789012');
+    assert.throws(() => mdfeCiotNumber('12345/67'), /12 dígitos/);
+});
