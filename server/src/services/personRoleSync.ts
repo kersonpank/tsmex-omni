@@ -163,11 +163,12 @@ export async function upsertPersonForLinkOwner(
     address: DriverAddressInput | undefined,
     stateRegistration?: string,
     updatePersonAddress = false,
+    db: Prisma.TransactionClient | typeof prisma = prisma,
 ): Promise<UpsertPersonResult> {
     return upsertPersonForRole(normalizedDocument, legalName, address, {
         documentType,
         stateRegistration,
         updatePersonAddress,
         missingAddressErrorMessage: 'Endereço é obrigatório para cadastrar o proprietário do veículo.',
-    });
+    }, db);
 }

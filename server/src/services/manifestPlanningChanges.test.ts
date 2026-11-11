@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { planningActionsFor, type PlanningFacts } from './manifestPlanningChanges.js';
+import prisma from '../lib/prisma.js';
+import { Prisma } from '@prisma/client';
+import { getPlanningActions, reopenAcceptedManifest, planningActionsFor, type PlanningFacts } from './manifestPlanningChanges.js';
 
 const base: PlanningFacts = {
     status: 'DRAFT', started: false, legsStarted: false, fiscalActivity: false, billing: false,
@@ -49,4 +51,33 @@ describe('planningActionsFor', () => {
         assert.deepEqual(allowed({ status: 'COMPLETED', everOffered: true, started: true }), []);
         assert.deepEqual(allowed({ status: 'CANCELLED', hasHistory: true }), []);
     });
+});
+
+it('rejeição CIOT permite reabrir, resultado desconhecido e autorizado continuam bloqueados', async () => {
+    const original = { manifest: prisma.manifest.findUnique, fiscal: prisma.manifestFiscalDocument.findFirst, ciot: prisma.ciotEmissionJob.findFirst, leg: prisma.orderLeg.findFirst, transaction: prisma.$transaction };
+    let phase = 'FAILED'; let authorized = false; const writes: any[] = [];
+    const findFiscal = async () => authorized ? { documentType: 'CIOT', status: 'AUTHORIZED' } : null;
+    const findCiot = async (input: any) => {
+        assert.deepEqual(input.where.phase.notIn, ['FAILED', 'DONE']);
+        return ['FAILED', 'DONE'].includes(phase) ? null : { id: 'job' };
+    };
+    const manifest = { id: 'trip', status: 'ACCEPTED', startedAt: null, legs: [], freightAgreement: null, creationAuditComplete: true, _count: { legs: 1, fiscalDocuments: 1, ciotEmissionJobs: 1, invoices: 0, payables: 0, deliveryAttempts: 0, corrections: 0, cancelledLegs: 0 } };
+    try {
+        prisma.manifest.findUnique = (async () => manifest) as any;
+        prisma.manifestFiscalDocument.findFirst = findFiscal as any;
+        prisma.ciotEmissionJob.findFirst = findCiot as any;
+        prisma.orderLeg.findFirst = (async () => null) as any;
+        prisma.$transaction = (async (fn: any) => fn({ $queryRaw: async () => [], manifestFiscalDocument: { findFirst: findFiscal }, ciotEmissionJob: { findFirst: findCiot }, orderLeg: { findFirst: async () => null }, manifest: { updateMany: async ({ data }: any) => { writes.push(data); return { count: 1 }; }, findUniqueOrThrow: async () => ({ ...manifest, status: 'DRAFT' }) }, manifestCorrection: { create: async () => ({}) } })) as any;
+        assert.equal((await getPlanningActions('trip')).reopen.allowed, true);
+        await reopenAcceptedManifest('trip', 'operator', 'Corrigir rejeição fiscal');
+        assert.equal(writes[0].releaseSource, null);
+        assert.equal(writes[0].compositionSnapshot, Prisma.DbNull);
+        phase = 'PENDING_RECONCILIATION';
+        assert.equal((await getPlanningActions('trip')).reopen.allowed, false);
+        await assert.rejects(reopenAcceptedManifest('trip', 'operator', 'Corrigir dados'), /emissão fiscal/);
+        phase = 'DONE'; authorized = true;
+        assert.equal((await getPlanningActions('trip')).reopen.allowed, false);
+    } finally {
+        prisma.manifest.findUnique = original.manifest; prisma.manifestFiscalDocument.findFirst = original.fiscal; prisma.ciotEmissionJob.findFirst = original.ciot; prisma.orderLeg.findFirst = original.leg; prisma.$transaction = original.transaction;
+    }
 });

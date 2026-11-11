@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { processCiotEmissionJob } from './ciotEmissionProcessor.js';
+import { EfreteApiError } from '../efrete/efreteHttp.js';
+import { AppError } from '../../middleware/errorHandler.js';
 
 function setup(phase: string, existing: boolean) {
     const calls: Array<[string, unknown[]]> = [];
@@ -15,7 +17,7 @@ function setup(phase: string, existing: boolean) {
         ensureMotoristaRegistrado: async (...args: unknown[]) => calls.push(['motorista', [...args]]),
         ensureProprietarioRegistrado: async (...args: unknown[]) => calls.push(['proprietario', [...args]]),
         ensureVeiculoRegistrado: async (...args: unknown[]) => calls.push(['veiculo', [...args]]),
-        consultarStatusCiot: async (...args: unknown[]) => { calls.push(['consulta', [...args]]); return { exists: existing, codigoIdentificacaoOperacao: existing ? 'CIOT-1' : undefined, protocoloServico: 'P-1' }; },
+        consultarStatusCiot: async (...args: unknown[]) => { calls.push(['consulta', [...args]]); return { exists: existing, codigoIdentificacaoOperacao: existing ? 'CIOT-1' : undefined, estado: existing ? 'EmViagem' : undefined, protocoloServico: 'P-1' }; },
         submitCiotToEfrete: async (...args: unknown[]) => { calls.push(['submit', [...args]]); return { codigoIdentificacaoOperacao: 'CIOT-1', protocoloServico: 'P-1', raw: {} }; },
         obterCiotPdf: async (...args: unknown[]) => { calls.push(['pdf', [...args]]); return Buffer.from('%PDF-test').toString('base64'); },
         uploadBase64Object: async (...args: unknown[]) => { calls.push(['upload', [...args]]); return { storageKey: 'key' }; },
@@ -24,12 +26,35 @@ function setup(phase: string, existing: boolean) {
 }
 
 describe('CIOT processor environment and idempotency', () => {
+    it('consulta precede alterações cadastrais; operação existente é recuperada mesmo se os dados atuais estiverem incompletos', async () => {
+        const { calls, deps, job } = setup('QUEUED', true);
+        deps.prisma.ciotEmissionJob.findUniqueOrThrow = async () => ({ id: 'job-1', manifestId: 'manifest-1', idOperacaoCliente: 'op-1', phase: 'QUEUED', environment: 'HOMOLOGACAO', requestData: { matrizCnpj: '11222333000181' }, attemptCount: 0, maxAttempts: 3 });
+        deps.buildCiotEmissionInputForJob = async () => { throw new AppError('Dados atuais incompletos', 422); };
+        await processCiotEmissionJob(job, deps);
+        assert.equal(calls.some(([name]) => ['motorista', 'proprietario', 'veiculo', 'submit'].includes(name)), false);
+        assert.ok(calls.some(([name]) => name === 'pdf'));
+    });
+    it('falha ao obter PDF conserva CIOT confirmado e entradas/respostas da tentativa', async () => {
+        const { calls, deps, job } = setup('QUEUED', false);
+        const attempts: any[] = [];
+        deps.prisma.ciotEmissionAttempt = {
+            create: async ({ data }: any) => { attempts.push({ id: 'attempt', ...data }); return attempts[0]; },
+            update: async ({ data }: any) => { Object.assign(attempts[0], data); return attempts[0]; },
+        };
+        deps.obterCiotPdf = async () => { throw new Error('Arquivo indisponível'); };
+        await processCiotEmissionJob(job, deps);
+        assert.equal(attempts[0].phase, 'DOWNLOADING_FILES');
+        assert.equal(attempts[0].rawPayload.IdOperacaoCliente, 'op-1');
+        assert.ok(attempts[0].rawResponse);
+        assert.ok(calls.some(([name, args]) => name === 'document' && (args[0] as any).data.status === 'READY' && (args[0] as any).data.number === 'CIOT-1'));
+        assert.equal(calls.some(([name, args]) => name === 'update' && (args[0] as any).data.phase === 'FAILED'), false);
+    });
     it('forwards producao to registrations, consultation, and submission', async () => {
         const { calls, deps, job } = setup('QUEUED', false);
         await processCiotEmissionJob(job, deps);
         for (const name of ['motorista', 'proprietario', 'veiculo', 'consulta', 'submit']) {
             const call = calls.find(([kind]) => kind === name);
-            assert.equal(call?.[1].at(-1), 'producao', name);
+            assert.equal(name === 'consulta' ? call?.[1][1] : call?.[1].at(-1), 'producao', name);
         }
     });
 
@@ -65,7 +90,7 @@ describe('CIOT processor environment and idempotency', () => {
     it('consults existing CIOT with environment and does not submit', async () => {
         const { calls, deps, job } = setup('CADASTROS_ENSURING', true);
         await processCiotEmissionJob(job, deps);
-        assert.equal(calls.find(([kind]) => kind === 'consulta')?.[1].at(-1), 'producao');
+        assert.equal(calls.find(([kind]) => kind === 'consulta')?.[1][1], 'producao');
         assert.equal(calls.some(([kind]) => kind === 'submit'), false);
     });
 
@@ -73,5 +98,30 @@ describe('CIOT processor environment and idempotency', () => {
         const { calls, deps, job } = setup('DONE', false);
         await processCiotEmissionJob(job, deps);
         assert.deepEqual(calls, []);
+    });
+
+    it('rejeição confirmada mantém resposta e marca FAILED para correção', async () => {
+        const { calls, deps, job } = setup('QUEUED', false);
+        deps.submitCiotToEfrete = async () => { throw new EfreteApiError('RNTRC inválido', { excecaoCodigo: '123', excecaoMensagem: 'RNTRC inválido' }); };
+        await processCiotEmissionJob(job, deps);
+        assert.ok(calls.some(([name, args]) => name === 'update' && (args[0] as any).data.phase === 'FAILED'));
+        assert.ok(calls.some(([name, args]) => name === 'document' && (args[0] as any).data.status === 'REJECTED'));
+    });
+
+    it('erro durante consulta idempotente nunca vira rejeição confirmada', async () => {
+        const { calls, deps, job } = setup('CADASTROS_ENSURING', false);
+        deps.prisma.ciotEmissionJob.findUniqueOrThrow = async () => ({ id: 'job-1', manifestId: 'manifest-1', idOperacaoCliente: 'op-1', phase: 'CADASTROS_ENSURING', attemptCount: 2, maxAttempts: 3 });
+        deps.consultarStatusCiot = async () => { throw new EfreteApiError('Consulta indisponível', { excecaoMensagem: 'Consulta indisponível' }); };
+        await processCiotEmissionJob(job, deps);
+        assert.ok(calls.some(([name, args]) => name === 'update' && (args[0] as any).data.phase === 'PENDING_RECONCILIATION'));
+        assert.equal(calls.some(([name]) => name === 'submit' || name === 'document'), false);
+    });
+
+    it('validação local antes do primeiro envio permite corrigir sem aguardar a API', async () => {
+        const { calls, deps, job } = setup('QUEUED', false);
+        deps.buildCiotEmissionInputForJob = async () => { throw new AppError('Complete o endereço do emitente.', 422); };
+        await processCiotEmissionJob(job, deps);
+        assert.ok(calls.some(([name, args]) => name === 'update' && (args[0] as any).data.phase === 'FAILED'));
+        assert.equal(calls.some(([name]) => name === 'consulta' || name === 'submit'), false);
     });
 });

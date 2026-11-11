@@ -17,7 +17,7 @@ export const manifestJourneySteps: JourneyStepDefinition[] = [
   { key: 'cover', shortLabel: 'Capa', label: 'Capa e programação' },
   { key: 'responsible', shortLabel: 'Responsável', label: 'Responsável pela viagem' },
   { key: 'freight', shortLabel: 'Frete', label: 'Carta Frete' },
-  { key: 'review', shortLabel: 'Revisão', label: 'Revisão e oferta' },
+  { key: 'review', shortLabel: 'Revisão', label: 'Revisão e liberação' },
   { key: 'fiscal', shortLabel: 'Fiscal', label: 'Documentos e execução' },
 ];
 

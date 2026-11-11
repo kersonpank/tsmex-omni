@@ -388,9 +388,9 @@ describe('manifestLifecycle', () => {
             if (typeof fn !== 'function') throw new Error('batch not mocked');
             const tx = {
                 manifest: {
-                    update: async (args: { data: Record<string, unknown> }) => {
-                        txStartLog.push({ model: 'manifest', action: 'update', args });
-                        return args.data;
+                    updateMany: async (args: { data: Record<string, unknown> }) => {
+                        txStartLog.push({ model: 'manifest', action: 'updateMany', args });
+                        return { count: 1 };
                     },
                 },
                 order: {
@@ -421,7 +421,10 @@ describe('manifestLifecycle', () => {
             return fn(tx);
         }) as unknown as typeof prisma.$transaction;
 
-        await startManifest(deliveryManifestId);
+        await startManifest(deliveryManifestId, { actorUserId: 'operator-start' });
+        const started = txStartLog.find(o => o.model === 'manifest');
+        assert.equal((started?.args.data as any).startedByUserId, 'operator-start');
+        assert.equal((started?.args.where as any).status, 'ACCEPTED');
 
         const orderUpdate = txStartLog.find((o) => o.model === 'order');
         assert.equal(

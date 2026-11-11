@@ -16,6 +16,9 @@ export interface OwnerPersonFormState {
 }
 
 interface Props {
+  correctionReason?: string;
+  onCorrectionReasonChange?: (value: string) => void;
+  title?: string;
   /** CPF/CNPJ do próprio Link — nunca digitado aqui, só exibido. */
   document: string;
   documentType: 'CPF' | 'CNPJ';
@@ -35,6 +38,9 @@ interface Props {
 }
 
 const LinkOwnerPersonSheet: React.FC<Props> = ({
+  correctionReason,
+  onCorrectionReasonChange,
+  title = 'Endereço do transportador contratado',
   document,
   documentType,
   ownerPersonForm,
@@ -62,7 +68,8 @@ const LinkOwnerPersonSheet: React.FC<Props> = ({
         className="mobile-enter relative max-h-[92dvh] w-full overflow-y-auto rounded-t-3xl bg-[var(--app-surface)] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl md:max-w-xl md:rounded-2xl md:p-6"
       >
         <div className="mx-auto mb-5 h-1.5 w-12 rounded-full bg-tower-300 md:hidden" />
-        <h2 id="owner-person-title" className="text-xl font-bold text-tower-950 dark:text-tower-50">Proprietário do veículo</h2>
+        {onCorrectionReasonChange && <label className="mb-4 block text-sm">Motivo da correção <span className="block text-xs text-tower-500">Obrigatório quando o cadastro é usado por viagem liberada ou ofertada.</span><input value={correctionReason ?? ''} onChange={event => onCorrectionReasonChange(event.target.value)} className={fieldClass} /></label>}
+        <h2 id="owner-person-title" className="text-xl font-bold text-tower-950 dark:text-tower-50">{title}</h2>
         <p className="mt-2 text-sm leading-6 text-tower-600 dark:text-tower-300">
           Endereço exigido pelo e-Frete para "Gravar Proprietário" no CIOT. O documento já é o mesmo do responsável — não precisa redigitar.
         </p>

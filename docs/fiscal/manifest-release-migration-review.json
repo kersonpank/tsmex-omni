@@ -1,0 +1,25 @@
+{
+  "sourceHost": "localhost",
+  "sourceDatabase": "tsmex",
+  "cloneDatabase": "tsmex_release_review_20261005_211334",
+  "backupPath": "C:\\Users\\HOME\\AppData\\Local\\Temp\\tsmex-release-review-vggjsmko\\local-copy.dump",
+  "migrationExitCode": 0,
+  "migrationOutput": "Prisma schema loaded from server\\prisma\\schema.prisma\nDatasource \"db\": PostgreSQL database \"tsmex_release_review_20261005_211334\", schema \"public\" at \"localhost:5432\"\n\n51 migrations found in prisma/migrations\n\nApplying migration `20260911090000_add_ciot_downloading_files_phase`\nApplying migration `20260911090100_add_ciot_environment`\nApplying migration `20260911190000_add_efrete_environment_to_fiscal_emitter`\nApplying migration `20260925120000_add_mdfe_numbering_to_fiscal_emitter`\nApplying migration `20260926090000_add_vehicle_unit`\nApplying migration `20260926090100_backfill_vehicle_units`\nApplying migration `20260926120000_vehicle_mdfe_capacity`\nApplying migration `20260926121500_fiscal_closure_outbox`\nApplying migration `20260926123000_unique_active_mdfe`\nApplying migration `20260926124500_invoice_receipts`\nApplying migration `20260926130000_delivery_attempts`\nApplying migration `20260926131500_reclassify_mixed_legs`\nApplying migration `20260926133000_payables`\nApplying migration `20260926134500_invoice_items`\nApplying migration `20260926140000_invoice_decimal`\nApplying migration `20260926141500_mdfe_owner_type`\nApplying migration `20260926150000_manifest_editable_reusable_resources`\nApplying migration `20260926170000_vehicle_unit_rntrc_holder`\nApplying migration `20260926180000_hub_carrier_multidriver`\nApplying migration `20260926213000_nfe_xml_integrity`\nApplying migration `20260926213500_fiscal_provider_request_audit`\nApplying migration `20261005120000_manifest_operator_release`\nApplying migration `20261005140000_ciot_attempt_history`\n\nThe following migration(s) have been applied:\n\nmigrations/\n  └─ 20260911090000_add_ciot_downloading_files_phase/\n    └─ migration.sql\n  └─ 20260911090100_add_ciot_environment/\n    └─ migration.sql\n  └─ 20260911190000_add_efrete_environment_to_fiscal_emitter/\n    └─ migration.sql\n  └─ 20260925120000_add_mdfe_numbering_to_fiscal_emitter/\n    └─ migration.sql\n  └─ 20260926090000_add_vehicle_unit/\n    └─ migration.sql\n  └─ 20260926090100_backfill_vehicle_units/\n    └─ migration.sql\n  └─ 20260926120000_vehicle_mdfe_capacity/\n    └─ migration.sql\n  └─ 20260926121500_fiscal_closure_outbox/\n    └─ migration.sql\n  └─ 20260926123000_unique_active_mdfe/\n    └─ migration.sql\n  └─ 20260926124500_invoice_receipts/\n    └─ migration.sql\n  └─ 20260926130000_delivery_attempts/\n    └─ migration.sql\n  └─ 20260926131500_reclassify_mixed_legs/\n    └─ migration.sql\n  └─ 20260926133000_payables/\n    └─ migration.sql\n  └─ 20260926134500_invoice_items/\n    └─ migration.sql\n  └─ 20260926140000_invoice_decimal/\n    └─ migration.sql\n  └─ 20260926141500_mdfe_owner_type/\n    └─ migration.sql\n  └─ 20260926150000_manifest_editable_reusable_resources/\n    └─ migration.sql\n  └─ 20260926170000_vehicle_unit_rntrc_holder/\n    └─ migration.sql\n  └─ 20260926180000_hub_carrier_multidriver/\n    └─ migration.sql\n  └─ 20260926213000_nfe_xml_integrity/\n    └─ migration.sql\n  └─ 20260926213500_fiscal_provider_request_audit/\n    └─ migration.sql\n  └─ 20261005120000_manifest_operator_release/\n    └─ migration.sql\n  └─ 20261005140000_ciot_attempt_history/\n    └─ migration.sql\n      \nAll migrations have been successfully applied.\n\n",
+  "recordsPreserved": true,
+  "comparison": {
+    "manifest": {
+      "count": 1,
+      "digest": "d80e91a8e4e51db1d9267ec619b881f7"
+    },
+    "fiscal": {
+      "count": 0,
+      "digest": null
+    }
+  },
+  "oldReleaseAuthorshipNotInferred": true,
+  "homologacao": {
+    "authentication": "OK",
+    "consultation": "POST v1; absent operation confirmed by Operacao.Nao.Localizada",
+    "realEmission": "NOT_RUN"
+  }
+}

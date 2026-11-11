@@ -165,10 +165,10 @@ export function buildCiotPayload(input: CiotMapperInput): AdicionarOperacaoTrans
     const rd = input.requestData;
 
     if (isFracionado && (!input.contratantesCargaFracionada || input.contratantesCargaFracionada.length < 1)) {
-        throw new Error('Fracionado exige ao menos 1 CNPJ em ContratantesCargaFracionada.');
+        throw new AppError('Fracionado exige ao menos 1 CNPJ em ContratantesCargaFracionada.', 422);
     }
     if (isTacAgregado && !input.contratante.rntrc) {
-        throw new Error('TAC_Agregado exige RNTRC do Contratante.');
+        throw new AppError('TAC_Agregado exige RNTRC do Contratante.', 422);
     }
 
     const payload: AdicionarOperacaoTransporteV2Payload = {
@@ -242,3 +242,4 @@ export function buildCiotPayload(input: CiotMapperInput): AdicionarOperacaoTrans
 
     return payload;
 }
+import { AppError } from '../../middleware/errorHandler.js';

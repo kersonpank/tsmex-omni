@@ -218,7 +218,8 @@ export async function setLinkComposition(linkId: string, input: LinkCompositionI
                 trailer1UnitId: trailers[0]?.id ?? null,
                 trailer2UnitId: trailers[1]?.id ?? null,
                 trailer3UnitId: trailers[2]?.id ?? null,
-                ...legacyColumnsFromComposition(traction, trailers),
+                // O RNTRC do contratado não é o RNTRC do titular do veículo.
+                ...Object.fromEntries(Object.entries(legacyColumnsFromComposition(traction, trailers)).filter(([key]) => key !== 'rntrc')),
             },
             include: { vehicleType: true, ...linkVehicleInclude },
         });

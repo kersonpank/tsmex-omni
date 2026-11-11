@@ -25,8 +25,9 @@ before(async () => {
     prisma.$transaction = (async (fn: any) => fn({
         manifest: {
             updateMany: async (args: any) => { updated = args; return { count: conflict ? 0 : 1 }; },
-            findUniqueOrThrow: async () => ({ driverId: updated.data.driverId, driverAssignments: assigned }),
+            findUniqueOrThrow: async () => ({ driverId: updated?.data.driverId ?? null, driverAssignments: assigned }),
         },
+        manifestCorrection: { create: async () => ({}) },
         manifestDriverAssignment: {
             deleteMany: async () => { deleted = true; },
             createMany: async (args: any) => { assigned = args.data; },

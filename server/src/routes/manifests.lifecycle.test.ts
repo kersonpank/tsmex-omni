@@ -132,6 +132,11 @@ describe('manifests lifecycle TRANSFER E2E (mocked)', () => {
                     Object.assign(store.manifest, data);
                     return store.manifest;
                 },
+                updateMany: async ({ where, data }: any) => {
+                    if (store.manifest.status !== where.status) return { count: 0 };
+                    Object.assign(store.manifest, data);
+                    return { count: 1 };
+                },
             },
             orderLeg: {
                 findFirst: async () => null,

@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { hasActiveTripFiscalOperation } from './manifestFiscalGuards.js';
 
 const blockingFiscalStatuses = ['SENT', 'READY', 'AUTHORIZED'] as const;
 
@@ -9,7 +10,7 @@ type Db = Prisma.TransactionClient | typeof prisma;
 async function hasFiscalActivity(manifestId: string, db: Db = prisma): Promise<boolean> {
     const [document, ciotJob, cte] = await Promise.all([
         db.manifestFiscalDocument.findFirst({ where: { manifestId, status: { in: [...blockingFiscalStatuses] } }, select: { documentType: true, status: true } }),
-        db.ciotEmissionJob.findFirst({ where: { manifestId }, select: { id: true } }),
+        db.ciotEmissionJob.findFirst({ where: { manifestId, phase: { notIn: ['FAILED', 'DONE'] } }, select: { id: true } }),
         db.orderLeg.findFirst({ where: { manifestId, order: { freightCalculations: { some: { documentType: 'CTE', status: 'CTE_AUTHORIZED' } } } }, select: { id: true } }),
     ]);
     return Boolean(document || ciotJob || cte);
@@ -35,6 +36,7 @@ export interface PlanningFacts {
     started: boolean;
     legsStarted: boolean;
     fiscalActivity: boolean;
+    tripFiscalActivity?: boolean;
     billing: boolean;
     everOffered: boolean;
     creationAuditComplete: boolean;
@@ -50,12 +52,12 @@ export function planningActionsFor(f: PlanningFacts): PlanningActions {
     const finished = f.status === 'COMPLETED' || f.status === 'CANCELLED';
     const editPlanning = f.status === 'DRAFT' ? allow()
         : f.status === 'PENDING_ACCEPT' ? deny('Retire a oferta para editar a viagem.')
-            : f.status === 'ACCEPTED' ? deny('Reabra o planejamento (com justificativa) para editar; será preciso novo aceite.')
+            : f.status === 'ACCEPTED' ? deny('Reabra o planejamento (com justificativa) para editar; será preciso liberar novamente.')
                 : f.status === 'IN_PROGRESS' ? deny('Viagem em execução: registre uma correção.')
                     : deny(FINISHED);
     const withdrawOffer = f.status === 'PENDING_ACCEPT' ? allow() : deny('Não há oferta pendente.');
     const reopen = f.status !== 'ACCEPTED' || f.started ? deny('Só uma viagem aceita e ainda não iniciada volta ao planejamento.')
-        : f.fiscalActivity ? deny(FISCAL) : allow();
+        : (f.tripFiscalActivity ?? f.fiscalActivity) ? deny(FISCAL) : allow();
     const cancel = finished ? deny(FINISHED)
         : f.status === 'IN_PROGRESS' || f.started || f.legsStarted ? deny('Resolva a carga e a custódia antes de cancelar uma viagem iniciada.')
             : f.billing ? deny('Concilie faturas e pagamentos antes de cancelar a viagem.')
@@ -82,6 +84,7 @@ export async function getPlanningActions(manifestId: string, db: Db = prisma): P
         started: Boolean(manifest.startedAt),
         legsStarted: manifest.legs.some((leg) => leg.startedAt || leg.completedAt),
         fiscalActivity: await hasFiscalActivity(manifestId, db),
+        tripFiscalActivity: await hasActiveTripFiscalOperation(manifestId, db),
         billing: manifest._count.invoices > 0 || manifest._count.payables > 0,
         everOffered: Boolean(manifest.firstOfferedAt || manifest.offeredAt),
         creationAuditComplete: manifest.creationAuditComplete,
@@ -96,16 +99,16 @@ export async function reopenAcceptedManifest(manifestId: string, actorUserId: st
     }
     return prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT "id" FROM "Manifest" WHERE "id" = ${manifestId} FOR UPDATE`;
-        await assertNoFiscalActivity(manifestId, tx);
+        if (await hasActiveTripFiscalOperation(manifestId, tx)) throw new AppError(FISCAL, 409);
         const updated = await tx.manifest.updateMany({
             where: { id: manifestId, status: 'ACCEPTED', startedAt: null },
-            data: { status: 'DRAFT', acceptedAt: null, offeredAt: null, compositionSnapshot: Prisma.DbNull },
+            data: { status: 'DRAFT', acceptedAt: null, offeredAt: null, compositionSnapshot: Prisma.DbNull, releaseSource: null, releasedByUserId: null, releasedAt: null },
         });
         if (updated.count !== 1) throw new AppError('A viagem mudou de estado. Atualize a página e tente novamente.', 409);
         await tx.manifestCorrection.create({
             data: {
                 manifestId, actorUserId, reason, kind: 'REOPEN',
-                before: { status: 'ACCEPTED' }, after: { status: 'DRAFT' },
+                before: { status: 'ACCEPTED', releaseSource: manifest.releaseSource, releasedByUserId: manifest.releasedByUserId, releasedAt: manifest.releasedAt?.toISOString() ?? null }, after: { status: 'DRAFT' },
                 status: 'APPLIED', resolvedAt: new Date(),
             },
         });

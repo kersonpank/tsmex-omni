@@ -1,3 +1,5 @@
+import { AppError } from '../../middleware/errorHandler.js';
+import { hasCompleteFiscalAddress } from '../fiscalInputValidation.js';
 import type { Driver, Link, Person } from '@prisma/client';
 import { requireSelectedIbge } from '../selectedCity.js';
 import { efreteAuthedPost } from './efreteAuth.js';
@@ -5,14 +7,15 @@ import { digits, splitPhone } from './efreteUtil.js';
 import type { EfreteEnvironment } from './efreteConfig.js';
 
 async function buildEndereco(person: Person | null | undefined): Promise<Record<string, unknown>> {
-    if (!person) throw new Error('Pessoa sem endereço cadastrado — obrigatório para registro na eFrete.');
+    if (!person) throw new AppError('Pessoa sem endereço cadastrado — obrigatório para registro na eFrete.', 422);
+    if (!hasCompleteFiscalAddress(person)) throw new AppError('Complete bairro, CEP, rua, número, cidade, UF e IBGE reais antes de registrar na eFrete.', 422);
     const cMun = await requireSelectedIbge(person.city, person.state, person.cityIbgeCode);
     return {
-        Bairro: person.neighborhood || 'Centro',
-        CEP: digits(person.cep).padStart(8, '0').slice(0, 8),
+        Bairro: person.neighborhood,
+        CEP: digits(person.cep),
         CodigoMunicipio: Number(cMun),
-        Rua: person.address || 'S/N',
-        Numero: person.number || 'S/N',
+        Rua: person.address,
+        Numero: person.number,
         ...(person.complement ? { Complemento: person.complement } : {}),
     };
 }
@@ -24,14 +27,15 @@ interface EfreteGravarResponse {
 
 /** Gravar Motorista — idempotente (existe → atualiza; não existe → cria). Sempre antes de emitir operação. */
 export async function ensureMotoristaRegistrado(driver: Driver & { person: Person | null }, environment: EfreteEnvironment): Promise<void> {
-    if (!driver.cnhNumber) throw new Error(`Motorista ${driver.name}: CNH obrigatória para registro na eFrete.`);
-    if (!driver.birthDate) throw new Error(`Motorista ${driver.name}: data de nascimento obrigatória para registro na eFrete.`);
+    if (!driver.cnhNumber) throw new AppError(`Motorista ${driver.name}: CNH obrigatória para registro na eFrete.`, 422);
+    if (!driver.birthDate) throw new AppError(`Motorista ${driver.name}: data de nascimento obrigatória para registro na eFrete.`, 422);
+    if (!/^\d{11}$/.test(digits(driver.document))) throw new AppError('CPF do motorista inválido.', 422);
 
     await efreteAuthedPost<EfreteGravarResponse>(
         '/services/motoristas/gravar',
         {
             CNH: driver.cnhNumber,
-            CPF: digits(driver.document).padStart(11, '0').slice(0, 11),
+            CPF: digits(driver.document),
             DataNascimento: driver.birthDate.toISOString(),
             Endereco: await buildEndereco(driver.person),
             Nome: driver.name,
@@ -61,14 +65,14 @@ export function proprietarioFromLink(link: Link & { person: Person | null }): Ef
 
 /** Gravar Proprietário — RNTRC validado pela ANTT no momento do registro. */
 export async function ensureProprietarioRegistrado(proprietario: EfreteProprietarioInput, environment: EfreteEnvironment): Promise<void> {
-    if (!proprietario.rntrc) throw new Error(`${proprietario.name}: RNTRC obrigatório para registro de Proprietário na eFrete.`);
+    if (!/^\d{8,9}$/.test(digits(proprietario.rntrc))) throw new AppError(`${proprietario.name}: RNTRC válido obrigatório para registro de Proprietário na eFrete.`, 422);
 
     await efreteAuthedPost<EfreteGravarResponse>(
         '/services/proprietarios/gravarV2',
         {
             CNPJ: digits(proprietario.document), // campo se chama CNPJ no manual, mas aceita CPF (11) ou CNPJ (14)
             Endereco: await buildEndereco(proprietario.person),
-            RNTRC: digits(proprietario.rntrc).padStart(9, '0').slice(0, 9),
+            RNTRC: digits(proprietario.rntrc).padStart(9, '0'),
             RazaoSocial: proprietario.name,
         },
         { versao: 3, environment },
@@ -92,10 +96,10 @@ export interface EfreteVeiculoInput {
  */
 export async function ensureVeiculoRegistrado(unit: EfreteVeiculoInput, environment: EfreteEnvironment): Promise<void> {
     const plate = unit.plate.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 7);
-    if (!unit.chassi) throw new Error(`Veículo ${plate}: chassi obrigatório para registro na eFrete.`);
-    if (!unit.axles) throw new Error(`Veículo ${plate}: número de eixos obrigatório para registro na eFrete (piso mínimo ANTT).`);
-    if (!unit.rntrc) throw new Error(`Veículo ${plate}: RNTRC obrigatório para registro na eFrete.`);
-    if (!unit.renavam) throw new Error(`Veículo ${plate}: RENAVAM obrigatório para registro na eFrete.`);
+    if (!unit.chassi) throw new AppError(`Veículo ${plate}: chassi obrigatório para registro na eFrete.`, 422);
+    if (!unit.axles) throw new AppError(`Veículo ${plate}: número de eixos obrigatório para registro na eFrete (piso mínimo ANTT).`, 422);
+    if (!/^\d{8,9}$/.test(digits(unit.rntrc))) throw new AppError(`Veículo ${plate}: RNTRC válido obrigatório para registro na eFrete.`, 422);
+    if (!unit.renavam) throw new AppError(`Veículo ${plate}: RENAVAM obrigatório para registro na eFrete.`, 422);
 
     await efreteAuthedPost<EfreteGravarResponse>(
         '/services/veiculos/gravar',
@@ -104,7 +108,7 @@ export async function ensureVeiculoRegistrado(unit: EfreteVeiculoInput, environm
                 Chassi: unit.chassi,
                 NumeroDeEixos: unit.axles,
                 Placa: plate,
-                RNTRC: digits(unit.rntrc).padStart(9, '0').slice(0, 9),
+                RNTRC: digits(unit.rntrc).padStart(9, '0'),
                 Renavam: Number(digits(unit.renavam)),
                 TipoCarroceria: unit.bodyType || 'NaoAplicavel',
                 TipoRodado: unit.wheelType || 'NaoAplicavel',

@@ -221,6 +221,7 @@ describe('POST /api/links/:id/drivers — Person upsert', () => {
         prisma.driverCarrier.upsert = (async (args: any) => ({ ...args.create, active: true })) as unknown as typeof prisma.driverCarrier.upsert;
         prisma.manifest.findFirst = (async (args: any) => args.where?.linkId === LINK_A_ID && args.where?.hubId === 'hub-test' ? { id: 'manifest-hub' } : null) as unknown as typeof prisma.manifest.findFirst;
         prisma.$transaction = (async (fn: any) => fn({
+            manifest: { findMany: async () => [] },
             person: prisma.person,
             driver: prisma.driver,
             driverCarrier: { create: async (args: any) => args.data, upsert: prisma.driverCarrier.upsert },

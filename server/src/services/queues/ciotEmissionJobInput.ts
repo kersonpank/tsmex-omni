@@ -1,14 +1,15 @@
 import { linkVehicleInclude, manifestVehicleAssignmentsInclude } from '../vehicleUnitService.js';
-import { resolveManifestComposition, tractionRntrc } from '../vehicleUnitRules.js';
+import { resolveManifestComposition } from '../vehicleUnitRules.js';
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { requireSelectedIbge } from '../selectedCity.js';
 import { resolveMatrizCnpj, type EfreteEnvironment } from '../efrete/efreteConfig.js';
 import { digits, splitPhone } from '../efrete/efreteUtil.js';
+import { hasCompleteFiscalAddress } from '../fiscalInputValidation.js';
 import type { CiotMapperInput, CiotRequestData, CiotTipoViagemApi } from '../efrete/efreteCiotMapper.js';
 
 /** Formato persistido em `CiotEmissionJob.requestData` — Carta Frete + campos que só existem no Fracionado. */
-export type StoredCiotRequestData = CiotRequestData & { contratantesCargaFracionada?: string[] };
+export type StoredCiotRequestData = CiotRequestData & { contratantesCargaFracionada?: string[]; matrizCnpj?: string };
 
 const tipoViagemToApi: Record<string, CiotTipoViagemApi> = {
     PADRAO: 'Padrao',
@@ -39,6 +40,7 @@ export async function buildCiotEmissionInputForJob(
     const resolveIbge = deps.resolveIbgeMunicipio ?? requireSelectedIbge;
 
     const job = await db.ciotEmissionJob.findUniqueOrThrow({ where: { id: ciotEmissionJobId } });
+    const requestData = job.requestData as unknown as StoredCiotRequestData;
     const manifest = await db.manifest.findUniqueOrThrow({
         where: { id: job.manifestId },
         include: {
@@ -54,8 +56,8 @@ export async function buildCiotEmissionInputForJob(
     if (!manifest.hub?.person) throw new AppError('Manifesto sem Hub com pessoa (CNPJ) para resolver o Contratante do CIOT.', 400);
     if (!manifest.link) throw new AppError('Manifesto sem Link (transportador) atribuído.', 400);
     const composition = resolveManifestComposition(manifest);
-    const contratadoRntrc = tractionRntrc(composition, manifest.link.rntrc);
-    if (!contratadoRntrc || !manifest.link.carrierType) throw new AppError('Cavalo sem RNTRC (ou Link sem tipo de transportador) — obrigatório para CIOT.', 400);
+    const contratadoRntrc = digits(manifest.link.rntrc);
+    if (!/^\d{8,9}$/.test(contratadoRntrc) || !manifest.link.carrierType) throw new AppError('Complete o RNTRC e o tipo do transportador contratado para emitir o CIOT.', 422);
     if (!manifest.driver) throw new AppError('Manifesto sem motorista definido ("Definir Motorista") — obrigatório para CIOT.', 400);
     if (manifest.driver.active === false) throw new AppError('Motorista inativo. Selecione um motorista ativo.', 400);
     if (!manifest.driver.cnhNumber) throw new AppError('Motorista sem número de CNH cadastrado.', 400);
@@ -80,10 +82,13 @@ export async function buildCiotEmissionInputForJob(
         }
     }
 
-    const efreteEnv = fiscalEmitter.efreteEnvironment ?? 'HOMOLOGACAO';
+    const efreteEnv = job.environment ?? fiscalEmitter.efreteEnvironment ?? 'HOMOLOGACAO';
     const environment: EfreteEnvironment = efreteEnv === 'PRODUCAO' ? 'producao' : 'homologacao';
-    const contratanteDoc = digits(fiscalEmitter.person.document).padStart(14, '0').slice(0, 14);
-    const matrizCnpj = resolveMatrizCnpj(contratanteDoc, environment);
+    const contratanteDoc = digits(fiscalEmitter.person.document);
+    if (!/^\d{14}$/.test(contratanteDoc)) throw new AppError('CNPJ do emitente inválido.', 422);
+    const emitterAddress = fiscalEmitter.person;
+    if (!hasCompleteFiscalAddress(emitterAddress)) throw new AppError('Complete bairro, CEP, rua, número, cidade, UF e IBGE reais do emitente para o CIOT.', 422);
+    const matrizCnpj = requestData.matrizCnpj ?? resolveMatrizCnpj(contratanteDoc, environment);
 
     const origin = manifest.originCity || manifest.originCityIbgeCode
         ? { city: manifest.originCity, state: manifest.originState, code: manifest.originCityIbgeCode }
@@ -105,13 +110,14 @@ export async function buildCiotEmissionInputForJob(
 
     const linkDoc = digits(manifest.link.document);
     const driverDoc = digits(manifest.driver.document);
+    if (!/^\d{11}$/.test(driverDoc) || !/^\d{11}(\d{3})?$/.test(linkDoc)) throw new AppError('Confira o CPF do motorista e CPF/CNPJ do transportador.', 422);
     const driverPhone = splitPhone(manifest.driver.phone);
     if (!driverPhone) throw new AppError('Motorista sem celular válido (DDD + número) cadastrado.', 400);
 
     const veiculos = composition.units.map((unit) => unit.plate);
 
     const tipoViagem = tipoViagemToApi[job.tipoViagem];
-    const requestData = job.requestData as unknown as StoredCiotRequestData;
+    if (tipoViagem === 'TAC_Agregado' && !/^\d{8,9}$/.test(digits(fiscalEmitter.rntrc))) throw new AppError('RNTRC da contratante obrigatório para TAC Agregado.', 422);
 
     const mapperInput: CiotMapperInput = {
         tipoViagem,
@@ -121,16 +127,16 @@ export async function buildCiotEmissionInputForJob(
             nomeOuRazaoSocial: fiscalEmitter.person.legalName,
             cpfOuCnpj: contratanteDoc,
             endereco: {
-                bairro: fiscalEmitter.person.neighborhood || 'Centro',
-                cep: digits(fiscalEmitter.person.cep).padStart(8, '0').slice(0, 8),
+                bairro: fiscalEmitter.person.neighborhood,
+                cep: digits(fiscalEmitter.person.cep),
                 codigoMunicipio: Number(contratanteMunicipio),
-                rua: fiscalEmitter.person.address || 'S/N',
-                numero: fiscalEmitter.person.number || 'S/N',
+                rua: fiscalEmitter.person.address,
+                numero: fiscalEmitter.person.number,
                 ...(fiscalEmitter.person.complement ? { complemento: fiscalEmitter.person.complement } : {}),
             },
-            ...(tipoViagem === 'TAC_Agregado' ? { rntrc: digits(fiscalEmitter.rntrc ?? '').padStart(9, '0').slice(0, 9) } : {}),
+            ...(tipoViagem === 'TAC_Agregado' ? { rntrc: digits(fiscalEmitter.rntrc).padStart(9, '0') } : {}),
         },
-        contratado: { cpfOuCnpj: linkDoc, rntrc: contratadoRntrc.padStart(9, '0').slice(0, 9) },
+        contratado: { cpfOuCnpj: linkDoc, rntrc: contratadoRntrc.padStart(9, '0') },
         motorista: { cpfOuCnpj: driverDoc, cnh: manifest.driver.cnhNumber, celular: { ddd: driverPhone.ddd, numero: driverPhone.numero } },
         codigoMunicipioOrigem: Number(origemMunicipio),
         codigoMunicipioDestino: Number(destinoMunicipio),

@@ -481,7 +481,7 @@ function startStatuses(tripType: OperationalTripType): {
     };
 }
 
-export async function startManifest(manifestId: string, options?: { kmSaida?: number }) {
+export async function startManifest(manifestId: string, options?: { kmSaida?: number; actorUserId?: string }) {
     const manifest = await loadManifestForLifecycle(manifestId);
 
     if (manifest.status !== 'ACCEPTED') {
@@ -490,7 +490,7 @@ export async function startManifest(manifestId: string, options?: { kmSaida?: nu
 
     const readiness = await getManifestReadiness(manifestId);
     if (!readiness.canStart) {
-        throw new AppError(`Saída bloqueada: ${readiness.issues.filter((item) => item.severity === 'blocking').map((item) => item.message).join(' ')}`, 422);
+        throw new AppError(`Saída bloqueada: ${readiness.actionIssues.start.map((item) => item.message).join(' ')}`, 422);
     }
 
     const tripType = assertOperationalTripType(manifest.tripType);
@@ -513,14 +513,16 @@ export async function startManifest(manifestId: string, options?: { kmSaida?: nu
     }
 
     await prisma.$transaction(async (tx) => {
-        await tx.manifest.update({
-            where: { id: manifestId },
+        const started = await tx.manifest.updateMany({
+            where: { id: manifestId, status: 'ACCEPTED', updatedAt: manifest.updatedAt },
             data: {
                 status: 'IN_PROGRESS',
                 startedAt: new Date(),
+                startedByUserId: options?.actorUserId ?? null,
                 ...(options?.kmSaida != null ? { kmSaida: options.kmSaida } : {}),
             },
         });
+        if (started.count !== 1) throw new AppError('A viagem mudou de estado durante a saída. Atualize a página.', 409);
 
         await tx.orderLeg.updateMany({
             where: { manifestId },

@@ -135,7 +135,8 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
     (response) => response,
     (error) => {
-        if (error.response?.status === 401) {
+        const publicAuthRequest = /^\/auth\/(claim-link|login|register)(?:\?|$)/.test(error.config?.url ?? '');
+        if (error.response?.status === 401 && !publicAuthRequest) {
             localStorage.removeItem('token');
             localStorage.removeItem('user');
             window.location.href = '/#/login';
@@ -519,6 +520,8 @@ export const nfeManualInvoicesApi = {
 // ========== MANIFESTS API ==========
 
 export const manifestsApi = {
+    release: async (id: string) => (await api.post<ApiResponse<Manifest>>(`/manifests/${id}/release`)).data,
+    reconcileCiot: async (id: string) => (await api.post<ApiResponse<{ message: string }>>(`/manifests/${id}/reconcile-ciot`)).data,
     list: async (params?: { status?: string; linkId?: string; includeArchived?: boolean }) => {
         const response = await api.get<PaginatedResponse<Manifest>>('/manifests', { params });
         return response.data;
@@ -849,7 +852,7 @@ export const linksApi = {
         return response.data;
     },
 
-    updateFiscal: async (id: string, data: Partial<Pick<Link, 'vehicleTypeId' | 'vehiclePlate' | 'vehicleYear' | 'rntrc' | 'carrierType' | 'trailerPlate' | 'trailer2Plate' | 'trailer3Plate' | 'vehicleAxles' | 'vehicleOwnerDocument' | 'vehicleOwnerName' | 'vehicleChassi' | 'vehicleRenavam' | 'vehicleBodyType' | 'vehicleWheelType'>>) => {
+    updateFiscal: async (id: string, data: Partial<Pick<Link, 'vehicleTypeId' | 'vehiclePlate' | 'vehicleYear' | 'rntrc' | 'carrierType' | 'trailerPlate' | 'trailer2Plate' | 'trailer3Plate' | 'vehicleAxles' | 'vehicleOwnerDocument' | 'vehicleOwnerName' | 'vehicleChassi' | 'vehicleRenavam' | 'vehicleBodyType' | 'vehicleWheelType'>> & { reason?: string }) => {
         const response = await api.patch<ApiResponse<Link>>(`/links/${id}/fiscal`, data);
         return response.data;
     },
@@ -942,6 +945,7 @@ export const linksApi = {
     },
 
     updateOwnerPerson: async (id: string, data: {
+        reason?: string;
         legalName?: string;
         stateRegistration?: string;
         updatePersonAddress?: boolean;
@@ -961,6 +965,7 @@ export const linksApi = {
     },
 
     updateDriver: async (linkId: string, driverId: string, data: Partial<{
+        reason: string;
         name: string;
         document: string;
         phone: string;
@@ -1130,7 +1135,7 @@ export const personsApi = {
         return response.data;
     },
 
-    update: async (id: string, data: UpdatePersonRequest) => {
+    update: async (id: string, data: UpdatePersonRequest & { reason?: string }) => {
         const response = await api.patch<ApiResponse<Person>>(`/persons/${id}`, data);
         return response.data;
     },

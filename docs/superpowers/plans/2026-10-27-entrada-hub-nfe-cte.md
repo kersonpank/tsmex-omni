@@ -1,0 +1,76 @@
+# Entrada direta no hub, inscrições estaduais e correção de CT-e rejeitado
+
+**Objetivo:** corrigir a entrada por NF-e no `/hubs` para que uma carga entregue diretamente ao hub tenha o início da prestação no hub que a recebeu; tornar confiável e transparente a importação das IEs; e permitir que o operador corrija o CFOP e reenvie um CT-e efetivamente rejeitado.
+
+**Escopo:** entrada direta e recuperação da emissão já existente. A operação completa de solicitação, planejamento e execução de coletas fica para uma entrega posterior. As regras aqui são determinísticas e se apoiam nos dados operacionais e fiscais; não requerem classificação por IA.
+
+## Diagnóstico confirmado
+
+- `server/src/services/acbr/acbrCteMapper.ts` monta `ide.cMunIni`, `ide.xMunIni` e `ide.UFIni` a partir do remetente. A origem do cálculo não é usada para esses campos. O município do remetente e o do início da prestação são conceitos distintos.
+- `Order.origemPrestacao`/`origemIbgeCode` e `OrderFreightCalculation.originCity` já existem, mas não há uma origem fiscal completa e inequívoca no contrato entregue ao mapper. O builder leva `originCity` ao cálculo, porém não leva um município/UF/IBGE próprios para a prestação. A minuta usa `calc.originCity`, portanto a impressão pode divergir do enviado à ACBr.
+- `Hub.city`, `Hub.state` e `Hub.cityIbgeCode` existem. O hub físico da entrada, o hub selecionado no cálculo e a pessoa do emitente fiscal podem não ser a mesma entidade; o último não deve ser usado para presumir o local físico da entrada.
+- O CFOP efetivo atual é o do cálculo ou, se vazio, o padrão do emitente (`cteEmitterDefaults.ts`). Os catálogos de backend e frontend incluem `6932`, mas não `5932` nem os demais CFOPs internos correspondentes já suportados em operações interestaduais.
+- Não há um sinal único e confiável de entrega direta: `Opportunity.needsCollection` tem valor padrão, `Demand.intentType = DROP_AT_HUB` é usado como padrão na pré-entrada/manual e `Order.collectionData` também armazena dados de carga. Uma solicitação de coleta tampouco comprova que a coleta foi realizada. A chegada já é confirmada em `server/src/services/intake/confirmIntakeArrival.ts`.
+- O provedor retorna `rejectionCode`, mas o processamento assíncrono persiste principalmente o texto da rejeição. Há edição genérica e ação de reenvio para CT-e rejeitado; para cálculos automáticos, o salvamento genérico pode recalcular o frete e mudar o estado para `CALCULATED`, tornando a rejeição e a correção pouco claras.
+- A ausência de `providerDocId` hoje libera reemissão mesmo sem prova suficiente de que o POST não chegou à ACBr. Erros genéricos da fila podem levar a novo POST e uma resposta sem ID é classificada como rejeição. Esse risco precisa ser resolvido como pré-requisito do botão de reenvio; o código não comprova que `referencia` seja uma chave idempotente do provedor.
+- O `GET /api/nfe/:chave` em `server/src/routes/nfe.ts` lê a chave e XML local; não executa a cascata de consulta de IE sugerida por um comentário. O helper `resolveStateRegistration.ts` existe, mas não foi encontrado em chamadas de produção. O botão **Importar** de `DocumentInput.tsx` usa outro fluxo (`accounts.ts` → `cnpjService.ts`): ReceitaWS fornece o cadastro e SintegraWS tenta complementar a IE se houver token configurado. Erros da consulta ao Sintegra podem se confundir com ausência de resultado.
+- Em `EntradaTab.tsx`, o pré-scan pode tentar criar pessoas com cidade/UF sem `cityIbgeCode`, exigido pela API, e oculta a falha. A sugestão de IE do remetente também usa o pré-scan, enquanto a do destinatário depende do XML vinculado à demanda. São falhas plausíveis, mas não há resposta ou registro do caso relatado para concluir qual delas ocorreu.
+
+## Regras de negócio e fiscais
+
+1. Quando houver evidência de **entrada direta sem coleta contratada** no fluxo do hub, a origem fiscal inicial é município, UF e código IBGE do **hub que recebeu a carga**. O remetente continua sendo o da NF-e, com seu próprio endereço e seu próprio código IBGE. Salvar a origem ao registrar a entrada ou, no máximo, ao criar o cálculo, para que uma movimentação posterior ou alteração cadastral do hub não mude uma tentativa já preparada.
+2. Para registro com coleta identificada, preservar a origem da prestação existente e o comportamento atual até a futura entrega de coleta. Ausência de informação em legado, JSON vazio ou campo não preenchido não prova, por si só, que a carga foi entregue diretamente. Em caso inconclusivo, preservar a origem existente e pedir confirmação operacional antes de substituí-la.
+3. A localização a enviar deve ser uma unidade coerente `{cidade, UF, codigoIBGE}`, validada contra o cadastro de municípios. Não inventar capital, UF, código IBGE nem reutilizar o IBGE de origem no endereço do remetente. Se o hub não tiver localidade válida, informar a pendência antes do envio.
+4. Aplicar a origem resolvida de forma consistente no cálculo, na visualização, na minuta e no pré-envio/worker da ACBr. Evitar alterar silenciosamente rota comercial, preço ou histórico fiscal. Para cálculos já rejeitados, oferecer correção direcionada quando houver evidência ou confirmação da entrada direta; não fazer atualização em massa nem alterar CT-es já enviados, em reconciliação, autorizados ou cancelados.
+5. Para CT-e normal no escopo nacional, validar no pré-envio o grupo de transporte e a compatibilidade das UFs: início igual ao fim exige CFOP iniciado por 5; início diferente do fim exige 6; fim no exterior exige 7. Se a UF do emitente diferir da de início, e início/fim não forem exterior, a regra 524 exige `5932` ou `6932`; se for igual, a regra 908 veda esses dois códigos. Considerar as exceções do MOC e o tipo de documento antes de generalizar a regra.
+6. Completar o catálogo em ambos os lados, incluindo `5932` e as opções internas de transporte pertinentes ao escopo. A escolha completa do CFOP depende também da natureza do serviço e do tomador: exibir orientações e sugestões coerentes, sem substituir automaticamente uma escolha fiscal por mera troca do primeiro dígito. Não preencher `ISENTO` por ausência de resultado de consulta.
+
+Referência: [MOC CT-e 4.00, Anexo I, validações G049–G052 e campos de início da prestação](https://www.cte.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=6aFNuknaWsc%3D).
+
+## Plano de execução
+
+### 1. Origem da prestação e entrada direta
+
+- [ ] Definir um contrato durável para distinguir entrega direta confirmada, coleta identificada e situação desconhecida. Na confirmação em `confirmIntakeArrival.ts`, registrar a modalidade, o hub físico, data/usuário e a fonte. Quando o próprio fluxo não comprovar a modalidade, oferecer confirmação simples ao operador; não presumir entrega direta somente por `DROP_AT_HUB`, `needsCollection = false` ou `collectionData` vazio. Incluir a migração necessária, mantendo os registros legados indeterminados como desconhecidos.
+- [ ] No ponto de confirmação da entrada direta, registrar a cidade, a UF e o IBGE do hub correto; não sobrescrever remetente, destinatário, dados da NF-e ou uma origem fiscal já consolidada. `expectedHubId` é previsão, não comprovação de chegada. Definir o tratamento dos pedidos anteriores com evidência de entrada direta e dos indeterminados. A construção de vínculo completo entre coleta e entrada permanece para a implementação futura de coleta.
+- [ ] Ajustar `server/src/services/fiscal/cteEmissionInputBuilder.ts` e o contrato de `server/src/services/cteService.ts` para carregar a localidade fiscal completa. Usar a mesma resolução em `freightCalculations.ts`, `cteEmissionJobInput.ts`, prévia e `freightEmission.ts`, sem reler uma localização mutável depois do preparo da tentativa.
+- [ ] Ajustar `acbrCteMapper.ts`: `ide.cMunIni/xMunIni/UFIni` vêm da origem fiscal; `rem.enderReme` vem somente do cadastro do remetente; destino e emitente permanecem independentes. Conferir também o cálculo de `cMunFim` e `enderDest` para não misturar código de prestação com endereço do destinatário.
+- [ ] Exibir ao operador a origem e sua fonte antes da emissão. Uma alteração da origem fiscal deve atualizar a prévia e revalidar o CFOP, sem recalcular nem trocar o preço/rota automaticamente.
+
+### 2. IE de remetente e destinatário
+
+- [ ] Reproduzir separadamente leitura da chave e botão **Importar** em `EntradaTab.tsx`, `PersonFormModal.tsx`, `DocumentInput.tsx`, `nfe.ts`, `accounts.ts` e `cnpjService.ts`; verificar documento, UF, resposta, transformação, estado do formulário e gravação no `Person`. Tratar token ausente e erro de fonte como estados explícitos em vez de afirmar que a IE não existe.
+- [ ] Corrigir a criação de pessoas com IBGE compatível e remover a supressão silenciosa de erros. Carregar a sugestão do destinatário do pré-scan tal como a do remetente, preservando cadastro já preenchido e exibindo divergências.
+- [ ] Reutilizar dados do cadastro e do XML completo já autorizado, com origem e data, e consultar cadastro externo quando suportado para o documento/UF corretos. O XML retrata a NF e não garante situação cadastral atual. Verificar o aproveitamento de XML que chegou após a demanda `NFE_KEY`; validar chave, ambiente e autorização antes de vinculá-lo.
+- [ ] Para consulta explícita de XML completo, conferir `fetchNfeCompleta.ts` quanto ao ambiente das credenciais e ao tipo após download. Não gerar manifestação fiscal ou `Ciência da Operação` como efeito oculto de importar uma IE.
+- [ ] Preencher automaticamente apenas IE correspondente à parte e ao documento/UF consultados. Preservar edição manual, impedir que uma resposta tardia sobrescreva alteração recente e tratar explicitamente ausência de IE, isenção confirmada, cadastro com mais de uma inscrição, dados conflitantes e falhas/indisponibilidade do serviço.
+- [ ] A tela deve informar sucesso ou motivo da não importação e permitir preenchimento manual. Um retorno público da NF-e ou do CNPJ não garante que a IE esteja disponível; não inventar resultado nem bloquear a entrada operacional por uma consulta indisponível.
+
+Referência: [SVRS sobre consulta cadastral e acesso por web service](https://dfe-portal.svrs.rs.gov.br/Cte/Avisos/2958).
+
+### 3. CFOP e recuperação após rejeição
+
+- [ ] Completar e manter sincronizados `server/src/services/fiscal/cteTaxRules.ts` e `lib/cteTaxCatalog.ts`, e acrescentar pré-validações para UF do emitente, UF de início e UF de fim. Retornar a origem considerada, o CFOP efetivo (inclusive padrão do emitente) e a pendência ao formulário. Rejeitar código malformado, sem truncar dígitos excedentes.
+- [ ] Persistir, por tentativa, o código e o texto reais da rejeição, os dados fiscais necessários para entender a tentativa e a identificação do job/provedor, preservando o histórico ao corrigir e reenviar. Não inferir código da SEFAZ a partir de uma mensagem vaga ou erro técnico.
+- [ ] Em `CTE_REJECTED`, mostrar junto da mensagem a ação **“Corrigir CFOP”**, o CFOP atual, o início/fim e o seletor válido; permitir salvar apenas a correção e executar nova pré-validação antes de **“Reenviar CT-e”**. Para rejeição 524 causada por origem incorreta, corrigir e revalidar primeiro a origem; não impor 5932/6932 se a operação corrigida não exigir.
+- [ ] Implementar a atualização com controle de concorrência e autorização do hub/administrador no backend; assegurar que não recalcula preço, não apaga histórico e não altera um documento em andamento. Serializar edição, recálculo e envio usando estado e versão na escrita. Preservar os identificadores, o vínculo com o cálculo e o histórico de cada tentativa; impedir exclusão em cascata desse histórico.
+- [ ] Congelar, por tentativa, os dados fiscais efetivos, ambiente, série, número e referência; o worker deve usar o ambiente e a identidade da tentativa também durante o polling, sem reconstruir a consulta a partir de cadastros que podem ter mudado. Não expor certificados ou dados desnecessários no histórico.
+- [ ] Reenvio somente após rejeição confirmada. Em envio/processamento, timeout, resposta sem ID ou resultado incerto, manter bloqueio e reconciliar o status do provedor antes de qualquer nova submissão. Distinguir não submetido comprovadamente, envio incerto e submissão com ID. Ajustar tanto o endpoint quanto os retries automáticos do worker. Confirmar o contrato da ACBr para referência, numeração, série e nova tentativa; não presumir que se deve manter ou consumir nova numeração.
+- [ ] Corrigir/testar a reconciliação com job de fila anterior ainda retido: hoje o reenqueue reaproveita o mesmo `jobId` e a rota atualiza o status depois de enfileirar. Separar identidade da tentativa fiscal e identidade de execução de consulta, proteger transições de workers antigos e impedir que uma conclusão seja sobrescrita por uma escrita tardia.
+- [ ] Atualizar a interface em resposta ao retorno assíncrono e preservar as garantias de XML, chave, protocolo e data reais para CT-e autorizado. Conferir o tratamento de simulação e a impressão da minuta/DACTE; minuta segue identificada como documento sem valor fiscal.
+
+### 4. Verificação e entrega
+
+- [ ] Unidade: resolver entrada direta/coleta/desconhecido; validar cidade/UF/IBGE; conferir o XML gerado com hub e remetente em cidades/UFs diferentes e garantir que `enderReme` continua correto.
+- [ ] Fiscal: cobrir UF de início igual/diferente da do emitente, fim na mesma/outra UF, catálogos `5xxx`/`6xxx`, 519/524/908, origem corrigida e CFOP escolhido manualmente; garantir consistência entre prévia, minuta e payload enviado.
+- [ ] IE: respostas com IE no XML ou consulta, XML antes/depois da demanda, pessoa existente, criação com/sem IBGE, sem IE, token ausente, erro/limite de consulta, isenção comprovada, múltiplos registros e edição concorrente do operador; cobrir remetente e destinatário independentemente.
+- [ ] Integração: retorno de rejeição do provedor simulado em teste → correção → pré-validação → novo job → autorização confirmada; duplo clique, PATCH concorrente com envio e workers antigos; timeout após POST, resposta sem ID e reconciliação com job retido; histórico preservado e acesso de outro hub negado.
+- [ ] Verdade fiscal: resposta de autorização sem chave, protocolo, XML ou data não pode produzir autorização oficial; prévias, simulação e Minuta não podem ser apresentadas como DACTE autorizado.
+- [ ] Rodar testes focados, checagem de tipos e build pertinentes. Validar em homologação com a ACBr e inspecionar o XML enviado e o autorizado antes da liberação. Não emitir em produção durante a verificação.
+
+## Ordem e divisão sugeridas
+
+1. Fechar contrato de origem e tratamento dos registros anteriores; uma única pessoa/agente coordena tipos e migração, se necessária.
+2. Em paralelo e com arquivos separados: trilha de IE; trilha de origem e mapper; trilha de UX de rejeição com contratos combinados previamente.
+3. Integrar CFOP, pré-validação, fila e histórico fiscal; revisar especialmente alterações compartilhadas em `freightCalculations.ts`, `schema.prisma`, `lib/api.ts` e `types/index.ts`.
+4. Executar a matriz de testes e a homologação ponta a ponta. Só considerar concluído quando o início fiscal estiver igual na tela, minuta e XML e a correção de rejeição funcionar sem risco de duplicidade.

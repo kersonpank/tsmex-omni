@@ -7,7 +7,7 @@ import InlineNotice from '../ui/InlineNotice';
 import LoadingPanel from '../ui/LoadingPanel';
 import StatusBadge from '../ui/StatusBadge';
 import { useRegisterGestaoModuleActions } from './layout/GestaoModuleActionsContext';
-import { manifestStatusLabels as statusLabels, manifestStatusTone as manifestTone } from '../../lib/manifestStatusUi';
+import { manifestStatusLabels as statusLabels, manifestStatusTone as manifestTone, manifestStatusLabel } from '../../lib/manifestStatusUi';
 
 const tripTypeLabels: Record<ManifestTripType, string> = {
   TRANSFER: 'Transferência hub',
@@ -152,7 +152,7 @@ const ManifestsTab: React.FC = () => {
                   {m.tripType && (
                     <StatusBadge label={tripTypeLabels[m.tripType] ?? m.tripType} tone={m.tripType === 'DELIVERY' ? 'success' : 'info'} />
                   )}
-                  <StatusBadge label={statusLabels[m.status] ?? m.status} tone={manifestTone[m.status] ?? 'neutral'} />
+                  <StatusBadge label={manifestStatusLabel(m)} tone={manifestTone[m.status] ?? 'neutral'} />
                   <span className="font-bold text-tower-900 dark:text-tower-50">{m.origin} → {m.destination}</span>
                   {m.vehicleType && <span className="text-sm text-tower-500">({m.vehicleType.name})</span>}
                   {m.link && <span className="text-sm text-tower-600 dark:text-tower-300">· Responsável: {m.link.name}</span>}

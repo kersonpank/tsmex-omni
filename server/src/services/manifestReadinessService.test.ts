@@ -31,6 +31,8 @@ const completeAddress = {
 
 const baseLink = {
     id: 'link-1',
+    userId: 'user-link',
+    document: '52998224725',
     approvalStatus: 'APPROVED',
     rntrc: '123456789',
     carrierType: 'TAC',
@@ -43,6 +45,8 @@ const baseLink = {
 
 const baseDriver = {
     id: 'driver-1',
+    document: '52998224725',
+    phone: '11999999999',
     linkId: 'link-1',
     cnhNumber: '12345678901',
     cnhExpiry: futureDate,
@@ -63,6 +67,7 @@ const baseManifest = {
     plannedDepartureAt: new Date('2026-09-20T10:00:00Z'),
     plannedArrivalAt: new Date('2026-09-20T18:00:00Z'),
     fiscalEmitterId: 'fe-1',
+    fiscalEmitter: { active: true, person: { ...completeAddress, document: '11222333000181', legalName: 'Emitente' } },
     linkId: 'link-1',
     link: baseLink,
     driverId: 'driver-1',
@@ -88,6 +93,41 @@ describe('manifestReadinessService', () => {
             driver,
         })) as any;
     }
+
+    it('libera e inicia sem conta; somente oferta exige acesso do transportador', async () => {
+        mockWith({ userId: null, tractionUnit: { plate: 'ABC1D23', role: 'TRACTION', chassi: '9BWZZZ377VT004251', renavam: '12345678901', axles: 3, rntrc: '123456789', tareKg: 7200, capacityKg: 18000 } });
+        let readiness = await getManifestReadiness('manifest-1');
+        assert.equal(readiness.canRelease, true);
+        assert.equal(readiness.canSendOffer, false);
+        assert.deepEqual(readiness.actionIssues.release, []);
+        assert.ok(readiness.actionIssues.offer.some(item => item.code === 'LINK_ACCESS_PENDING'));
+        assert.notEqual(readiness.steps.freight.state, 'locked');
+        assert.notEqual(readiness.steps.review.state, 'locked');
+        mockWith({ userId: null, tractionUnit: { plate: 'ABC1D23', role: 'TRACTION', chassi: '9BWZZZ377VT004251', renavam: '12345678901', axles: 3, rntrc: '123456789', tareKg: 7200, capacityKg: 18000 } }, undefined, { status: 'ACCEPTED' });
+        prisma.orderLeg.findMany = (async () => []) as any;
+        prisma.manifestFiscalDocument.findMany = (async () => [
+            { documentType: 'MDFE', accessKey: '1'.repeat(44), protocol: 'protocol', xmlUrl: 'stored' },
+            { documentType: 'CIOT', number: 'ciot-1' },
+        ]) as any;
+        readiness = await getManifestReadiness('manifest-1');
+        assert.equal(readiness.canStart, true);
+        assert.equal(readiness.currentStep, 'fiscal');
+    });
+
+    it('cadastro auxiliar do CIOT não impede liberação mas impede emissão', async () => {
+        mockWith({ userId: null, tractionUnit: { plate: 'ABC1D23', role: 'TRACTION', chassi: '9BWZZZ377VT004251', renavam: '12345678901', axles: 3, rntrc: '123456789', tareKg: 7200, capacityKg: 18000 } }, { birthDate: null, phone: null });
+        const readiness = await getManifestReadiness('manifest-1');
+        assert.equal(readiness.canRelease, true);
+        assert.ok(readiness.actionIssues.ciot.some(item => item.code === 'DRIVER_PHONE_PENDING'));
+        assert.ok(readiness.actionIssues.ciot.some(item => item.code === 'DRIVER_BIRTH_DATE_PENDING'));
+    });
+
+    it('não libera motorista sem CPF ou CNH e transportador inativo', async () => {
+        mockWith(undefined, { document: null, cnhNumber: null });
+        assert.equal((await getManifestReadiness('manifest-1')).canRelease, false);
+        mockWith({ active: false });
+        assert.equal((await getManifestReadiness('manifest-1')).canRelease, false);
+    });
 
     it('base fixture: no blocking issues, canOffer true', async () => {
         mockWith();
@@ -142,7 +182,8 @@ describe('manifestReadinessService', () => {
         const issue = r.issues.find((i) => i.code === 'DRIVER_ADDRESS_PENDING');
         assert.ok(issue, 'DRIVER_ADDRESS_PENDING should be present');
         assert.equal(issue?.severity, 'blocking');
-        assert.equal(r.canOffer, false);
+        assert.equal(r.canOffer, true);
+        assert.ok(r.actionIssues.ciot.some(i => i.code === issue?.code));
     });
 
     it('driver person with empty cep → DRIVER_ADDRESS_PENDING blocking', async () => {
@@ -151,7 +192,8 @@ describe('manifestReadinessService', () => {
         const issue = r.issues.find((i) => i.code === 'DRIVER_ADDRESS_PENDING');
         assert.ok(issue, 'DRIVER_ADDRESS_PENDING should be present when cep is empty');
         assert.equal(issue?.severity, 'blocking');
-        assert.equal(r.canOffer, false);
+        assert.equal(r.canOffer, true);
+        assert.ok(r.actionIssues.ciot.some(i => i.code === issue?.code));
     });
 
     // --- Vehicle fields ---
@@ -200,7 +242,8 @@ describe('manifestReadinessService', () => {
         const issue = r.issues.find((i) => i.code === 'DRIVER_BIRTH_DATE_PENDING');
         assert.ok(issue, 'DRIVER_BIRTH_DATE_PENDING should be present');
         assert.equal(issue?.severity, 'blocking');
-        assert.equal(r.canOffer, false);
+        assert.equal(r.canOffer, true);
+        assert.ok(r.actionIssues.ciot.some(i => i.code === issue?.code));
     });
 
     // --- RENAVAM é obrigatório (decisão do negócio: junto com chassi e eixos) ---

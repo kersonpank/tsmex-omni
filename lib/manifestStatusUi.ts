@@ -19,3 +19,8 @@ export const manifestStatusTone: Record<string, StatusTone> = {
   CANCELLED: 'danger',
   REJECTED: 'danger',
 };
+
+export function manifestStatusLabel(manifest: { status: string; releaseSource?: string | null }): string {
+  if (manifest.status === 'ACCEPTED' && manifest.releaseSource === 'OPERATOR') return 'Liberada pela operação';
+  return manifestStatusLabels[manifest.status] ?? manifest.status;
+}

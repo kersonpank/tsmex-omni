@@ -19,12 +19,14 @@ interface Props {
   onSave: () => void;
   createdLinkId?: string | null;
   inviteUrl?: string | null;
-  onApproveAndInvite: () => void;
+  onApprove: () => void;
+  onInvite?: () => void;
+  approved?: boolean;
   error?: string | null;
   fieldClass: string;
 }
 
-const LinkQuickCreateModal: React.FC<Props> = ({ form, setForm, onLookupCnpj, lookupLoading, lookupSource, saving, onClose, onSave, createdLinkId, inviteUrl, onApproveAndInvite, error, fieldClass }) => (
+const LinkQuickCreateModal: React.FC<Props> = ({ form, setForm, onLookupCnpj, lookupLoading, lookupSource, saving, onClose, onSave, createdLinkId, inviteUrl, onApprove, onInvite, approved, error, fieldClass }) => (
   <div className="fixed inset-0 z-50 flex items-end justify-center">
     <button type="button" onClick={onClose} className="absolute inset-0 bg-tower-950/55" aria-label="Fechar cadastro de transportador" />
     <section
@@ -72,15 +74,16 @@ const LinkQuickCreateModal: React.FC<Props> = ({ form, setForm, onLookupCnpj, lo
 
       {error && <p role="alert" className="mt-4 rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">{error}</p>}
       {createdLinkId && <div className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
-        <p className="font-bold">Cadastro salvo. Confira os dados e aprove para liberar o convite.</p>
+        <p className="font-bold">{approved ? 'Cadastro aprovado. O acesso ao aplicativo é opcional.' : 'Cadastro salvo. Confira os dados e aprove o transportador.'}</p>
+        {approved && onInvite && !inviteUrl && <button type="button" disabled={saving} onClick={onInvite} className="mt-3 underline">Gerar convite de acesso (opcional)</button>}
         {inviteUrl && <><p className="mt-3">Envie este convite ao transportador para ele criar o acesso ao aplicativo:</p><input readOnly aria-label="Convite de acesso" value={inviteUrl} onFocus={(e) => e.target.select()} className="mt-2 w-full rounded-lg border bg-white p-2 text-xs" /></>}
       </div>}
       <div className="mt-6 flex gap-3">
         <button type="button" onClick={onClose} className="admin-focus min-h-12 rounded-xl px-4 text-sm font-semibold text-tower-600 hover:bg-tower-100 dark:text-tower-300 dark:hover:bg-tower-800">
           {createdLinkId ? 'Voltar à viagem' : 'Cancelar'}
         </button>
-        <button type="button" onClick={createdLinkId ? onApproveAndInvite : onSave} disabled={saving || !!inviteUrl} className="admin-focus min-h-12 flex-1 rounded-xl bg-brand-600 px-5 text-sm font-bold text-white hover:bg-brand-700 disabled:opacity-50">
-          {saving ? 'Processando…' : inviteUrl ? 'Convite gerado' : createdLinkId ? 'Aprovar e gerar convite' : 'Cadastrar e selecionar'}
+        <button type="button" onClick={createdLinkId ? approved ? onClose : onApprove : onSave} disabled={saving} className="admin-focus min-h-12 flex-1 rounded-xl bg-brand-600 px-5 text-sm font-bold text-white hover:bg-brand-700 disabled:opacity-50">
+          {saving ? 'Processando…' : approved ? 'Continuar viagem' : createdLinkId ? 'Aprovar cadastro' : 'Cadastrar e selecionar'}
         </button>
       </div>
     </section>

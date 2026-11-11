@@ -144,7 +144,7 @@ describe('buildCiotEmissionInputForJob fiscal emitter resolution and eFrete envi
         assert.deepEqual(result.mapperInput.veiculos, ['ABC1D23', 'DEF456', 'GHI7J89', 'JKL0M12']);
     });
 
-    it('takes plates and the contratado RNTRC from the Vehicle Units (cavalo RNTRC wins over the legacy Link RNTRC)', async () => {
+    it('uses contracted carrier RNTRC while vehicle plates come from Vehicle Units', async () => {
         const { jobRecord, manifestRecord, hubDefaultEmitter } = createBaseEntities();
         Object.assign(manifestRecord.link, {
             vehiclePlate: null, rntrc: '111111111',
@@ -154,7 +154,16 @@ describe('buildCiotEmissionInputForJob fiscal emitter resolution and eFrete envi
         });
         const result = await buildCiotEmissionInputForJob('job-1', makeDeps(jobRecord, manifestRecord, hubDefaultEmitter) as any);
         assert.deepEqual(result.mapperInput.veiculos, ['ABC1D23', 'DEF4G56', 'GHI7J89']);
-        assert.equal(result.mapperInput.contratado.rntrc, '987654321');
+        assert.equal(result.mapperInput.contratado.rntrc, '111111111');
+    });
+
+    it('empresa sem login usa seu CNPJ/RNTRC e motorista separado, inclusive com titular RNTRC do cavalo diferente', async () => {
+        const { jobRecord, manifestRecord, hubDefaultEmitter } = createBaseEntities();
+        Object.assign(manifestRecord.link, { userId: null, document: '11222333000181', carrierType: 'ETC', rntrc: '11111111', tractionUnit: { plate: 'ABC1D23', role: 'TRACTION', rntrc: '987654321', rntrcHolderPerson: { id: 'another-owner', document: '52998224725', legalName: 'Titular do cavalo', rntrc: '987654321' } } });
+        const result = await buildCiotEmissionInputForJob('job-1', makeDeps(jobRecord, manifestRecord, hubDefaultEmitter) as any);
+        assert.equal(result.mapperInput.contratado.cpfOuCnpj, '11222333000181');
+        assert.equal(result.mapperInput.contratado.rntrc, '011111111');
+        assert.equal(result.mapperInput.motorista.cpfOuCnpj, manifestRecord.driver.document);
     });
 
     it('removes empty, duplicate, and format-equivalent plates', async () => {

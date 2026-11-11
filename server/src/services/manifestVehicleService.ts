@@ -4,6 +4,8 @@ import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { linkCompositionSchema, upsertVehicleUnit, manifestVehicleAssignmentsInclude } from './vehicleUnitService.js';
 import { normalizePlate, resolveManifestComposition } from './vehicleUnitRules.js';
+import { getManifestReadiness } from './manifestReadinessService.js';
+import { assertTripPlanningMutable, recordPlanningEdit } from './manifestFiscalGuards.js';
 
 export const manifestVehiclesSchema = linkCompositionSchema;
 export type ManifestVehiclesInput = z.infer<typeof manifestVehiclesSchema>;
@@ -13,7 +15,7 @@ function overlaps(aStart: Date | null, aEnd: Date | null, bStart: Date | null, b
     return aStart < bEnd && bStart < aEnd;
 }
 
-export async function setManifestVehicles(manifestId: string, input: ManifestVehiclesInput) {
+export async function setManifestVehicles(manifestId: string, input: ManifestVehiclesInput, actorUserId?: string) {
     const manifest = await prisma.manifest.findUnique({ where: { id: manifestId }, select: { status: true, plannedDepartureAt: true, plannedArrivalAt: true, link: { select: { personId: true } } } });
     if (!manifest) throw new AppError('Viagem não encontrada.', 404);
     if (manifest.status !== 'DRAFT') throw new AppError('Reabra o planejamento antes de trocar veículos.', 409);
@@ -22,6 +24,9 @@ export async function setManifestVehicles(manifestId: string, input: ManifestVeh
     if (new Set(plates).size !== plates.length) throw new AppError('Cada placa só pode aparecer uma vez na composição.', 400);
 
     return prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT "id" FROM "Manifest" WHERE "id" = ${manifestId} FOR UPDATE`;
+        await assertTripPlanningMutable(manifestId, tx);
+        const before = actorUserId ? await tx.manifestVehicleAssignment.findMany({ where: { manifestId }, ...manifestVehicleAssignmentsInclude }) : [];
         const units = [];
         for (const [index, item] of all.entries()) {
             units.push(await upsertVehicleUnit(tx, index === 0 ? 'TRACTION' : 'TRAILER', item, { defaultHolderPersonId: manifest.link?.personId }));
@@ -37,7 +42,9 @@ export async function setManifestVehicles(manifestId: string, input: ManifestVeh
         await tx.manifestVehicleAssignment.createMany({ data: units.map((unit, slot) => ({ manifestId, vehicleUnitId: unit.id, slot })) });
         const updated = await tx.manifest.updateMany({ where: { id: manifestId, status: 'DRAFT' }, data: { compositionSnapshot: Prisma.DbNull, updatedAt: new Date() } });
         if (updated.count !== 1) throw new AppError('A viagem mudou de estado enquanto a composição era salva. Recarregue a página.', 409);
-        return tx.manifestVehicleAssignment.findMany({ where: { manifestId }, ...manifestVehicleAssignmentsInclude });
+        const result = await tx.manifestVehicleAssignment.findMany({ where: { manifestId }, ...manifestVehicleAssignmentsInclude });
+        if (actorUserId) await recordPlanningEdit(tx, manifestId, actorUserId, 'VEHICLES', before, result);
+        return result;
     });
 }
 
@@ -49,6 +56,8 @@ export async function publishManifestOffer(manifestId: string) {
             include: { vehicleAssignments: manifestVehicleAssignmentsInclude },
         });
         if (!manifest || manifest.status !== 'DRAFT') throw new AppError('A viagem não está em rascunho.', 409);
+        const readiness = await getManifestReadiness(manifestId, tx);
+        if (!readiness.canSendOffer) throw new AppError(readiness.actionIssues.offer.map(item => item.message).join(' '), 422);
         const composition = resolveManifestComposition(manifest);
         if (!composition.traction) throw new AppError('Escolha o cavalo desta viagem antes de ofertar.', 422);
         const offeredAt = new Date();

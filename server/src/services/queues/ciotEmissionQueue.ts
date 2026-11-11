@@ -35,6 +35,11 @@ export async function enqueueCiotEmissionJob(
     data: CiotEmissionJobData,
     queue: Pick<Queue<CiotEmissionJobData>, 'add'> = getCiotEmissionQueue(),
 ): Promise<string> {
+    // BullMQ conserva jobs concluídos: adicionar o mesmo ID não executa novamente.
+    if ('getJob' in queue) {
+        const existing = await (queue as Queue<CiotEmissionJobData>).getJob(data.ciotEmissionJobId);
+        if (existing && ['completed', 'failed'].includes(await existing.getState())) await existing.remove();
+    }
     const job = await queue.add('emit', data, { jobId: data.ciotEmissionJobId });
     if (!job.id) throw new Error('BullMQ não retornou id para o job enfileirado.');
     return job.id;

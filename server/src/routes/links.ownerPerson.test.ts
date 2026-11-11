@@ -69,6 +69,8 @@ describe('PATCH /api/links/:id/owner-person', () => {
     let updatedLink: Record<string, unknown> | null = null;
 
     const original = {
+        manifestFindMany: prisma.manifest.findMany,
+        taskTransaction: prisma.$transaction,
         userFindUnique: prisma.user.findUnique,
         linkFindUnique: prisma.link.findUnique,
         linkUpdate: prisma.link.update,
@@ -79,6 +81,8 @@ describe('PATCH /api/links/:id/owner-person', () => {
 
     before(async () => {
         process.env.JWT_SECRET = jwtSecret;
+        prisma.manifest.findMany = (async () => []) as any;
+        prisma.$transaction = (async (fn: any) => fn(prisma)) as any;
 
         prisma.user.findUnique = (async (args: any) => {
             const u = users[args?.where?.id];
@@ -134,6 +138,8 @@ describe('PATCH /api/links/:id/owner-person', () => {
     after(async () => {
         if (server) await new Promise<void>((resolve, reject) => server!.close((err) => (err ? reject(err) : resolve())));
         prisma.user.findUnique = original.userFindUnique;
+        prisma.manifest.findMany = original.manifestFindMany;
+        prisma.$transaction = original.taskTransaction;
         prisma.link.findUnique = original.linkFindUnique;
         prisma.link.update = original.linkUpdate;
         prisma.person.findUnique = original.personFindUnique;

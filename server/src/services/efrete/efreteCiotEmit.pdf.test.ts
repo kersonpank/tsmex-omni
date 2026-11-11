@@ -11,7 +11,7 @@ test('obterCiotPdf sends authenticated PDF request with explicit environment', a
         return { Pdf: pdf };
     }) as any);
     assert.equal(result, pdf);
-    assert.deepEqual(seen, ['/Services/Pef/ObterOperacaoTransportePdf', { CodigoIdentificacaoOperacao: 'CIOT-1' }, { environment: 'producao' }]);
+    assert.deepEqual(seen, ['/Services/Pef/ObterOperacaoTransportePdf', { CodigoIdentificacaoOperacao: 'CIOT-1' }, { environment: 'producao', versao: 1 }]);
 });
 
 test('obterCiotPdf rejects empty, malformed, and non-PDF responses', async () => {

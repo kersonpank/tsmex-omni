@@ -1,3 +1,4 @@
+import { lockFiscalCadastros, recordPlanningEdit, assertCadastroCorrectionReason } from '../services/manifestFiscalGuards.js';
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
@@ -464,7 +465,10 @@ router.patch('/:id', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRe
         if (isEmitter && !nextStateRegistration) {
             throw new AppError('Esta pessoa é um emissor fiscal e deve possuir uma Inscrição Estadual válida ou ser marcada como ISENTO', 400);
         }
-        const updated = await prisma.person.update({
+        const updated = await prisma.$transaction(async tx => {
+            const related = await lockFiscalCadastros(tx, { personId: id });
+            assertCadastroCorrectionReason(related, req.body.reason);
+        const updated = await tx.person.update({
             where: { id },
             data: {
                 ...(body.documentType && { documentType: body.documentType }),
@@ -485,6 +489,9 @@ router.patch('/:id', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRe
                 ...(body.rntrc !== undefined && { rntrc: body.rntrc }),
             },
         });
+            for (const manifest of related) await recordPlanningEdit(tx, manifest.id, req.user!.id, 'PERSON_DETAILS', person, updated, req.body.reason);
+            return updated;
+        }, { isolationLevel: 'Serializable' });
 
         res.json({
             success: true,

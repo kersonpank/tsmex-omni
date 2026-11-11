@@ -3,8 +3,8 @@ import { FiscalAddressFields, fiscalAddressFromPerson, type FiscalAddress } from
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
-import { manifestsApi, hubsApi, linksApi, fiscalEmittersApi, vehicleTypesApi, cnpjApi } from '../../lib/api';
-import type { Manifest, ResolvedOrderSummary, Hub, Link, FiscalEmitter, Driver, CiotTipoViagemSuggestion, CiotEmissionJob, ManifestJourneyStep, ManifestPlanningAction, ManifestReadiness, VehicleType, ManifestTripType, TripPriceEstimate } from '../../types/index';
+import { manifestsApi, hubsApi, linksApi, fiscalEmittersApi, vehicleTypesApi, cnpjApi, personsApi } from '../../lib/api';
+import type { Person, Manifest, ResolvedOrderSummary, Hub, Link, FiscalEmitter, Driver, CiotTipoViagemSuggestion, CiotEmissionJob, ManifestJourneyStep, ManifestPlanningAction, ManifestReadiness, VehicleType, ManifestTripType, TripPriceEstimate } from '../../types/index';
 import EmptyState from '../ui/EmptyState';
 import ErrorPanel from '../ui/ErrorPanel';
 import LoadingPanel from '../ui/LoadingPanel';
@@ -12,7 +12,7 @@ import InlineNotice from '../ui/InlineNotice';
 import StatusBadge from '../ui/StatusBadge';
 import OrderScanInput from '../ui/OrderScanInput';
 import { CityAutocomplete } from '../ui/CityAutocomplete';
-import { manifestStatusLabels as statusLabels, manifestStatusTone } from '../../lib/manifestStatusUi';
+import { manifestStatusLabel, manifestStatusTone } from '../../lib/manifestStatusUi';
 import { ManifestJourneyShell, manifestJourneySteps } from './ManifestJourneyShell';
 import TripResponsiblePanel from './TripResponsiblePanel';
 import DriverFiscalSheet from './DriverFiscalSheet';
@@ -139,7 +139,7 @@ const ManifestDetailPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user, currentRole } = useAuthStore();
   const isHubOnly = currentRole === 'HUB';
-  const isAdmin = currentRole === 'ADMIN';
+  const isAdmin = user?.roles.includes('ADMIN') ?? false;
   const stepParam = searchParams.get('step') as ManifestJourneyStep | null;
   const requestedStep = manifestJourneySteps.some((step) => step.key === stepParam) ? stepParam : null;
 
@@ -233,6 +233,11 @@ const ManifestDetailPage: React.FC = () => {
     traction: emptyDraft('TRACTION'),
     trailers: [],
   });
+  const [cadastroCorrectionReason, setCadastroCorrectionReason] = useState('');
+  const [editingOwnerPerson, setEditingOwnerPerson] = useState<Person | null>(null);
+  const [showCarrierSheet, setShowCarrierSheet] = useState(false);
+  const [carrierForm, setCarrierForm] = useState({ rntrc: '', carrierType: 'TAC' });
+  const [savingCarrier, setSavingCarrier] = useState(false);
   const [showOwnerPersonSheet, setShowOwnerPersonSheet] = useState(false);
   const [savingOwnerPerson, setSavingOwnerPerson] = useState(false);
   const [ownerPersonAlreadyHasAddress, setOwnerPersonAlreadyHasAddress] = useState(false);
@@ -271,6 +276,7 @@ const ManifestDetailPage: React.FC = () => {
   const [fiscalBusy, setFiscalBusy] = useState(false);
   const [showCiotForm, setShowCiotForm] = useState(false);
   const [ciotSuggestion, setCiotSuggestion] = useState<CiotTipoViagemSuggestion | null>(null);
+  const [ciotStatusUnavailable, setCiotStatusUnavailable] = useState(false);
   const [ciotJobStatus, setCiotJobStatus] = useState<CiotEmissionJob | null>(null);
   const emptyCiotForm = {
     documentoViagem: '', distanciaPercorrida: '', dataInicioViagem: '', dataFimViagem: '',
@@ -371,6 +377,9 @@ const ManifestDetailPage: React.FC = () => {
       setFiscalEmitters(((feRes as any)?.data ?? []) as FiscalEmitter[]);
       setVehicleTypes(((vehicleRes as any)?.data ?? []) as VehicleType[]);
       setReadiness((readinessRes as any)?.data ?? null);
+      setCiotStatusUnavailable(false);
+      const ciotStatus = await manifestsApi.ciotStatus(id).catch(() => { setCiotStatusUnavailable(true); return { data: null }; });
+      setCiotJobStatus(ciotStatus.data ?? null);
       if (nextManifest) {
         setRouteForm({
           tripType: nextManifest.tripType === 'REGIONAL_DISTRIBUTION' ? 'DELIVERY' : (nextManifest.tripType ?? 'TRANSFER'),
@@ -955,6 +964,7 @@ const ManifestDetailPage: React.FC = () => {
       let saved: Awaited<ReturnType<typeof linksApi.createDriver>>;
       if (driverId) {
         saved = await linksApi.updateDriver(driverLinkId, driverId, {
+          reason: cadastroCorrectionReason,
           name: driverFiscalForm.name.trim(),
           document: driverFiscalForm.document.replace(/\D/g, ''),
           phone: driverFiscalForm.phone.trim(),
@@ -992,7 +1002,7 @@ const ManifestDetailPage: React.FC = () => {
       const currentIds = manifest?.driverAssignments?.length
         ? manifest.driverAssignments.map((assignment) => assignment.driverId)
         : manifest?.driverId ? [manifest.driverId] : [];
-      await manifestsApi.setDrivers(id, [...new Set([...currentIds, driverId])]);
+      if (!currentIds.includes(driverId)) await manifestsApi.setDrivers(id, [...new Set([...currentIds, driverId])]);
       setShowDriverFiscalSheet(false);
       setShowDriverForm(false);
       flashSuccess('Dados fiscais do motorista atualizados.');
@@ -1036,7 +1046,8 @@ const ManifestDetailPage: React.FC = () => {
         traction: draftToInput(vehicleForm.traction),
         trailers: vehicleForm.trailers.map(draftToInput),
       });
-      await linksApi.updateFiscal(vehicleLinkId, {
+      if (vehicleForm.carrierType !== manifest.link?.carrierType) await linksApi.updateFiscal(vehicleLinkId, {
+        reason: cadastroCorrectionReason,
         carrierType: vehicleForm.carrierType as Link['carrierType'],
       });
       if (vehicleForm.vehicleTypeId !== manifest.vehicleTypeId) {
@@ -1058,8 +1069,21 @@ const ManifestDetailPage: React.FC = () => {
     }
   };
 
-  const openOwnerPersonSheet = () => {
+  const openOwnerPersonSheet = (personId?: string) => {
     if (!manifest?.link) return;
+    if (personId) {
+      void personsApi.getById(personId).then(response => {
+        const person = response.data;
+        if (!person) throw new Error('Responsável RNTRC não encontrado.');
+        setEditingOwnerPerson(person);
+        setOwnerPersonForm({ legalName: person.legalName, stateRegistration: person.stateRegistration ?? '', ...fiscalAddressFromPerson(person) });
+        setOwnerPersonAlreadyHasAddress(Boolean(person.address && person.cityIbgeCode));
+        setUpdateOwnerPersonAddress(false);
+        setShowOwnerPersonSheet(true);
+      }).catch(cause => setError(cause.response?.data?.error || cause.message));
+      return;
+    }
+    setEditingOwnerPerson(null);
     const p = manifest.link.person;
     const hasAddress = !!(p?.cep && p.cityIbgeCode);
     setOwnerPersonAlreadyHasAddress(hasAddress);
@@ -1081,7 +1105,7 @@ const ManifestDetailPage: React.FC = () => {
   };
 
   const handleLookupCnpjForOwner = async () => {
-    const doc = (manifest?.link?.document ?? '').replace(/\D/g, '');
+    const doc = (editingOwnerPerson?.document ?? manifest?.link?.document ?? '').replace(/\D/g, '');
     if (doc.length !== 14) return;
     setCnpjLookupLoading(true);
     setError(null);
@@ -1122,7 +1146,20 @@ const ManifestDetailPage: React.FC = () => {
     setSavingOwnerPerson(true);
     setError(null);
     try {
+      if (editingOwnerPerson) {
+        await personsApi.update(editingOwnerPerson.id, {
+          reason: cadastroCorrectionReason,
+          legalName: ownerPersonForm.legalName,
+          stateRegistration: ownerPersonForm.stateRegistration,
+          ...(addressReadOnly ? {} : fiscalAddressFromPerson(ownerPersonForm)),
+        });
+        setShowOwnerPersonSheet(false);
+        flashSuccess('Endereço do responsável RNTRC atualizado.');
+        await load();
+        return;
+      }
       const saved = await linksApi.updateOwnerPerson(manifest.link.id, {
+        reason: cadastroCorrectionReason,
         updatePersonAddress: updateOwnerPersonAddress,
         legalName: ownerPersonForm.legalName || undefined,
         stateRegistration: ownerPersonForm.stateRegistration || undefined,
@@ -1211,7 +1248,7 @@ const ManifestDetailPage: React.FC = () => {
       if (!newLinkId) throw new Error('Transportador cadastrado, mas não foi possível selecioná-lo.');
       setCreatedQuickLinkId(newLinkId);
       await manifestsApi.setResponsible(id, newLinkId);
-      flashSuccess('Transportador cadastrado e selecionado. Revise e aprove para gerar o convite.');
+      flashSuccess('Transportador cadastrado e selecionado. Revise e aprove o cadastro. O convite é opcional.');
       await load();
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Não foi possível cadastrar o transportador.');
@@ -1220,7 +1257,7 @@ const ManifestDetailPage: React.FC = () => {
     }
   };
 
-  const approveQuickLinkAndInvite = async () => {
+  const approveQuickLink = async () => {
     if (!createdQuickLinkId) return;
     setSavingLinkQuickCreate(true);
     setError(null);
@@ -1230,7 +1267,19 @@ const ManifestDetailPage: React.FC = () => {
         await linksApi.approve(createdQuickLinkId);
         await load();
       }
-      const response = await linksApi.invite(createdQuickLinkId);
+      flashSuccess('Transportador aprovado. Continue o cadastro da viagem sem depender de convite.');
+    } catch (cause: any) {
+      setError(cause.response?.data?.error || cause.message || 'Não foi possível aprovar o cadastro.');
+    } finally { setSavingLinkQuickCreate(false); }
+  };
+
+  const inviteTransportador = async () => {
+    const linkId = createdQuickLinkId ?? manifest?.linkId;
+    if (!linkId) return;
+    setSavingLinkQuickCreate(true);
+    setError(null);
+    try {
+      const response = await linksApi.invite(linkId);
       const url = `${window.location.origin}/#/claim-link?token=${encodeURIComponent(response.data.token)}`;
       setQuickLinkInviteUrl(url);
       try { await navigator.clipboard.writeText(url); flashSuccess('Cadastro aprovado. Convite copiado; envie ao transportador.'); }
@@ -1285,6 +1334,7 @@ const ManifestDetailPage: React.FC = () => {
 
   const handleOffer = async () => {
     if (!id) return;
+    setManagementBusy(true);
     setError(null);
     try {
       await manifestsApi.offer(id);
@@ -1294,7 +1344,44 @@ const ManifestDetailPage: React.FC = () => {
       const serverReadiness = e.response?.data?.data as ManifestReadiness | undefined;
       if (serverReadiness) setReadiness(serverReadiness);
       setError(e.response?.data?.error || e.message || 'Não foi possível enviar a oferta.');
-    }
+    } finally { setManagementBusy(false); }
+  };
+
+  const handleRelease = async () => {
+    if (!id) return;
+    setManagementBusy(true);
+    setError(null);
+    try {
+      await manifestsApi.release(id);
+      await load();
+      flashSuccess('Viagem liberada pela operação. Confira os documentos antes da saída.');
+      goToStep('fiscal');
+    } catch (e: any) { setError(e.response?.data?.error || e.message || 'Não foi possível liberar a viagem.'); }
+    finally { setManagementBusy(false); }
+  };
+
+  const handleStart = async () => {
+    if (!id) return;
+    setManagementBusy(true);
+    setError(null);
+    try {
+      await manifestsApi.start(id);
+      await load();
+      flashSuccess('Saída registrada. Viagem em execução.');
+    } catch (e: any) { setError(e.response?.data?.error || e.message || 'Não foi possível registrar a saída.'); }
+    finally { setManagementBusy(false); }
+  };
+
+  const handleReconcileCiot = async () => {
+    if (!id) return;
+    setFiscalBusy(true);
+    try {
+      const result = await manifestsApi.reconcileCiot(id);
+      await load();
+      flashSuccess(result.data.message);
+      pollCiotStatus(id);
+    } catch (e: any) { setError(e.response?.data?.error || e.message || 'Não foi possível consultar o CIOT.'); }
+    finally { setFiscalBusy(false); }
   };
 
   const handleWithdrawOffer = async () => {
@@ -1364,9 +1451,11 @@ const ManifestDetailPage: React.FC = () => {
     }
   };
 
-  const canEditOrders = manifest?.status === 'DRAFT' && (!isHubOnly || manifest?.hubId === user?.hubId);
-  const canEditPlanning = canEditOrders;
-  const canShowFiscalActions = (status: string) => ['PENDING_ACCEPT', 'ACCEPTED', 'IN_PROGRESS'].includes(status);
+  const canOperate = isAdmin || currentRole === 'HUB' && manifest?.hubId === currentHubId;
+  const canEditPlanning = manifest?.status === 'DRAFT' && canOperate;
+  const canEditOrders = canEditPlanning && !readiness?.cteProtected;
+  const canEditRoute = canEditOrders;
+  const canShowFiscalActions = (status: string) => canOperate && status === 'ACCEPTED';
 
   if (loading) return <LoadingPanel label="Carregando viagem…" />;
   if (error && !manifest) return <ErrorPanel message={error} onRetry={load} />;
@@ -1381,7 +1470,7 @@ const ManifestDetailPage: React.FC = () => {
   return (
     <ManifestJourneyShell
       manifestId={manifest.id}
-      statusLabel={statusLabels[manifest.status] ?? manifest.status}
+      statusLabel={manifestStatusLabel(manifest)}
       statusTone={manifestStatusTone[manifest.status] ?? 'neutral'}
       currentStep={currentStep}
       readiness={readiness}
@@ -1395,11 +1484,15 @@ const ManifestDetailPage: React.FC = () => {
               Voltar
             </button>
           )}
-          {currentStep === 'review' && manifest.status === 'DRAFT' ? (
-            <button type="button" onClick={handleOffer} disabled={!readiness?.canOffer} className="admin-focus min-h-12 flex-1 rounded-xl bg-brand-600 px-5 text-sm font-bold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50 md:flex-none">
-              Enviar oferta
-            </button>
-          ) : manifest.status === 'PENDING_ACCEPT' && currentStep === 'review' ? (
+          {currentStep === 'review' && ['DRAFT', 'PENDING_ACCEPT'].includes(manifest.status) && canOperate ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <button type="button" onClick={handleRelease} disabled={managementBusy || !readiness?.canRelease} title={readiness?.actionIssues?.release.map(item => item.message).join(' ')} className="admin-focus min-h-12 rounded-xl bg-brand-600 px-5 text-sm font-bold text-white disabled:opacity-50">Liberar viagem pela operação</button>
+              {manifest.status === 'DRAFT' && <button type="button" onClick={handleOffer} disabled={managementBusy || !readiness?.canSendOffer} title={readiness?.actionIssues?.offer.map(item => item.message).join(' ')} className="admin-focus min-h-12 rounded-xl border px-4 text-sm font-semibold disabled:opacity-50">Enviar oferta para aceite</button>}
+              {!readiness?.canRelease && <p className="w-full text-sm">{readiness?.actionIssues.release.map(item => item.message).join(' ') || 'Carregue a prontidão para conferir as pendências.'}</p>}
+              {manifest.status === 'DRAFT' && !readiness?.canSendOffer && <p className="w-full text-sm">Oferta para aceite: {readiness?.actionIssues.offer.map(item => item.message).join(' ')}</p>}
+              {manifest.status === 'PENDING_ACCEPT' && <button type="button" onClick={handleWithdrawOffer} className="admin-focus min-h-12 rounded-xl border px-4 text-sm font-semibold">Retirar oferta e editar</button>}
+            </div>
+          ) : manifest.status === 'PENDING_ACCEPT' && currentStep === 'review' && canOperate ? (
             <button type="button" onClick={handleWithdrawOffer} className="admin-focus min-h-12 flex-1 rounded-xl border border-amber-300 bg-amber-50 px-5 text-sm font-bold text-amber-900 hover:bg-amber-100 md:flex-none">
               Retirar oferta e editar
             </button>
@@ -1417,7 +1510,7 @@ const ManifestDetailPage: React.FC = () => {
           <span>·</span>
           <span>{manifest.vehicleType?.name}</span>
         </div>
-        {(manifest.status === 'DRAFT' || manifest.status === 'PENDING_ACCEPT' || manifest.status === 'ACCEPTED') && (!isHubOnly || manifest.hubId === user?.hubId) && (
+        {(manifest.status === 'DRAFT' || manifest.status === 'PENDING_ACCEPT' || manifest.status === 'ACCEPTED') && canOperate && (
           <div className="mb-5">
             <div className="flex flex-wrap gap-2">
               {canDo('reopen', manifest.status === 'ACCEPTED') && <button type="button" onClick={() => setManagementAction('reopen')} className="admin-focus min-h-11 rounded-xl border border-amber-300 px-4 text-sm font-semibold text-amber-900 dark:text-amber-200">Reabrir planejamento</button>}
@@ -1427,7 +1520,7 @@ const ManifestDetailPage: React.FC = () => {
             {blockedReasons.length > 0 && <ul className="mt-2 space-y-1 text-xs text-tower-500">{blockedReasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>}
           </div>
         )}
-        {manifest.status === 'IN_PROGRESS' && (!isHubOnly || manifest.hubId === user?.hubId) && (
+        {manifest.status === 'IN_PROGRESS' && canOperate && (
           <div className="mb-5">
             <button type="button" onClick={() => setShowCorrectionForm((open) => !open)} className="admin-focus min-h-11 rounded-xl border border-amber-300 px-4 text-sm font-semibold text-amber-900 dark:text-amber-200">Solicitar correção da viagem</button>
             {showCorrectionForm && <div className="mt-3 space-y-3 rounded-xl border border-amber-300 p-4">
@@ -1443,7 +1536,7 @@ const ManifestDetailPage: React.FC = () => {
         )}
         {!!manifest.corrections?.length && <details className="mb-5 rounded-xl border border-tower-300 p-4 dark:border-tower-600"><summary className="cursor-pointer text-sm font-semibold">Histórico de correções ({manifest.corrections.length})</summary><ul className="mt-3 space-y-2 text-sm">{manifest.corrections.map((correction) => <li key={correction.id} className="rounded-lg bg-tower-50 p-3 dark:bg-tower-800"><strong>{correction.kind}</strong> · {correction.status === 'PENDING_FISCAL' ? 'Pendente de avaliação fiscal' : correction.status === 'APPLIED' ? 'Concluída' : 'Descartada'}<p>{correction.reason}</p>
                 {correction.successorManifestId && <button type="button" onClick={() => navigate(`/manifests/${correction.successorManifestId}`)} className="mt-1 text-sm font-semibold text-brand-700 underline dark:text-brand-300">Abrir viagem sucessora</button>}
-                {correction.status === 'PENDING_FISCAL' && (!isHubOnly || manifest.hubId === user?.hubId) && (resolvingCorrectionId === correction.id ? (
+                {correction.status === 'PENDING_FISCAL' && canOperate && (resolvingCorrectionId === correction.id ? (
                   <div className="mt-3 space-y-2">
                     <label className="block text-sm font-semibold">Como foi resolvida<select value={resolveOutcome} onChange={(e) => setResolveOutcome(e.target.value as typeof resolveOutcome)} className={`mt-2 ${fieldClass}`}>
                       <option value="APPLIED">Documentos regularizados no provedor</option>
@@ -1465,6 +1558,7 @@ const ManifestDetailPage: React.FC = () => {
         {error && <div className="mb-5"><InlineNotice variant="error" message={error} onDismiss={() => setError(null)} /></div>}
         {success && <div className="mb-5"><InlineNotice variant="success" message={success} onDismiss={() => setSuccess(null)} /></div>}
 
+      {readiness?.cteProtected && ['route', 'orders', 'route_points', 'cover'].includes(currentStep) && <InlineNotice variant="info" message="CT-e autorizado: pedidos, rota fiscal e emitente permanecem protegidos. Corrija os responsáveis separadamente ou regularize o CT-e para alterar esses dados." />}
       {currentStep === 'route' && (
         <JourneySection eyebrow="Etapa 1" title="Rota e veículo" description="A unidade responsável controla a viagem. A origem física começa preenchida pelo Hub, mas pode ser trocada.">
           {readiness?.steps.route.issues.map(issue => <div key={issue.code} className="mb-3"><InlineNotice variant="warning" message={issue.message} /></div>)}
@@ -1491,7 +1585,7 @@ const ManifestDetailPage: React.FC = () => {
                     type="button"
                     role="radio"
                     aria-checked={routeForm.tripType === value}
-                    disabled={!canEditPlanning}
+                    disabled={!canEditRoute}
                     onClick={() => setRouteForm((form) => ({ ...form, tripType: value, destHubId: value === 'DELIVERY' ? '' : form.destHubId }))}
                     className={`admin-focus min-h-14 rounded-xl border px-3 text-left text-sm font-bold ${routeForm.tripType === value ? 'border-brand-600 bg-brand-50 text-brand-950 dark:bg-brand-950/30 dark:text-brand-100' : 'border-tower-200 text-tower-600 dark:border-tower-700 dark:text-tower-300'}`}
                   >
@@ -1501,13 +1595,13 @@ const ManifestDetailPage: React.FC = () => {
               </div>
             </div>
             <label className="sm:col-span-2 flex min-h-14 items-center gap-3 rounded-xl border border-tower-200 px-4 dark:border-tower-700">
-              <input type="checkbox" checked={routeForm.startsWithCollection} disabled={!canEditPlanning} onChange={(e) => setRouteForm((form) => ({ ...form, startsWithCollection: e.target.checked }))} className="size-5" />
+              <input type="checkbox" checked={routeForm.startsWithCollection} disabled={!canEditRoute} onChange={(e) => setRouteForm((form) => ({ ...form, startsWithCollection: e.target.checked }))} className="size-5" />
               <span className="text-sm font-bold text-tower-800 dark:text-tower-100">Esta viagem começa com uma coleta</span>
             </label>
             {!isHubOnly && (
               <div className="sm:col-span-2">
                 <label className="mb-2 block text-sm font-bold text-tower-800 dark:text-tower-100">Unidade responsável</label>
-                <select value={routeForm.hubId} disabled={!canEditPlanning} onChange={(e) => {
+                <select value={routeForm.hubId} disabled={!canEditRoute} onChange={(e) => {
                   const hub = hubs.find((item) => item.id === e.target.value);
                   setRouteForm((form) => ({
                     ...form,
@@ -1528,13 +1622,13 @@ const ManifestDetailPage: React.FC = () => {
                 onChange={(value) => setRouteForm((form) => ({ ...form, origin: value, originCity: '', originState: '', originCityIbgeCode: '' }))}
                 onSelect={(city, state, ibgeCode) => setRouteForm((form) => ({ ...form, origin: `${city}, ${state}`, originCity: city, originState: state, originCityIbgeCode: ibgeCode ?? '' }))}
                 className={fieldClass}
-                disabled={!canEditPlanning}
+                disabled={!canEditRoute}
               />
             </div>
             {(routeForm.tripType === 'TRANSFER' || routeForm.tripType === 'TRANSFER_DELIVERY') && (
               <div>
                 <label className="mb-2 block text-sm font-bold text-tower-800 dark:text-tower-100">{routeForm.tripType === 'TRANSFER' ? 'Unidade de destino' : 'Unidade de transferência'}</label>
-                <select value={routeForm.destHubId} disabled={!canEditPlanning} onChange={(e) => {
+                <select value={routeForm.destHubId} disabled={!canEditRoute} onChange={(e) => {
                   const hub = hubs.find((item) => item.id === e.target.value);
                   setRouteForm((form) => ({
                     ...form,
@@ -1555,18 +1649,18 @@ const ManifestDetailPage: React.FC = () => {
                 onChange={(value) => setRouteForm((form) => ({ ...form, destination: value, destinationCity: '', destinationState: '', destinationCityIbgeCode: '' }))}
                 onSelect={(city, state, ibgeCode) => setRouteForm((form) => ({ ...form, destination: `${city}, ${state}`, destinationCity: city, destinationState: state, destinationCityIbgeCode: ibgeCode ?? '' }))}
                 className={fieldClass}
-                disabled={!canEditPlanning}
+                disabled={!canEditRoute}
               />
             </div>
             <div className="sm:col-span-2">
               <label className="mb-2 block text-sm font-bold text-tower-800 dark:text-tower-100">Tipo de veículo</label>
-              <select value={routeForm.vehicleTypeId} disabled={!canEditPlanning} onChange={(e) => setRouteForm((form) => ({ ...form, vehicleTypeId: e.target.value }))} className={fieldClass}>
+              <select value={routeForm.vehicleTypeId} disabled={!canEditRoute} onChange={(e) => setRouteForm((form) => ({ ...form, vehicleTypeId: e.target.value }))} className={fieldClass}>
                 <option value="">Selecione</option>
                 {vehicleTypes.filter((vehicle) => vehicle.active).map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.name} ({vehicle.code})</option>)}
               </select>
             </div>
           </div>
-          {canEditPlanning && <button type="button" onClick={handleSaveRoute} disabled={savingRoute} className="admin-focus mt-6 min-h-12 rounded-xl bg-brand-600 px-5 text-sm font-bold text-white hover:bg-brand-700 disabled:opacity-60">{savingRoute ? 'Salvando rota…' : 'Salvar rota'}</button>}
+          {canEditRoute && <button type="button" onClick={handleSaveRoute} disabled={savingRoute} className="admin-focus mt-6 min-h-12 rounded-xl bg-brand-600 px-5 text-sm font-bold text-white hover:bg-brand-700 disabled:opacity-60">{savingRoute ? 'Salvando rota…' : 'Salvar rota'}</button>}
         </JourneySection>
       )}
 
@@ -1692,7 +1786,7 @@ const ManifestDetailPage: React.FC = () => {
                 <span className="min-w-0 flex-1">
                   <span className="block text-xs font-semibold text-tower-500">{s.purpose === 'COLLECTION' ? 'Coleta' : s.purpose === 'DELIVERY' ? 'Descarga/entrega' : s.purpose === 'TRANSFER' ? 'Transferência' : s.purpose === 'OPERATIONAL' ? 'Parada operacional' : 'Passagem/percurso'}</span>
                   <strong className="mt-1 block text-sm text-tower-900 dark:text-tower-50">{s.destHub ? `${s.destHub.name} (${s.destHub.code})` : (s.destinationLabel || [s.destCity, s.destState].filter(Boolean).join(', ') || 'Ponto de percurso')}</strong>
-                  {canEditPlanning && (
+                  {canEditRoute && (
                     <span className="mt-2 flex flex-wrap gap-1">
                       <button type="button" onClick={() => { setEditingStopId(s.id); setNewStopForm({ destHubId: s.destHubId ?? '', destinationLabel: s.destinationLabel ?? '', destCity: s.destCity ?? '', destState: s.destState ?? '', destCityIbgeCode: s.destCityIbgeCode ?? '', purpose: s.purpose }); setShowAddStop(true); }} className="admin-focus min-h-10 rounded-lg px-3 text-xs font-bold text-brand-700 hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-brand-950/30">Editar cidade/parada</button>
                       <button type="button" onClick={() => moveStop(s.id, -1)} disabled={index === 0} className="admin-focus min-h-10 rounded-lg px-3 text-xs font-bold text-tower-600 hover:bg-tower-100 disabled:opacity-30 dark:text-tower-300 dark:hover:bg-tower-800">Subir</button>
@@ -1781,7 +1875,7 @@ const ManifestDetailPage: React.FC = () => {
             {manifest.notes ? <div><dt className="text-tower-500">Observações</dt><dd className="mt-1 font-bold text-tower-900 dark:text-tower-50">{manifest.notes}</dd></div> : null}
           </dl>
         </div>
-        {canEditOrders && !showCapaForm && (
+        {canEditPlanning && !showCapaForm && (
           <button type="button" onClick={openCapaForm} className="admin-focus min-h-11 rounded-xl bg-tower-100 px-4 text-sm font-bold text-tower-700 hover:bg-tower-200 dark:bg-tower-800 dark:text-tower-300 dark:hover:bg-tower-700">
             Editar capa
           </button>
@@ -1791,7 +1885,7 @@ const ManifestDetailPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-tower-700 dark:text-tower-200 mb-1">Empresa emitente</label>
-                <select value={capaForm.fiscalEmitterId} onChange={(e) => setCapaForm((f) => ({ ...f, fiscalEmitterId: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg">
+                <select disabled={readiness?.cteProtected} value={capaForm.fiscalEmitterId} onChange={(e) => setCapaForm((f) => ({ ...f, fiscalEmitterId: e.target.value }))} className="w-full px-3 py-2 border border-tower-200 rounded-lg">
                   <option value="">Sem emitente definido</option>
                   {fiscalEmitters.map((fe) => <option key={fe.id} value={fe.id}>{fe.displayName || fe.tradeName || fe.id.slice(0, 8)}</option>)}
                 </select>
@@ -1865,6 +1959,7 @@ const ManifestDetailPage: React.FC = () => {
           onOpenDriverFiscalSheet={openDriverFiscalSheet}
           onOpenVehicleSheet={openVehicleSheet}
           onOpenOwnerPersonSheet={openOwnerPersonSheet}
+          onOpenCarrierSheet={() => { setCarrierForm({ rntrc: manifest.link?.rntrc ?? '', carrierType: manifest.link?.carrierType ?? 'TAC' }); setShowCarrierSheet(true); }}
           onOpenLinkQuickCreate={openLinkQuickCreate}
           onOpenLinkActivation={openSelectedLinkActivation}
           fieldClass={fieldClass}
@@ -1915,7 +2010,7 @@ const ManifestDetailPage: React.FC = () => {
             </dl>
           </div>
         )}
-        {manifest.linkId && (canEditPlanning || canShowFiscalActions(manifest.status)) && (
+        {manifest.linkId && canEditPlanning && (
           !showFreightForm ? (
             <button type="button" onClick={openFreightForm} className="px-3 py-1.5 text-sm bg-tower-100 dark:bg-tower-800 text-tower-700 dark:text-tower-300 rounded-lg hover:bg-tower-200 dark:hover:bg-tower-700">
               {manifest.freightAgreement ? `Editar (R$ ${manifest.freightAgreement.saldoLiquido.toLocaleString('pt-BR')})` : 'Preencher Carta Frete'}
@@ -1947,7 +2042,7 @@ const ManifestDetailPage: React.FC = () => {
       )}
 
       {currentStep === 'review' && (
-        <JourneySection eyebrow="Etapa 7" title="Revisão e oferta" description="Confira as pendências reais. Selecionar o responsável não envia a oferta; esta é a única ação que muda o status.">
+        <JourneySection eyebrow="Etapa 7" title="Revisão e liberação" description="Libere pela operação ou envie uma oferta para aceite opcional pelo transportador. A liberação não autoriza documentos fiscais.">
           <div className="divide-y divide-tower-200 overflow-hidden rounded-xl border border-tower-200 bg-[var(--app-surface)] dark:divide-tower-700 dark:border-tower-700">
             {manifestJourneySteps.slice(0, 6).map((step) => {
               const stepReadiness = readiness?.steps?.[step.key];
@@ -1976,14 +2071,43 @@ const ManifestDetailPage: React.FC = () => {
               <div><dt className="text-tower-500">Carta Frete</dt><dd className="font-bold text-tower-900 dark:text-tower-50">{manifest.freightAgreement ? `R$ ${manifest.freightAgreement.saldoLiquido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : 'Pendente'}</dd></div>
             </dl>
           </div>
-          {!readiness?.canOffer && manifest.status === 'DRAFT' && (
-            <p className="mt-4 text-sm text-amber-800 dark:text-amber-200">Resolva as pendências indicadas antes de enviar a oferta.</p>
+          {!readiness?.canRelease && ['DRAFT', 'PENDING_ACCEPT'].includes(manifest.status) && (
+            <p className="mt-4 text-sm text-amber-800 dark:text-amber-200">Resolva as pendências indicadas antes de liberar a viagem.</p>
           )}
+          {readiness?.actionIssues?.release.map(item => <button type="button" key={`${item.code}-${item.field}`} onClick={() => goToStep(item.step)} className="admin-focus block min-h-11 text-left text-sm underline">{item.message} Corrigir</button>)}
+          {manifest.status === 'DRAFT' && !readiness?.canSendOffer && <p className="mt-3 text-sm">Oferta para aceite: {readiness?.actionIssues?.offer.map(item => item.message).join(' ')}</p>}
         </JourneySection>
       )}
 
       {currentStep === 'fiscal' && (
       <JourneySection eyebrow="Etapa 8" title="Documentos e execução" description="Acompanhe CIOT e MDF-e sem alterar a verdade fiscal dos documentos autorizados.">
+        {(['CIOT', 'MDFE'] as const).map(kind => {
+          const documents = [...(manifest.fiscalDocuments ?? [])].filter(doc => doc.documentType === kind).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          const current = documents[0];
+          const rejected = documents.filter(doc => doc.status === 'REJECTED');
+          const isCurrentRefusal = current?.status === 'REJECTED' && (kind !== 'CIOT' || ciotJobStatus?.phase === 'FAILED');
+          return <React.Fragment key={kind}>
+            {isCurrentRefusal && <InlineNotice variant="error" message={`${kind === 'CIOT' ? 'eFrete' : 'ACBr'} / ${kind}: ${current.statusReason || 'Confira os dados e tente novamente.'}`} />}
+            {rejected.length > 0 && <details className="mb-3 text-sm"><summary>Histórico de recusas — {kind}</summary>{rejected.map(doc => <p key={doc.id}>{doc.statusReason || 'Recusa registrada.'}</p>)}</details>}
+          </React.Fragment>;
+        })}
+        {manifest.status === 'ACCEPTED' && <details className="mb-4 text-sm" open={!readiness?.canEmitCiot && !manifest.ciotDispensado && !getCiotAuthorizedDoc()}>
+          <summary className="cursor-pointer">Pendências de emissão e caminhos de correção</summary>
+          {['ciot', 'mdfe'].map(action => <div key={action} className="mt-2"><strong>{action === 'ciot' ? 'CIOT / eFrete' : 'MDF-e / ACBr'}</strong>{readiness?.actionIssues?.[action as 'ciot' | 'mdfe'].map(item => <button type="button" key={`${item.code}-${item.field}`} onClick={() => goToStep(item.step)} className="admin-focus block min-h-11 text-left underline">{item.message} Abrir etapa</button>)}</div>)}
+        </details>}
+        {manifest.status === 'ACCEPTED' && canOperate && <div className="mb-5">
+          <button type="button" disabled={managementBusy || !readiness?.canStart} onClick={handleStart} className="admin-focus min-h-12 rounded-xl bg-brand-600 px-5 text-sm font-bold text-white disabled:opacity-50">Registrar saída</button>
+          {!readiness?.canStart && <p className="mt-2 text-sm">Saída bloqueada pelas pendências abaixo.</p>}
+          {readiness?.actionIssues?.start.map(item => <button type="button" key={`${item.code}-${item.field}`} onClick={() => goToStep(item.step)} className="admin-focus block min-h-11 text-left text-sm underline">{item.message}{item.step !== 'fiscal' ? ' Abrir cadastro' : ''}</button>)}
+        </div>}
+        {ciotJobStatus && ['PENDING_RECONCILIATION', 'DOWNLOADING_FILES'].includes(ciotJobStatus.phase) && <div className="mb-4">
+          <p className="text-sm">CIOT com resultado ou documento pendente. Consulte a eFrete antes de editar ou reenviar.</p>
+          <button type="button" disabled={fiscalBusy} onClick={handleReconcileCiot} className="admin-focus min-h-11 underline">Consultar processamento do CIOT</button>
+        </div>}
+        {ciotStatusUnavailable && <InlineNotice variant="error" message="Não foi possível consultar a tentativa de CIOT. Atualize a viagem antes de emitir novamente." />}
+        {ciotJobStatus?.phase === 'DONE' && ciotJobStatus.lastError && <InlineNotice variant="info" message={ciotJobStatus.lastError} />}
+        {ciotJobStatus?.phase === 'FAILED'  && <p className="mb-4 text-sm">Dados inválidos, recusa confirmada ou ausência de CIOT: {ciotJobStatus.lastError} Corrija o cadastro ou reabra o planejamento, quando disponível, e tente novamente.</p>}
+        {ciotJobStatus?.codigoIdentificacaoOperacao && ciotJobStatus.phase === 'DOWNLOADING_FILES' && <InlineNotice variant="info" message={`CIOT ${ciotJobStatus.codigoIdentificacaoOperacao} confirmado. Recuperação do PDF pendente; não é necessário emitir novamente.`} />}
         {canShowFiscalActions(manifest.status) && (
           <>
             <div className="flex gap-2 flex-wrap items-center mb-3">
@@ -2001,11 +2125,11 @@ const ManifestDetailPage: React.FC = () => {
               ) : manifest.ciotDispensado ? (
                 <span className="rounded-lg border border-tower-300 bg-tower-50 px-3 py-1.5 text-sm text-tower-700 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-300">CIOT dispensado</span>
               ) : (
-                <button type="button" disabled={!manifest.driverId || fiscalBusy} onClick={openCiotForm} className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100" title={!manifest.driverId ? 'Defina o motorista antes de emitir o CIOT' : ''}>
+                <button type="button" disabled={fiscalBusy || ciotStatusUnavailable || !readiness?.canEmitCiot || (!!ciotJobStatus && !['FAILED', 'DONE'].includes(ciotJobStatus.phase))} onClick={openCiotForm} className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100" title={readiness?.actionIssues?.ciot.map(item => item.message).join(' ')}>
                   Emitir CIOT
                 </button>
               )}
-              <button type="button" disabled={fiscalBusy || !!getMdfeAuthorizedDoc() || (!getCiotAuthorizedDoc() && !manifest.ciotDispensado)} onClick={handleEmitMdfe} className="rounded-lg border border-tower-300 bg-white px-3 py-1.5 text-sm text-tower-800 hover:bg-tower-50 disabled:opacity-50 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100">
+              <button type="button" disabled={fiscalBusy || !!getMdfeAuthorizedDoc() || (!getMdfePendingDoc() && !readiness?.canEmitMdfe)} title={readiness?.actionIssues?.mdfe.map(item => item.message).join(' ')} onClick={handleEmitMdfe} className="rounded-lg border border-tower-300 bg-white px-3 py-1.5 text-sm text-tower-800 hover:bg-tower-50 disabled:opacity-50 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100">
                 {getMdfeAuthorizedDoc() ? 'MDF-e autorizado' : getMdfePendingDoc() ? 'Consultar MDF-e pendente' : 'Emitir MDF-e (ACBr)'}
               </button>
             </div>
@@ -2144,6 +2268,8 @@ const ManifestDetailPage: React.FC = () => {
 
       {showDriverFiscalSheet && (
         <DriverFiscalSheet
+          correctionReason={cadastroCorrectionReason}
+          onCorrectionReasonChange={setCadastroCorrectionReason}
           error={error}
           saving={savingDriver}
           editingDriverId={editingDriverId}
@@ -2160,11 +2286,35 @@ const ManifestDetailPage: React.FC = () => {
         />
       )}
 
+      {showCarrierSheet && manifest.link && <div className="fixed inset-0 z-50 flex items-end justify-center">
+        <button type="button" className="absolute inset-0 bg-tower-950/55" aria-label="Fechar cadastro do contratado" onClick={() => setShowCarrierSheet(false)} />
+        <section role="dialog" aria-modal="true" aria-labelledby="carrier-title" className="relative w-full max-w-xl rounded-t-3xl bg-[var(--app-surface)] p-6 md:rounded-2xl">
+          <h2 id="carrier-title" className="text-xl font-bold">Transportador contratado</h2>
+          <p className="mt-2 text-sm">{manifest.link.name} · {manifest.link.document}. Estes dados identificam o contratado no CIOT. Login no aplicativo é opcional.</p>
+          <label className="mt-4 block text-sm">RNTRC do contratado<input inputMode="numeric" value={carrierForm.rntrc} onChange={event => setCarrierForm(form => ({ ...form, rntrc: event.target.value.replace(/\D/g, '') }))} className={fieldClass} /></label>
+          <label className="mt-4 block text-sm">Tipo do contratado<select value={carrierForm.carrierType} onChange={event => setCarrierForm(form => ({ ...form, carrierType: event.target.value }))} className={fieldClass}>{['TAC', 'ETC', 'CTC', 'FROTA'].map(type => <option key={type}>{type}</option>)}</select></label>
+          <label className="mt-4 block text-sm">Motivo da correção<input value={cadastroCorrectionReason} onChange={event => setCadastroCorrectionReason(event.target.value)} className={fieldClass} /></label>
+          <p className="mt-1 text-xs">Obrigatório quando o cadastro é usado por viagem liberada ou ofertada.</p>
+          {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
+          <button type="button" disabled={savingCarrier || !canOperate || !/^\d{8,9}$/.test(carrierForm.rntrc)} className="admin-focus mt-4 min-h-11 rounded-xl bg-brand-600 px-4 text-white disabled:opacity-50" onClick={() => {
+            setSavingCarrier(true); setError(null);
+            void linksApi.updateFiscal(manifest.link!.id, { rntrc: carrierForm.rntrc, carrierType: carrierForm.carrierType as Link['carrierType'], reason: cadastroCorrectionReason })
+              .then(async () => { setShowCarrierSheet(false); await load(); flashSuccess('Cadastro do contratado atualizado.'); })
+              .catch(cause => setError(cause.response?.data?.error || cause.message))
+              .finally(() => setSavingCarrier(false));
+          }}>Salvar cadastro</button>
+          {!/^\d{8,9}$/.test(carrierForm.rntrc) && <p className="mt-2 text-sm">Informe o RNTRC do contratado com 8 ou 9 dígitos.</p>}
+          <button type="button" onClick={() => setShowCarrierSheet(false)} className="admin-focus ml-3 min-h-11">Fechar</button>
+        </section>
+      </div>}
       {showOwnerPersonSheet && manifest?.link && (
         <LinkOwnerPersonSheet
+          correctionReason={cadastroCorrectionReason}
+          onCorrectionReasonChange={setCadastroCorrectionReason}
           error={error}
-          document={manifest.link.document}
-          documentType={manifest.link.document.replace(/\D/g, '').length === 14 ? 'CNPJ' : 'CPF'}
+          title={editingOwnerPerson ? `Responsável RNTRC — ${editingOwnerPerson.legalName}` : 'Endereço do transportador contratado'}
+          document={editingOwnerPerson?.document ?? manifest.link.document}
+          documentType={(editingOwnerPerson?.document ?? manifest.link.document).replace(/\D/g, '').length === 14 ? 'CNPJ' : 'CPF'}
           ownerPersonForm={ownerPersonForm}
           setOwnerPersonForm={setOwnerPersonForm}
           personAlreadyHasAddress={ownerPersonAlreadyHasAddress}
@@ -2192,7 +2342,9 @@ const ManifestDetailPage: React.FC = () => {
           onSave={() => void handleSaveLinkQuickCreate()}
           createdLinkId={createdQuickLinkId}
           inviteUrl={quickLinkInviteUrl}
-          onApproveAndInvite={() => void approveQuickLinkAndInvite()}
+          onApprove={() => void approveQuickLink()}
+          onInvite={() => void inviteTransportador()}
+          approved={manifest.link?.id === createdQuickLinkId && manifest.link.approvalStatus === 'APPROVED'}
           fieldClass={fieldClass}
         />
       )}

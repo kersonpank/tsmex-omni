@@ -1,5 +1,6 @@
 // components/manifest/TripResponsiblePanel.tsx
 import React from 'react';
+import { manifestIssueTarget } from '../../lib/manifestIssueTarget';
 import StatusBadge from '../ui/StatusBadge';
 import type { Manifest, Link, Driver, ManifestReadiness, ManifestReadinessIssue } from '../../types/index';
 import { describeIssues, manifestCompositionSummary } from './vehicleUnitDraft';
@@ -16,6 +17,9 @@ const ISSUE_CTA_LABEL: Record<string, string> = {
   DRIVER_CNH_PENDING: 'Completar motorista',
   DRIVER_BIRTH_DATE_PENDING: 'Completar motorista',
   DRIVER_ADDRESS_PENDING: 'Completar motorista',
+  DRIVER_PHONE_PENDING: 'Completar motorista',
+  DRIVER_DOCUMENT_PENDING: 'Completar motorista',
+  MDFE_VEHICLE_CAPACITY_PENDING: 'Completar veículo',
   LINK_NOT_APPROVED: 'Revisar cadastro',
   LINK_ACCESS_PENDING: 'Gerar convite',
 };
@@ -24,17 +28,22 @@ const PendingIssuesList: React.FC<{
   issues: ManifestReadinessIssue[];
   onOpenVehicleSheet: () => void;
   onOpenDriverFiscalSheet: (driverId?: string) => void;
-  onOpenOwnerPersonSheet: () => void;
+  onOpenOwnerPersonSheet: (personId?: string) => void;
+  onOpenCarrierSheet: () => void;
   onOpenLinkActivation: () => void;
-}> = ({ issues, onOpenVehicleSheet, onOpenDriverFiscalSheet, onOpenOwnerPersonSheet, onOpenLinkActivation }) => {
-  const blocking = issues.filter((item) => item.severity === 'blocking');
+}> = ({ issues, onOpenVehicleSheet, onOpenDriverFiscalSheet, onOpenOwnerPersonSheet, onOpenLinkActivation, onOpenCarrierSheet }) => {
+  const blocking = issues.filter((item) => item.severity === 'blocking' || item.code === 'MDFE_VEHICLE_CAPACITY_PENDING');
   if (!blocking.length) return null;
 
   const resolve = (code: string, field?: string) => {
-    if (code === 'LINK_NOT_APPROVED' || code === 'LINK_ACCESS_PENDING') return onOpenLinkActivation;
-    if (code === 'LINK_PERSON_ADDRESS_PENDING') return onOpenOwnerPersonSheet;
-    if (code.startsWith('VEHICLE_') || code === 'TRAILER_UNIT_PENDING') return onOpenVehicleSheet;
-    return () => onOpenDriverFiscalSheet(code.startsWith('ADDITIONAL_DRIVER_') ? field : undefined);
+    switch (manifestIssueTarget(code)) {
+      case 'approval': return onOpenLinkActivation;
+      case 'carrier': return onOpenCarrierSheet;
+      case 'carrierAddress': return () => onOpenOwnerPersonSheet();
+      case 'rntrcHolder': return () => onOpenOwnerPersonSheet(field?.replace(/^rntrcHolder:/, ''));
+      case 'vehicle': return onOpenVehicleSheet;
+      default: return () => onOpenDriverFiscalSheet(code.startsWith('ADDITIONAL_DRIVER_') ? field : undefined);
+    }
   };
 
   return (
@@ -43,10 +52,10 @@ const PendingIssuesList: React.FC<{
         <span className="text-base">⚠️</span>
         <div>
           <p className="text-sm font-bold text-amber-900 dark:text-amber-100">
-            {blocking.length === 1 ? '1 pendência bloqueia o avanço' : `${blocking.length} pendências bloqueiam o avanço`}
+            {blocking.length === 1 ? '1 pendência para conferir' : `${blocking.length} pendências para conferir`}
           </p>
           <p className="mt-0.5 text-xs text-amber-800 dark:text-amber-200">
-            Resolva cada item abaixo. São exigências reais do CIOT/MDF-e — sem elas a oferta da viagem não pode ser enviada.
+            Complete os dados necessários para liberar a viagem e emitir CIOT/MDF-e. O acesso ao aplicativo é opcional.
           </p>
         </div>
       </div>
@@ -57,7 +66,7 @@ const PendingIssuesList: React.FC<{
             <button
               type="button"
               onClick={resolve(item.code, item.field)}
-              className="admin-focus min-h-9 shrink-0 rounded-lg bg-amber-600 px-3 text-xs font-bold text-white hover:bg-amber-700"
+              className="admin-focus min-h-11 shrink-0 rounded-lg bg-amber-600 px-3 text-xs font-bold text-white hover:bg-amber-700"
             >
               {ISSUE_CTA_LABEL[item.code] ?? 'Resolver'}
             </button>
@@ -114,7 +123,8 @@ interface Props {
   /** Callback to open the vehicle fiscal sheet */
   onOpenVehicleSheet: (link?: Link) => void;
   /** Callback to open the owner (Link) address/IE sheet */
-  onOpenOwnerPersonSheet: () => void;
+  onOpenOwnerPersonSheet: (personId?: string) => void;
+  onOpenCarrierSheet: () => void;
   /** Callback to open the "cadastrar novo motorista" quick-create modal */
   onOpenLinkQuickCreate: () => void;
   onOpenLinkActivation: () => void;
@@ -147,6 +157,7 @@ const TripResponsiblePanel: React.FC<Props> = ({
   onOpenDriverFiscalSheet,
   onOpenVehicleSheet,
   onOpenOwnerPersonSheet,
+  onOpenCarrierSheet,
   onOpenLinkQuickCreate,
   onOpenLinkActivation,
   fieldClass,
@@ -162,6 +173,7 @@ const TripResponsiblePanel: React.FC<Props> = ({
         onOpenVehicleSheet={() => onOpenVehicleSheet(manifest.link)}
         onOpenDriverFiscalSheet={(driverId) => onOpenDriverFiscalSheet(driverId ? manifest.driverAssignments?.find((item) => item.driverId === driverId)?.driver : manifest.driver)}
         onOpenOwnerPersonSheet={onOpenOwnerPersonSheet}
+        onOpenCarrierSheet={onOpenCarrierSheet}
         onOpenLinkActivation={onOpenLinkActivation}
       />
     )}
@@ -171,11 +183,11 @@ const TripResponsiblePanel: React.FC<Props> = ({
       <div className="p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.08em] text-tower-500">Responsável no app</p>
+            <p className="text-xs font-bold uppercase tracking-[0.08em] text-tower-500">Transportador contratado</p>
             <p className="mt-1 text-base font-bold text-tower-900 dark:text-tower-50">{manifest.link?.name ?? 'Não selecionado'}</p>
             {manifest.link ? (
               <p className="mt-1 text-xs text-tower-500">
-                {manifest.link.document} · RNTRC {manifest.link.tractionUnit?.rntrcHolderPerson?.rntrc || manifest.link.rntrc || 'não informado'}
+                {manifest.link.document} · RNTRC {manifest.link.rntrc || 'não informado'}
               </p>
             ) : null}
           </div>
@@ -183,9 +195,11 @@ const TripResponsiblePanel: React.FC<Props> = ({
         </div>
         {canEditPlanning && manifest.link && !manifest.link.userId && manifest.link.createdByHubId === manifest.hubId && (
           <button type="button" onClick={onOpenLinkActivation} className="admin-focus mt-3 min-h-11 rounded-xl border border-amber-400 px-3 text-sm font-bold text-amber-800 dark:text-amber-200">
-            {manifest.link.approvalStatus === 'APPROVED' ? 'Gerar convite de acesso' : 'Aprovar e gerar convite'}
+            {manifest.link.approvalStatus === 'APPROVED' ? 'Convite de acesso (opcional)' : 'Aprovar cadastro'}
           </button>
         )}
+        {manifest.link && <p className="mt-3 text-xs text-tower-500">Cadastro do contratado obrigatório para o CIOT. Acesso ao aplicativo — opcional.</p>}
+        {manifest.link && <button type="button" onClick={onOpenCarrierSheet} className="admin-focus mt-2 min-h-11 underline text-sm">Conferir cadastro do contratado</button>}
       </div>
       <div className="border-t border-tower-200 p-4 dark:border-tower-700">
         <p className="text-xs font-bold uppercase tracking-[0.08em] text-tower-500">Motoristas da viagem</p>

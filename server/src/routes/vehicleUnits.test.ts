@@ -30,6 +30,8 @@ describe('Vehicle units API', () => {
     let seq = 0;
 
     const original = {
+        manifestFindMany: prisma.manifest.findMany,
+        taskTransaction: prisma.$transaction,
         userFindUnique: prisma.user.findUnique,
         unitFindUnique: prisma.vehicleUnit.findUnique,
         unitFindUniqueOrThrow: prisma.vehicleUnit.findUniqueOrThrow,
@@ -64,6 +66,8 @@ describe('Vehicle units API', () => {
 
     before(async () => {
         process.env.JWT_SECRET = jwtSecret;
+        prisma.manifest.findMany = (async () => []) as any;
+        prisma.$transaction = (async (fn: any) => fn(prisma)) as any;
 
         prisma.user.findUnique = (async (args: any) => {
             const u = users[args?.where?.id];
@@ -142,6 +146,8 @@ describe('Vehicle units API', () => {
     after(async () => {
         if (server) await new Promise<void>((resolve, reject) => server!.close((err) => (err ? reject(err) : resolve())));
         prisma.user.findUnique = original.userFindUnique;
+        prisma.manifest.findMany = original.manifestFindMany;
+        prisma.$transaction = original.taskTransaction;
         prisma.vehicleUnit.findUnique = original.unitFindUnique;
         prisma.vehicleUnit.findUniqueOrThrow = original.unitFindUniqueOrThrow;
         prisma.person.create = original.personCreate;
@@ -227,7 +233,7 @@ describe('Vehicle units API', () => {
         const link = links['link-1'];
         assert.equal(link.vehiclePlate, 'ABC1D23');
         assert.equal(link.vehicleChassi, FULL.chassi);
-        assert.equal(link.rntrc, FULL.rntrc);
+        assert.equal(link.rntrc, undefined, 'composição não presume RNTRC do contratado');
         assert.equal(link.trailerPlate, 'REB1A11');
         assert.equal(link.trailer2Plate, 'REB2B22');
         assert.equal(link.trailer3Plate, null);
@@ -275,7 +281,9 @@ describe('Vehicle units API', () => {
 
         // RNTRC diferente para a mesma pessoa não sobrescreve em silêncio: corrige-se na ficha da pessoa.
         const second = await call('PATCH', '/api/links/link-1/fiscal', 'admin-1', { rntrc: '222222222' });
-        assert.equal(second.status, 409);
+        assert.equal(second.status, 200);
+        assert.equal(persons.find(p => p.id === 'person-link')!.rntrc, '11111111');
+        assert.equal(links['link-1'].rntrc, '222222222');
         assert.equal(persons.find((p) => p.id === 'person-link')!.rntrc, '11111111');
         assert.equal(traction.chassi, FULL.chassi);
 
@@ -320,7 +328,7 @@ describe('Vehicle units API', () => {
         assert.equal(agregado.rntrc, '11223344');
         assert.equal(persons.find((p) => p.id === 'person-link')!.rntrc, '87654321');
         assert.equal(persons.find((p) => p.id === 'person-dono')!.rntrc, null, 'o proprietário do CRLV não recebe RNTRC alheio');
-        assert.equal(links['link-1'].rntrc, '87654321', 'espelho legado do Link = RNTRC do responsável do cavalo');
+        assert.equal(links['link-1'].rntrc, undefined, 'espelho legado do Link = RNTRC do responsável do cavalo');
     });
 
     it('responsável editável depois, e "mesmo do proprietário" realinha', async () => {

@@ -13,16 +13,17 @@ export function departureReadyManifest<T extends { legs: unknown[]; linkId?: str
         fiscalEmitterId: 'emitter-ready',
         linkId,
         link: {
-            id: linkId, approvalStatus: 'APPROVED', carrierType: 'FROTA', person: address,
+            id: linkId, document: '52998224725', approvalStatus: 'APPROVED', carrierType: 'FROTA', person: address,
+            rntrc: '12345678',
             tractionUnit: { plate: 'ABC1D23', role: 'TRACTION', chassi: '9BWZZZ377VT004251', renavam: '12345678901', axles: 3, rntrc: '12345678', tareKg: 7200, capacityKg: 18000 },
         },
         driverId: 'driver-ready',
-        driver: { id: 'driver-ready', linkId, active: true, cnhNumber: '123456789', birthDate: new Date('1980-01-01'), person: address },
+        driver: { id: 'driver-ready', linkId, active: true, document: '52998224725', phone: '11999999999', cnhNumber: '123456789', birthDate: new Date('1980-01-01'), person: address },
         freightAgreement: { id: 'freight-ready', freteBruto: 100 },
     };
 }
 
-export const authorizedCiotFixture = { documentType: 'CIOT', status: 'AUTHORIZED', protocol: 'ciot-test' };
+export const authorizedCiotFixture = { documentType: 'CIOT', status: 'AUTHORIZED', number: 'ciot-123', protocol: 'ciot-test' };
 export const authorizedMdfeFixture = {
     documentType: 'MDFE', accessKey: '1'.repeat(44), protocol: '123456789', xmlUrl: 'fiscal/mdfe/test.xml',
 };

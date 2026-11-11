@@ -1,7 +1,10 @@
-import type { ManifestStatus } from '@prisma/client';
+import type { ManifestStatus, Prisma } from '@prisma/client';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { splitPhone } from './efrete/efreteUtil.js';
 import type { PlanningActions } from './manifestPlanningChanges.js';
+import { blocksReadinessAction, type ReadinessAction } from './manifestReadinessRules.js';
+import { hasCompleteFiscalAddress } from './fiscalInputValidation.js';
 import { linkVehicleInclude, manifestVehicleAssignmentsInclude } from './vehicleUnitService.js';
 import { compositionIssues, describeUnitIssues, resolveManifestComposition, tractionHolderDiffersFromCarrier, type VehicleUnitField } from './vehicleUnitRules.js';
 
@@ -27,6 +30,11 @@ export interface ManifestReadinessIssue {
 
 export interface ManifestReadiness {
     canOffer: boolean;
+    canRelease: boolean;
+    canSendOffer: boolean;
+    canEmitCiot: boolean;
+    canEmitMdfe: boolean;
+    actionIssues: Record<'release' | 'offer' | 'ciot' | 'mdfe' | 'start', ManifestReadinessIssue[]>;
     canStart: boolean;
     currentStep: ManifestJourneyStep;
     steps: Record<ManifestJourneyStep, { state: ManifestStepState; issues: ManifestReadinessIssue[] }>;
@@ -67,18 +75,21 @@ function isPlanningLocked(status: ManifestStatus) {
     return status !== 'DRAFT';
 }
 
-export async function getManifestReadiness(manifestId: string): Promise<ManifestReadiness> {
-    const manifest = await prisma.manifest.findUnique({
+export async function getManifestReadiness(manifestId: string, db: Prisma.TransactionClient | typeof prisma = prisma): Promise<ManifestReadiness> {
+    const manifest = await db.manifest.findUnique({
         where: { id: manifestId },
         include: {
             vehicleAssignments: manifestVehicleAssignmentsInclude,
             vehicleType: { select: { id: true, active: true } },
+            fiscalEmitter: { include: { person: true } },
             link: {
                 select: {
                     id: true,
                     userId: true,
                     personId: true,
                     approvalStatus: true,
+                    active: true,
+                    document: true,
                     rntrc: true,
                     carrierType: true,
                     vehicleAxles: true,
@@ -101,6 +112,8 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
                     cnhExpiry: true,
                     birthDate: true,
                     active: true,
+                    document: true,
+                    phone: true,
                     person: { select: { neighborhood: true, cep: true, address: true, number: true, city: true, state: true, cityIbgeCode: true } },
                 },
             },
@@ -147,7 +160,7 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
         add(issue('orders', 'ORDER_REQUIRED', 'Adicione pelo menos um pedido à viagem.'));
     }
     if (manifest.status === 'DRAFT' && manifest._count.legs > 0) {
-        const legs = await prisma.orderLeg.findMany({ where: { manifestId }, select: { order: { select: {
+        const legs = await db.orderLeg.findMany({ where: { manifestId }, select: { order: { select: {
             freightCalculations: { where: { status: 'CTE_AUTHORIZED', documentType: 'CTE' }, select: { cteAccessKey: true, cteProtocol: true, cteXml: true, cteXmlStorageKey: true } },
         } } } });
         const pending = legs.filter((leg) => !leg.order.freightCalculations.some((doc) => /^\d{44}$/.test(doc.cteAccessKey ?? '') && !!doc.cteProtocol && !!(doc.cteXml || doc.cteXmlStorageKey)));
@@ -176,14 +189,26 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
     }
     if (!manifest.fiscalEmitterId) {
         add(issue('cover', 'FISCAL_EMITTER_PENDING', 'O emitente fiscal ainda não foi definido.', 'fiscalEmitterId', 'warning'));
+    } else if (!manifest.fiscalEmitter?.active || !manifest.fiscalEmitter.person) {
+        add(issue('cover', 'FISCAL_EMITTER_INVALID', 'Selecione um emitente fiscal ativo com pessoa cadastrada.', 'fiscalEmitterId', 'warning'));
+    } else {
+        const p = manifest.fiscalEmitter.person;
+        if (!/^\d{14}$/.test(p.document.replace(/\D/g, '')) || !p.legalName || !hasCompleteFiscalAddress(p)) {
+            add(issue('cover', 'FISCAL_EMITTER_DATA_PENDING', 'Complete CNPJ, razão social e endereço com cidade/IBGE reais do emitente fiscal.', 'fiscalEmitterId', 'warning'));
+        }
     }
 
     if (!manifest.linkId || !manifest.link) {
         add(issue('responsible', 'LINK_REQUIRED', 'Selecione o responsável pela viagem.', 'linkId'));
     } else if (manifest.link.approvalStatus !== 'APPROVED') {
         add(issue('responsible', 'LINK_NOT_APPROVED', 'O responsável selecionado ainda não está aprovado.', 'linkId'));
+    } else if (manifest.link.active === false) {
+        add(issue('responsible', 'LINK_INACTIVE', 'O transportador está inativo.', 'linkId'));
     } else {
-        if (manifest.link.userId === null) add(issue('responsible', 'LINK_ACCESS_PENDING', 'Convide o transportador para receber e aceitar a oferta no aplicativo.', 'linkId'));
+        if (!/^\d{11}(\d{3})?$/.test(manifest.link.document.replace(/\D/g, ''))) add(issue('responsible', 'LINK_DOCUMENT_PENDING', 'Informe CPF/CNPJ do transportador.', 'linkId'));
+        if (!manifest.link.carrierType) add(issue('responsible', 'LINK_CARRIER_TYPE_PENDING', 'Defina o tipo de transportador para o CIOT.', 'linkId'));
+        if (!/^\d{8,9}$/.test((manifest.link.rntrc ?? '').replace(/\D/g, ''))) add(issue('responsible', 'LINK_RNTRC_PENDING', 'Informe o RNTRC do transportador contratado para o CIOT.', 'linkId'));
+        if (manifest.link.userId === null) add(issue('responsible', 'LINK_ACCESS_PENDING', 'Acesso ao aplicativo opcional. Gere um convite apenas se quiser enviar oferta para aceite.', 'linkId', 'warning'));
         // Pendência só aparece quando a Unidade de Veículo realmente não tem o dado — cada unidade
         // (cavalo e reboques) carrega chassi, RENAVAM, eixos e RNTRC obrigatórios.
         const composition = resolveManifestComposition(manifest);
@@ -199,11 +224,10 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
         }
         for (const unit of composition.units) {
             if (!unit.tareKg || !unit.capacityKg) {
-                add(issue('fiscal', 'MDFE_VEHICLE_CAPACITY_PENDING', `Informe tara e capacidade em kg reais para ${unit.plate}.`, `vehicleUnit:${unit.plate}`, manifest.status === 'ACCEPTED' ? 'blocking' : 'warning'));
+                add(issue('responsible', 'MDFE_VEHICLE_CAPACITY_PENDING', `Informe tara e capacidade em kg reais para ${unit.plate}.`, `vehicleUnit:${unit.plate}`, manifest.status === 'ACCEPTED' ? 'blocking' : 'warning'));
             }
         }
-        const addressComplete = (p: { neighborhood?: string | null; cep?: string | null; address?: string | null; number?: string | null; city?: string | null; state?: string | null; cityIbgeCode?: string | null } | null | undefined) =>
-            Boolean(p?.neighborhood && p.cep && p.address && p.number && p.city && p.state && p.cityIbgeCode);
+        const addressComplete = hasCompleteFiscalAddress;
         if (composition.traction?.rntrcHolder !== undefined) {
             // eFrete grava como Proprietário cada responsável RNTRC da composição, com o endereço dele.
             const holders = new Map((manifest.vehicleAssignments ?? []).flatMap((a) => (a.vehicleUnit.rntrcHolderPerson ? [[a.vehicleUnit.rntrcHolderPerson.id, a.vehicleUnit.rntrcHolderPerson] as const] : [])));
@@ -211,7 +235,7 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
                 if (!addressComplete(holder)) add(issue('responsible', 'RNTRC_HOLDER_ADDRESS_PENDING', `Endereço de ${holder.legalName} (responsável RNTRC) incompleto para Gravar Proprietário na eFrete.`, `rntrcHolder:${holder.id}`));
             }
             if (tractionHolderDiffersFromCarrier(composition, manifest.link.personId)) {
-                add(issue('responsible', 'RNTRC_HOLDER_NOT_CARRIER', `O CIOT sairá no RNTRC de ${composition.traction!.rntrcHolder!.name}, responsável pelo cavalo, e não do transportador que recebe a oferta. Confirme que é frota agregada.`, 'rntrcHolder', 'warning'));
+                add(issue('responsible', 'RNTRC_HOLDER_NOT_CARRIER', `O responsável RNTRC do cavalo é ${composition.traction!.rntrcHolder!.name}. No CIOT, o contratado continua sendo o transportador selecionado, com o RNTRC dele.`, 'rntrcHolder', 'warning'));
             }
         } else {
             const lp = manifest.link.person;
@@ -227,6 +251,12 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
     } else if (manifest.driver.linkId !== manifest.linkId && !(manifest.driver.carriers ?? []).some((carrier) => carrier.linkId === manifest.linkId)) {
         add(issue('responsible', 'DRIVER_LINK_MISMATCH', 'Os dados fiscais não pertencem ao responsável selecionado.', 'driverId'));
     } else {
+        if (!/^\d{11}$/.test((manifest.driver.document ?? '').replace(/\D/g, ''))) {
+            add(issue('responsible', 'DRIVER_DOCUMENT_PENDING', 'Informe o CPF do motorista para emissão fiscal.', 'driverId'));
+        }
+        if (!splitPhone(manifest.driver.phone)) {
+            add(issue('responsible', 'DRIVER_PHONE_PENDING', 'Informe telefone com DDD do motorista para o CIOT.', 'driverId'));
+        }
         if (!manifest.driver.cnhNumber) {
             add(issue('responsible', 'DRIVER_CNH_PENDING', 'CNH pendente para emissão do CIOT.', 'driverId'));
         }
@@ -234,7 +264,7 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
             add(issue('responsible', 'DRIVER_BIRTH_DATE_PENDING', 'Data de nascimento pendente para emissão do CIOT.', 'driverId'));
         }
         const dp = manifest.driver.person;
-        if (!dp?.neighborhood || !dp?.cep || !dp?.address || !dp?.number || !dp?.city || !dp?.state || !dp?.cityIbgeCode) {
+        if (!hasCompleteFiscalAddress(dp)) {
             add(issue('responsible', 'DRIVER_ADDRESS_PENDING', 'Endereço do motorista obrigatório para Gravar Motorista no e-Frete.', 'driverAddress'));
         }
         if (manifest.driver.cnhExpiry && manifest.driver.cnhExpiry < new Date()) {
@@ -256,8 +286,8 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
 
     if (manifest.status === 'ACCEPTED') {
         const [legs, fiscalDocs] = await Promise.all([
-            prisma.orderLeg.findMany({ where: { manifestId }, select: { orderId: true, order: { select: { freightCalculations: { where: { documentType: 'CTE', status: 'CTE_AUTHORIZED' }, select: { cteAccessKey: true, cteProtocol: true, cteXml: true, cteXmlStorageKey: true } } } } } }),
-            prisma.manifestFiscalDocument.findMany({ where: { manifestId, documentType: { in: ['MDFE', 'CIOT'] }, status: 'AUTHORIZED' }, select: { documentType: true, accessKey: true, protocol: true, xmlUrl: true } }),
+            db.orderLeg.findMany({ where: { manifestId }, select: { orderId: true, order: { select: { freightCalculations: { where: { documentType: 'CTE', status: 'CTE_AUTHORIZED' }, select: { cteAccessKey: true, cteProtocol: true, cteXml: true, cteXmlStorageKey: true } } } } } }),
+            db.manifestFiscalDocument.findMany({ where: { manifestId, documentType: { in: ['MDFE', 'CIOT'] }, status: 'AUTHORIZED' }, select: { documentType: true, accessKey: true, protocol: true, xmlUrl: true, number: true } }),
         ]);
         for (const leg of legs) {
             const validCte = leg.order.freightCalculations.some((doc) => /^\d{44}$/.test(doc.cteAccessKey ?? '') && !!doc.cteProtocol && !!(doc.cteXml || doc.cteXmlStorageKey));
@@ -266,7 +296,7 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
         if (!fiscalDocs.some((doc) => doc.documentType === 'MDFE' && /^\d{44}$/.test(doc.accessKey ?? '') && !!doc.protocol && !!doc.xmlUrl)) {
             add(issue('fiscal', 'MDFE_AUTHORIZATION_REQUIRED', 'MDF-e autorizado com XML, chave e protocolo obrigatório para a saída.'));
         }
-        if (!manifest.ciotDispensado && !fiscalDocs.some((doc) => doc.documentType === 'CIOT')) {
+        if (!manifest.ciotDispensado && !fiscalDocs.some((doc) => doc.documentType === 'CIOT' && doc.number)) {
             add(issue('fiscal', 'CIOT_REQUIRED', 'Emita o CIOT ou registre dispensa justificada antes da saída.'));
         }
     }
@@ -275,9 +305,8 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
     const locked = isPlanningLocked(manifest.status);
     const firstIncomplete = planningSteps.find((step) => (byStep.get(step) ?? []).some((item) => item.severity === 'blocking'));
     const currentStep: ManifestJourneyStep = locked
-        ? 'review'
+        ? manifest.status === 'ACCEPTED' ? 'fiscal' : 'review'
         : firstIncomplete ?? 'review';
-    const currentPlanningIndex = planningSteps.indexOf(currentStep);
 
     const steps = {} as ManifestReadiness['steps'];
     for (const step of [...planningSteps, 'fiscal'] as ManifestJourneyStep[]) {
@@ -285,21 +314,32 @@ export async function getManifestReadiness(manifestId: string): Promise<Manifest
         const hasBlocking = issues.some((item) => item.severity === 'blocking');
         const hasWarning = issues.some((item) => item.severity === 'warning');
         let state: ManifestStepState = hasBlocking ? 'attention' : hasWarning ? 'attention' : 'complete';
-        const stepPlanningIndex = planningSteps.indexOf(step);
-        if (!locked && currentPlanningIndex >= 0 && stepPlanningIndex > currentPlanningIndex) {
-            state = 'locked';
-        }
         if (!locked && step === currentStep) state = 'current';
         if (locked && planningSteps.includes(step)) state = 'read_only';
         if (step === 'fiscal') state = locked ? (hasBlocking || hasWarning ? 'attention' : 'complete') : 'locked';
         steps[step] = { state, issues };
     }
 
+    const issues = Array.from(byStep.values()).flat();
+    // Composição e CNH ficam completas antes de congelar o retrato da viagem.
+    // Os cadastros auxiliares exigidos apenas pelo CIOT podem ser corrigidos na emissão.
+    const forAction = (action: ReadinessAction) => issues.filter(item => blocksReadinessAction(item, action, manifest.ciotDispensado)).map(item => ({ ...item, severity: 'blocking' as const }));
+    const releaseIssues = forAction('release');
+    const offerIssues = forAction('offer');
+    const ciotIssues = forAction('ciot');
+    const mdfeIssues = forAction('mdfe');
+    const startIssues = forAction('start');
+    const canSendOffer = manifest.status === 'DRAFT' && offerIssues.length === 0;
     return {
-        canOffer: manifest.status === 'DRAFT' && blocking.length === 0,
-        canStart: manifest.status === 'ACCEPTED' && blocking.length === 0,
+        canOffer: canSendOffer,
+        canSendOffer,
+        canRelease: ['DRAFT', 'PENDING_ACCEPT'].includes(manifest.status) && releaseIssues.length === 0,
+        canEmitCiot: manifest.status === 'ACCEPTED' && ciotIssues.length === 0,
+        canEmitMdfe: manifest.status === 'ACCEPTED' && mdfeIssues.length === 0,
+        actionIssues: { release: releaseIssues, offer: offerIssues, ciot: ciotIssues, mdfe: mdfeIssues, start: startIssues },
+        canStart: manifest.status === 'ACCEPTED' && startIssues.length === 0,
         currentStep,
         steps,
-        issues: Array.from(byStep.values()).flat(),
+        issues,
     };
 }

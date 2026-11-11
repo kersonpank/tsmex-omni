@@ -952,6 +952,9 @@ model Manifest {
   firstOfferedAt  DateTime?
   creationAuditComplete Boolean @default(true)
   acceptedAt      DateTime?
+  releaseSource   String?
+  releasedByUserId String?
+  releasedAt      DateTime?
   rejectedAt      DateTime?
   rejectionReason String?
   cancelledAt DateTime?
@@ -960,6 +963,7 @@ model Manifest {
 
   // Execution
   startedAt   DateTime?
+  startedByUserId String?
   completedAt DateTime?
 
   createdAt DateTime @default(now())
@@ -2460,8 +2464,26 @@ model CiotEmissionJob {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  attempts CiotEmissionAttempt[]
+
   @@index([manifestId])
   @@index([phase, nextPollAt])
+}
+
+// Histórico imutável de entrada por execução/tentativa, separado do job reutilizado.
+model CiotEmissionAttempt {
+  id          String   @id @default(uuid())
+  jobId       String
+  job         CiotEmissionJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  requestData Json
+  rawPayload  Json?
+  rawResponse Json?
+  phase       String
+  lastError   String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([jobId, createdAt])
 }
 
 enum SystemAlertCategory {

@@ -1,6 +1,6 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
@@ -10,6 +10,7 @@ import { normalizePlate, resolveComposition } from '../services/vehicleUnitRules
 import { isValidCpf, isValidCnpj, documentDigits } from '../services/documentValidation.js';
 import { signLinkInvite } from '../services/linkInvite.js';
 import { getObjectDownloadUrl, uploadBase64Object } from '../lib/objectStorage.js';
+import { lockFiscalCadastros, recordPlanningEdit, assertCadastroCorrectionReason } from '../services/manifestFiscalGuards.js';
 
 const router = Router();
 
@@ -502,7 +503,7 @@ const patchLinkFiscalSchema = z.object({
     vehicleWheelType: z.enum(['NaoAplicavel', 'Truck', 'Toco', 'Cavalo']).optional(),
 });
 const VEHICLE_FIELD_KEYS = [
-    'vehiclePlate', 'vehicleYear', 'rntrc', 'trailerPlate', 'trailer2Plate', 'trailer3Plate', 'vehicleAxles',
+    'vehiclePlate', 'vehicleYear', 'trailerPlate', 'trailer2Plate', 'trailer3Plate', 'vehicleAxles',
     'vehicleOwnerDocument', 'vehicleOwnerName', 'vehicleChassi', 'vehicleRenavam', 'vehicleBodyType', 'vehicleWheelType',
 ] as const;
 
@@ -566,14 +567,21 @@ router.patch('/:id/fiscal', authenticate, authorize('ADMIN', 'HUB'), async (req:
             await setLinkComposition(id, composition);
         }
 
-        const link = await prisma.link.update({
+        const link = await prisma.$transaction(async tx => {
+            const related = await lockFiscalCadastros(tx, { linkId: id, personId: existing.personId ?? undefined });
+            assertCadastroCorrectionReason(related, req.body.reason);
+        const link = await tx.link.update({
             where: { id },
             data: {
                 ...(body.vehicleTypeId !== undefined ? { vehicleTypeId: body.vehicleTypeId } : {}),
                 ...(body.carrierType !== undefined ? { carrierType: body.carrierType } : {}),
+                ...(body.rntrc !== undefined ? { rntrc: body.rntrc } : {}),
             },
             include: { vehicleType: true, ...linkVehicleInclude },
         });
+            for (const manifest of related) await recordPlanningEdit(tx, manifest.id, req.user!.id, 'CARRIER_DETAILS', { rntrc: existing.rntrc, carrierType: existing.carrierType }, { rntrc: link.rntrc, carrierType: link.carrierType }, req.body.reason);
+            return link;
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
         res.json({ success: true, data: link });
     } catch (error) {
         if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
@@ -702,6 +710,8 @@ router.post('/:id/drivers', authenticate, authorize('ADMIN', 'HUB'), async (req:
         if (existingDriver) {
             // Reuse the canonical CPF across carriers; never reassign the legacy owner link.
             const result = await prisma.$transaction(async (tx) => {
+                const related = await lockFiscalCadastros(tx, { driverId: existingDriver.id, personId: existingDriver.personId ?? undefined });
+                assertCadastroCorrectionReason(related, req.body.reason);
                 const personResult = await upsertPersonForDriver(normalizedDoc, body.name, body.address, body.updatePersonAddress, tx);
                 const driver = await tx.driver.update({
                     where: { id: existingDriver.id },
@@ -715,6 +725,7 @@ router.post('/:id/drivers', authenticate, authorize('ADMIN', 'HUB'), async (req:
                 });
                 await tx.driverCarrier.upsert({ where: { driverId_linkId: { driverId: driver.id, linkId: id } }, create: { driverId: driver.id, linkId: id }, update: { active: true } });
                 await saveDriverDetails(tx, personResult.person.id, driver.id, body);
+                for (const manifest of related) await recordPlanningEdit(tx, manifest.id, req.user!.id, 'DRIVER_DETAILS', existingDriver, driver, req.body.reason);
                 return { driver, ...personResult };
             });
             return res.json({ success: true, data: result.driver, personAlreadyExists: result.personAlreadyExists, notOverwritten: result.notOverwritten, message: 'Motorista reutilizado e associado ao transportador selecionado.' });
@@ -753,6 +764,8 @@ router.patch('/:id/drivers/:driverId', authenticate, authorize('ADMIN', 'HUB'), 
         if (body.document && documentDigits(body.document) !== existing.document) throw new AppError('O CPF identifica a pessoa. Corrija o cadastro da pessoa antes de alterar o documento.', 409);
 
         const result = await prisma.$transaction(async (tx) => {
+            const related = await lockFiscalCadastros(tx, { driverId, personId: existing.personId ?? undefined });
+            assertCadastroCorrectionReason(related, req.body.reason);
             const personResult = body.address || (body.name && !existing.personId)
                 ? await upsertPersonForDriver(existing.document, body.name ?? existing.name, body.address, body.updatePersonAddress, tx)
                 : null;
@@ -771,6 +784,7 @@ router.patch('/:id/drivers/:driverId', authenticate, authorize('ADMIN', 'HUB'), 
                 include: { person: true },
             });
             if (personId) await saveDriverDetails(tx, personId, driverId, body);
+            for (const manifest of related) await recordPlanningEdit(tx, manifest.id, req.user!.id, 'DRIVER_DETAILS', { driver: existing }, { driver, address: body.address }, req.body.reason);
             return { driver, personResult };
         });
 
@@ -853,22 +867,16 @@ router.patch('/:id/owner-person', authenticate, authorize('ADMIN', 'HUB'), async
         }
         const documentType = normalizedDoc.length === 14 ? 'CNPJ' : 'CPF';
 
-        const { person, personAlreadyExists, notOverwritten } = await upsertPersonForLinkOwner(
-            documentType,
-            normalizedDoc,
-            body.legalName ?? link.name,
-            body.address,
-            body.stateRegistration,
-            body.updatePersonAddress,
-        );
-
-        const updated = await prisma.link.update({
-            where: { id },
-            data: { personId: person.id },
-            include: { vehicleType: true, person: true },
-        });
-
-        res.json({ success: true, data: updated, personAlreadyExists, notOverwritten });
+        const result = await prisma.$transaction(async tx => {
+            const related = await lockFiscalCadastros(tx, { linkId: id, personId: link.personId ?? undefined });
+            assertCadastroCorrectionReason(related, req.body.reason);
+            const before = link.personId ? await tx.person.findUnique({ where: { id: link.personId } }) : null;
+            const personResult = await upsertPersonForLinkOwner(documentType, normalizedDoc, body.legalName ?? link.name, body.address, body.stateRegistration, body.updatePersonAddress, tx);
+            const updated = await tx.link.update({ where: { id }, data: { personId: personResult.person.id }, include: { vehicleType: true, person: true } });
+            for (const manifest of related) await recordPlanningEdit(tx, manifest.id, req.user!.id, 'CARRIER_ADDRESS', before, personResult.person, req.body.reason);
+            return { ...personResult, updated };
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+        res.json({ success: true, data: result.updated, personAlreadyExists: result.personAlreadyExists, notOverwritten: result.notOverwritten });
     } catch (error) {
         if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
         next(error);

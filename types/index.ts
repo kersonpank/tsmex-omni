@@ -288,6 +288,7 @@ export interface Person {
     neighborhood?: string;
     city?: string;
     state?: string;
+    cityIbgeCode?: string | null;
     country?: string;
     stateRegistration?: string;
     municipalRegistration?: string;
@@ -707,6 +708,10 @@ export interface Manifest {
     fiscalDocuments?: ManifestFiscalDocument[];
     offeredAt?: string;
     acceptedAt?: string;
+    releaseSource?: 'OPERATOR' | 'LINK' | null;
+    releasedByUserId?: string | null;
+    releasedAt?: string | null;
+    startedByUserId?: string | null;
     rejectedAt?: string;
     rejectionReason?: string;
     startedAt?: string;
@@ -738,7 +743,13 @@ export interface DeliveryProgress {
 }
 
 export interface ManifestReadiness {
+    cteProtected?: boolean;
     canOffer: boolean;
+    canRelease: boolean;
+    canSendOffer: boolean;
+    canEmitCiot: boolean;
+    canEmitMdfe: boolean;
+    actionIssues: Record<'release' | 'offer' | 'ciot' | 'mdfe' | 'start', ManifestReadinessIssue[]>;
     canStart: boolean;
     currentStep: ManifestJourneyStep;
     steps: Record<ManifestJourneyStep, { state: ManifestStepState; issues: ManifestReadinessIssue[] }>;

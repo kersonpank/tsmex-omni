@@ -1,6 +1,7 @@
 import type { Job } from 'bullmq';
 import { DelayedError } from 'bullmq';
 import prisma from '../../lib/prisma.js';
+import { AppError } from '../../middleware/errorHandler.js';
 import { EfreteApiError } from '../efrete/efreteHttp.js';
 import { linkVehicleInclude, manifestVehicleAssignmentsInclude } from '../vehicleUnitService.js';
 import { resolveManifestComposition, tractionRntrc, type VehicleUnitParty } from '../vehicleUnitRules.js';
@@ -11,8 +12,10 @@ import { buildCiotPayload } from '../efrete/efreteCiotMapper.js';
 import { buildCiotEmissionInputForJob } from './ciotEmissionJobInput.js';
 import { uploadBase64Object } from '../../lib/objectStorage.js';
 import type { CiotEmissionJobData } from './ciotEmissionQueue.js';
+import { persistCiotProviderState } from '../ciotProviderState.js';
 
 const RETRY_DELAY_MS = 5_000;
+const isConfirmedFailure = (error: unknown) => error instanceof AppError || error instanceof EfreteApiError && (error.httpStatus === undefined || error.httpStatus === 200) && Boolean(error.excecaoMensagem);
 
 type CiotEmissionJobRecord = Awaited<ReturnType<typeof prisma.ciotEmissionJob.findUniqueOrThrow>>;
 
@@ -28,6 +31,7 @@ export interface CiotEmissionProcessorDeps {
         manifestFiscalDocument: Pick<typeof prisma.manifestFiscalDocument, 'create'> & Partial<Pick<typeof prisma.manifestFiscalDocument, 'findFirst' | 'update'>>;
         /** Endereço do responsável RNTRC para o Gravar Proprietário. */
         person?: Pick<typeof prisma.person, 'findUnique'>;
+        ciotEmissionAttempt?: Pick<typeof prisma.ciotEmissionAttempt, 'create' | 'update'>;
     };
     ensureMotoristaRegistrado: typeof ensureMotoristaRegistrado;
     ensureProprietarioRegistrado: typeof ensureProprietarioRegistrado;
@@ -45,6 +49,7 @@ export const defaultCiotEmissionProcessorDeps: CiotEmissionProcessorDeps = {
         manifest: prisma.manifest,
         manifestFiscalDocument: prisma.manifestFiscalDocument,
         person: prisma.person,
+        ciotEmissionAttempt: prisma.ciotEmissionAttempt,
     },
     ensureMotoristaRegistrado,
     ensureProprietarioRegistrado,
@@ -95,7 +100,7 @@ async function markPendingReconciliation(deps: CiotEmissionProcessorDeps, ciotEm
 async function archiveCiotPdf(deps: CiotEmissionProcessorDeps, job: CiotEmissionJobRecord, code: string, environment: 'producao' | 'homologacao', authorized: any, protocol?: string, rawPayload?: unknown, rawResponse?: unknown) {
     const pdf = await deps.obterCiotPdf(code, environment);
     const uploaded = await deps.uploadBase64Object({ base64: pdf, fileName: `${code}.pdf`, mimeType: 'application/pdf', keyPrefix: `manifests/${job.manifestId}/ciot` });
-    const data = { manifestId: job.manifestId, documentType: 'CIOT' as const, status: 'AUTHORIZED' as const, number: code, protocol, environment: environment === 'producao' ? 'PRODUCAO' : 'HOMOLOGACAO', rawPayload: rawPayload as object | undefined, rawResponse: rawResponse as object | undefined, pdfUrl: `s3:${uploaded.storageKey}`, authorizedAt: new Date() };
+    const data = { manifestId: job.manifestId, documentType: 'CIOT' as const, status: 'AUTHORIZED' as const, number: code, protocol, environment: environment === 'producao' ? 'PRODUCAO' : 'HOMOLOGACAO', rawPayload: rawPayload as object | undefined, rawResponse: rawResponse as object | undefined, pdfUrl: `s3:${uploaded.storageKey}`, authorizedAt: authorized?.authorizedAt ?? new Date(), statusReason: null };
     if (authorized && deps.prisma.manifestFiscalDocument.update) await deps.prisma.manifestFiscalDocument.update({ where: { id: authorized.id }, data });
     else await deps.prisma.manifestFiscalDocument.create({ data });
     await deps.prisma.ciotEmissionJob.update({ where: { id: job.id }, data: { phase: 'DONE', attemptCount: 0 } });
@@ -107,20 +112,47 @@ export async function processCiotEmissionJob(
 ): Promise<void> {
     const { ciotEmissionJobId } = job.data;
     let ciotJob: CiotEmissionJobRecord | null = null;
+    let definiteRejectionPossible = false;
+    let attemptId: string | undefined;
+    let rawPayload: unknown;
 
     try {
         ciotJob = await deps.prisma.ciotEmissionJob.findUniqueOrThrow({ where: { id: ciotEmissionJobId } });
         if (ciotJob.phase === 'DONE') return;
+        const attempt = await deps.prisma.ciotEmissionAttempt?.create({ data: { jobId: ciotJob.id, requestData: ciotJob.requestData ?? {}, phase: 'PROCESSING' } });
+        attemptId = attempt?.id;
+        definiteRejectionPossible = ciotJob.phase === 'QUEUED';
 
         const storedEnvironment = ciotJob.environment === 'PRODUCAO' ? 'producao' : ciotJob.environment === 'HOMOLOGACAO' ? 'homologacao' : undefined;
-        if (ciotJob.phase === 'DOWNLOADING_FILES' && ciotJob.codigoIdentificacaoOperacao && storedEnvironment) {
-            const authorized = await deps.prisma.manifestFiscalDocument.findFirst?.({ where: { manifestId: ciotJob.manifestId, documentType: 'CIOT', status: 'AUTHORIZED', number: ciotJob.codigoIdentificacaoOperacao } });
+        if (ciotJob.phase === 'DOWNLOADING_FILES' && ciotJob.codigoIdentificacaoOperacao && storedEnvironment && !(ciotJob.requestData as { matrizCnpj?: string } | null)?.matrizCnpj) {
+            const authorized = await deps.prisma.manifestFiscalDocument.findFirst?.({ where: { manifestId: ciotJob.manifestId, documentType: 'CIOT', status: { in: ['READY', 'AUTHORIZED'] }, number: ciotJob.codigoIdentificacaoOperacao } });
             if (authorized?.pdfUrl?.startsWith('s3:')) { await deps.prisma.ciotEmissionJob.update({ where: { id: ciotJob.id }, data: { phase: 'DONE', attemptCount: 0 } }); return; }
             await archiveCiotPdf(deps, ciotJob, ciotJob.codigoIdentificacaoOperacao, storedEnvironment, authorized);
+            if (attemptId) await deps.prisma.ciotEmissionAttempt!.update({ where: { id: attemptId }, data: { phase: 'DONE' } });
             return;
         }
-        const { mapperInput, environment: builtEnvironment } = await deps.buildCiotEmissionInputForJob(ciotEmissionJobId);
-        const environment = storedEnvironment ?? builtEnvironment;
+        // Consultar primeiro evita alterar cadastros de uma operação já existente após timeout.
+        let built = storedEnvironment ? undefined : await deps.buildCiotEmissionInputForJob(ciotEmissionJobId);
+        const environment = storedEnvironment ?? built!.environment;
+        definiteRejectionPossible = false;
+        const storedMatrix = (ciotJob.requestData as { matrizCnpj?: string } | null)?.matrizCnpj;
+        if (!storedMatrix && !built) built = await deps.buildCiotEmissionInputForJob(ciotEmissionJobId);
+        const existing = await deps.consultarStatusCiot(ciotJob.idOperacaoCliente, environment, storedMatrix ?? built!.mapperInput.matrizCnpj);
+        if (!existing.exists && ciotJob.codigoIdentificacaoOperacao) throw new Error('CIOT conhecido não confirmado pela consulta. Mantenha a conciliação pendente.');
+        if (existing.exists) {
+            if (!existing.codigoIdentificacaoOperacao || !existing.estado) throw new Error('Consulta de CIOT inconclusiva.');
+            const document = await persistCiotProviderState({ ...ciotJob, environment: environment === 'producao' ? 'PRODUCAO' : 'HOMOLOGACAO' }, existing, deps.prisma as Parameters<typeof persistCiotProviderState>[2]);
+            if (attemptId) await deps.prisma.ciotEmissionAttempt!.update({ where: { id: attemptId }, data: { rawResponse: existing as unknown as object, phase: existing.estado === 'EmViagem' ? 'DOWNLOADING_FILES' : 'DONE' } });
+            ciotJob.codigoIdentificacaoOperacao = existing.codigoIdentificacaoOperacao;
+            ciotJob.phase = existing.estado === 'EmViagem' ? 'DOWNLOADING_FILES' : 'DONE';
+            await deps.prisma.ciotEmissionJob.update({ where: { id: ciotJob.id }, data: { phase: ciotJob.phase, codigoIdentificacaoOperacao: existing.codigoIdentificacaoOperacao, environment: environment === 'producao' ? 'PRODUCAO' : 'HOMOLOGACAO', lastError: existing.estado === 'EmViagem' ? null : `CIOT ${existing.estado}. Regularize os documentos vinculados.` } });
+            if (existing.estado === 'EmViagem') await archiveCiotPdf(deps, ciotJob, existing.codigoIdentificacaoOperacao, environment, document, existing.protocoloServico);
+            if (attemptId) await deps.prisma.ciotEmissionAttempt!.update({ where: { id: attemptId }, data: { phase: 'DONE' } });
+            return;
+        }
+        definiteRejectionPossible = true;
+        built ??= await deps.buildCiotEmissionInputForJob(ciotEmissionJobId);
+        const { mapperInput } = built;
 
         const manifest = await deps.prisma.manifest.findUniqueOrThrow({
             where: { id: ciotJob.manifestId },
@@ -131,6 +163,7 @@ export async function processCiotEmissionJob(
 
         // Fase 1: cadastros (idempotentes na própria eFrete — sempre antes de emitir operação).
         if (ciotJob.phase === 'QUEUED') {
+            definiteRejectionPossible = true;
             await deps.ensureMotoristaRegistrado(manifest.driver, environment);
             // Proprietário na eFrete = responsável RNTRC de cada unidade, lido do retrato da viagem
             // (nunca do cadastro atual). Retrato antigo sem responsável: legado do Link/cavalo.
@@ -158,19 +191,21 @@ export async function processCiotEmissionJob(
         // Fase 2: idempotência — NUNCA reenviar sem checar primeiro se já existe CIOT pra este
         // idOperacaoCliente (timeout anterior pode ter sido aceito do lado da eFrete mesmo sem
         // resposta chegar aqui; reenviar direto duplicaria o CIOT e gera multa ANTT).
-        const existing = await deps.consultarStatusCiot(ciotJob.idOperacaoCliente, environment);
+        definiteRejectionPossible = false;
         let codigoIdentificacaoOperacao = existing.codigoIdentificacaoOperacao;
         let protocoloServico = existing.protocoloServico;
         let rawResponse: unknown = existing.exists ? existing : undefined;
-        let rawPayload: unknown;
 
         if (!existing.exists) {
+            definiteRejectionPossible = true;
             const payload = buildCiotPayload(mapperInput);
             rawPayload = payload;
+            if (attemptId) await deps.prisma.ciotEmissionAttempt!.update({ where: { id: attemptId }, data: { phase: 'SUBMITTED', rawPayload: payload as unknown as object } });
             const submitted = await deps.submitCiotToEfrete(payload, environment);
             codigoIdentificacaoOperacao = submitted.codigoIdentificacaoOperacao;
             protocoloServico = submitted.protocoloServico;
             rawResponse = submitted.raw;
+            if (attemptId) await deps.prisma.ciotEmissionAttempt!.update({ where: { id: attemptId }, data: { phase: 'DOWNLOADING_FILES', rawResponse: rawResponse as object } });
         }
 
         if (!codigoIdentificacaoOperacao) {
@@ -192,23 +227,9 @@ export async function processCiotEmissionJob(
         });
         ciotJob.phase = 'DOWNLOADING_FILES';
         ciotJob.codigoIdentificacaoOperacao = codigoIdentificacaoOperacao;
-        const pdf = await deps.obterCiotPdf(codigoIdentificacaoOperacao, environment);
-        const uploaded = await deps.uploadBase64Object({ base64: pdf, fileName: `${codigoIdentificacaoOperacao}.pdf`, mimeType: 'application/pdf', keyPrefix: `manifests/${ciotJob.manifestId}/ciot` });
-        const documentData = {
-                manifestId: ciotJob.manifestId,
-                documentType: 'CIOT' as const,
-                status: 'AUTHORIZED' as const,
-                number: codigoIdentificacaoOperacao,
-                protocol: protocoloServico,
-                environment: environment === 'producao' ? 'PRODUCAO' : 'HOMOLOGACAO',
-                rawPayload: rawPayload as object | undefined,
-                rawResponse: rawResponse as object | undefined,
-                pdfUrl: `s3:${uploaded.storageKey}`,
-                authorizedAt: new Date(),
-        };
-        if (authorized && deps.prisma.manifestFiscalDocument.update) await deps.prisma.manifestFiscalDocument.update({ where: { id: authorized.id }, data: { ...documentData, rawPayload: rawPayload as object | undefined, rawResponse: rawResponse as object | undefined } });
-        else await deps.prisma.manifestFiscalDocument.create({ data: documentData });
-        await deps.prisma.ciotEmissionJob.update({ where: { id: ciotEmissionJobId }, data: { phase: 'DONE', attemptCount: 0 } });
+        const pendingDocument = await deps.prisma.manifestFiscalDocument.create({ data: { manifestId: ciotJob.manifestId, documentType: 'CIOT', status: 'READY', number: codigoIdentificacaoOperacao, protocol: protocoloServico, environment: environment === 'producao' ? 'PRODUCAO' : 'HOMOLOGACAO', rawPayload: rawPayload as object, rawResponse: rawResponse as object, statusReason: 'CIOT confirmado; recuperação do PDF pendente.' } });
+        await archiveCiotPdf(deps, ciotJob, codigoIdentificacaoOperacao, environment, pendingDocument, protocoloServico, rawPayload, rawResponse);
+        if (attemptId) await deps.prisma.ciotEmissionAttempt!.update({ where: { id: attemptId }, data: { phase: 'DONE' } });
     } catch (err) {
         if (err instanceof DelayedError) throw err;
 
@@ -216,6 +237,12 @@ export async function processCiotEmissionJob(
             // findUniqueOrThrow inicial falhou — sem attemptCount/maxAttempts pra decidir reagendar.
             throw err;
         }
+        const confirmedFailure = definiteRejectionPossible && isConfirmedFailure(err);
+        if (attemptId) await deps.prisma.ciotEmissionAttempt!.update({ where: { id: attemptId }, data: {
+            phase: ciotJob.phase === 'DOWNLOADING_FILES' ? 'DOWNLOADING_FILES' : confirmedFailure ? 'REJECTED' : 'UNKNOWN',
+            lastError: err instanceof Error ? err.message : String(err),
+            ...(err instanceof EfreteApiError ? { rawResponse: { code: err.excecaoCodigo, message: err.excecaoMensagem, httpStatus: err.httpStatus } } : {}),
+        } });
 
         if (ciotJob.phase === 'DOWNLOADING_FILES' && ciotJob.codigoIdentificacaoOperacao) {
             await deps.prisma.ciotEmissionJob.update({ where: { id: ciotEmissionJobId }, data: { phase: 'DOWNLOADING_FILES', lastError: err instanceof Error ? err.message : String(err) } });
@@ -224,15 +251,17 @@ export async function processCiotEmissionJob(
 
         // Rejeição de negócio da própria eFrete (`Sucesso: false` com Excecao preenchida — ex.:
         // piso mínimo do Lotação) é definitiva, não transitória: reenviar não muda o resultado.
-        if (err instanceof EfreteApiError && err.excecaoMensagem) {
+        if (confirmedFailure) {
+            if (!(err instanceof EfreteApiError) && !(err instanceof AppError)) throw err;
+            const reason = err instanceof EfreteApiError ? err.excecaoMensagem! : err.message;
             await markFailed(
                 deps,
                 ciotEmissionJobId,
                 ciotJob.manifestId,
                 null,
-                err.excecaoMensagem,
-                undefined,
-                { excecaoCodigo: err.excecaoCodigo, excecaoMensagem: err.excecaoMensagem },
+                reason,
+                rawPayload,
+                err instanceof EfreteApiError ? { excecaoCodigo: err.excecaoCodigo, excecaoMensagem: err.excecaoMensagem } : { stage: 'PREFLIGHT', error: reason },
             );
             return;
         }

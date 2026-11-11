@@ -18,7 +18,7 @@ const ClaimLinkInvite: React.FC = () => {
     try {
       await api.post('/auth/claim-link', { token, email, password });
       setComplete(true);
-    } catch (e: any) { setError(e.response?.data?.error || e.message || 'Não foi possível ativar o acesso.'); }
+    } catch (e: any) { setError(`${e.response?.data?.error || e.message || 'Não foi possível ativar o acesso.'} Se o convite expirou ou já foi usado, peça um novo link à operação.`); }
     finally { setBusy(false); }
   };
 
@@ -28,7 +28,7 @@ const ClaimLinkInvite: React.FC = () => {
       {complete ? <p className="mt-5 text-sm">Acesso ativado. <Link to="/login" className="font-bold text-brand-700">Entrar no aplicativo</Link>.</p>
         : !token ? <p className="mt-5 text-sm text-red-700">Convite ausente. Peça um novo link à operação.</p>
         : <form onSubmit={submit} className="mt-6 space-y-4">
-          <p className="text-sm text-tower-600 dark:text-tower-300">Use seu email e uma senha. Se você já tem conta, informe a senha atual para autorizar o vínculo.</p>
+          <p className="text-sm text-tower-600 dark:text-tower-300">Crie seu acesso com email e senha. Se já tem conta na TSM EX, informe a senha atual para vincular o transportador.</p>
           <label className="block text-sm font-semibold">Email<input required type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} className="mt-2 min-h-12 w-full rounded-xl border border-tower-300 bg-transparent px-3 dark:border-tower-600" /></label>
           <label className="block text-sm font-semibold">Senha<input required minLength={6} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className="mt-2 min-h-12 w-full rounded-xl border border-tower-300 bg-transparent px-3 dark:border-tower-600" /></label>
           {error && <p role="alert" className="text-sm text-red-700 dark:text-red-300">{error}</p>}
