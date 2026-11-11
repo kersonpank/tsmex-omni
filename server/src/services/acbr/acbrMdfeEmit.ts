@@ -1,6 +1,7 @@
 import prisma from '../../lib/prisma.js';
 import { buildMdfeProdPred, nfeProducts } from './mdfeProdPred.js';
 import { type CargoInsuranceEmitter } from './mdfeCargoInsurance.js';
+import { declararMdfeAposAutorizacao } from '../averbacao/mdfeDeclaration.js';
 import { resolveMdfeSeg } from '../averbacao/mdfeAverbacao.js';
 import type { AtmEmitterConfig } from '../averbacao/cargoAverbacaoService.js';
 import { buildMdfeAntt, persistedCiotContratante } from './acbrMdfeAntt.js';
@@ -710,6 +711,7 @@ async function finalizeAuthorized(
             authorizedAt: new Date(),
         },
     });
+    await declararMdfeAposAutorizacao({ docId, xml }); // best-effort; desligado sem ATM_DECLARA_MDFE=true
     return { ok: true, docId, apiId, accessKey: outcome.chave || undefined, protocol: outcome.protocol, xml, raw: doc };
 }
 
