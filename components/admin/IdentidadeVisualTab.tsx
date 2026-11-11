@@ -61,6 +61,15 @@ type FormState = {
   cargoInsurerName: string;
   cargoInsurerCnpj: string;
   cargoInsurancePolicyNumber: string;
+  averbacaoProvider: 'NONE' | 'ATM';
+  atmCode: string;
+  atmUser: string;
+  /** Sempre vazia ao carregar; vazia ao salvar = não altera a senha gravada. */
+  atmPassword: string;
+  atmEnvironment: 'HOMOLOGACAO' | 'PRODUCAO';
+  cargoTracked: boolean;
+  cargoLoadUnloadCovered: boolean;
+  hasAtmPassword: boolean;
 };
 
 const emptyForm: FormState = {
@@ -89,6 +98,14 @@ const emptyForm: FormState = {
   cargoInsurerName: '',
   cargoInsurerCnpj: '',
   cargoInsurancePolicyNumber: '',
+  averbacaoProvider: 'NONE',
+  atmCode: '',
+  atmUser: '',
+  atmPassword: '',
+  atmEnvironment: 'HOMOLOGACAO',
+  cargoTracked: false,
+  cargoLoadUnloadCovered: false,
+  hasAtmPassword: false,
 };
 
 function fileToBase64DataPart(file: File): Promise<string> {
@@ -131,6 +148,14 @@ function emitterToForm(emitter: FiscalEmitter): FormState {
     cargoInsurerName: emitter.cargoInsurerName ?? '',
     cargoInsurerCnpj: emitter.cargoInsurerCnpj ?? '',
     cargoInsurancePolicyNumber: emitter.cargoInsurancePolicyNumber ?? '',
+    averbacaoProvider: emitter.averbacaoProvider ?? 'NONE',
+    atmCode: emitter.atmCode ?? '',
+    atmUser: emitter.atmUser ?? '',
+    atmPassword: '',
+    atmEnvironment: emitter.atmEnvironment ?? 'HOMOLOGACAO',
+    cargoTracked: Boolean(emitter.cargoTracked),
+    cargoLoadUnloadCovered: Boolean(emitter.cargoLoadUnloadCovered),
+    hasAtmPassword: Boolean(emitter.hasAtmPassword),
   };
 }
 
@@ -394,6 +419,13 @@ const IdentidadeVisualTab: React.FC = () => {
         cargoInsurerName: form.cargoInsurerName.trim() || null,
         cargoInsurerCnpj: form.cargoInsurerCnpj.trim() || null,
         cargoInsurancePolicyNumber: form.cargoInsurancePolicyNumber.trim() || null,
+        averbacaoProvider: form.averbacaoProvider,
+        atmCode: form.atmCode.trim() || null,
+        atmUser: form.atmUser.trim() || null,
+        ...(form.atmPassword ? { atmPassword: form.atmPassword } : {}),
+        atmEnvironment: form.atmEnvironment,
+        cargoTracked: form.cargoTracked,
+        cargoLoadUnloadCovered: form.cargoLoadUnloadCovered,
       };
 
       const result = form.id
@@ -793,6 +825,70 @@ const IdentidadeVisualTab: React.FC = () => {
                       onChange={(e) => update('cargoInsurancePolicyNumber', e.target.value)}
                     />
                   </label>
+                </div>
+                <div className="mt-4 border-t border-tower-100 pt-4 dark:border-tower-700">
+                  <p className="text-sm font-semibold text-tower-800 dark:text-tower-100">Averbação eletrônica</p>
+                  <p className="mt-1 text-xs text-tower-500 dark:text-tower-400">
+                    Com AT&amp;M, cada CT-e autorizado é averbado automaticamente e o MDF-e usa esses números. Sem provedor, a averbação segue manual na viagem.
+                  </p>
+                  <div className="mt-3 grid gap-4 sm:grid-cols-3">
+                    <label className="block">
+                      <span className="text-sm font-medium text-tower-800 dark:text-tower-200">Provedor</span>
+                      <select
+                        className="admin-focus mt-1 w-full rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900"
+                        value={form.averbacaoProvider}
+                        onChange={(e) => update('averbacaoProvider', e.target.value as FormState['averbacaoProvider'])}
+                      >
+                        <option value="NONE">Manual (sem integração)</option>
+                        <option value="ATM">AT&amp;M</option>
+                      </select>
+                    </label>
+                    {form.averbacaoProvider === 'ATM' && (
+                      <>
+                        <label className="block">
+                          <span className="text-sm font-medium text-tower-800 dark:text-tower-200">Ambiente AT&amp;M</span>
+                          <select
+                            className="admin-focus mt-1 w-full rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900"
+                            value={form.atmEnvironment}
+                            onChange={(e) => update('atmEnvironment', e.target.value as FormState['atmEnvironment'])}
+                          >
+                            <option value="HOMOLOGACAO">Homologação</option>
+                            <option value="PRODUCAO">Produção</option>
+                          </select>
+                        </label>
+                        <label className="block">
+                          <span className="text-sm font-medium text-tower-800 dark:text-tower-200">Código AT&amp;M</span>
+                          <input className="admin-focus mt-1 w-full rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900" maxLength={40} value={form.atmCode} onChange={(e) => update('atmCode', e.target.value)} />
+                        </label>
+                        <label className="block">
+                          <span className="text-sm font-medium text-tower-800 dark:text-tower-200">Usuário</span>
+                          <input className="admin-focus mt-1 w-full rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900" autoComplete="off" maxLength={80} value={form.atmUser} onChange={(e) => update('atmUser', e.target.value)} />
+                        </label>
+                        <label className="block">
+                          <span className="text-sm font-medium text-tower-800 dark:text-tower-200">Senha</span>
+                          <input
+                            type="password"
+                            className="admin-focus mt-1 w-full rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900"
+                            autoComplete="new-password"
+                            maxLength={200}
+                            placeholder={form.hasAtmPassword ? 'Gravada — deixe em branco para manter' : ''}
+                            value={form.atmPassword}
+                            onChange={(e) => update('atmPassword', e.target.value)}
+                          />
+                        </label>
+                      </>
+                    )}
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-6">
+                    <label className="flex items-center gap-2 text-sm text-tower-800 dark:text-tower-200">
+                      <input type="checkbox" className="h-4 w-4 rounded border-tower-300 text-brand-600" checked={form.cargoTracked} onChange={(e) => update('cargoTracked', e.target.checked)} />
+                      Rastreado
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-tower-800 dark:text-tower-200">
+                      <input type="checkbox" className="h-4 w-4 rounded border-tower-300 text-brand-600" checked={form.cargoLoadUnloadCovered} onChange={(e) => update('cargoLoadUnloadCovered', e.target.checked)} />
+                      Carga e Descarga
+                    </label>
+                  </div>
                 </div>
               </div>
             </div>

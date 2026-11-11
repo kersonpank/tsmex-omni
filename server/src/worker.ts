@@ -10,6 +10,7 @@ import { CIOT_EMISSION_QUEUE_NAME } from './services/queues/ciotEmissionQueue.js
 import { processCiotEmissionJob, handleCiotJobExhausted } from './services/queues/ciotEmissionProcessor.js';
 import { WORKER_HEARTBEAT_KEY } from './services/health.js';
 import { processPendingFiscalClosures } from './services/queues/fiscalClosureProcessor.js';
+import { sweepPendingAverbacoes } from './services/averbacao/cargoAverbacaoService.js';
 import { generatePendingManifestPayables } from './services/payables/manifestPayable.js';
 import { runExceptionRules } from './services/exceptions/exceptionRules.js';
 import { sweepPendingCteReconciliation } from './services/queues/cteReconciliationSweep.js';
@@ -140,6 +141,9 @@ void Promise.all([worker.waitUntilReady(), distribuicaoNfeWorker.waitUntilReady(
         };
         exceptionSweep();
         setInterval(exceptionSweep, 10 * 60_000).unref();
+        // Averbação AT&M dos CT-e autorizados (no-op para emitentes sem ATM). Trava por registro evita rodadas sobrepostas.
+        const averbacaoSweep = () => { void sweepPendingAverbacoes().catch((error) => console.error('[worker] averbacao sweep failed', error)); };
+        setInterval(averbacaoSweep, 2 * 60_000).unref();
     })
     .catch((error) => console.error('[worker] startup failed', error));
 

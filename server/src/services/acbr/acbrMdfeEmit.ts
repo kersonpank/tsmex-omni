@@ -1,6 +1,9 @@
 import prisma from '../../lib/prisma.js';
 import { buildMdfeProdPred, nfeProducts } from './mdfeProdPred.js';
-import { buildMdfeSeg, MDFE_CARGO_INSURANCE_ERROR, type CargoInsuranceEmitter } from './mdfeCargoInsurance.js';
+import { type CargoInsuranceEmitter } from './mdfeCargoInsurance.js';
+import { declararMdfeAposAutorizacao } from '../averbacao/mdfeDeclaration.js';
+import { resolveMdfeSeg } from '../averbacao/mdfeAverbacao.js';
+import type { AtmEmitterConfig } from '../averbacao/cargoAverbacaoService.js';
 import { buildMdfeAntt, persistedCiotContratante } from './acbrMdfeAntt.js';
 import { cteEmitterMismatchMessage, missingMdfeEmitterData } from '../fiscal/mdfePreflight.js';
 import { resolvePercursoUfs } from '../fiscal/ufPercurso.js';
@@ -382,12 +385,12 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
     if (cUF === 35 && emit.state?.trim().toUpperCase() !== 'SP') return { ok: false, error: 'UF do emitente não reconhecida para o MDF-e.' };
     let apiEnv: AcbrFiscalEnvironment = manifest.fiscalEmitter?.environment ?? 'HOMOLOGACAO';
     let fiscalEmitterId: string | null = manifest.fiscalEmitter?.id ?? null;
-    let fallbackEmitter: CargoInsuranceEmitter | null = null;
+    let fallbackEmitter: (CargoInsuranceEmitter & AtmEmitterConfig) | null = null;
     if (!manifest.fiscalEmitter && manifest.hubId) {
         const fe = await prisma.fiscalEmitter.findFirst({
             where: { hubId: manifest.hubId, active: true },
             orderBy: [{ defaultForHub: 'desc' }, { updatedAt: 'desc' }],
-            select: { id: true, environment: true, cargoInsurerName: true, cargoInsurerCnpj: true, cargoInsurancePolicyNumber: true },
+            select: { id: true, environment: true, cargoInsurerName: true, cargoInsurerCnpj: true, cargoInsurancePolicyNumber: true, averbacaoProvider: true, atmCode: true, atmUser: true, atmPasswordEncrypted: true, atmEnvironment: true },
         });
         fallbackEmitter = fe;
         if (fe?.environment === 'PRODUCAO' || fe?.environment === 'HOMOLOGACAO') {
@@ -398,8 +401,9 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
     if (!fiscalEmitterId) {
         return { ok: false, error: 'Nenhum emitente fiscal ativo para esta viagem/Hub — necessário para numerar o MDF-e (série e sequência por emitente).' };
     }
-    const seg = buildMdfeSeg(manifest.fiscalEmitter ?? fallbackEmitter, manifest.cargoInsuranceAverbacao);
-    if (!seg) return { ok: false, error: MDFE_CARGO_INSURANCE_ERROR };
+    const segResolution = await resolveMdfeSeg({ manifestId: manifest.id, emitter: manifest.fiscalEmitter ?? fallbackEmitter, manualAverbacao: manifest.cargoInsuranceAverbacao });
+    if (!segResolution.ok) return { ok: false, error: segResolution.error };
+    const seg = segResolution.seg;
     const ambiente = apiEnv === 'PRODUCAO' ? 'producao' : 'homologacao';
     const tpAmb = ambiente === 'producao' ? 1 : 2;
     const baseUrl = getAcbrApiBaseUrlForEnvironment(apiEnv);
@@ -707,6 +711,7 @@ async function finalizeAuthorized(
             authorizedAt: new Date(),
         },
     });
+    await declararMdfeAposAutorizacao({ docId, xml }); // best-effort; desligado sem ATM_DECLARA_MDFE=true
     return { ok: true, docId, apiId, accessKey: outcome.chave || undefined, protocol: outcome.protocol, xml, raw: doc };
 }
 

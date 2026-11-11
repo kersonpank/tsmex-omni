@@ -87,4 +87,24 @@ describe('fiscalEmitters routes — seguro da carga', () => {
         assert.equal(res.status, 200);
         assert.deepEqual(updateCalls[0].data, { cargoInsurerName: null, cargoInsurerCnpj: null });
     });
+
+    it('averbação AT&M: cifra a senha, não a devolve e senha vazia não altera', async () => {
+        process.env.FISCAL_SECRET_KEY ||= 'test-secret-test-secret-test-secret';
+        const res = await patch({ averbacaoProvider: 'ATM', atmCode: ' COD ', atmUser: 'usr', atmPassword: 'senha-secreta', atmEnvironment: 'PRODUCAO', cargoTracked: true, cargoLoadUnloadCovered: true });
+        assert.equal(res.status, 200);
+        const data = updateCalls[0].data as Record<string, unknown>;
+        assert.match(String(data.atmPasswordEncrypted), /^v1:/);
+        assert.ok(!JSON.stringify(data).includes('senha-secreta'));
+        assert.equal(data.atmCode, 'COD');
+        assert.equal(data.cargoTracked, true);
+        assert.equal(res.body.data.hasAtmPassword, true);
+        assert.equal(res.body.data.atmPasswordEncrypted, undefined);
+        assert.ok(!JSON.stringify(res.body).includes('senha-secreta'));
+
+        updateCalls = [];
+        const blank = await patch({ atmUser: 'outro', atmPassword: '' });
+        assert.equal(blank.status, 200);
+        assert.equal('atmPasswordEncrypted' in (updateCalls[0].data as object), false);
+        assert.equal(blank.body.data.hasAtmPassword, true);
+    });
 });

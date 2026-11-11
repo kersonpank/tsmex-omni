@@ -402,6 +402,7 @@ const TripPrepPage: React.FC = () => {
                     departure={manifest.plannedDepartureAt}
                     arrival={manifest.plannedArrivalAt}
                     averbacao={manifest.cargoInsuranceAverbacao}
+                    averbacaoOrders={(readiness?.issues ?? []).find((issue) => issue.code === 'MDFE_CARGO_AVERBACAO_PENDING')?.averbacaoOrders}
                     onClose={() => setOpen(null)}
                     onSaved={closeAndReload}
                 />

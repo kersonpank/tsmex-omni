@@ -24,6 +24,7 @@ import { buildCteEmissionInputFromRecords, createCteInputSnapshot } from '../ser
 import { getAcbrProviderDecision } from '../services/acbr/acbrConfig.js';
 import { enqueueCteEmissionJob } from '../services/queues/cteEmissionQueue.js';
 import { getObjectDownloadUrl } from '../lib/objectStorage.js';
+import { averbarCalculo } from '../services/averbacao/cargoAverbacaoService.js';
 import { BREAKDOWN_KEYS, computeFreightFromTable, informedFreight, orderFreightParams } from '../services/freight/freightPricing.js';
 import { ACTIVE_DOC_STATUSES, REUSABLE_STATUSES, isPendingReconciliationWithoutSubmission } from '../services/freight/freightDocRules.js';
 import { getFreightSuggestion } from '../services/freight/freightQueries.js';
@@ -673,6 +674,29 @@ router.get('/:calcId/cte-document', authenticate, authorize('ADMIN', 'HUB'), asy
             success: false,
             error: 'Documento ainda está sendo migrado para o repositório interno. Tente novamente em alguns instantes.',
         });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// POST /api/orders/:orderId/freight-calculations/:calcId/averbar - "Tentar averbar agora" (AT&M), roda na hora
+router.post('/:orderId/freight-calculations/:calcId/averbar', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const orderId = req.params.orderId as string;
+        const calcId = req.params.calcId as string;
+        const order = await prisma.order.findUnique({ where: { id: orderId }, select: { currentHubId: true } });
+        if (!order) throw new AppError('Order not found', 404);
+        if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && (!req.user!.hubId || order.currentHubId !== req.user!.hubId)) {
+            throw new AppError('Not authorized to access this order', 403);
+        }
+        const calc = await prisma.orderFreightCalculation.findFirst({ where: { id: calcId, orderId }, select: { id: true } });
+        if (!calc) throw new AppError('Cálculo de frete não encontrado', 404);
+        const outcome = await averbarCalculo(calc.id, { force: true });
+        const record = await prisma.cargoAverbacao.findUnique({
+            where: { orderFreightCalculationId: calc.id },
+            select: { status: true, numeroAverbacao: true, protocolo: true, averbadoAt: true, attemptCount: true, lastError: true },
+        });
+        res.json({ success: outcome.status === 'AVERBADO', data: { outcome, averbacao: record } });
     } catch (error) {
         next(error);
     }
