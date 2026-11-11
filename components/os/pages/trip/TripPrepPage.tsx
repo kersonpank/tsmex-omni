@@ -11,6 +11,7 @@ import { OsActionBar, OsBadge, OsButton, OsEmpty, OsErrorNotice, OsRow, OsSectio
 import OsSheet, { apiErrorMessage, osFieldClass } from '../../ui/Sheet';
 import ResponsibleEditor from './ResponsibleEditor';
 import { DepartureEditor, EmitterEditor, FreightEditor } from './TripEditors';
+import FiscalClosureNotice from './FiscalClosureNotice';
 import TripDocumentsSheet, { type TripDocumentResolution, type TripDocumentStep } from './TripDocumentsSheet';
 import RouteEditor from './RouteEditor';
 import TripInfoEditor from './TripInfoEditor';
@@ -233,6 +234,8 @@ const TripPrepPage: React.FC = () => {
                     <OsErrorNotice message={error} />
                 </div>
             ) : null}
+
+            <FiscalClosureNotice manifest={manifest} onDone={load} />
 
             {['DRAFT', 'PENDING_ACCEPT', 'ACCEPTED'].includes(manifest.status) ? (
                 <div className="mb-4 rounded-xl border-2 border-brand-400 bg-brand-50 p-3.5 dark:border-brand-500 dark:bg-tower-800" aria-label="Próximo passo">

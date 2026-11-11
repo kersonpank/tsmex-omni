@@ -185,6 +185,24 @@ describe('buildCiotEmissionInputForJob fiscal emitter resolution and eFrete envi
         assert.equal(result.mapperInput.contratante.endereco.codigoMunicipio, 3518800);
         assert.equal(result.mapperInput.codigoMunicipioDestino, 2111300);
     });
+    it('entrega no mesmo município: envia CEP de origem (hub) e destino (destinatário) ao mapper', async () => {
+        const { jobRecord, manifestRecord, hubDefaultEmitter } = createBaseEntities();
+        Object.assign(manifestRecord, { destHub: null, destHubId: null, destinationCity: 'Imperatriz', destinationState: 'MA', destinationCityIbgeCode: '2105302' });
+        Object.assign(manifestRecord.hub.person, { cep: '65900000', cityIbgeCode: '2105302' });
+        manifestRecord.legs = [{ order: { fimIbgeCode: '2105302', destinatarioPerson: { cep: '65903000', cityIbgeCode: '2105302' }, demand: { nfNumber: '69806', nfValue: 1930.75, weight: 315 } } }];
+        const result = await buildCiotEmissionInputForJob('job-1', makeDeps(jobRecord, manifestRecord, hubDefaultEmitter) as any);
+        assert.equal(result.mapperInput.cepOrigem, '65900000');
+        assert.equal(result.mapperInput.cepDestino, '65903000');
+    });
+
+    it('entrega no mesmo município sem CEP falha com 400 antes de qualquer envio', async () => {
+        const { jobRecord, manifestRecord, hubDefaultEmitter } = createBaseEntities();
+        Object.assign(manifestRecord, { destHub: null, destHubId: null, destinationCity: 'Imperatriz', destinationState: 'MA', destinationCityIbgeCode: '2105302' });
+        Object.assign(jobRecord.requestData.destinatario.endereco, { cep: '', codigoMunicipio: 2105302 });
+        hubDefaultEmitter.person.cep = '' as any;
+        await assert.rejects(buildCiotEmissionInputForJob('job-1', makeDeps(jobRecord, manifestRecord, hubDefaultEmitter) as any), (e: any) => e.statusCode === 400 && /mesmo município/.test(e.message));
+    });
+
     it('maps cavalo and all trailers in normalized order', async () => {
         const { jobRecord, manifestRecord, hubDefaultEmitter } = createBaseEntities();
         Object.assign(manifestRecord.link, { vehiclePlate: 'abc-1d23', trailerPlate: ' DEF 456 ', trailer2Plate: 'GHI7J89', trailer3Plate: 'JKL-0M12' });

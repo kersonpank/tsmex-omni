@@ -10,6 +10,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import type { PlanningActions } from './manifestPlanningChanges.js';
 import { resolveTripCompositionDefaults } from './tripCompositionDefaults.js';
 import { linkVehicleInclude, manifestVehicleAssignmentsInclude } from './vehicleUnitService.js';
+import { ciotDispensaTerceiroWarning } from './manifestCiotDispensa.js';
 import { compositionIssues, describeUnitIssues, mdfeUnitDataIssues, resolveManifestComposition, tractionHolderDiffersFromCarrier, type VehicleUnitField } from './vehicleUnitRules.js';
 
 export type ManifestJourneyStep =
@@ -373,6 +374,15 @@ export async function getManifestReadiness(manifestId: string, ciotRequestData?:
 
     if (!manifest.freightAgreement || manifest.freightAgreement.freteBruto < 0) {
         add(issue('freight', 'FREIGHT_AGREEMENT_REQUIRED', 'Informe a Carta Frete antes de enviar a oferta.', 'freteBruto'));
+    }
+
+    if (manifest.ciotDispensado && manifest.link) {
+        // Provado em homologação: a SEFAZ recusa MDF-e sem CIOT para transportador contratado.
+        const warning = ciotDispensaTerceiroWarning({
+            carrierType: manifest.link.carrierType, emitterDocument: emitter?.document,
+            composition: resolveManifestComposition(manifest), linkDocument: manifest.link.person?.document, linkRntrc: manifest.link.rntrc,
+        });
+        if (warning) add(issue('fiscal', 'CIOT_DISPENSA_NOT_ALLOWED', warning, 'ciotDispensado'));
     }
 
     if (manifest.status === 'ACCEPTED') {

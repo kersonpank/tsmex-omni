@@ -26,12 +26,13 @@ import { getManifestAnttSuggestion } from '../services/manifestAnttSuggestion.js
 import { cancelarCiot } from '../services/efrete/efreteCiotEmit.js';
 import { getObjectDownloadUrl } from '../lib/objectStorage.js';
 import { enqueueCiotEmissionJob } from '../services/queues/ciotEmissionQueue.js';
+import { resolveCiotRouteCeps } from '../services/efrete/ciotRouteCeps.js';
 import { ciotNotasFiscaisFromLegs, type StoredCiotRequestData } from '../services/queues/ciotEmissionJobInput.js';
 import { getManifestReadiness } from '../services/manifestReadinessService.js';
-import { ciotDispensaSchema, dispenseManifestCiot, undoManifestCiotDispensa } from '../services/manifestCiotDispensa.js';
+import { ciotDispensaSchema, ciotDispensaWarningForManifest, dispenseManifestCiot, undoManifestCiotDispensa } from '../services/manifestCiotDispensa.js';
 import { ensureTripEmitter } from '../services/fiscal/resolveDefaultTripEmitter.js';
 import { createManifestDraft } from '../services/manifestCreate.js';
-import { manifestVehiclesSchema, setManifestVehicles, publishManifestOffer } from '../services/manifestVehicleService.js';
+import { manifestVehiclesSchema, setManifestVehicles, clearManifestVehicles, publishManifestOffer } from '../services/manifestVehicleService.js';
 import { cancelManifest, deleteEmptyManifest, getPlanningActions, reopenAcceptedManifest, requestManifestCorrection, resolveManifestCorrection } from '../services/manifestPlanningChanges.js';
 import { listManifestDeliveryProgress, recordDeliveryAttempt } from '../services/deliveryAttempts.js';
 import { manifestScope, resourceGuard, uuidParam } from '../middleware/resourceAccess.js';
@@ -1028,6 +1029,7 @@ router.patch('/:id/assignment', authenticate, async (req: AuthRequest, res: Resp
 
         if (!data.linkId) {
             const cleared = await replaceManifestDrivers(id, [], manifest.updatedAt, null);
+            if (manifest.linkId) await clearManifestVehicles(id);
             return res.json({ success: true, data: cleared, defaultsApplied: null, message: 'Responsável removido.' });
         }
 
@@ -1066,6 +1068,9 @@ router.patch('/:id/assignment', authenticate, async (req: AuthRequest, res: Resp
 
         const chosenDrivers = data.driverId || retained.length ? retained : suggestedDrivers;
         let updated = await replaceManifestDrivers(id, driverId ? [driverId, ...chosenDrivers.filter((id) => id !== driverId)] : [], manifest.updatedAt, link.id, selectedExternal ? link.id : null);
+        // Trocou o transportador: cavalo/reboques do anterior não valem para o novo (a prontidão
+        // bloquearia por RNTRC de outro titular). Limpa e aplica a composição padrão do novo.
+        if (manifest.linkId !== link.id) await clearManifestVehicles(id);
         const defaultsApplied = await applyTripCompositionDefaults(id);
         if (defaultsApplied) updated = await prisma.manifest.findUniqueOrThrow({ where: { id }, include: { link: true, driver: true, vehicleType: true, driverAssignments: { orderBy: { sequence: 'asc' }, include: { driver: true } } } });
         res.json({
@@ -1577,7 +1582,8 @@ router.post('/:id/ciot-dispensa', authenticate, authorize('ADMIN', 'HUB'), async
     try {
         const data = ciotDispensaSchema.parse(req.body);
         const updated = await dispenseManifestCiot(String(req.params.id), req.user!, data);
-        res.json({ success: true, data: updated, message: 'Dispensa de CIOT registrada.' });
+        const warning = await ciotDispensaWarningForManifest(String(req.params.id)).catch(() => null);
+        res.json({ success: true, data: updated, message: 'Dispensa de CIOT registrada.', ...(warning ? { warning } : {}) });
     } catch (error) {
         if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
         next(error);
@@ -1642,7 +1648,6 @@ router.get('/:id/ciot-status', authenticate, authorize('ADMIN', 'HUB'), async (r
     }
 });
 
-// GET /api/manifests/:manifestId/fiscal-documents/:documentId/pdf
 // POST /api/manifests/:id/fiscal-closure/retry — repete o encerramento de CIOT/MDF-e que falhou ao
 // concluir a viagem. Sem isso o documento fica aberto para sempre e a SEFAZ recusa novo MDF-e da placa.
 router.post('/:id/fiscal-closure/retry', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -1673,6 +1678,7 @@ router.post('/:id/fiscal-closure/retry', authenticate, authorize('ADMIN', 'HUB')
     }
 });
 
+// GET /api/manifests/:manifestId/fiscal-documents/:documentId/pdf
 router.get('/:id/fiscal-documents/:documentId/pdf', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const manifestId = String(req.params.id);
@@ -1771,6 +1777,12 @@ router.post('/:id/emit-ciot', authenticate, authorize('ADMIN', 'HUB'), async (re
         const suggestion = await suggestCiotTipoViagem(id);
         const tipoViagem = body.tipoViagemOverride ?? manifest.ciotTipoViagemOverride ?? suggestion.tipoViagem;
         ciotNotasFiscaisFromLegs(manifest.legs, tipoViagem === 'TAC_AGREGADO');
+        // Entrega no mesmo município do hub: a eFrete exige CEP; falha aqui, antes de enfileirar.
+        const routeManifest = await prisma.manifest.findUnique({ where: { id }, include: {
+            hub: { include: { person: true } }, destHub: true, tripStops: { orderBy: { sequence: 'asc' }, include: { destHub: true } },
+            legs: { include: { order: { include: { destinatarioPerson: true } } } },
+        } });
+        if (routeManifest) resolveCiotRouteCeps({ manifest: routeManifest, emitterPerson: fiscalEmitter.person, destinatario: body.requestData.destinatario });
         const { contratantesCargaFracionada, composicaoVeicular } = validateCiotPreflight({
             tipoViagem,
             requestData: body.requestData,

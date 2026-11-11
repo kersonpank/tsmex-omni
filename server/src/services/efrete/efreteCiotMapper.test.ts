@@ -56,6 +56,18 @@ function baseInput(overrides: Partial<CiotMapperInput> = {}): CiotMapperInput {
 }
 
 describe('buildCiotPayload', () => {
+    it('envia CepOrigem/CepDestino na viagem quando informados em par (v8.2 AP19/AP20)', () => {
+        const payload = buildCiotPayload(baseInput({ cepOrigem: '65010000', cepDestino: '65030000' }));
+        assert.equal(payload.Viagens![0].CepOrigem, '65010000');
+        assert.equal(payload.Viagens![0].CepDestino, '65030000');
+    });
+
+    it('não envia CEP sem os dois lados', () => {
+        const payload = buildCiotPayload(baseInput({ cepOrigem: '65010000' }));
+        assert.equal('CepOrigem' in payload.Viagens![0], false);
+        assert.equal('CepDestino' in payload.Viagens![0], false);
+    });
+
     it('Padrao inclui NCM/Peso/CodigoTipoCarga/DataInicioViagem/RetornoVazio e não inclui ContratantesCargaFracionada', () => {
         const payload = buildCiotPayload(baseInput());
         assert.equal(payload.CodigoNCMNaturezaCarga, '2701');

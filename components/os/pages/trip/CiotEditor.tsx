@@ -78,6 +78,7 @@ const CiotEditor: React.FC<{
     const authorized = manifest.fiscalDocuments?.find((doc) => doc.documentType === 'CIOT' && doc.status === 'AUTHORIZED') ?? null;
     const mdfeAuthorized = Boolean(manifest.fiscalDocuments?.some((doc) => doc.documentType === 'MDFE' && doc.status === 'AUTHORIZED'));
     const dispensed = Boolean(manifest.ciotDispensado) && !authorized;
+    const dispensaBlocked = readiness?.issues.find((issue) => issue.code === 'CIOT_DISPENSA_NOT_ALLOWED')?.message ?? null;
     const jobRunning = Boolean(job && !CIOT_FINAL_PHASES.includes(job.phase));
     const selectedType = override || suggestion?.tipoViagem || 'PADRAO';
     const ncmOptions = ciotNcmOptions(manifest);
@@ -203,10 +204,12 @@ const CiotEditor: React.FC<{
         setBusy(true);
         setFormError(null);
         try {
-            await manifestsApi.dispenseCiot(manifest.id, motivo, observacao.trim() || undefined);
+            const result = await manifestsApi.dispenseCiot(manifest.id, motivo, observacao.trim() || undefined);
             setDispenseOpen(false);
             setMotivo('');
             setObservacao('');
+            // Dispensa registrada, mas a SEFAZ recusa MDF-e sem CIOT para transportador contratado.
+            if (result.warning) setError(result.warning);
             await onUpdated();
         } catch (cause) {
             setFormError(apiErrorMessage(cause, 'Não foi possível dispensar o CIOT.'));
@@ -286,6 +289,7 @@ const CiotEditor: React.FC<{
                 <div>
                     <p className="text-[14px] font-bold text-tower-800 dark:text-tower-100">CIOT dispensado</p>
                     <p className="mt-1 text-[13px] text-tower-600 dark:text-tower-300">Motivo: {manifest.ciotDispensadoMotivo ?? 'não informado'}</p>
+                    {dispensaBlocked ? <div className="mt-2" role="alert"><OsErrorNotice message={dispensaBlocked} /></div> : null}
                     {mdfeAuthorized ? (
                         <p className="mt-2 text-[12px] text-tower-500">A dispensa não pode ser desfeita depois da autorização do MDF-e.</p>
                     ) : (
@@ -499,7 +503,7 @@ const CiotEditor: React.FC<{
                             <textarea value={observacao} onChange={(e) => setObservacao(e.target.value)} rows={3} className={`${osFieldClass} h-auto py-3`} />
                         </Field>
                     </div>
-                    <p className="mt-3 text-[12px] text-tower-500">Ser ETC com motorista empregado, por si só, não dispensa o CIOT.</p>
+                    <p className="mt-3 text-[12px] text-tower-500">A dispensa só vale para frota própria. Para transportador contratado, a SEFAZ recusa o MDF-e sem CIOT. Ser ETC com motorista empregado, por si só, não dispensa o CIOT.</p>
                 </OsSheet>
             ) : null}
         </div>

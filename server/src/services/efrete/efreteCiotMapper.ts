@@ -86,6 +86,9 @@ export interface CiotMapperInput {
     motorista: { cpfOuCnpj: string; cnh: string; celular: { ddd: number; numero: number } };
     codigoMunicipioOrigem: number;
     codigoMunicipioDestino: number;
+    /** AP19/AP20 (v8.2 pág. 15): sempre em par; obrigatórios quando origem e destino têm o mesmo IBGE. */
+    cepOrigem?: string;
+    cepDestino?: string;
     veiculos: string[]; // cavalo primeiro, depois carreta(s)
     contratantesCargaFracionada?: string[]; // obrigatório (mín. 1) só em Fracionado
     notasFiscais: Array<{ cnpjEmissor?: string; numero: string; serie: string; valorTotal: number; pesoKg: number; ncm?: string }>;
@@ -112,6 +115,8 @@ export interface AdicionarOperacaoTransporteV2Payload {
         DocumentoViagem: string;
         CodigoMunicipioOrigem: number;
         CodigoMunicipioDestino: number;
+        CepOrigem?: string;
+        CepDestino?: string;
         DistanciaPercorrida: number;
         Valores: Record<string, number>;
         TipoPagamento: CiotTipoPagamento;
@@ -197,6 +202,7 @@ export function buildCiotPayload(input: CiotMapperInput): AdicionarOperacaoTrans
             DocumentoViagem: rd.documentoViagem,
             CodigoMunicipioOrigem: input.codigoMunicipioOrigem,
             CodigoMunicipioDestino: input.codigoMunicipioDestino,
+            ...(input.cepOrigem && input.cepDestino ? { CepOrigem: input.cepOrigem, CepDestino: input.cepDestino } : {}),
             DistanciaPercorrida: rd.distanciaPercorrida,
             Valores: {
                 TotalOperacao: rd.valores.totalOperacao,

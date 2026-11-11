@@ -16,6 +16,7 @@ import { putAcbrEmpresaMdfeConfig } from './acbrEmpresa.js';
 import { cleanIe } from './acbrCteMapper.js';
 import { calculateMdfeCheckDigit, generateCMdf, isDefinitiveMdfeRejection, reserveNextMdfeNumber } from './mdfeNumbering.js';
 import { linkVehicleInclude, manifestVehicleAssignmentsInclude } from '../vehicleUnitService.js';
+import { ciotDispensaTerceiroWarning } from '../manifestCiotDispensa.js';
 import { compositionIssues, describeUnitIssues, resolveManifestComposition } from '../vehicleUnitRules.js';
 import { buildMdfeVehicles } from './acbrMdfeVehicles.js';
 import { XMLParser } from 'fast-xml-parser';
@@ -126,6 +127,41 @@ export async function collectDescargaGroupsForManifest(manifestId: string): Prom
     ]);
 
     const legacyDestination = cityStateFromLegacyLabel(manifest?.destination);
+    const manifestGroup: MdfeDescargaGroup = {
+        stopId: null,
+        destHubId: manifest?.destHubId ?? null,
+        destHub: manifest?.destHub ?? null,
+        destCity: manifest?.destinationCity ?? legacyDestination.city,
+        destState: manifest?.destinationState ?? legacyDestination.state,
+        destCityIbgeCode: manifest?.destinationCityIbgeCode ?? null,
+        chaves: [],
+    };
+    if (manifest?.tripType === 'DELIVERY') {
+        // Perna de entrega: o município de descarga é o da entrega de cada pedido (fimIbgeCode),
+        // nunca a cidade do hub. Pedido sem IBGE de entrega cai no destino da viagem.
+        const byCity = new Map<string, MdfeDescargaGroup>();
+        const fallbackKeys: string[] = [];
+        for (const leg of legs) {
+            const key = validCteKey(leg.order.freightCalculations);
+            if (!key) continue;
+            const ibge = leg.order.fimIbgeCode?.trim();
+            if (!ibge || !/^\d{7}$/.test(ibge) || ibge === manifestGroup.destCityIbgeCode) {
+                fallbackKeys.push(key);
+                continue;
+            }
+            const parsed = cityStateFromLegacyLabel(leg.order.fimPrestacao);
+            const group = byCity.get(ibge) ?? {
+                stopId: null, destHubId: null, destHub: null,
+                destCity: parsed.city, destState: parsed.state, destCityIbgeCode: ibge, chaves: [],
+            };
+            if (!group.chaves.includes(key)) group.chaves.push(key);
+            byCity.set(ibge, group);
+        }
+        if (byCity.size > 0) {
+            // A cidade final da viagem (usada no encerramento) fica por último.
+            return [...byCity.values(), { ...manifestGroup, chaves: [...new Set(fallbackKeys)] }].filter((g) => g.chaves.length > 0);
+        }
+    }
     return [
         {
             stopId: null,
@@ -318,6 +354,14 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
     const emit = (manifest.fiscalEmitter?.person ?? manifest.hub.person)!;
     const missingEmitter = missingMdfeEmitterData(emit);
     if (missingEmitter.length) return { ok: false, error: `Complete os dados do emitente para o MDF-e: ${missingEmitter.join(', ')}.` };
+    // Antes de reservar número: a SEFAZ recusa com certeza MDF-e sem CIOT para transportador contratado.
+    if (!ciotDoc && manifest.ciotDispensado) {
+        const terceiro = ciotDispensaTerceiroWarning({
+            carrierType: manifest.link.carrierType, emitterDocument: emit.document, composition,
+            linkDocument: manifest.link.document, linkRntrc: manifest.link.rntrc,
+        });
+        if (terceiro) return { ok: false, error: terceiro };
+    }
     for (const leg of legs) {
         for (const doc of leg.order.freightCalculations) {
             const mismatch = cteEmitterMismatchMessage(leg.order.demand.orderNumber, doc.cteAccessKey, emit.document);

@@ -24,11 +24,14 @@ let lastTrip: any = null;
 let currentVehicles: any[] = [];
 let currentDriverId: string | null = null;
 let role = 'ADMIN';
+let manifestLinkId: string | null = 'carrier';
+let vehiclesCleared = 0;
+let snapshotCleared = 0;
 const secret = 'isolated-manifest-drivers-test';
 before(async () => {
     process.env.JWT_SECRET = secret;
     prisma.user.findUnique = (async () => ({ id: 'admin', roles: [role], hubId: 'own-hub', active: true })) as any;
-    prisma.manifest.findUnique = (async () => ({ id: manifestId, linkId: 'carrier', hubId: 'own-hub', status, driverId: currentDriverId, driverAssignments: currentAssignments, vehicleAssignments: currentVehicles, _count: { vehicleAssignments: 1 }, updatedAt: new Date('2026-09-01') })) as any;
+    prisma.manifest.findUnique = (async () => ({ id: manifestId, linkId: manifestLinkId, hubId: 'own-hub', status, driverId: currentDriverId, driverAssignments: currentAssignments, vehicleAssignments: currentVehicles, _count: { vehicleAssignments: 1 }, updatedAt: new Date('2026-09-01') })) as any;
     prisma.manifest.findFirst = (async ({ where }: any) => where.id === manifestId ? role === 'LINK' ? null : { id: manifestId } : lastTrip) as any;
     prisma.driver.findMany = (async ({ where }: any) => where.id?.in ? where.id.in.filter(() => !inactiveDriver).map((id: string) => ({ id, name: id === first ? 'Primeiro' : 'Segundo', active: true })) : carrierDrivers) as any;
     prisma.driver.findUnique = (async ({ where }: any) => (inactiveDriver ? { id: where.id, active: false } : { id: where.id, active: true })) as any;
@@ -37,9 +40,13 @@ before(async () => {
     prisma.manifestDriverAssignment.findMany = (async () => currentAssignments) as any;
     prisma.$transaction = (async (fn: any) => fn({
         manifest: {
-            updateMany: async (args: any) => { updated = args; return { count: conflict ? 0 : 1 }; },
+            updateMany: async (args: any) => {
+                if (!('driverId' in args.data)) { snapshotCleared += 1; return { count: 1 }; }
+                updated = args; return { count: conflict ? 0 : 1 };
+            },
             findUniqueOrThrow: async () => ({ driverId: updated.data.driverId, driverAssignments: assigned }),
         },
+        manifestVehicleAssignment: { deleteMany: async () => { vehiclesCleared += 1; } },
         driverCarrier: { upsert: async (args: any) => { upserts.push(args); } },
         manifestDriverAssignment: {
             deleteMany: async () => { deleted = true; },
@@ -55,7 +62,7 @@ before(async () => {
     if (!address || typeof address === 'string') throw new Error('Missing port');
     baseUrl = `http://127.0.0.1:${address.port}`;
 });
-beforeEach(() => { status = 'DRAFT'; conflict = false; assigned = []; updated = null; deleted = false; upserts = []; inactiveDriver = false; carrierDrivers = []; currentAssignments = []; lastTrip = null; currentVehicles = []; currentDriverId = null; role = 'ADMIN'; });
+beforeEach(() => { status = 'DRAFT'; conflict = false; assigned = []; updated = null; deleted = false; upserts = []; inactiveDriver = false; carrierDrivers = []; currentAssignments = []; lastTrip = null; currentVehicles = []; currentDriverId = null; role = 'ADMIN'; manifestLinkId = 'carrier'; vehiclesCleared = 0; snapshotCleared = 0; });
 after(async () => {
     await new Promise<void>(resolve => server.close(() => resolve()));
     prisma.user.findUnique = original.user; prisma.manifest.findUnique = original.manifest;
@@ -160,6 +167,18 @@ it('sugestão retorna placas e motoristas em ordem, compara composição sem gra
     currentAssignments = [{ driverId: first, sequence: 1 }];
     const changed = await fetch(`${baseUrl}/api/manifests/${manifestId}/composition-suggestion`, { headers: headers() });
     assert.equal((await changed.json() as any).data.differsFromTrip, true);
+});
+it('assignment limpa a composição do transportador anterior ao trocar de transportador', async () => {
+    manifestLinkId = 'old-carrier';
+    assert.equal((await assignment()).status, 200);
+    assert.equal(vehiclesCleared, 1);
+    assert.equal(snapshotCleared, 1);
+});
+it('assignment não mexe nos veículos quando o transportador é o mesmo', async () => {
+    manifestLinkId = 'carrier';
+    assert.equal((await assignment()).status, 200);
+    assert.equal(vehiclesCleared, 0);
+    assert.equal(snapshotCleared, 0);
 });
 it('sugestão sem cavalo retorna null e restringe acesso por papel e hub', async () => {
     const url = `${baseUrl}/api/manifests/${manifestId}/composition-suggestion`;

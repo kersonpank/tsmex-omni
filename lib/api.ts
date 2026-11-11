@@ -768,6 +768,12 @@ export const manifestsApi = {
         return response.data;
     },
 
+    /** Repete o encerramento de CIOT/MDF-e de uma viagem concluída (202 = reenfileirado). */
+    retryFiscalClosure: async (id: string) => {
+        const response = await api.post<{ success: boolean; message?: string }>(`/manifests/${id}/fiscal-closure/retry`, {});
+        return response.data;
+    },
+
     setDriver: async (id: string, driverId: string) => {
         const response = await api.patch<ApiResponse<Manifest>>(`/manifests/${id}/driver`, { driverId });
         return response.data;
@@ -799,7 +805,7 @@ export const manifestsApi = {
     },
 
     dispenseCiot: async (id: string, motivo: 'FROTA_PROPRIA_CARGA_PROPRIA' | 'OUTRO_VALIDADO_TORRE', observacao?: string) => {
-        const response = await api.post<ApiResponse<Manifest>>(`/manifests/${id}/ciot-dispensa`, { motivo, observacao });
+        const response = await api.post<ApiResponse<Manifest> & { warning?: string }>(`/manifests/${id}/ciot-dispensa`, { motivo, observacao });
         return response.data;
     },
 
