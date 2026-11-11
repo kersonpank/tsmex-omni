@@ -1174,6 +1174,15 @@ model FiscalEmitter {
   cargoInsurerName           String?
   cargoInsurerCnpj           String?
   cargoInsurancePolicyNumber String?
+  /// Averbação eletrônica do seguro (AT&M). Senha cifrada com sealSecret; nunca devolvida pela API.
+  averbacaoProvider      CargoAverbacaoProvider @default(NONE)
+  atmCode                String?
+  atmUser                String?
+  atmPasswordEncrypted   String?                @db.Text
+  atmEnvironment         FiscalEnvironment      @default(HOMOLOGACAO)
+  /// Flags da apólice: iriam como ObsCont RASTREADO/OCD no CT-e (ainda não ligado ao mapper).
+  cargoTracked           Boolean                @default(false)
+  cargoLoadUnloadCovered Boolean                @default(false)
   environment      FiscalEnvironment @default(HOMOLOGACAO)
   efreteEnvironment FiscalEnvironment @default(HOMOLOGACAO)
 
@@ -2033,6 +2042,7 @@ model OrderFreightCalculation {
   updatedAt DateTime @updatedAt
 
   cteEmissionJobs CteEmissionJob[]
+  cargoAverbacao  CargoAverbacao?
 
   @@index([orderId])
   @@index([emissorId])
@@ -2664,4 +2674,43 @@ model OrderPackage {
   updatedAt   DateTime @updatedAt
 
   @@index([orderId])
+}
+
+
+// ========================================
+// AVERBAÇÃO DO SEGURO DA CARGA (AT&M)
+// ========================================
+
+enum CargoAverbacaoProvider {
+  NONE
+  ATM
+}
+
+enum CargoAverbacaoStatus {
+  PENDING
+  AVERBADO
+  FAILED
+  CANCELLED
+}
+
+/// Averbação de um CT-e autorizado. O numeroAverbacao alimenta o nAver do MDF-e.
+model CargoAverbacao {
+  id                        String                  @id @default(uuid())
+  orderFreightCalculationId String                  @unique
+  orderFreightCalculation   OrderFreightCalculation @relation(fields: [orderFreightCalculationId], references: [id], onDelete: Cascade)
+  provider                  CargoAverbacaoProvider
+  status                    CargoAverbacaoStatus    @default(PENDING)
+  numeroAverbacao           String?
+  protocolo                 String?
+  averbadoAt                DateTime?
+  attemptCount              Int                     @default(0)
+  lastAttemptAt             DateTime?
+  /// Trava por registro: duas rodadas do varredor não averbam o mesmo CT-e.
+  lockedUntil               DateTime?
+  lastError                 String?                 @db.Text
+  rawResponse               Json?
+  createdAt                 DateTime                @default(now())
+  updatedAt                 DateTime                @updatedAt
+
+  @@index([status])
 }
