@@ -67,24 +67,7 @@ async function createDefaultColumns() {
     return created;
 }
 
-/** Find or create "Concluir cadastro do cliente" column (for add-client-pending) */
-export async function findOrCreateConcluirCadastroColumn() {
-    let col = await prisma.pipelineColumn.findFirst({
-        where: { name: 'Concluir cadastro do cliente', active: true },
-    });
-    if (!col) {
-        const maxOrder = await prisma.pipelineColumn.aggregate({ _max: { order: true } });
-        col = await prisma.pipelineColumn.create({
-            data: {
-                name: 'Concluir cadastro do cliente',
-                color: '#EA580C',
-                stage: null,
-                order: (maxOrder._max.order ?? -1) + 1,
-            },
-        });
-    }
-    return col;
-}
+export { findOrCreateConcluirCadastroColumn } from '../services/billing/concluirCadastroColumn.js';
 
 // ==================== CREATE COLUMN ====================
 

@@ -8,7 +8,7 @@ import { isValidCpf, isValidCnpj } from '../services/documentValidation.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { getParamId } from '../lib/routeUtils.js';
-import { findOrCreateConcluirCadastroColumn } from './pipeline.js';
+import { ensureBillingAccountForPayer, provisionClientAccount } from '../services/billing/ensureBillingAccountForPayer.js';
 import { validateSelectedCity, validateSelectedAddress } from '../services/selectedCity.js';
 import { ensurePublicCnpjPerson } from '../services/intake/publicCnpjParty.js';
 import { lookupCnpjSuggestion } from '../services/documentLookup.js';
@@ -663,67 +663,18 @@ router.post('/:id/add-client', authenticate, authorize('ADMIN'), async (req: Aut
 
         const hashedPassword = await bcrypt.hash(body.password, 10);
 
-        const result = await prisma.$transaction(async (tx) => {
-            const account = await tx.account.create({
-                data: {
-                    name: person.legalName,
-                    accountType: 'COMPANY',
-                    companies: {
-                        create: {
-                            cnpj: person.document,
-                            legalName: person.legalName,
-                            tradeName: person.tradeName ?? undefined,
-                            address: person.address ?? undefined,
-                            city: person.city ?? undefined,
-                            state: person.state ?? undefined,
-                            isPrimary: true,
-                        }
-                    },
-                    contacts: {
-                        create: {
-                            name: body.contactName,
-                            phone: body.phone,
-                            isPrimary: true,
-                        }
-                    }
-                },
-                include: {
-                    companies: { where: { isPrimary: true }, take: 1 },
-                }
-            });
-
-            const user = await tx.user.create({
-                data: {
-                    email: body.email,
-                    password: hashedPassword,
-                    roles: ['CLIENT'],
-                    accountId: account.id,
-                    personId: id,
-                }
-            });
-
-            const client = await tx.client.create({
-                data: {
-                    userId: user.id,
-                    personId: id,
-                    accountId: account.id,
-                    accountCompanyId: account.companies[0].id,
-                    companyName: person.legalName,
-                    tradeName: person.tradeName ?? undefined,
-                    document: person.document,
-                    contactName: body.contactName,
-                    phone: body.phone,
-                }
-            });
-
-            return { user, client, account };
-        });
+        const result = await prisma.$transaction((tx) =>
+            provisionClientAccount(tx, person, null, {
+                user: { email: body.email, passwordHash: hashedPassword, active: true },
+                contact: { name: body.contactName, phone: body.phone },
+            }),
+        );
 
         res.status(201).json({
             success: true,
             data: {
                 id: result.client.id,
-                userId: result.user.id,
+                userId: result.userId,
                 companyName: result.client.companyName,
                 document: result.client.document,
             }
@@ -758,95 +709,13 @@ router.post('/:id/add-client-pending', authenticate, authorize('ADMIN', 'HUB'), 
             throw new AppError('Esta pessoa já possui vínculo como Cliente', 400);
         }
 
-        const placeholderEmail = `pendente-${id}@comercial.tsmex.local`;
-        const existingUser = await prisma.user.findUnique({
-            where: { email: placeholderEmail },
-        });
-        if (existingUser) {
-            throw new AppError('Email placeholder já existe - operação em andamento', 400);
-        }
-
-        const randomPassword = crypto.randomBytes(16).toString('hex');
-        const hashedPassword = await bcrypt.hash(randomPassword, 10);
-        const sessionId = `entrada-pending-${id}-${Date.now()}`;
-
-        const concluirCadastroColumn = await findOrCreateConcluirCadastroColumn();
-
-        const result = await prisma.$transaction(async (tx) => {
-            const account = await tx.account.create({
-                data: {
-                    name: person.legalName,
-                    accountType: 'COMPANY',
-                    companies: {
-                        create: {
-                            cnpj: person.document,
-                            legalName: person.legalName,
-                            tradeName: person.tradeName ?? undefined,
-                            address: person.address ?? undefined,
-                            city: person.city ?? undefined,
-                            state: person.state ?? undefined,
-                            isPrimary: true,
-                        }
-                    },
-                    contacts: {
-                        create: {
-                            name: 'A concluir pelo Comercial',
-                            phone: '00000000000',
-                            isPrimary: true,
-                        }
-                    }
-                },
-                include: {
-                    companies: { where: { isPrimary: true }, take: 1 },
-                }
-            });
-
-            const user = await tx.user.create({
-                data: {
-                    email: placeholderEmail,
-                    password: hashedPassword,
-                    roles: ['CLIENT'],
-                    accountId: account.id,
-                    personId: id,
-                }
-            });
-
-            const client = await tx.client.create({
-                data: {
-                    userId: user.id,
-                    personId: id,
-                    accountId: account.id,
-                    accountCompanyId: account.companies[0].id,
-                    companyName: person.legalName,
-                    tradeName: person.tradeName ?? undefined,
-                    document: person.document,
-                    contactName: 'A concluir pelo Comercial',
-                    phone: '00000000000',
-                }
-            });
-
-            const opportunity = await tx.opportunity.create({
-                data: {
-                    accountId: account.id,
-                    sessionId,
-                    source: 'ENTRADA',
-                    stage: 'FOLLOW_UP',
-                    completeness: 'INCOMPLETE',
-                    type: 'QUOTE_ONLY',
-                    cpfCnpjSender: person.document,
-                    cpfCnpjReceiver: person.document,
-                    pipelineColumnId: concluirCadastroColumn.id,
-                }
-            });
-
-            return { user, client, account, opportunity };
-        });
+        const result = await prisma.$transaction((tx) => ensureBillingAccountForPayer(id, tx));
 
         res.status(201).json({
             success: true,
             data: {
                 clientId: result.client.id,
-                opportunityId: result.opportunity.id,
+                opportunityId: result.opportunityId,
                 companyName: result.client.companyName,
                 document: result.client.document,
             }
