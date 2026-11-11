@@ -27,3 +27,22 @@ test('efreteProtocolo converte o protocolo numérico do e-Frete em texto', async
     assert.equal(efreteProtocolo(undefined), undefined);
     assert.equal(efreteProtocolo(null), undefined);
 });
+
+test('encerrarCiot usa a versão 2 e só tenta a 3 quando a versão é recusada', async () => {
+    const { encerrarCiot } = await import('./efreteCiotEmit.js');
+    const { EfreteApiError } = await import('./efreteHttp.js');
+    const seen: unknown[] = [];
+    await encerrarCiot('CIOT-1', 'HOMOLOGACAO', 315, (async (...args: unknown[]) => { seen.push(args); return { Sucesso: true }; }) as any);
+    assert.deepEqual(seen, [['/Services/Pef/EncerrarOperacaoTransporte', { CodigoIdentificacaoOperacao: 'CIOT-1', PesoCarga: 315 }, { environment: 'homologacao', versao: 2 }]]);
+
+    const versions: number[] = [];
+    await encerrarCiot('CIOT-1', 'PRODUCAO', null, (async (_path: string, _body: unknown, opts: { versao: number }) => {
+        versions.push(opts.versao);
+        if (opts.versao === 2) throw new EfreteApiError('falhou', { excecaoMensagem: 'Erro encerrando operação de transporte: Versão inválida' });
+        return { Sucesso: true };
+    }) as any);
+    assert.deepEqual(versions, [2, 3]);
+
+    await assert.rejects(() => encerrarCiot('CIOT-1', 'HOMOLOGACAO', null, (async () => { throw new EfreteApiError('x', { excecaoMensagem: 'CIOT já encerrado' }); }) as any), /x/);
+    await assert.rejects(() => encerrarCiot('CIOT-1', null), /Ambiente original/);
+});

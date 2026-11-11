@@ -741,17 +741,12 @@ export async function encerrarMdfeViaAcbr(manifestId: string): Promise<MdfeEncer
 
     try {
         const cMun = await requireSelectedIbge(city, state, lastGroup?.destHub?.cityIbgeCode ?? lastGroup?.destCityIbgeCode ?? null);
-        const cUF = ufToCuf(state);
         const dtEnc = new Date().toISOString().slice(0, 10);
         await acbrFetchJson(`/mdfe/${apiId}/encerramento`, {
             method: 'POST',
-            body: JSON.stringify({
-                cUF,
-                cMun,
-                dtEnc,
-                ...(doc.protocol ? { nProt: doc.protocol } : {}),
-                ambiente: apiEnv === 'PRODUCAO' ? 'producao' : 'homologacao',
-            }),
+            // Contrato da ACBr (MdfePedidoEncerramento): só UF, município e data. Os nomes do evento
+            // da SEFAZ (cUF/cMun/dtEnc/nProt) são recusados com InvalidJsonProperty.
+            body: JSON.stringify({ uf: state.slice(0, 2).toUpperCase(), codigo_municipio: cMun, data_encerramento: dtEnc }),
             scopes: ['empresa', 'mdfe'],
             apiEnvironment: apiEnv,
         });

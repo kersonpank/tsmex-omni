@@ -137,9 +137,27 @@ export async function cancelarCiot(codigoIdentificacaoOperacao: string, justific
     }, { versao: 1, environment: environment === 'PRODUCAO' ? 'producao' : 'homologacao' });
 }
 
-export async function encerrarCiot(codigoIdentificacaoOperacao: string, environment: string | null): Promise<void> {
+/**
+ * Encerra a operação de transporte. O manual v8.2 (§2.5.10) diz "Versao = 2" no texto e "3" na
+ * tabela; a versão padrão (8) é recusada com "Versão inválida". Tenta a 2 e, só nesse erro, a 3.
+ */
+export async function encerrarCiot(
+    codigoIdentificacaoOperacao: string,
+    environment: string | null,
+    pesoCargaKg?: number | null,
+    post: typeof efreteAuthedPost = efreteAuthedPost,
+): Promise<void> {
     if (environment !== 'PRODUCAO' && environment !== 'HOMOLOGACAO') throw new Error('Ambiente original do CIOT desconhecido; confira o documento antes de encerrar.');
-    await efreteAuthedPost<CancelarEncerrarResponse>('/Services/Pef/EncerrarOperacaoTransporte', {
+    const body = {
         CodigoIdentificacaoOperacao: codigoIdentificacaoOperacao,
-    }, { environment: environment === 'PRODUCAO' ? 'producao' : 'homologacao' });
+        ...(pesoCargaKg && pesoCargaKg > 0 ? { PesoCarga: pesoCargaKg } : {}),
+    };
+    const env = environment === 'PRODUCAO' ? 'producao' : 'homologacao';
+    try {
+        await post<CancelarEncerrarResponse>('/Services/Pef/EncerrarOperacaoTransporte', body, { environment: env, versao: 2 });
+    } catch (err) {
+        const invalidVersion = err instanceof EfreteApiError && /vers[aã]o inv[aá]lida/i.test(`${err.excecaoMensagem ?? ''} ${err.message}`);
+        if (!invalidVersion) throw err;
+        await post<CancelarEncerrarResponse>('/Services/Pef/EncerrarOperacaoTransporte', body, { environment: env, versao: 3 });
+    }
 }

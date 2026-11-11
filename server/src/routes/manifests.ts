@@ -1643,6 +1643,36 @@ router.get('/:id/ciot-status', authenticate, authorize('ADMIN', 'HUB'), async (r
 });
 
 // GET /api/manifests/:manifestId/fiscal-documents/:documentId/pdf
+// POST /api/manifests/:id/fiscal-closure/retry — repete o encerramento de CIOT/MDF-e que falhou ao
+// concluir a viagem. Sem isso o documento fica aberto para sempre e a SEFAZ recusa novo MDF-e da placa.
+router.post('/:id/fiscal-closure/retry', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const id = req.params.id as string;
+        const manifest = await prisma.manifest.findUnique({ where: { id }, select: { id: true, hubId: true, status: true } });
+        if (!manifest) throw new AppError('Viagem não encontrada.', 404);
+        if (!req.user!.roles.includes('ADMIN') && manifest.hubId !== req.user!.hubId) {
+            throw new AppError('Not authorized to modify this manifest', 403);
+        }
+        if (manifest.status !== 'COMPLETED') throw new AppError('O encerramento fiscal só existe para viagens concluídas.', 409);
+        const open = await prisma.manifestFiscalDocument.count({
+            where: { manifestId: id, status: 'AUTHORIZED', documentType: { in: ['CIOT', 'MDFE'] } },
+        });
+        if (!open) throw new AppError('Não há CIOT nem MDF-e aberto nesta viagem.', 409);
+        const requeued = await prisma.fiscalClosureTask.updateMany({
+            where: { manifestId: id, status: 'RECONCILIATION_REQUIRED' },
+            data: { status: 'PENDING', reason: null, startedAt: null, finishedAt: null },
+        });
+        if (!requeued.count) {
+            const existing = await prisma.fiscalClosureTask.findUnique({ where: { manifestId: id }, select: { status: true } });
+            if (existing) throw new AppError('O encerramento fiscal desta viagem já está em andamento.', 409);
+            await prisma.fiscalClosureTask.create({ data: { manifestId: id } });
+        }
+        res.status(202).json({ success: true, message: 'Encerramento fiscal reenfileirado. Acompanhe os documentos da viagem.' });
+    } catch (error) {
+        next(error);
+    }
+});
+
 router.get('/:id/fiscal-documents/:documentId/pdf', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const manifestId = String(req.params.id);
