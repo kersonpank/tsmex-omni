@@ -74,6 +74,19 @@ describe('pricingService', () => {
             assert.equal(b.net, 300);
             assert.deepEqual(seen[0].in, ['CTE_AUTHORIZED', 'DCE_AUTHORIZED', 'MINUTA_EMITTED']);
         });
+
+        it('CT-e cancelado (ou com cancelamento em andamento) nunca é frete oficial, nem vale como estimativa se cancelado', async () => {
+            const seen: any[] = [];
+            prisma.orderFreightCalculation.findFirst = (async (args: any) => {
+                seen.push(args.where.status);
+                return null;
+            }) as any;
+            prisma.order.findUnique = (async () => ({ id: 'ord-1', demand: { quotedPrice: 0 } })) as any;
+            const b = await getOrderFreightBreakdown('ord-1');
+            assert.equal(b.source, 'NONE');
+            assert.ok(!seen[0].in.includes('CTE_CANCELLED') && !seen[0].in.includes('CTE_CANCEL_PENDING'));
+            assert.ok(seen[1].notIn.includes('CTE_CANCELLED'));
+        });
     });
 
     describe('calculateLinkCost', () => {

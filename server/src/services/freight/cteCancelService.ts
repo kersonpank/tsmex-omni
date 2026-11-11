@@ -222,6 +222,28 @@ async function applyOutcome(
     return { state: 'PENDING', message: 'Cancelamento em andamento: o provedor ainda não confirmou. Use “Consultar” em alguns minutos.' };
 }
 
+async function evaluateCancel(deps: CteCancelDeps, orderId: string, calc: NonNullable<CalcRow>, providerDocId: string | null): Promise<string | null> {
+    const accessKey = calc.cteAccessKey ?? '';
+    const [activeInvoice, circulationBlock] = await Promise.all([
+        hasActiveInvoice(deps.prisma, orderId),
+        accessKey ? findCirculationBlock(deps.prisma, orderId, accessKey) : Promise.resolve(null),
+    ]);
+    return cancelBlockReason({
+        documentType: calc.documentType, status: calc.status, authorizedAt: calc.cteAuthorizedAt, now: deps.now(),
+        hasProviderDocId: Boolean(providerDocId), hasAccessKey: /^\d{44}$/.test(accessKey), activeInvoice, circulationBlock,
+    });
+}
+
+/** Para a tela: pode cancelar? se não, por quê; e até quando vale o prazo. */
+export async function describeCteCancel(
+    input: { orderId: string; calcId: string },
+    deps: CteCancelDeps = defaultCteCancelDeps,
+): Promise<{ canCancel: boolean; blockReason: string | null; deadline: string | null }> {
+    const { calc, providerDocId } = await loadCalc(deps, input.orderId, input.calcId);
+    const blockReason = await evaluateCancel(deps, input.orderId, calc, providerDocId);
+    return { canCancel: blockReason === null, blockReason, deadline: cancelDeadline(calc.cteAuthorizedAt)?.toISOString() ?? null };
+}
+
 /** Pede o cancelamento. Uma única chamada ao provedor; se o resultado for incerto, fica pendente e é conciliado por consulta. */
 export async function requestCteCancel(
     input: { orderId: string; calcId: string; reason: unknown; actor: Actor },
@@ -230,14 +252,7 @@ export async function requestCteCancel(
     const reason = validateCancelReason(input.reason);
     const { calc, providerDocId, ambiente } = await loadCalc(deps, input.orderId, input.calcId);
     const accessKey = calc.cteAccessKey ?? '';
-    const [activeInvoice, circulationBlock] = await Promise.all([
-        hasActiveInvoice(deps.prisma, input.orderId),
-        accessKey ? findCirculationBlock(deps.prisma, input.orderId, accessKey) : Promise.resolve(null),
-    ]);
-    const block = cancelBlockReason({
-        documentType: calc.documentType, status: calc.status, authorizedAt: calc.cteAuthorizedAt, now: deps.now(),
-        hasProviderDocId: Boolean(providerDocId), hasAccessKey: /^\d{44}$/.test(accessKey), activeInvoice, circulationBlock,
-    });
+    const block = await evaluateCancel(deps, input.orderId, calc, providerDocId);
     if (block) throw new AppError(block, 409);
 
     const requestedAt = deps.now();

@@ -15,6 +15,7 @@ import {
     AuthRequest,
 } from '../middleware/auth.js';
 import { freightCalculationsRouter } from './freightCalculations.js';
+import { freightCalculationCancelRouter } from './freightCalculationCancel.js';
 import { resolveOrderByCode } from '../services/orderResolve.js';
 import { getNextOrderNumber } from '../services/orderSequence.js';
 import { resolvePayerClient } from '../services/intake/resolvePayerClient.js';
@@ -50,6 +51,7 @@ const router = Router();
 // Anti-IDOR: qualquer rota com /:id (UUID) — inclusive as sub-rotas de freight-calculations — só para quem enxerga o pedido.
 router.use(uuidParam(), ...resourceGuard('order'));
 
+router.use('/:orderId/freight-calculations', freightCalculationCancelRouter);
 router.use('/:orderId/freight-calculations', freightCalculationsRouter);
 router.use('/:id/service-start', orderServiceStartRouter);
 router.use('/:id/parties', orderPartiesRouter);

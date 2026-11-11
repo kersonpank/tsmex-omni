@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { computeFreightFromTable, informedFreight, orderFreightParams, type PricingTableLike } from './freightPricing.js';
-import { allowedDocTypes, choosePricingTable, freightDocState, isPendingReconciliationWithoutSubmission, payerChangeBlock, payerRole, type TableCandidate } from './freightDocRules.js';
+import { ACTIVE_DOC_STATUSES, EMITTED_STATUSES, REUSABLE_STATUSES, allowedDocTypes, choosePricingTable, freightDocState, isPendingReconciliationWithoutSubmission, payerChangeBlock, payerRole, type TableCandidate } from './freightDocRules.js';
 import { pickEmitter, type FreightContext, type FreightOrder } from './freightContext.js';
 import { suggestFreight, summarizeDocuments } from './freightSuggestion.js';
 import { buildCoverageIndex } from '../hubCargo/consolidationQueue.js';
@@ -102,6 +102,19 @@ describe('estado do documento, tipos e pagador', () => {
         assert.equal(freightDocState([{ status: 'CTE_REJECTED' }, { status: 'MINUTA_EMITTED' }]), 'emitted');
         assert.equal(freightDocState([{ status: 'CTE_SENT' }, { status: 'DRAFT' }]), 'in_flight');
         assert.equal(freightDocState([{ status: 'CTE_CANCELLED' }]), 'none');
+    });
+
+    it('CT-e cancelado = sem documento ativo (pode preparar outro); cancelamento em andamento ainda segura o pedido', () => {
+        assert.equal(ACTIVE_DOC_STATUSES.includes('CTE_CANCELLED'), false);
+        assert.equal(EMITTED_STATUSES.includes('CTE_CANCELLED'), false);
+        assert.equal(REUSABLE_STATUSES.includes('CTE_CANCELLED'), false);
+        assert.equal(ACTIVE_DOC_STATUSES.includes('CTE_CANCEL_PENDING'), true);
+        assert.equal(EMITTED_STATUSES.includes('CTE_CANCEL_PENDING'), false, 'pendente não é faturável');
+        assert.equal(freightDocState([{ status: 'CTE_CANCEL_PENDING' }]), 'in_flight');
+        assert.equal(freightDocState([{ status: 'CTE_CANCELLED' }, { status: 'CTE_AUTHORIZED' }]), 'emitted');
+        const cancelled = { status: 'CTE_CANCELLED' as const, documentType: 'CTE' as const, cteNumber: '5' };
+        assert.equal(payerChangeBlock({ invoiced: false, calcs: [cancelled] }), null, 'depois de cancelar, o pagador volta a poder mudar');
+        assert.match(payerChangeBlock({ invoiced: false, calcs: [{ ...cancelled, status: 'CTE_CANCEL_PENDING' }] }) ?? '', /CT-e nº 5/);
     });
 
     it('CT-e com NF-e, DC-e com declaração; minuta sempre possível', () => {

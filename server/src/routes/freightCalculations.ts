@@ -89,6 +89,7 @@ const FISCAL_LOCKED_STATUSES = [
     'CTE_SENT',
     'CTE_PROCESSING',
     'CTE_AUTHORIZED',
+    'CTE_CANCEL_PENDING',
     'CTE_CANCELLED',
     'CTE_PENDING_RECONCILIATION',
     'DCE_READY',
@@ -440,7 +441,7 @@ router.patch('/:calcId', authenticate, authorize('ADMIN', 'HUB'), async (req: Au
         if (!existing) throw new AppError('Cálculo de frete não encontrado', 404);
 
         if (existing.status === 'MINUTA_EMITTED' || FISCAL_LOCKED_STATUSES.includes(existing.status as typeof FISCAL_LOCKED_STATUSES[number])) {
-            throw new AppError('Cálculo com documento emitido/enviado não pode ser editado. Use evento fiscal de cancelamento/correção.', 400);
+            throw new AppError('Cálculo com documento emitido/enviado não pode ser editado. Para mudar algo já emitido, cancele o CT-e (até 7 dias e antes da carga sair) e emita outro, ou use a carta de correção.', 400);
         }
 
         const data = updateFreightCalcSchema.partial().parse(req.body);
