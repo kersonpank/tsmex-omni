@@ -844,12 +844,16 @@ router.patch('/:id/stops/:stopId/complete', authenticate, async (req: AuthReques
         }
 
         if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('LINK')) {
-            const stop = await prisma.manifestStop.findUnique({ where: { id: stopId }, select: { manifestId: true, destHubId: true } });
+            const stop = await prisma.manifestStop.findUnique({ where: { id: stopId }, select: { manifestId: true, destHubId: true, purpose: true, manifest: { select: { hubId: true } } } });
             if (!stop || stop.manifestId !== id) {
                 throw new AppError('Parada não encontrada para este manifesto', 404);
             }
-            if (!req.user!.hubId || stop.destHubId !== req.user!.hubId) {
-                throw new AppError('Not authorized — esta parada não é destino do seu hub.', 403);
+            const hubId = req.user!.hubId;
+            const isArrivalAtMyHub = !!hubId && stop.destHubId === hubId;
+            // Entrega: o hub de origem opera a viagem em nome do transportador (NORTE #24).
+            const isMyDelivery = !!hubId && stop.purpose === 'DELIVERY' && stop.manifest.hubId === hubId;
+            if (!isArrivalAtMyHub && !isMyDelivery) {
+                throw new AppError('Not authorized — esta parada não é destino nem entrega do seu hub.', 403);
             }
         }
 
@@ -1402,8 +1406,8 @@ router.patch('/:id/start', authenticate, authorize('LINK', 'HUB', 'ADMIN'), asyn
 });
 
 // PATCH /api/manifests/:id/complete - Complete manifest. HUB pode concluir uma viagem TRANSFER
-// da qual é o destino (confirma recebimento); DELIVERY continua exclusivo de LINK/ADMIN
-// (confirmação de entrega ao cliente final não é ato do hub).
+// da qual é o destino (confirma recebimento) e uma viagem DELIVERY da qual é a origem (opera a
+// entrega em nome do transportador, NORTE #24); a conclusão exige entrega registrada em cada pedido.
 router.patch('/:id/complete', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('LINK') && !req.user!.roles.includes('HUB')) {
         return next(new AppError('Not authorized', 403));
@@ -1413,10 +1417,13 @@ router.patch('/:id/complete', authenticate, async (req: AuthRequest, res: Respon
         const kmChegada = typeof req.body?.kmChegada === 'number' ? req.body.kmChegada : undefined;
 
         if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && !req.user!.roles.includes('LINK')) {
-            const manifest = await prisma.manifest.findUnique({ where: { id }, select: { tripType: true, destHubId: true } });
+            const manifest = await prisma.manifest.findUnique({ where: { id }, select: { tripType: true, destHubId: true, hubId: true } });
             if (!manifest) throw new AppError('Manifest not found', 404);
-            if (manifest.tripType !== 'TRANSFER' || !req.user!.hubId || manifest.destHubId !== req.user!.hubId) {
-                throw new AppError('Not authorized — esta viagem não é uma transferência com destino ao seu hub.', 403);
+            const hubId = req.user!.hubId;
+            const isArrivalAtMyHub = manifest.tripType === 'TRANSFER' && !!hubId && manifest.destHubId === hubId;
+            const isMyDelivery = manifest.tripType === 'DELIVERY' && !!hubId && manifest.hubId === hubId;
+            if (!isArrivalAtMyHub && !isMyDelivery) {
+                throw new AppError('Not authorized — esta viagem não é uma transferência com destino ao seu hub nem uma entrega saída do seu hub.', 403);
             }
         }
 
