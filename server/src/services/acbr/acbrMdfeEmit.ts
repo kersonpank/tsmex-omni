@@ -272,8 +272,9 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
             },
         },
     });
-    if (!manifest?.hub?.person) {
-        return { ok: false, error: 'Manifesto sem Hub com pessoa (CNPJ) para emitir MDF-e.' };
+    // Quem emite é o emitente fiscal da viagem; a pessoa do hub é só o último recurso.
+    if (!manifest?.hub || (!manifest.fiscalEmitter?.person && !manifest.hub.person)) {
+        return { ok: false, error: 'Viagem sem emitente fiscal com CNPJ para emitir MDF-e.' };
     }
     const composition = manifest.link ? resolveManifestComposition(manifest) : null;
     if (!manifest.link || !composition?.traction) {
@@ -314,7 +315,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
     }
 
     // Emitente explícito da viagem (Fatia C) tem prioridade; senão cai no Hub de origem (compat).
-    const emit = manifest.fiscalEmitter?.person ?? manifest.hub.person;
+    const emit = (manifest.fiscalEmitter?.person ?? manifest.hub.person)!;
     const missingEmitter = missingMdfeEmitterData(emit);
     if (missingEmitter.length) return { ok: false, error: `Complete os dados do emitente para o MDF-e: ${missingEmitter.join(', ')}.` };
     for (const leg of legs) {
@@ -452,7 +453,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
         tipoCarga: ciotTipoCarga,
         naturezaNcm4: ciotNcmNatureza,
         documentCount: allChaves.length,
-        loadingCep: manifest.hub.person.cep,
+        loadingCep: manifest.hub.person?.cep ?? emit.cep,
         unloadingCep: manifest.destHub?.person?.cep ?? (legs.length === 1 ? legs[0].order.destinatarioPerson?.cep : null),
     });
     if (!prodPredResult.ok) return { ok: false, error: prodPredResult.error };

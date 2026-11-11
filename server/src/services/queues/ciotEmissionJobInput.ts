@@ -81,7 +81,8 @@ export async function buildCiotEmissionInputForJob(
         },
     });
 
-    if (!manifest.hub?.person) throw new AppError('Manifesto sem Hub com pessoa (CNPJ) para resolver o Contratante do CIOT.', 400);
+    // O contratante do CIOT é o emitente fiscal da viagem (resolvido abaixo), não a pessoa do hub:
+    // um hub parceiro ou ponto de coleta sem CNPJ próprio opera viagens do emitente da transportadora.
     if (!manifest.link) throw new AppError('Manifesto sem Link (transportador) atribuído.', 400);
     const composition = resolveManifestComposition(manifest);
     const contratadoRntrc = tractionRntrc(composition, manifest.link.rntrc);
