@@ -3,7 +3,8 @@ import {
     arrivalStopForHub,
     arrivingManifests,
     canConclude,
-    divergenceDescription,
+    arrivalSuccessMessage,
+    buildArrivals,
     isArrivingAtHub,
     ordersToUnload,
     summarizeConference,
@@ -120,10 +121,27 @@ describe('conferência: nunca encerrar em silêncio', () => {
     });
 });
 
-describe('divergenceDescription', () => {
-    it('gera texto auditável com viagem e observação', () => {
-        const text = divergenceDescription('FALTA', { origin: 'GRU', destination: 'IMP' }, ' faltou 1 caixa ');
-        expect(text).toBe('[DIVERGÊNCIA NA CHEGADA] volume não chegou (viagem GRU → IMP) — faltou 1 caixa');
+describe('buildArrivals', () => {
+    const items = [
+        { legId: 'l1', orderId: 'o1', nfNumber: null, orderNumber: 1, destination: null },
+        { legId: 'l2', orderId: 'o2', nfNumber: null, orderNumber: 2, destination: null },
+        { legId: 'l3', orderId: 'o3', nfNumber: null, orderNumber: 3, destination: null },
+    ];
+    it('traduz as marcações para a API, com nota só nas divergências', () => {
+        expect(buildArrivals(items, { o1: 'OK', o2: 'AVARIA', o3: 'FALTA' }, { o1: 'ignorada', o2: ' caixa amassada ', o3: '' })).toEqual([
+            { orderId: 'o1', result: 'OK' },
+            { orderId: 'o2', result: 'DAMAGED', note: 'caixa amassada' },
+            { orderId: 'o3', result: 'MISSING' },
+        ]);
+    });
+});
+
+describe('arrivalSuccessMessage', () => {
+    it('diz quantos entraram no estoque e quantos viraram divergência', () => {
+        expect(arrivalSuccessMessage({ stocked: 3, damaged: 0, missing: 0 })).toBe('Recebimento concluído: 3 pedido(s) entraram no estoque.');
+        expect(arrivalSuccessMessage({ stocked: 2, damaged: 1, missing: 1 })).toBe(
+            'Recebimento concluído: 2 pedido(s) entraram no estoque e 2 viraram divergência (1 com avaria, 1 que não chegaram).',
+        );
     });
 });
 

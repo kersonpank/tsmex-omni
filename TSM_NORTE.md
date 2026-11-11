@@ -181,7 +181,7 @@ Detalhe completo, com fila, ação e evento de cada uma: spec
 | Ficha do transportador | O que falta para este transportador rodar com CIOT e MDF-e? | ✅ transportador, placas e motoristas completos pelo hub |
 | Documento do frete | Este pedido tem CT-e/minuta? | ✅ no pedido, logo após entrada e etiquetas: pagador (da NF-e ou informado), CT-e/minuta, preço da tabela ou informado, pendências com quem resolve, emissão em 1 toque; fila "Sem CT-e/minuta" com lote |
 | Documentos da viagem | Que MDF-e/CIOT faltam? | MDF-e dentro de "Preparar"; CIOT ainda pela tela atual (A7b) |
-| Entregar | O que sai hoje para entrega e como comprovo? | pendente |
+| Entregar | O que saiu para entrega e falta comprovar? | ✅ comprovante por pedido (entregue / não entregue + próxima ação), concluir viagem pelo hub; não entregue volta ao estoque |
 | Exceções (transversal) | O que travou, de quem é, até quando? | pendente |
 | Aprendizado (torre) | O que o planejado × realizado ensinou? | backend de margem existe; estação pendente |
 
@@ -240,7 +240,7 @@ automático, autorização do hub no ciclo da própria viagem. (Detalhe: `docs/s
 - [ ] A6.1 **Custódia por volume** (#35): QR por volume na etiqueta, carregamento conferido antes da saída e descarga conferida por
       volume no destino; divergência abre exceção (A10 junto); scan funciona sem internet e sincroniza
 - [ ] A7b MDF-e e CIOT da viagem (emitir/dispensar com motivo) sem sair do O.S.
-- [ ] A8 Entregar: rota do dia + tentativa de entrega com comprovação (`DeliveryAttempt` já existe)
+- [x] A8 Entregar: fila das viagens de entrega do hub + tentativa de entrega com comprovação (`DeliveryAttempt`); falha não trava viagem nem carga (volta `AT_HUB` no hub de origem com a nota); conferência de chegada com efeito (avaria entra no estoque, "não chegou" volta ao hub de origem, ambos geram `SystemAlert` `OPERATIONAL_ARRIVAL_DIVERGENCE`). Rota do dia (ordenação por trajeto) ainda não
 - [x] A9 Entrada no balcão pela NF-e: leitura do código de barras da DANFE (mesmo motor do painel atual), chave digitada ou leitor USB; nota esperada, nota da triagem SEFAZ ou nota válida sem cadastro viram entrada; remetente/destinatário da NF-e ou escolhidos/cadastrados na hora; confirma e abre as etiquetas
 - [x] A9.2 Entrada sem XML que funciona: remetente pelo CNPJ da chave nos dados públicos da Receita (BrasilAPI → ReceitaWS, cidade IBGE); destinatário com campo vazio (nunca texto do sistema para apagar) e cadastro em um toque por CNPJ; volumes, peso e valor copiados da DANFE impressa e gravados com evento; cartão da pessoa aponta o que falta para o CT-e (cidade IBGE, IE)
 - [ ] A9.1 Entrada sem NF-e (declaração/manual) no O.S.

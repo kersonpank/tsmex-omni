@@ -22,6 +22,8 @@ import type {
     TripCompositionDefaults,
     TripCompositionSuggestion,
     DeliveryProgress,
+    ArrivalMarkInput,
+    ArrivalSummary,
     CreateManifestRequest,
     Hub,
     Link,
@@ -644,8 +646,8 @@ export const manifestsApi = {
         return response.data;
     },
 
-    completeStop: async (manifestId: string, stopId: string) => {
-        const response = await api.patch<ApiResponse<{ allStopsCompleted: boolean }>>(`/manifests/${manifestId}/stops/${stopId}/complete`);
+    completeStop: async (manifestId: string, stopId: string, data?: { arrivals?: ArrivalMarkInput[] }) => {
+        const response = await api.patch<ApiResponse<{ allStopsCompleted: boolean; arrivals?: ArrivalSummary | null }>>(`/manifests/${manifestId}/stops/${stopId}/complete`, data ?? {});
         return response.data;
     },
     deliveryProgress: async (manifestId: string) => {
@@ -736,8 +738,8 @@ export const manifestsApi = {
         return response.data;
     },
 
-    complete: async (id: string, data?: { kmChegada?: number }) => {
-        const response = await api.patch<ApiResponse<Manifest>>(`/manifests/${id}/complete`, data ?? {});
+    complete: async (id: string, data?: { kmChegada?: number; arrivals?: ArrivalMarkInput[] }) => {
+        const response = await api.patch<ApiResponse<{ arrivals?: ArrivalSummary | null; allStopsCompleted?: boolean }>>(`/manifests/${id}/complete`, data ?? {});
         return response.data;
     },
 

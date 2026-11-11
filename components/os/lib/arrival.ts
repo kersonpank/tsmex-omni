@@ -118,13 +118,35 @@ export function canConclude(summary: ConferenceSummary, divergenceAcknowledged: 
     return true;
 }
 
-/** Texto do evento de divergência gravado no histórico do pedido (ator vem da sessão). */
-export function divergenceDescription(
-    mark: ConferenceMark,
-    manifest: { origin: string; destination: string },
-    note?: string,
-): string {
-    const kind = mark === 'FALTA' ? 'volume não chegou' : 'chegou com avaria';
-    const suffix = note?.trim() ? ` — ${note.trim()}` : '';
-    return `[DIVERGÊNCIA NA CHEGADA] ${kind} (viagem ${manifest.origin} → ${manifest.destination})${suffix}`;
+export type ArrivalResult = 'OK' | 'DAMAGED' | 'MISSING';
+export interface ArrivalPayload { orderId: string; result: ArrivalResult; note?: string }
+
+const RESULT_BY_MARK: Record<ConferenceMark, ArrivalResult> = { OK: 'OK', AVARIA: 'DAMAGED', FALTA: 'MISSING' };
+
+/**
+ * Marcações da conferência no formato da API de conclusão (uma chamada só, atômica).
+ * Itens sem marcação não são enviados — e a tela só conclui com tudo marcado.
+ */
+export function buildArrivals(
+    items: UnloadItem[],
+    marks: Record<string, ConferenceMark | undefined>,
+    notes: Record<string, string | undefined>,
+): ArrivalPayload[] {
+    const rows: ArrivalPayload[] = [];
+    for (const item of items) {
+        const mark = marks[item.orderId];
+        if (!mark) continue;
+        const note = notes[item.orderId]?.trim();
+        rows.push({ orderId: item.orderId, result: RESULT_BY_MARK[mark], ...(mark !== 'OK' && note ? { note } : {}) });
+    }
+    return rows;
+}
+
+/** Mensagem de sucesso: quantos entraram no estoque e quantos viraram divergência. */
+export function arrivalSuccessMessage(summary: { stocked: number; damaged: number; missing: number }): string {
+    const stock = `${summary.stocked} pedido(s) entraram no estoque`;
+    const divergences = summary.damaged + summary.missing;
+    if (divergences === 0) return `Recebimento concluído: ${stock}.`;
+    const parts = [summary.damaged ? `${summary.damaged} com avaria` : '', summary.missing ? `${summary.missing} que não chegaram` : ''].filter(Boolean);
+    return `Recebimento concluído: ${stock} e ${divergences} viraram divergência (${parts.join(', ')}).`;
 }

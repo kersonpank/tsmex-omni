@@ -1637,3 +1637,17 @@ export interface PaginatedResponse<T> {
         offset: number;
     };
 }
+
+/** Conferência de chegada enviada na conclusão da viagem/parada (resultado por pedido). */
+export interface ArrivalMarkInput {
+    orderId: string;
+    result: 'OK' | 'DAMAGED' | 'MISSING';
+    note?: string;
+}
+
+/** Efeito aplicado pelo servidor: quantos entraram no estoque e quantos viraram divergência. */
+export interface ArrivalSummary {
+    stocked: number;
+    damaged: number;
+    missing: number;
+}
