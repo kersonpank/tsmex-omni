@@ -1,22 +1,67 @@
-import { Prisma } from '@prisma/client';
+import type { FreightCalcStatus, Prisma } from '@prisma/client';
 import prisma from '../lib/prisma.js';
+import { roundMoney } from '../lib/money.js';
+import { splitCentsAcrossLegs } from './pricing/revenueSplit.js';
+
+/** Status em que o documento do frete é oficial (CT-e/DC-e autorizado, minuta emitida). */
+const OFFICIAL_FREIGHT_STATUSES: FreightCalcStatus[] = ['CTE_AUTHORIZED', 'DCE_AUTHORIZED', 'MINUTA_EMITTED'];
+/** Cálculos que nunca valem nem como estimativa (cancelados ou rejeitados). */
+const DEAD_FREIGHT_STATUSES: FreightCalcStatus[] = ['CTE_CANCELLED', 'DCE_CANCELLED', 'CTE_REJECTED', 'DCE_REJECTED'];
+
+export interface OrderFreightBreakdown {
+    /** Frete cobrado do cliente, com ICMS (valor do documento). */
+    gross: number;
+    /** ICMS embutido no frete (não é receita da TSM). */
+    icms: number;
+    /** Frete líquido de ICMS: base da receita e da comissão do hub. */
+    net: number;
+    /** `OFFICIAL` = documento oficial emitido; `ESTIMATE` = cálculo/cotação sem documento; `NONE` = sem valor. */
+    source: 'OFFICIAL' | 'ESTIMATE' | 'NONE';
+}
 
 /**
- * Retorna o frete cobrado do cliente para o pedido (freightTotal ou quotedPrice).
+ * Frete do pedido separado em bruto / ICMS / líquido, sempre com 2 casas. Só o documento OFICIAL
+ * (CT-e/DC-e autorizado, minuta emitida) é receita realizada; sem ele, o último cálculo vivo ou a
+ * cotação da demanda entram como ESTIMATIVA — nunca como receita confirmada.
  */
-export async function getOrderFreightValue(orderId: string, tx: Prisma.TransactionClient = prisma): Promise<number> {
-    const calc = await tx.orderFreightCalculation.findFirst({
-        where: { orderId },
+export async function getOrderFreightBreakdown(orderId: string, tx: Prisma.TransactionClient = prisma): Promise<OrderFreightBreakdown> {
+    const build = (freightTotal: number, icmsValue: number | null | undefined, source: 'OFFICIAL' | 'ESTIMATE'): OrderFreightBreakdown => {
+        const gross = roundMoney(freightTotal);
+        const icms = Math.min(gross, Math.max(0, roundMoney(icmsValue ?? 0)));
+        return { gross, icms, net: roundMoney(gross - icms), source };
+    };
+
+    const official = await tx.orderFreightCalculation.findFirst({
+        where: { orderId, status: { in: OFFICIAL_FREIGHT_STATUSES }, freightTotal: { gt: 0 } },
         orderBy: { createdAt: 'desc' },
     });
-    if (calc && calc.freightTotal > 0) {
-        return calc.freightTotal;
+    if (official && official.freightTotal > 0) {
+        return build(official.freightTotal, official.icmsValue, 'OFFICIAL');
     }
+
+    const draft = await tx.orderFreightCalculation.findFirst({
+        where: { orderId, status: { notIn: [...OFFICIAL_FREIGHT_STATUSES, ...DEAD_FREIGHT_STATUSES] }, freightTotal: { gt: 0 } },
+        orderBy: { createdAt: 'desc' },
+    });
+    if (draft && draft.freightTotal > 0) {
+        return build(draft.freightTotal, draft.icmsValue, 'ESTIMATE');
+    }
+
     const order = await tx.order.findUnique({
         where: { id: orderId },
         include: { demand: true },
     });
-    return order?.demand?.quotedPrice || 0;
+    const quoted = order?.demand?.quotedPrice ?? 0;
+    if (quoted > 0) return build(quoted, 0, 'ESTIMATE');
+    return { gross: 0, icms: 0, net: 0, source: 'NONE' };
+}
+
+/**
+ * Frete líquido de ICMS do pedido (base da comissão do hub). Oficial quando há documento emitido;
+ * senão, a estimativa (cálculo vivo ou cotação). Ver `getOrderFreightBreakdown`.
+ */
+export async function getOrderFreightValue(orderId: string, tx: Prisma.TransactionClient = prisma): Promise<number> {
+    return (await getOrderFreightBreakdown(orderId, tx)).net;
 }
 
 /**
@@ -223,25 +268,59 @@ export async function allocateLegCosts(manifestId: string, tx: Prisma.Transactio
     }
 }
 
-/**
- * Retorna as métricas de margem bruta (receita - custos) do manifesto.
- */
-export async function getManifestMargin(
-    manifestId: string,
-    tx: Prisma.TransactionClient = prisma
-): Promise<{
+export interface ManifestMargin {
+    /** Compatível com as telas: aponta para a receita LÍQUIDA de ICMS (realizada + estimada). */
     revenue: number;
+    /** Frete cobrado dos clientes, com ICMS, rateado para esta viagem. */
+    revenueGross: number;
+    /** ICMS embutido no frete desta viagem (não é receita). */
+    icms: number;
+    /** Receita líquida de ICMS desta viagem. */
+    revenueNet: number;
+    /** Parte da receita líquida que vem de documento oficial emitido. */
+    revenueRealized: number;
+    /** Há pedido sem documento oficial: o valor é estimativa. */
+    revenueEstimated: boolean;
+    /** Pedidos da viagem ainda sem documento oficial de frete. */
+    ordersWithoutOfficialFreight: number;
+    /** Pedidos da viagem sem nenhum valor de frete. */
+    ordersWithoutFreightValue: number;
     linkCost: number | null;
+    /** De onde veio o custo do transportador. */
+    linkCostSource: 'CARTA_FRETE' | 'ACORDO' | 'NONE';
     hubCost: number;
     totalCost: number | null;
     margin: number | null;
     marginPercent: number | null;
     costComplete: boolean;
     missing: string[];
-}> {
+    /** Ocupação do veículo por peso e por volume, em % (null sem capacidade cadastrada). */
+    occupancyWeightPercent: number | null;
+    occupancyVolumePercent: number | null;
+    /** A mais restritiva das duas. */
+    occupancyPercent: number | null;
+}
+
+const percentOf = (part: number, whole: number | null | undefined): number | null =>
+    whole && whole > 0 ? roundMoney((part / whole) * 100) : null;
+
+/**
+ * Margem bruta da viagem = receita líquida de ICMS − custo do transportador − comissão do hub.
+ *
+ * Receita: frete do documento OFICIAL de cada pedido, sem ICMS, rateado entre as pernas do pedido
+ * (`splitCentsAcrossLegs`) — um pedido com tronco + entrega NÃO conta o frete cheio em cada
+ * viagem; a soma das viagens fecha com o frete do pedido. Sem documento oficial a receita entra
+ * como estimativa (`revenueEstimated`).
+ */
+export async function getManifestMargin(
+    manifestId: string,
+    tx: Prisma.TransactionClient = prisma
+): Promise<ManifestMargin> {
     const manifest = await tx.manifest.findUnique({
         where: { id: manifestId },
         include: {
+            vehicleType: true,
+            freightAgreement: { select: { id: true } },
             legs: {
                 select: {
                     orderId: true,
@@ -255,61 +334,94 @@ export async function getManifestMargin(
 
     if (!manifest) {
         return {
-            revenue: 0,
-            linkCost: 0,
-            hubCost: 0,
-            totalCost: 0,
-            margin: 0,
-            marginPercent: 0,
-            costComplete: true,
-            missing: [],
+            revenue: 0, revenueGross: 0, icms: 0, revenueNet: 0, revenueRealized: 0, revenueEstimated: false,
+            ordersWithoutOfficialFreight: 0, ordersWithoutFreightValue: 0,
+            linkCost: 0, linkCostSource: 'NONE', hubCost: 0, totalCost: 0, margin: 0, marginPercent: 0,
+            costComplete: true, missing: [],
+            occupancyWeightPercent: null, occupancyVolumePercent: null, occupancyPercent: null,
         };
     }
 
     const linkCost = await calculateLinkCost(manifestId, tx);
     const missing: string[] = [];
     let costComplete = true;
-
     if (manifest.linkId && linkCost === null) {
         costComplete = false;
         missing.push('LinkPricingAgreement not found');
     }
 
-    let revenue = 0;
+    const orderIds = [...new Set(manifest.legs.map((leg) => leg.orderId))];
+    const allLegs = orderIds.length
+        ? await tx.orderLeg.findMany({
+            where: { orderId: { in: orderIds } },
+            select: { orderId: true, manifestId: true, sequence: true, allocatedCost: true },
+        })
+        : [];
+
+    let grossCents = 0;
+    let icmsCents = 0;
+    let realizedNetCents = 0;
     let hubCost = 0;
+    let withoutOfficial = 0;
+    let withoutValue = 0;
 
     for (const leg of manifest.legs) {
-        const freight = await getOrderFreightValue(leg.orderId, tx);
-        revenue += freight;
-        hubCost += await calculateLegHubCost(leg, freight, tx);
+        const freight = await getOrderFreightBreakdown(leg.orderId, tx);
+        if (freight.source !== 'OFFICIAL') withoutOfficial += 1;
+        if (freight.source === 'NONE') withoutValue += 1;
+
+        const orderLegs = allLegs
+            .filter((l) => l.orderId === leg.orderId)
+            .map((l) => ({ key: l.manifestId, sequence: l.sequence, allocatedCost: l.allocatedCost }));
+        // Perna ainda não gravada no banco (simulação): conta como a única conhecida.
+        if (!orderLegs.some((l) => l.key === manifestId)) {
+            orderLegs.push({ key: manifestId, sequence: leg.sequence, allocatedCost: null });
+        }
+
+        const grossShare = splitCentsAcrossLegs(Math.round(freight.gross * 100), orderLegs).get(manifestId) ?? 0;
+        const icmsShare = splitCentsAcrossLegs(Math.round(freight.icms * 100), orderLegs).get(manifestId) ?? 0;
+        grossCents += grossShare;
+        icmsCents += icmsShare;
+        if (freight.source === 'OFFICIAL') realizedNetCents += grossShare - icmsShare;
+
+        hubCost += roundMoney(await calculateLegHubCost(leg, freight.net, tx));
     }
+
+    hubCost = roundMoney(hubCost);
+    const revenueGross = grossCents / 100;
+    const icms = icmsCents / 100;
+    const revenueNet = (grossCents - icmsCents) / 100;
+    const revenueRealized = realizedNetCents / 100;
+
+    const occupancyWeightPercent = percentOf(manifest.totalWeight, manifest.vehicleType?.maxWeight);
+    const occupancyVolumePercent = percentOf(manifest.totalVolume, manifest.vehicleType?.maxVolume);
+    const occupancyValues = [occupancyWeightPercent, occupancyVolumePercent].filter((v): v is number => v !== null);
+    const occupancyPercent = occupancyValues.length ? Math.max(...occupancyValues) : null;
+
+    const base = {
+        revenue: revenueNet,
+        revenueGross,
+        icms,
+        revenueNet,
+        revenueRealized,
+        revenueEstimated: withoutOfficial > 0,
+        ordersWithoutOfficialFreight: withoutOfficial,
+        ordersWithoutFreightValue: withoutValue,
+        linkCostSource: (manifest.freightAgreement ? 'CARTA_FRETE' : linkCost !== null && manifest.linkId ? 'ACORDO' : 'NONE') as ManifestMargin['linkCostSource'],
+        hubCost,
+        occupancyWeightPercent,
+        occupancyVolumePercent,
+        occupancyPercent,
+    };
 
     if (!costComplete) {
-        return {
-            revenue,
-            linkCost: null,
-            hubCost,
-            totalCost: null,
-            margin: null,
-            marginPercent: null,
-            costComplete: false,
-            missing,
-        };
+        return { ...base, linkCost: null, totalCost: null, margin: null, marginPercent: null, costComplete: false, missing };
     }
 
-    const finalLinkCost = linkCost ?? 0;
-    const totalCost = finalLinkCost + hubCost;
-    const margin = revenue - totalCost;
-    const marginPercent = revenue > 0 ? (margin / revenue) * 100 : 0;
+    const finalLinkCost = roundMoney(linkCost ?? 0);
+    const totalCost = roundMoney(finalLinkCost + hubCost);
+    const margin = roundMoney(revenueNet - totalCost);
+    const marginPercent = revenueNet > 0 ? roundMoney((margin / revenueNet) * 100) : 0;
 
-    return {
-        revenue,
-        linkCost: finalLinkCost,
-        hubCost,
-        totalCost,
-        margin,
-        marginPercent,
-        costComplete: true,
-        missing: [],
-    };
+    return { ...base, linkCost: finalLinkCost, totalCost, margin, marginPercent, costComplete: true, missing: [] };
 }
