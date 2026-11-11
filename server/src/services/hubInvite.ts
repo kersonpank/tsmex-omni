@@ -22,7 +22,7 @@ export function assertHubInvite(token: unknown, hubId: string): void {
     }
     let decoded: { hubId?: string; purpose?: string };
     try {
-        decoded = jwt.verify(token, inviteSecret()) as { hubId?: string; purpose?: string };
+        decoded = jwt.verify(token, inviteSecret(), { algorithms: ['HS256'] }) as { hubId?: string; purpose?: string };
     } catch {
         throw new AppError('Convite inválido ou expirado. Solicite um novo link de cadastro.', 403);
     }

@@ -1,3 +1,4 @@
+import { assertSafeUpload } from '../lib/uploadGuards.js';
 import { orderPartiesRouter } from './orderParties.js';
 import { orderServiceStartRouter } from './orderServiceStart.js';
 import { Router, Response, NextFunction } from 'express';
@@ -1581,6 +1582,7 @@ router.post('/:id/attachments', authenticate, authorize('ADMIN', 'HUB', 'LINK', 
         const orderId = req.params.id as string;
         const payload = orderAttachmentCreateSchema.parse(req.body);
         const order = await assertOrderAccess(req, orderId);
+        assertSafeUpload(payload.mimeType, payload.file, payload.filename);
 
         const upload = await uploadBase64Object({
             base64: payload.file,

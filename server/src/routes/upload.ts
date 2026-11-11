@@ -1,6 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { assertSafeUpload } from '../lib/uploadGuards.js';
 import { inferAttachmentType, uploadBase64Object } from '../lib/objectStorage.js';
 
 const router = Router();
@@ -37,6 +38,8 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response, next: Nex
         if (!isAllowedPrefix && !isAllowedExact) {
             throw new AppError('Tipo de arquivo não permitido para upload', 400);
         }
+
+        assertSafeUpload(mimeType, base64, filename);
 
         const estimatedSize = Math.floor((base64.length * 3) / 4);
         if (estimatedSize > MAX_UPLOAD_SIZE_BYTES) {

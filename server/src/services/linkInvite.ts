@@ -13,7 +13,7 @@ export function signLinkInvite(linkId: string): string {
 
 export function verifyLinkInvite(token: string): string {
     try {
-        const payload = jwt.verify(token, secret()) as { linkId?: string; purpose?: string };
+        const payload = jwt.verify(token, secret(), { algorithms: ['HS256'] }) as { linkId?: string; purpose?: string };
         if (payload.purpose === purpose && payload.linkId) return payload.linkId;
     } catch { /* invalid or expired */ }
     throw new AppError('Convite inválido ou expirado. Solicite um novo link de acesso.', 403);

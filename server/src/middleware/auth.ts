@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { AppError } from './errorHandler.js';
 import prisma from '../lib/prisma.js';
 import { UserRole } from '@prisma/client';
+import { JWT_ALGORITHM } from '../lib/jwtConfig.js';
 import { hasOperationalPermission } from '../lib/operationalPermissions.js';
 
 export interface AuthRequest extends Request {
@@ -34,7 +35,7 @@ export const authenticate = async (
             throw new AppError('JWT secret not configured', 500);
         }
 
-        const decoded = jwt.verify(token, secret) as { userId: string };
+        const decoded = jwt.verify(token, secret, { algorithms: [JWT_ALGORITHM] }) as { userId: string };
 
         const user = await prisma.user.findUnique({
             where: { id: decoded.userId },

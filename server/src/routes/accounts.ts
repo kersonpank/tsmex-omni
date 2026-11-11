@@ -8,6 +8,7 @@ import { authenticate, AuthRequest } from '../middleware/auth.js';
 import { getParamId } from '../lib/routeUtils.js';
 import { consultCNPJ } from '../services/cnpjService.js';
 import { fetchBrasilApiCnpj } from '../services/intake/publicCnpjParty.js';
+import { JWT_ALGORITHM } from '../lib/jwtConfig.js';
 import { resolveIbgeCode } from '../services/acbr/acbrIbge.js';
 
 // Generate JWT token helper
@@ -15,7 +16,7 @@ function generateToken(userId: string): string {
     const secret = process.env.JWT_SECRET;
     if (!secret) throw new AppError('JWT secret not configured', 500);
     const expiresIn = process.env.JWT_EXPIRES_IN || '7d';
-    return jwt.sign({ userId }, secret, { expiresIn } as jwt.SignOptions);
+    return jwt.sign({ userId }, secret, { expiresIn, algorithm: JWT_ALGORITHM } as jwt.SignOptions);
 }
 
 const router = Router();

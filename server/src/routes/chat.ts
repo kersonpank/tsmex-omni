@@ -2,6 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import { callLLM, getActiveModel, ChatMessage } from '../services/llmService.js';
 import { AGENT_TOOLS, buildSystemPromptWithContext } from '../services/agentTools.js';
 import prisma from '../lib/prisma.js';
+import { assertSafeUpload } from '../lib/uploadGuards.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, AuthRequest } from '../middleware/auth.js';
 
@@ -288,6 +289,7 @@ router.post('/upload', authenticate, async (req: AuthRequest, res, next) => {
         if (!allowedMimeTypes.includes(mimeType)) {
             throw new AppError(`MIME type not allowed: ${mimeType}`, 400);
         }
+        assertSafeUpload(mimeType, file, fileName);
         const fileUrl = `data:${mimeType};base64,${file}`;
         const size = Math.round((file.length * 3) / 4);
         const maxSize = 10 * 1024 * 1024;
