@@ -5,6 +5,7 @@
  */
 
 import prisma from '../lib/prisma.js';
+import { openSecretOrLegacy } from '../lib/secretBox.js';
 
 export interface ChatMessage {
     role: 'user' | 'assistant' | 'system';
@@ -351,7 +352,7 @@ export async function getActiveModel(capability: string = 'chat'): Promise<Activ
                         provider: {
                             apiFormat: model.provider.apiFormat,
                             baseUrl: model.provider.baseUrl,
-                            apiKey: model.provider.apiKey.apiKey.trim()
+                            apiKey: openSecretOrLegacy(model.provider.apiKey.apiKey).trim()
                         }
                     };
                 }
@@ -376,7 +377,7 @@ export async function getActiveModel(capability: string = 'chat'): Promise<Activ
                         provider: {
                             apiFormat: selected.provider.apiFormat,
                             baseUrl: selected.provider.baseUrl,
-                            apiKey: selected.provider.apiKey!.apiKey.trim()
+                            apiKey: openSecretOrLegacy(selected.provider.apiKey!.apiKey).trim()
                         }
                     };
                 }
@@ -486,7 +487,7 @@ export async function getActiveModel(capability: string = 'chat'): Promise<Activ
         );
     }
 
-    if (!model.provider.apiKey.apiKey || model.provider.apiKey.apiKey.trim() === '') {
+    if (!model.provider.apiKey.apiKey || openSecretOrLegacy(model.provider.apiKey.apiKey).trim() === '') {
         throw new Error(
             `API key is empty for provider: ${model.provider.name}. ` +
             `Please configure a valid API key in Settings > LLM.`
@@ -498,7 +499,7 @@ export async function getActiveModel(capability: string = 'chat'): Promise<Activ
         provider: {
             apiFormat: model.provider.apiFormat,
             baseUrl: model.provider.baseUrl,
-            apiKey: model.provider.apiKey.apiKey.trim()
+            apiKey: openSecretOrLegacy(model.provider.apiKey.apiKey).trim()
         }
     };
 }
