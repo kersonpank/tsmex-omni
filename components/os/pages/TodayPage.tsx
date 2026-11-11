@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { manifestsApi } from '../../../lib/api';
 import { useOs } from '../OsContext';
 import { arrivingManifests, ordersToUnload, type ManifestWithLegs } from '../lib/arrival';
+import { deliveryTripsForHub } from '../lib/delivery';
 import CollectionRequestSheet from './CollectionRequestSheet';
 import { OsBadge, OsButton, OsEmpty, OsErrorNotice, OsRow, OsSectionTitle, OsSkeletonRows, OsStatTile } from '../ui/kit';
 
@@ -17,6 +18,7 @@ const TodayPage: React.FC = () => {
     const navigate = useNavigate();
     const { hubId, summary, capabilities, loading, error, refresh } = useOs();
     const [arrivals, setArrivals] = useState<ManifestWithLegs[]>([]);
+    const [deliveryTrips, setDeliveryTrips] = useState(0);
     const [arrivalsLoading, setArrivalsLoading] = useState(true);
     const [requesting, setRequesting] = useState(false);
 
@@ -30,9 +32,13 @@ const TodayPage: React.FC = () => {
                 if (cancelled) return;
                 const rows = Array.isArray(body.data) ? (body.data as ManifestWithLegs[]) : [];
                 setArrivals(arrivingManifests(rows, hubId));
+                setDeliveryTrips(deliveryTripsForHub(rows, hubId).length);
             })
             .catch(() => {
-                if (!cancelled) setArrivals([]);
+                if (!cancelled) {
+                    setArrivals([]);
+                    setDeliveryTrips(0);
+                }
             })
             .finally(() => {
                 if (!cancelled) setArrivalsLoading(false);
@@ -56,6 +62,15 @@ const TodayPage: React.FC = () => {
                         hint="viagens em rota para cá"
                         tone="route"
                         onClick={() => navigate('/hubs/receber')}
+                    />
+                ) : null}
+                {capabilities.canReceive ? (
+                    <OsStatTile
+                        label="Em entrega"
+                        value={arrivalsLoading ? '–' : deliveryTrips}
+                        hint="viagens saídas para comprovar"
+                        tone={deliveryTrips > 0 ? 'attention' : 'none'}
+                        onClick={() => navigate('/hubs/entregar')}
                     />
                 ) : null}
                 {capabilities.canReceive ? (

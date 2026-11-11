@@ -805,13 +805,16 @@ export interface DeliveryProgress {
     orderId: string;
     stopId: string | null;
     destinationLabel?: string | null;
+    /** Destinatário e cidade do pedido (para o operador reconhecer a entrega). */
+    recipientName?: string | null;
+    destinationCity?: string | null;
     orderNumber: number;
     nfNumber?: string | null;
     expectedQuantity: number;
     deliveredQuantity: number;
     remainingQuantity: number;
     complete: boolean;
-    attempts: Array<{ id: string; result: 'DELIVERED' | 'PARTIAL' | 'FAILED'; deliveredQuantity?: number | null; nextAction?: string | null; occurredAt: string }>;
+    attempts: Array<{ id: string; result: 'DELIVERED' | 'PARTIAL' | 'FAILED'; deliveredQuantity?: number | null; nextAction?: string | null; exceptionReason?: string | null; occurredAt: string }>;
 }
 
 export interface ManifestReadiness {
@@ -1645,4 +1648,18 @@ export interface PaginatedResponse<T> {
         limit: number;
         offset: number;
     };
+}
+
+/** Conferência de chegada enviada na conclusão da viagem/parada (resultado por pedido). */
+export interface ArrivalMarkInput {
+    orderId: string;
+    result: 'OK' | 'DAMAGED' | 'MISSING';
+    note?: string;
+}
+
+/** Efeito aplicado pelo servidor: quantos entraram no estoque e quantos viraram divergência. */
+export interface ArrivalSummary {
+    stocked: number;
+    damaged: number;
+    missing: number;
 }

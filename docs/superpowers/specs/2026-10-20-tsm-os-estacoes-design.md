@@ -39,7 +39,7 @@ Exceções: transversal a todas · Aprendizado: torre
 - **Pergunta:** o que chegou e confere?
 - **Fila:** viagens `IN_PROGRESS` com descarga pendente neste hub (parada ou destino).
 - **Ação primária:** conferir pedido a pedido (Chegou / Avaria / Não chegou) → "Confirmar recebimento".
-- **Evento:** divergência → `OrderHistory` NOTE com ator; parada/viagem concluída → pedidos `AT_HUB` aqui.
+- **Evento:** as marcações vão na própria chamada de conclusão (`arrivals`, atômica). Avaria → pedido `AT_HUB` aqui + histórico de avaria com ator; não chegou → pedido volta `AT_HUB` no hub de origem da perna com nota; ambos abrem `SystemAlert` `OPERATIONAL_ARRIVAL_DIVERGENCE`.
 - **Próxima:** pedidos entram em Estoque e, por consequência, na fila de Consolidar.
 - **Orçamento:** ≤ 6 toques para uma chegada sem divergência.
 
@@ -109,8 +109,9 @@ Exceções: transversal a todas · Aprendizado: torre
 
 ### 9. Entregar (A8)
 - **Pergunta:** o que sai hoje para entrega e como comprovo?
-- **Fila:** viagens DELIVERY do hub e suas paradas; **ação:** registrar tentativa (`DeliveryAttempt`: entregue / parcial /
-  falhou + evidência + próxima ação).
+- **Fila:** viagens DELIVERY / TRANSFER_DELIVERY `IN_PROGRESS` do hub e seus pedidos (destinatário, cidade, volumes esperados/entregues/saldo); **ação:** registrar tentativa (`DeliveryAttempt`: entregue / parcial /
+  falhou + evidência + próxima ação) e "Concluir viagem" quando todos os pedidos estão resolvidos. O hub de origem opera a viagem em nome do transportador (#24).
+- **Falha não trava:** pedido não entregue (ou saldo de parcial) volta `AT_HUB` no hub de origem da viagem, com histórico e ator, e reaparece na fila de Consolidar. Parcial não cria pedido filho: o pedido volta inteiro com a nota de quantos volumes foram entregues e quantos voltaram.
 
 ### 10. Exceções (A10, transversal)
 - Uma fila: divergências, falhas de entrega, encerramento fiscal pendente (`SystemAlert`). Cada item com dono, prazo, desfecho.

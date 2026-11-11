@@ -5,6 +5,7 @@ import { OsProvider, useOs } from './OsContext';
 import TodayPage from './pages/TodayPage';
 import ReceivePage from './pages/ReceivePage';
 import TripReceivePage from './pages/TripReceivePage';
+import DeliverPage from './pages/DeliverPage';
 import CargoPage from './pages/CargoPage';
 import LabelsPrintPage from './pages/LabelsPrintPage';
 import OrderPage from './pages/order/OrderPage';
@@ -14,7 +15,7 @@ import CoveragePage from './pages/CoveragePage';
 import TripPrepPage from './pages/trip/TripPrepPage';
 import CarrierPage from './pages/carrier/CarrierPage';
 import { OsEmpty, OsRow, OsSectionTitle } from './ui/kit';
-import { IconDay, IconReceive, IconTag, IconTower, IconTruck, type OsIconProps } from './ui/icons';
+import { IconDay, IconDeliver, IconReceive, IconTag, IconTower, IconTruck, type OsIconProps } from './ui/icons';
 
 /**
  * TSM O.S. — superfície operacional do hub (rota /hubs).
@@ -27,6 +28,7 @@ const TABS: Array<{ to: string; label: string; end: boolean; Icon: React.FC<OsIc
     { to: '/hubs/receber', label: 'Receber', end: false, Icon: IconReceive },
     { to: '/hubs/cargas', label: 'Cargas', end: false, Icon: IconTag },
     { to: '/hubs/viagens', label: 'Viagens', end: false, Icon: IconTruck },
+    { to: '/hubs/entregar', label: 'Entregar', end: false, Icon: IconDeliver },
 ];
 
 const StubPage: React.FC<{ title: string; slice: string }> = ({ title, slice }) => (
@@ -115,6 +117,7 @@ const OsShell: React.FC = () => {
                         <Route path="viagens" element={<TripsPage />} />
                         <Route path="viagens/:manifestId" element={<TripPrepPage />} />
                         <Route path="transportadores/:linkId" element={<CarrierPage />} />
+                        <Route path="entregar" element={<DeliverPage />} />
                         <Route path="cobertura" element={<CoveragePage />} />
                         <Route path="excecoes" element={<StubPage title="Exceções" slice="Fatia 4" />} />
                     </Routes>
@@ -122,7 +125,7 @@ const OsShell: React.FC = () => {
             </main>
 
             <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-tower-200 bg-white pb-[max(env(safe-area-inset-bottom),4px)] dark:border-tower-800 dark:bg-tower-900">
-                <div className="mx-auto grid max-w-xl grid-cols-4">
+                <div className="mx-auto grid max-w-xl grid-cols-5">
                     {TABS.map(({ to, label, end, Icon }) => (
                         <NavLink
                             key={to}

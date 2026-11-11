@@ -19,7 +19,7 @@ export async function listManifestDeliveryProgress(manifestId: string) {
     const legs = await prisma.orderLeg.findMany({
         where: { manifestId, legType: 'ENTREGA' },
         include: {
-            order: { select: { nfNumber: true, demand: { select: { orderNumber: true, units: true } } } },
+            order: { select: { nfNumber: true, destinatarioPerson: { select: { legalName: true, tradeName: true, city: true, state: true } }, demand: { select: { orderNumber: true, units: true, destination: true } } } },
             deliveryAttempts: { orderBy: { createdAt: 'asc' } },
             stop: { select: { id: true, destinationLabel: true } },
         },
@@ -31,6 +31,10 @@ export async function listManifestDeliveryProgress(manifestId: string) {
             legId: leg.id, orderId: leg.orderId, stopId: leg.stopId,
             destinationLabel: leg.stop?.destinationLabel,
             orderNumber: leg.order.demand.orderNumber, nfNumber: leg.order.nfNumber,
+            recipientName: leg.order.destinatarioPerson?.tradeName || leg.order.destinatarioPerson?.legalName || null,
+            destinationCity: leg.order.destinatarioPerson?.city
+                ? `${leg.order.destinatarioPerson.city}${leg.order.destinatarioPerson.state ? `/${leg.order.destinatarioPerson.state}` : ''}`
+                : leg.order.demand.destination ?? null,
             expectedQuantity: leg.order.demand.units,
             deliveredQuantity: delivered,
             remainingQuantity: Math.max(0, leg.order.demand.units - delivered),
@@ -99,11 +103,42 @@ export async function recordDeliveryAttempt(manifestId: string, actorUserId: str
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
-export async function assertDeliveryConfirmed(legIds: string[]) {
-    if (!legIds.length) return;
-    const attempts = await prisma.deliveryAttempt.findMany({ where: { legId: { in: legIds } }, orderBy: { createdAt: 'desc' }, select: { legId: true, result: true } });
-    const last = new Map<string, string>();
-    for (const attempt of attempts) if (!last.has(attempt.legId)) last.set(attempt.legId, attempt.result);
-    const missing = legIds.filter((id) => last.get(id) !== 'DELIVERED');
-    if (missing.length) throw new AppError(`Comprove a entrega de cada pedido antes de concluir a descarga (${missing.length} pendente(s)).`, 422);
+export type DeliveryNextAction = 'REATTEMPT' | 'RETURN_TO_HUB' | 'TRANSFER';
+
+export type LegDeliveryOutcome =
+    | { kind: 'DELIVERED' }
+    | { kind: 'RETURN'; delivered: number; returned: number; reason: string; nextAction: DeliveryNextAction };
+
+/**
+ * Cada perna de entrega precisa estar resolvida para a viagem fechar: entregue (última tentativa
+ * DELIVERED) ou não entregue com próxima ação definida (FAILED/PARTIAL). Perna sem nenhum registro
+ * continua bloqueando — divergência nunca encerra em silêncio.
+ */
+export async function resolveDeliveryOutcomes(legIds: string[]): Promise<Map<string, LegDeliveryOutcome>> {
+    const outcomes = new Map<string, LegDeliveryOutcome>();
+    if (!legIds.length) return outcomes;
+    const attempts = await prisma.deliveryAttempt.findMany({
+        where: { legId: { in: legIds } },
+        orderBy: { createdAt: 'desc' },
+        select: { legId: true, result: true, deliveredQuantity: true, expectedQuantity: true, nextAction: true, exceptionReason: true },
+    });
+    const byLeg = new Map<string, typeof attempts>();
+    for (const attempt of attempts) byLeg.set(attempt.legId, [...(byLeg.get(attempt.legId) ?? []), attempt]);
+    const withoutRecord = legIds.filter((id) => !byLeg.has(id));
+    if (withoutRecord.length) {
+        throw new AppError(`Registre a entrega, ou a tentativa que não deu certo, de cada pedido antes de concluir a viagem (${withoutRecord.length} pedido(s) sem nenhum registro).`, 422);
+    }
+    for (const legId of legIds) {
+        const [last, ...older] = byLeg.get(legId)!;
+        if (last.result === 'DELIVERED') { outcomes.set(legId, { kind: 'DELIVERED' }); continue; }
+        if (!last.nextAction) {
+            throw new AppError('Defina a próxima ação da carga não entregue antes de concluir a viagem.', 422);
+        }
+        const all = [last, ...older];
+        const delivered = all.reduce((sum, a) => sum + (a.deliveredQuantity ?? 0), 0);
+        const expected = last.expectedQuantity ?? delivered;
+        const reason = all.find((a) => a.exceptionReason?.trim())?.exceptionReason?.trim() ?? 'sem motivo informado';
+        outcomes.set(legId, { kind: 'RETURN', delivered, returned: Math.max(0, expected - delivered), reason, nextAction: last.nextAction });
+    }
+    return outcomes;
 }
