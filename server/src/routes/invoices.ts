@@ -4,6 +4,7 @@ import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { getOrderFreightValue, getOfficialFreightTotal } from '../services/pricingService.js';
+import { listInvoiceableOrders, prepareOrderPayer } from '../services/billing/invoiceableOrders.js';
 import { resourceGuard, uuidParam } from '../middleware/resourceAccess.js';
 import { Prisma } from '@prisma/client';
 
@@ -32,31 +33,34 @@ async function generateInvoiceNumber(tx: Prisma.TransactionClient): Promise<stri
 
 // ==================== GET INVOICES ====================
 
-router.get('/eligible-orders', authenticate, authorize('ADMIN'), async (_req: AuthRequest, res: Response, next: NextFunction) => {
+const eligibleQuerySchema = z.object({
+    limit: z.coerce.number().int().min(1).max(500).default(200),
+    offset: z.coerce.number().int().min(0).default(0),
+});
+
+// Pedidos a faturar (mais antigo primeiro, paginado, com total). Inclui os de pagador sem conta
+// (billable: false) para o admin preparar a conta e faturar em seguida.
+router.get('/eligible-orders', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const orders = await prisma.order.findMany({
-            where: {
-                status: { not: 'CANCELLED' },
-                invoices: { none: { status: { not: 'CANCELLED' } } },
-                invoiceItems: { none: { invoice: { status: { not: 'CANCELLED' } } } },
-                freightCalculations: { some: { status: { in: ['CTE_AUTHORIZED', 'DCE_AUTHORIZED', 'MINUTA_EMITTED'] } } },
-            },
-            select: {
-                id: true, nfNumber: true,
-                demand: { select: { client: { select: { companyName: true, accountId: true } } } },
-                freightCalculations: {
-                    where: { status: { in: ['CTE_AUTHORIZED', 'DCE_AUTHORIZED', 'MINUTA_EMITTED'] } },
-                    orderBy: { createdAt: 'desc' }, take: 1, select: { freightTotal: true },
-                },
-            },
-            orderBy: { createdAt: 'desc' }, take: 100,
-        });
-        res.json({ success: true, data: orders.flatMap((order) => {
-            const accountId = order.demand.client?.accountId;
-            const amount = order.freightCalculations[0]?.freightTotal;
-            return accountId && amount && amount > 0 ? [{ id: order.id, nfNumber: order.nfNumber, clientName: order.demand.client?.companyName, accountId, amount }] : [];
-        }) });
-    } catch (error) { next(error); }
+        const { limit, offset } = eligibleQuerySchema.parse(req.query);
+        const { items, total } = await listInvoiceableOrders({ limit, offset });
+        res.json({ success: true, data: items, pagination: { total, limit, offset, hasMore: offset + limit < total } });
+    } catch (error) {
+        if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
+        next(error);
+    }
+});
+
+// Cria a conta de faturamento do pagador (sem credencial utilizável) e devolve o pedido faturável.
+router.post('/prepare-payer', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const { orderId } = z.object({ orderId: z.string().uuid() }).parse(req.body);
+        const data = await prepareOrderPayer(orderId, req.user!.id);
+        res.json({ success: true, data });
+    } catch (error) {
+        if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
+        next(error);
+    }
 });
 
 // GET /api/invoices - List invoices
