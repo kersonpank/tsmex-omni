@@ -9,7 +9,7 @@
         "worker": "node dist/worker.js",
         "build": "tsc",
         "typecheck": "tsc --noEmit",
-        "test": "node --import tsx --test \"src/**/*.test.ts\"",
+        "test": "node --import tsx --test \"src/**/*.test.ts\" \"prisma/*.test.ts\"",
         "start": "node dist/index.js",
         "db:generate": "prisma generate",
         "db:migrate": "prisma migrate dev",

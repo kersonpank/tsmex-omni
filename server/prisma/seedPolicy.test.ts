@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveSeedPolicy } from '../../prisma/seedPolicy.js';
+import { resolveSeedPolicy } from './seedPolicy.js';
 
 test('produção sem SEED_ADMIN_PASSWORD não cria usuários', () => {
     const p = resolveSeedPolicy({ NODE_ENV: 'production' });
