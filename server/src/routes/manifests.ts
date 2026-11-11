@@ -8,6 +8,7 @@ import { selectedManifestCity } from '../services/manifestSelectedCity.js';
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
+import { recordManualAverbacaoNote } from '../services/averbacao/mdfeAverbacao.js';
 import prisma from '../lib/prisma.js';
 import { arrivalsSchema } from '../services/arrivalConference.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -928,6 +929,18 @@ router.patch('/:id/capa', authenticate, async (req: AuthRequest, res: Response, 
                 cargoInsuranceAverbacao: data.cargoInsuranceAverbacao === undefined ? undefined : data.cargoInsuranceAverbacao || null,
             },
         });
+
+        if (data.cargoInsuranceAverbacao?.trim()) {
+            // Contingência: averbação digitada com emitente AT&M prevalece sobre a eletrônica; deixa rastro no histórico.
+            try {
+                const atmEmitter = updated.fiscalEmitterId
+                    ? await prisma.fiscalEmitter.findUnique({ where: { id: updated.fiscalEmitterId } })
+                    : updated.hubId ? await prisma.fiscalEmitter.findFirst({ where: { hubId: updated.hubId, active: true }, orderBy: [{ defaultForHub: 'desc' }, { updatedAt: 'desc' }] }) : null;
+                await recordManualAverbacaoNote({ manifestId: id, emitter: atmEmitter, manualAverbacao: data.cargoInsuranceAverbacao, actorUserId: req.user!.id });
+            } catch (noteError) {
+                console.error('[manifests] nota de averbação manual falhou', noteError instanceof Error ? noteError.message : noteError);
+            }
+        }
 
         res.json({ success: true, data: updated });
     } catch (error) {

@@ -1,6 +1,7 @@
 import type { ManifestStatus } from '@prisma/client';
 import { cteEmitterMismatchMessage, missingMdfeEmitterData } from './fiscal/mdfePreflight.js';
-import { emitterCargoInsuranceComplete, parseAverbacoes } from './acbr/mdfeCargoInsurance.js';
+import { emitterCargoInsuranceComplete } from './acbr/mdfeCargoInsurance.js';
+import { mdfeAverbacaoReadiness } from './averbacao/mdfeAverbacao.js';
 import { mdfeBankInfo, mdfePaymentTerms } from './acbr/acbrMdfeAntt.js';
 import type { CiotRequestData } from './efrete/efreteCiotMapper.js';
 import prisma from '../lib/prisma.js';
@@ -34,6 +35,7 @@ export interface ManifestReadinessIssue {
     code: string;
     severity: 'blocking' | 'warning';
     message: string;
+    averbacaoOrders?: Array<{ orderId: string; calcId: string; orderNumber: string }>;
 }
 
 export interface ManifestReadiness {
@@ -170,8 +172,9 @@ export async function getManifestReadiness(manifestId: string, ciotRequestData?:
     if (insuranceEmitter && !emitterCargoInsuranceComplete(insuranceEmitter)) {
         add(issue('fiscal', 'MDFE_CARGO_INSURANCE_PENDING', 'Seguro da carga: informe seguradora, CNPJ e apólice no cadastro do emitente.', 'cargoInsurance', mdfeSeverity));
     }
-    if (!parseAverbacoes(manifest.cargoInsuranceAverbacao).length) {
-        add(issue('fiscal', 'MDFE_CARGO_AVERBACAO_PENDING', 'Informe o número de averbação do seguro desta viagem.', 'cargoInsuranceAverbacao', mdfeSeverity));
+    const averbacao = await mdfeAverbacaoReadiness({ manifestId, emitter: insuranceEmitter, manualAverbacao: manifest.cargoInsuranceAverbacao });
+    if (averbacao.pending) {
+        add({ ...issue('fiscal', 'MDFE_CARGO_AVERBACAO_PENDING', averbacao.message, 'cargoInsuranceAverbacao', mdfeSeverity), ...(averbacao.orders ? { averbacaoOrders: averbacao.orders } : {}) });
     }
     if (manifest._count.legs > 0) {
         const cargo = await prisma.orderLeg.findMany({ where: { manifestId }, select: { orderId: true, order: { select: {

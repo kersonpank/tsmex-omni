@@ -802,6 +802,8 @@ export interface ManifestReadinessIssue {
     code: string;
     severity: 'blocking' | 'warning';
     message: string;
+    /** MDFE_CARGO_AVERBACAO_PENDING com AT&M: pedidos cujo CT-e ainda não foi averbado. */
+    averbacaoOrders?: Array<{ orderId: string; calcId: string; orderNumber: string }>;
 }
 
 /** Composição que o servidor sugere para a viagem (última viagem do transportador ou cadastro padrão). */

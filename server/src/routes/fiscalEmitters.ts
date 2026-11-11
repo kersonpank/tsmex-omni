@@ -1,3 +1,4 @@
+import { sealSecret } from '../lib/secretBox.js';
 import { resolveMatrizCnpj } from '../services/efrete/efreteConfig.js';
 import { integratorPersonReady } from '../services/efrete/ensureEfreteIntegratorPerson.js';
 import crypto from 'crypto';
@@ -113,7 +114,21 @@ const fiscalEmitterShape = z.object({
     cargoInsurerName: nullableTrimmed(30),
     cargoInsurerCnpj: nullableInsurerCnpj,
     cargoInsurancePolicyNumber: nullableTrimmed(20),
+    /** Averbação eletrônica (AT&M). `atmPassword` vazio/ausente = não altera; nunca é devolvida. */
+    averbacaoProvider: z.enum(['NONE', 'ATM']).optional(),
+    atmCode: nullableTrimmed(40),
+    atmUser: nullableTrimmed(80),
+    atmPassword: z.string().max(200).optional(),
+    atmEnvironment: z.enum(['HOMOLOGACAO', 'PRODUCAO']).optional(),
+    cargoTracked: z.boolean().optional(),
+    cargoLoadUnloadCovered: z.boolean().optional(),
 });
+
+/** Separa a senha AT&M (cifrada com sealSecret) do restante; vazia não altera o valor gravado. */
+function splitAtmPassword<T extends { atmPassword?: string }>(data: T): { rest: Omit<T, 'atmPassword'>; atmPasswordEncrypted?: string } {
+    const { atmPassword, ...rest } = data;
+    return atmPassword && atmPassword.trim() ? { rest, atmPasswordEncrypted: sealSecret(atmPassword) } : { rest };
+}
 
 function refineFiscalEmitterCteTax(
     data: { defaultCteCfop?: string | null; defaultCteCst?: string | null },
@@ -159,6 +174,7 @@ async function toPublicEmitter(emitter: any, precomputedCheckpoint?: Map<string,
     const {
         certificatePasswordEncrypted: _secret,
         certificateStorageKey: _storageKey,
+        atmPasswordEncrypted: _atmSecret,
         ...safe
     } = emitter;
 
@@ -173,6 +189,7 @@ async function toPublicEmitter(emitter: any, precomputedCheckpoint?: Map<string,
 
     return {
         ...safe,
+        hasAtmPassword: Boolean(_atmSecret),
         logoUrl: await resolveStoredLogoUrl(safe.logoUrl ?? null, safe.logoStorageKey ?? null),
         distribuicaoNfeCheckpoint,
         readiness: buildFiscalEmitterReadiness({
@@ -330,10 +347,12 @@ router.post('/', authenticate, authorize('ADMIN'), async (req: AuthRequest, res:
         const data = fiscalEmitterSchema.parse(req.body);
         await assertPersonAndHub(data);
 
-        const { provider, providerEmitterId, providerStatus, ...restCreate } = data;
+        const { provider, providerEmitterId, providerStatus, ...restCreateRaw } = data;
+        const { rest: restCreate, atmPasswordEncrypted } = splitAtmPassword(restCreateRaw);
         const emitter = await prisma.fiscalEmitter.create({
             data: {
                 ...restCreate,
+                ...(atmPasswordEncrypted ? { atmPasswordEncrypted } : {}),
                 provider: provider ?? 'SIMULATED',
                 providerEmitterId: providerEmitterId ?? null,
                 providerStatus: providerStatus ?? (provider === 'ACBR' ? 'PENDING' : 'NOT_CONFIGURED'),
@@ -376,9 +395,10 @@ router.patch('/:id', authenticate, authorize('ADMIN'), async (req: AuthRequest, 
             await assertPersonAndHub({ personId: data.personId ?? current.personId, hubId: data.hubId ?? null });
         }
 
+        const { rest: patchData, atmPasswordEncrypted } = splitAtmPassword(data);
         const emitter = await prisma.fiscalEmitter.update({
             where: { id },
-            data,
+            data: { ...patchData, ...(atmPasswordEncrypted ? { atmPasswordEncrypted } : {}) },
             include: { person: true, hub: true },
         });
         const acbrExtra = await trySyncAcbrEmitter(emitter.id);
