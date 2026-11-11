@@ -81,6 +81,7 @@ export type FreightCalcStatus =
     | 'CTE_PENDING_RECONCILIATION'
     | 'MINUTA_EMITTED'
     | 'CTE_AUTHORIZED'
+    | 'CTE_CANCEL_PENDING'
     | 'CTE_CANCELLED'
     | 'DCE_READY'
     | 'DCE_SENT'
@@ -1113,6 +1114,21 @@ export interface FreightDocumentSummary {
     accessKey: string | null;
     attempt: { count: number; max: number } | null;
     createdAt: string;
+    cancel?: { reason: string | null; protocol: string | null; requestedAt: string | null; cancelledAt: string | null } | null;
+    corrections?: { id: string; status: string; protocol: string | null; requestedAt: string; reason: string | null; fields: string[] }[];
+}
+
+/** Resultado de cancelar/consultar o cancelamento de um CT-e. */
+export interface CteCancelResult {
+    state: 'CANCELLED' | 'PENDING' | 'REJECTED' | 'NOT_SENT';
+    message: string;
+}
+
+export interface CteCancelEligibility {
+    canCancel: boolean;
+    blockReason: string | null;
+    /** Fim do prazo legal de 7 dias (ISO). */
+    deadline: string | null;
 }
 
 export interface FreightPricingChoice {

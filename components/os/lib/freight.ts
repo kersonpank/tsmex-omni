@@ -93,6 +93,8 @@ export function documentStatusView(doc: { documentType: FreightDocType; status: 
             return doc.canResend
                 ? { tone: 'warn', label: `${name} · envio pendente` }
                 : { tone: 'warn', label: `${name} · aguardando conferência na SEFAZ (torre)`, hint: 'a torre confere na SEFAZ antes de reenviar' };
+        case 'CTE_CANCEL_PENDING':
+            return { tone: 'warn', label: `${name} · cancelamento em andamento`, hint: 'o provedor fiscal ainda não confirmou — use “Consultar”' };
         case 'CTE_REJECTED':
         case 'DCE_REJECTED':
             return { tone: 'danger', label: `${name} rejeitado${doc.statusReason ? `: ${doc.statusReason}` : ''}` };

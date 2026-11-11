@@ -64,6 +64,8 @@ import type {
     ConsolidationQueueGroup,
     HubCoverageEntry,
     FreightSuggestion,
+    CteCancelEligibility,
+    CteCancelResult,
     FreightQueueItem,
     FreightBreakdownValues,
     FreightDocType,
@@ -1806,6 +1808,24 @@ export const ordersFreightApi = {
             preflight: CtePreflightResult | null;
             alreadyActive: boolean;
         }>>(`/orders/${orderId}/freight-calculations/prepare`, body);
+        return response.data;
+    },
+
+    /** Pode cancelar o CT-e? Se não, por quê (viagem, MDF-e, fatura, prazo). */
+    cteCancelEligibility: async (orderId: string, calcId: string) => {
+        const response = await api.get<ApiResponse<CteCancelEligibility>>(`/orders/${orderId}/freight-calculations/${calcId}/cancel-cte`);
+        return response.data;
+    },
+
+    /** Cancela o CT-e (evento 110111). Pode devolver `PENDING`: o provedor ainda não confirmou. */
+    cancelCte: async (orderId: string, calcId: string, reason: string) => {
+        const response = await api.post<ApiResponse<CteCancelResult>>(`/orders/${orderId}/freight-calculations/${calcId}/cancel-cte`, { reason });
+        return response.data;
+    },
+
+    /** Consulta o cancelamento pendente no provedor (nunca reenvia). */
+    reconcileCteCancel: async (orderId: string, calcId: string) => {
+        const response = await api.post<ApiResponse<CteCancelResult>>(`/orders/${orderId}/freight-calculations/${calcId}/cancel-cte/reconcile`, {});
         return response.data;
     },
 

@@ -8,7 +8,7 @@ import { CTE_CFOP_OPTIONS } from '../../../../server/src/services/fiscal/cteTaxR
 import FreightDocuments from './FreightDocuments';
 
 const { ordersFreightApi } = vi.hoisted(() => ({
-    ordersFreightApi: { emitCte: vi.fn(), retryRejectedCte: vi.fn(), prepare: vi.fn(), ctePreflight: vi.fn().mockResolvedValue({ data: { tax: { cfop: null } } }) },
+    ordersFreightApi: { cteCancelEligibility: vi.fn(), cancelCte: vi.fn(), reconcileCteCancel: vi.fn(), emitCte: vi.fn(), retryRejectedCte: vi.fn(), prepare: vi.fn(), ctePreflight: vi.fn().mockResolvedValue({ data: { tax: { cfop: null } } }) },
 }));
 
 vi.mock('../../../../lib/api', () => ({ ordersFreightApi }));
@@ -192,4 +192,62 @@ it('preenche o CFOP sugerido pelo preflight', async () => {
     render(<FreightDocuments orderId="o1" documents={[{ ...DOCUMENT, status: 'CTE_REJECTED', statusReason: 'CFOP inválido' }]} onResent={vi.fn()} />);
     await userEvent.setup().click(screen.getByRole('button', { name: 'Corrigir CFOP e reenviar' }));
     await waitFor(() => expect(screen.getByLabelText('CFOP para o reenvio')).toHaveValue('6353'));
+});
+
+describe('FreightDocuments — cancelar CT-e', () => {
+    const authorized: FreightDocumentSummary = { ...DOCUMENT, status: 'CTE_AUTHORIZED', statusReason: null, canResend: false, accessKey: '1'.repeat(44) };
+
+    beforeEach(() => {
+        ordersFreightApi.cteCancelEligibility.mockReset();
+        ordersFreightApi.cancelCte.mockReset();
+        ordersFreightApi.reconcileCteCancel.mockReset();
+    });
+
+    it('CT-e autorizado: mostra a regra do prazo, exige motivo de 15+ caracteres e cancela', async () => {
+        ordersFreightApi.cteCancelEligibility.mockResolvedValue({ data: { canCancel: true, blockReason: null, deadline: '2026-11-18T12:00:00.000Z' } });
+        ordersFreightApi.cancelCte.mockResolvedValue({ data: { state: 'CANCELLED', message: 'CT-e cancelado.' } });
+        const onResent = vi.fn();
+        const user = userEvent.setup();
+        render(<FreightDocuments orderId="o1" documents={[authorized]} onResent={onResent} />);
+        await user.click(screen.getByRole('button', { name: 'Cancelar CT-e' }));
+        expect(await screen.findByText(/até 7 dias depois de autorizado/)).toBeInTheDocument();
+        const confirm = screen.getByRole('button', { name: 'Confirmar cancelamento do CT-e' });
+        expect(confirm).toBeDisabled();
+        await user.type(screen.getByLabelText('Motivo do cancelamento'), 'curto');
+        expect(confirm).toBeDisabled();
+        await user.type(screen.getByLabelText('Motivo do cancelamento'), ' e agora com motivo completo');
+        await user.click(confirm);
+        await waitFor(() => expect(ordersFreightApi.cancelCte).toHaveBeenCalledWith('o1', 'calc-21794', 'curto e agora com motivo completo'));
+        expect(onResent).toHaveBeenCalled();
+        expect(await screen.findByText('CT-e cancelado.')).toBeInTheDocument();
+    });
+
+    it('bloqueado: explica o porquê e não oferece o motivo', async () => {
+        ordersFreightApi.cteCancelEligibility.mockResolvedValue({ data: { canCancel: false, blockReason: 'A carga deste pedido já saiu em viagem.', deadline: null } });
+        const user = userEvent.setup();
+        render(<FreightDocuments orderId="o1" documents={[authorized]} onResent={vi.fn()} />);
+        await user.click(screen.getByRole('button', { name: 'Cancelar CT-e' }));
+        expect(await screen.findByText(/Não dá para cancelar: A carga deste pedido já saiu em viagem/)).toBeInTheDocument();
+        expect(screen.queryByLabelText('Motivo do cancelamento')).not.toBeInTheDocument();
+    });
+
+    it('cancelamento em andamento: mostra o estado e o botão Consultar (sem Cancelar)', async () => {
+        ordersFreightApi.reconcileCteCancel.mockResolvedValue({ data: { state: 'PENDING', message: 'Ainda não confirmou.' } });
+        const user = userEvent.setup();
+        render(<FreightDocuments orderId="o1" documents={[{ ...authorized, status: 'CTE_CANCEL_PENDING', cancel: { reason: 'Tomador errado no CT-e', protocol: null, requestedAt: null, cancelledAt: null } }]} onResent={vi.fn()} />);
+        expect(screen.getByText(/cancelamento em andamento/)).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Cancelar CT-e' })).not.toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: 'Consultar' }));
+        await waitFor(() => expect(ordersFreightApi.reconcileCteCancel).toHaveBeenCalledWith('o1', 'calc-21794'));
+        expect(await screen.findByText('Ainda não confirmou.')).toBeInTheDocument();
+    });
+
+    it('CT-e cancelado: mostra motivo e protocolo, sem ações de cancelar ou imprimir', () => {
+        render(<FreightDocuments orderId="o1" documents={[{ ...authorized, status: 'CTE_CANCELLED', cancel: { reason: 'Tomador errado no CT-e', protocol: '135260000099', requestedAt: null, cancelledAt: '2026-11-12T12:00:00.000Z' } }]} onResent={vi.fn()} />);
+        expect(screen.getByText(/cancelado/)).toBeInTheDocument();
+        expect(screen.getByText(/Motivo: Tomador errado no CT-e/)).toBeInTheDocument();
+        expect(screen.getByText(/Protocolo 135260000099/)).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Cancelar CT-e' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Imprimir DACTE' })).not.toBeInTheDocument();
+    });
 });
