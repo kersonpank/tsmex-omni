@@ -16,7 +16,7 @@ const nf0 = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 });
 
 const TodayPage: React.FC = () => {
     const navigate = useNavigate();
-    const { hubId, summary, capabilities, loading, error, refresh } = useOs();
+    const { hubId, summary, capabilities, loading, error, refresh, exceptions } = useOs();
     const [arrivals, setArrivals] = useState<ManifestWithLegs[]>([]);
     const [deliveryTrips, setDeliveryTrips] = useState(0);
     const [arrivalsLoading, setArrivalsLoading] = useState(true);
@@ -109,6 +109,13 @@ const TodayPage: React.FC = () => {
                         onClick={() => navigate('/hubs/documentos')}
                     />
                 ) : null}
+                <OsStatTile
+                    label="Exceções"
+                    value={exceptions.open}
+                    hint={exceptions.overdue > 0 ? `${exceptions.overdue} vencida(s)` : 'nada vencido'}
+                    tone={exceptions.overdue > 0 ? 'bad' : exceptions.open > 0 ? 'attention' : 'ok'}
+                    onClick={() => navigate('/hubs/excecoes')}
+                />
                 <OsStatTile
                     label="Triagem"
                     value={summary.triage.documents}

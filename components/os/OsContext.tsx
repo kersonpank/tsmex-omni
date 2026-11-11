@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { hubCargoApi, hubsApi } from '../../lib/api';
+import { hubCargoApi, hubExceptionsApi, hubsApi } from '../../lib/api';
 import { useAuthStore } from '../../store/authStore';
 import type { Hub, HubCargoCapabilities, HubCargoSummary } from '../../types/index';
 
@@ -45,6 +45,9 @@ interface OsContextValue {
     loading: boolean;
     error: string | null;
     refresh: () => Promise<void>;
+    /** Exceções abertas deste hub (contador da navegação e do "Hoje"). */
+    exceptions: { open: number; overdue: number };
+    refreshExceptions: () => Promise<void>;
 }
 
 const OsContext = createContext<OsContextValue | null>(null);
@@ -58,6 +61,8 @@ export const OsProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     const [capabilities, setCapabilities] = useState<HubCargoCapabilities>(EMPTY_CAPABILITIES);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    const [exceptions, setExceptions] = useState({ open: 0, overdue: 0 });
 
     const hubId = user?.hubId ?? selectedHubId;
     const [hub, setHub] = useState<Hub | null>(null);
@@ -119,6 +124,24 @@ export const OsProvider: React.FC<{ children: React.ReactNode }> = ({ children }
         void refresh();
     }, [refresh]);
 
+    // Contador é acessório: falha em silêncio e nunca derruba a capa do hub.
+    const refreshExceptions = useCallback(async () => {
+        if (!hubId) {
+            setExceptions({ open: 0, overdue: 0 });
+            return;
+        }
+        try {
+            const body = await hubExceptionsApi.list(hubId);
+            setExceptions({ open: body.data?.counts.total ?? 0, overdue: body.data?.counts.overdue ?? 0 });
+        } catch {
+            /* mantém o último valor */
+        }
+    }, [hubId]);
+
+    useEffect(() => {
+        void refreshExceptions();
+    }, [refreshExceptions]);
+
     const value = useMemo<OsContextValue>(
         () => ({
             hubId: hubId ?? null,
@@ -131,8 +154,10 @@ export const OsProvider: React.FC<{ children: React.ReactNode }> = ({ children }
             loading,
             error,
             refresh,
+            exceptions,
+            refreshExceptions,
         }),
-        [hubId, hub, isAdmin, hubs, summary, capabilities, loading, error, refresh],
+        [hubId, hub, isAdmin, hubs, summary, capabilities, loading, error, refresh, exceptions, refreshExceptions],
     );
 
     return <OsContext.Provider value={value}>{children}</OsContext.Provider>;
