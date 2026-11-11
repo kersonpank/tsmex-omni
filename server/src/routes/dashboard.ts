@@ -2,6 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import { Prisma } from '@prisma/client';
 import prisma from '../lib/prisma.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
+import { summarizeUnbilledFreight } from '../services/billing/invoiceableOrders.js';
 
 const router = Router();
 
@@ -14,6 +15,16 @@ function hubDemandFilter(hubId: string): Prisma.DemandWhereInput {
     ],
   };
 }
+
+// GET /api/dashboard/unbilled-freight — frete emitido (CT-e/DC-e/minuta) ainda sem fatura
+router.get('/unbilled-freight', authenticate, authorize('ADMIN'), async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const summary = await summarizeUnbilledFreight();
+    res.json({ success: true, data: { ...summary, oldestAt: summary.oldestAt?.toISOString() ?? null } });
+  } catch (error) {
+    next(error);
+  }
+});
 
 // GET /api/dashboard/operations-summary
 router.get(

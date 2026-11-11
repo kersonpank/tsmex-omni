@@ -6,6 +6,7 @@ import EmptyState from '../ui/EmptyState';
 import InlineNotice from '../ui/InlineNotice';
 import LoadingPanel from '../ui/LoadingPanel';
 import StatusBadge from '../ui/StatusBadge';
+import { formatBRL } from '../manifest/tripClosing';
 import { useRegisterGestaoModuleActions } from './layout/GestaoModuleActionsContext';
 import { manifestStatusLabels as statusLabels, manifestStatusTone as manifestTone } from '../../lib/manifestStatusUi';
 
@@ -161,6 +162,11 @@ const ManifestsTab: React.FC = () => {
               </div>
               <div className="mt-2 text-xs text-tower-500 dark:text-tower-400">
                 {(m.demands?.length ?? 0)} pedido(s){(m.tripStops?.length ?? 0) > 0 ? ` · ${m.tripStops!.length} parada(s)` : ''}
+                {m.status === 'COMPLETED' && m.revenueNet != null && (
+                  <span className="ml-2 font-semibold text-tower-700 dark:text-tower-200">
+                    · {m.costComplete === false ? 'Margem incompleta (falta custo do transportador)' : `Margem ${formatBRL(m.margin)} (${m.marginPercent ?? 0}%)`}{m.revenueEstimated ? ' · receita estimada' : ''} · Ocupação {m.occupancyPercent ?? '—'}%
+                  </span>
+                )}
               </div>
             </RouterLink>
           ))}

@@ -10,6 +10,7 @@ import { CIOT_EMISSION_QUEUE_NAME } from './services/queues/ciotEmissionQueue.js
 import { processCiotEmissionJob, handleCiotJobExhausted } from './services/queues/ciotEmissionProcessor.js';
 import { WORKER_HEARTBEAT_KEY } from './services/health.js';
 import { processPendingFiscalClosures } from './services/queues/fiscalClosureProcessor.js';
+import { generatePendingManifestPayables } from './services/payables/manifestPayable.js';
 
 dotenv.config();
 
@@ -116,6 +117,10 @@ void Promise.all([worker.waitUntilReady(), distribuicaoNfeWorker.waitUntilReady(
         setInterval(() => { void heartbeat(); }, 10_000).unref();
         void processPendingFiscalClosures();
         setInterval(() => { void processPendingFiscalClosures().catch((error) => console.error('[worker] fiscal closure failed', error)); }, 30_000).unref();
+        // Título a pagar do transportador nasce sozinho depois da conclusão (best-effort, idempotente).
+        const payableSweep = () => { void generatePendingManifestPayables().catch((error) => console.error('[worker] manifest payables failed', error)); };
+        payableSweep();
+        setInterval(payableSweep, 5 * 60_000).unref();
     })
     .catch((error) => console.error('[worker] startup failed', error));
 

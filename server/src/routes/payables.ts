@@ -4,6 +4,7 @@ import { z } from 'zod';
 import prisma from '../lib/prisma.js';
 import { authenticate, authorize, type AuthRequest } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { createManifestPayable } from '../services/payables/manifestPayable.js';
 
 const router = Router();
 router.use(authenticate, authorize('ADMIN'));
@@ -50,33 +51,8 @@ router.post('/from-manifest/:manifestId', async (req: AuthRequest, res: Response
     try {
         const manifestId = req.params.manifestId as string;
         const { dueDate } = z.object({ dueDate: z.string().datetime() }).parse(req.body);
-        const manifest = await prisma.manifest.findUnique({ where: { id: manifestId }, select: { status: true, link: { select: { name: true, document: true } }, freightAgreement: true } });
-        if (!manifest) throw new AppError('Viagem não encontrada.', 404);
-        if (manifest.status !== 'COMPLETED') throw new AppError('Conclua a viagem antes de gerar o acerto.', 409);
-        if (!manifest.link || !manifest.freightAgreement) throw new AppError('Defina Link e Carta Frete antes de gerar o acerto.', 400);
-        const amount = manifest.freightAgreement.saldoLiquido;
-        if (!(amount > 0)) throw new AppError('Saldo líquido da Carta Frete deve ser positivo para gerar título.', 400);
-        const existing = await prisma.payable.findUnique({ where: { sourceType_sourceId: { sourceType: 'MANIFEST', sourceId: manifestId } } });
-        if (existing) {
-            if (!existing.amount.equals(new Prisma.Decimal(amount.toFixed(2)))) throw new AppError('Carta Frete alterada após gerar o título. Concilie antes de atualizar.', 409);
-            return res.json({ success: true, data: existing });
-        }
-        let payable;
-        try {
-            payable = await prisma.payable.create({ data: {
-                beneficiaryType: 'LINK', beneficiaryName: manifest.link.name, beneficiaryDocument: manifest.link.document,
-                sourceType: 'MANIFEST', sourceId: manifestId, manifestId,
-                description: `Acerto da viagem ${manifestId.slice(0, 8)}`,
-                amount: new Prisma.Decimal(amount.toFixed(2)), dueDate: new Date(dueDate),
-            } });
-        } catch (error) {
-            if ((error as { code?: string }).code !== 'P2002') throw error;
-            const concurrent = await prisma.payable.findUnique({ where: { sourceType_sourceId: { sourceType: 'MANIFEST', sourceId: manifestId } } });
-            if (!concurrent) throw error;
-            if (!concurrent.amount.equals(new Prisma.Decimal(amount.toFixed(2)))) throw new AppError('Acerto simultâneo divergiu da Carta Frete. Concilie o título.', 409);
-            return res.json({ success: true, data: concurrent });
-        }
-        res.status(201).json({ success: true, data: payable });
+        const { payable, created } = await createManifestPayable(manifestId, new Date(dueDate));
+        res.status(created ? 201 : 200).json({ success: true, data: payable });
     } catch (error) {
         if (error instanceof z.ZodError) return next(new AppError(error.errors[0].message, 400));
         next(error);

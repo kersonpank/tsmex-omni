@@ -15,6 +15,7 @@ import FiscalClosureNotice from './FiscalClosureNotice';
 import TripDocumentsSheet, { type TripDocumentResolution, type TripDocumentStep } from './TripDocumentsSheet';
 import RouteEditor from './RouteEditor';
 import TripInfoEditor from './TripInfoEditor';
+import TripClosingCard from '../../../manifest/TripClosingCard';
 
 /**
  * PREPARAR E DESPACHAR — pergunta: "o que falta para esta viagem sair?"
@@ -236,6 +237,7 @@ const TripPrepPage: React.FC = () => {
             ) : null}
 
             <FiscalClosureNotice manifest={manifest} onDone={load} />
+            {manifest.status === 'COMPLETED' ? <TripClosingCard data={manifest} /> : null}
 
             {['DRAFT', 'PENDING_ACCEPT', 'ACCEPTED'].includes(manifest.status) ? (
                 <div className="mb-4 rounded-xl border-2 border-brand-400 bg-brand-50 p-3.5 dark:border-brand-500 dark:bg-tower-800" aria-label="Próximo passo">
