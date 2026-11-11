@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRegisterGestaoModuleActions } from './layout/GestaoModuleActionsContext';
 import { dashboardApi, invoicesApi, uploadApi, type InvoiceableOrder, type UnbilledFreightSummary } from '../../lib/api';
 import PayablesPanel from './PayablesPanel';
+import CostAgreementsPanel from './CostAgreementsPanel';
 
 const statusLabels: Record<string, string> = {
   PENDING: 'Pendente',
@@ -353,6 +354,7 @@ const FaturasTab: React.FC = () => {
         </section>
       )}
       <PayablesPanel />
+      <CostAgreementsPanel />
     </div>
   );
 };

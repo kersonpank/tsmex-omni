@@ -2147,6 +2147,42 @@ export const payablesApi = {
     reversePayment: async (id: string, paymentId: string, reason: string) => (await api.post<ApiResponse<unknown>>(`/payables/${id}/payments/${paymentId}/reverse`, { reason })).data,
 };
 
+// ========== COST AGREEMENTS API (margem: custo do transportador e comissão do hub) ==========
+
+export interface LinkCostAgreementRow {
+    id: string;
+    linkId: string;
+    link?: { id: string; name: string };
+    originCity: string;
+    destinationCity: string;
+    vehicleTypeCode: string;
+    costMode: 'FLAT' | 'PER_M3' | 'PER_KG';
+    flatRate: number;
+    ratePerM3?: number | null;
+    ratePerKg?: number | null;
+    active: boolean;
+    createdAt: string;
+}
+
+export interface HubCommissionAgreementRow {
+    id: string;
+    hubId: string;
+    hub?: { id: string; name: string };
+    handlingFeePerOrder: number;
+    percentOfFreight?: number | null;
+    active: boolean;
+    createdAt: string;
+}
+
+export const costAgreementsApi = {
+    listLink: async (params?: { active?: boolean }) => (await api.get<ApiResponse<LinkCostAgreementRow[]>>('/cost-agreements/link', { params: params?.active === undefined ? undefined : { active: String(params.active) } })).data,
+    createLink: async (data: { linkId: string; originCity: string; destinationCity: string; vehicleTypeCode: string; costMode: 'FLAT' | 'PER_M3' | 'PER_KG'; flatRate: number; ratePerM3?: number | null; ratePerKg?: number | null }) => (await api.post<ApiResponse<LinkCostAgreementRow>>('/cost-agreements/link', data)).data,
+    closeLink: async (id: string) => (await api.post<ApiResponse<LinkCostAgreementRow>>(`/cost-agreements/link/${id}/close`)).data,
+    listHub: async (params?: { active?: boolean }) => (await api.get<ApiResponse<HubCommissionAgreementRow[]>>('/cost-agreements/hub', { params: params?.active === undefined ? undefined : { active: String(params.active) } })).data,
+    createHub: async (data: { hubId: string; handlingFeePerOrder: number; percentOfFreight?: number | null }) => (await api.post<ApiResponse<HubCommissionAgreementRow>>('/cost-agreements/hub', data)).data,
+    closeHub: async (id: string) => (await api.post<ApiResponse<HubCommissionAgreementRow>>(`/cost-agreements/hub/${id}/close`)).data,
+};
+
 // ========== PIPELINE API ==========
 
 export const pipelineApi = {
