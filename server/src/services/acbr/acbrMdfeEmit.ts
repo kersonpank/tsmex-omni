@@ -1,4 +1,5 @@
 import prisma from '../../lib/prisma.js';
+import { buildMdfeProdPred } from './mdfeProdPred.js';
 import { buildMdfeSeg, MDFE_CARGO_INSURANCE_ERROR, type CargoInsuranceEmitter } from './mdfeCargoInsurance.js';
 import { buildMdfeAntt, persistedCiotContratante } from './acbrMdfeAntt.js';
 import { cteEmitterMismatchMessage, missingMdfeEmitterData } from '../fiscal/mdfePreflight.js';
@@ -186,6 +187,8 @@ export interface MdfeInfMdfeInput {
     totalWeight: number;
     /** Seguro da carga (grupo seg), montado por buildMdfeSeg — nunca parcial. */
     seg?: Record<string, unknown>[];
+    /** Produto predominante (grupo prodPred), montado por buildMdfeProdPred. */
+    prodPred?: Record<string, unknown>;
 }
 
 /**
@@ -246,6 +249,7 @@ export function buildMdfeInfMdfe(input: MdfeInfMdfeInput): Record<string, unknow
         },
         infDoc: { infMunDescarga: input.infMunDescarga },
         ...(input.seg?.length ? { seg: input.seg } : {}),
+        ...(input.prodPred ? { prodPred: input.prodPred } : {}),
         tot: { qCTe: input.qCTe, qNFe: 0, qMDFe: 0, vCarga: input.totalValue, cUnid: '01', qCarga: input.totalWeight },
     };
 }
@@ -255,6 +259,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
         where: { id: manifestId },
         include: {
             hub: { include: { person: true } },
+            destHub: { select: { person: { select: { cep: true } } } },
             link: { include: { ...linkVehicleInclude, person: { include: { paymentAccounts: { where: { isPrimary: true }, take: 1 } } } } },
             freightAgreement: true,
             vehicleAssignments: manifestVehicleAssignmentsInclude,
@@ -280,7 +285,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
     }
     const legs = await prisma.orderLeg.findMany({
         where: { manifestId },
-        include: { order: { select: { demand: { select: { orderNumber: true, nfValue: true, weight: true } }, freightCalculations: {
+        include: { order: { select: { destinatarioPerson: { select: { cep: true } }, demand: { select: { orderNumber: true, nfValue: true, weight: true, commodity: true } }, freightCalculations: {
             where: { status: 'CTE_AUTHORIZED', documentType: 'CTE' }, orderBy: { createdAt: 'desc' },
             select: { cteAccessKey: true, cteProtocol: true, cteXml: true, cteXmlStorageKey: true },
         } } } },
@@ -415,6 +420,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
     }
 
     let percursoUfs: string[];
+    let ciotTipoCarga: number | undefined;
     let infANTT: ReturnType<typeof buildMdfeAntt>;
     try {
         percursoUfs = resolvePercursoUfs(ufIni, ufFim, manifest.tripStops.map((stop) => (stop.destHub?.state ?? stop.destState ?? '').slice(0, 2).toUpperCase()));
@@ -426,6 +432,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
         }
         const job = await prisma.ciotEmissionJob.findFirst({ where: { manifestId }, orderBy: { createdAt: 'desc' }, select: { requestData: true } });
         const request = job?.requestData as unknown as CiotRequestData | undefined;
+        ciotTipoCarga = request?.codigoTipoCarga;
         infANTT = buildMdfeAntt({
             rntrc,
             ciot: ciotDoc ? { number: ciotDoc.number, contratanteDocument: ciotContratante! } : null,
@@ -437,6 +444,15 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
     } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
+
+    const prodPredResult = buildMdfeProdPred({
+        orders: legs.map((leg) => ({ commodity: leg.order.demand.commodity, weight: leg.order.demand.weight })),
+        tipoCarga: ciotTipoCarga,
+        documentCount: allChaves.length,
+        loadingCep: manifest.hub.person.cep,
+        unloadingCep: manifest.destHub?.person?.cep ?? (legs.length === 1 ? legs[0].order.destinatarioPerson?.cep : null),
+    });
+    if (!prodPredResult.ok) return { ok: false, error: prodPredResult.error };
 
     // A ACBr exige a configuração de MDF-e da empresa, separada do cadastro e do CT-e. O PUT é
     // idempotente e roda ANTES de reservar a numeração: falha aqui não consome número.
@@ -492,7 +508,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
             neighborhood: emit.neighborhood, cMun: emitCmun, city: emit.city, uf: emit.state, cep: emitCep, phone: manifest.hub.phone,
         },
         infANTT, veicTracao, veicReboque, infMunDescarga, qCTe: allChaves.length,
-        totalValue: manifest.totalValue, totalWeight: manifest.totalWeight, seg,
+        totalValue: manifest.totalValue, totalWeight: manifest.totalWeight, seg, prodPred: prodPredResult.prodPred,
     });
 
     const body = { infMDFe, ambiente, referencia };
