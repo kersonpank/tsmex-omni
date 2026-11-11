@@ -78,6 +78,26 @@ NF-e, chat e oportunidades; JWT com algoritmo fixo; validação de ambiente no b
 - **Viagem com um único CT-e é carga lotação**: exige NCM do produto predominante e CEPs.
 - **Frete do CIOT abaixo do piso ANTT é rejeitado**; a distância informada é conferida contra origem e destino.
 
+## Segunda rodada (2026-11-11, tarde)
+
+Provado no staging:
+
+| Item | Resultado |
+|---|---|
+| Fila de exceções por hub (`/#/hubs/excecoes`) | OK com dado real: 12 abertas em SP-GRU, 2 em SLZ-MA; cada hub só vê as suas |
+| Cancelar CT-e em homologação | OK: evento registrado na SEFAZ, protocolo gravado |
+| Emitir novo CT-e depois do cancelamento | OK |
+| Pagador sem conta ganha conta na entrada do hub | OK |
+| Seed desligado no staging | Aplicado no serviço de migração |
+| CIOT duplicado de homologação | Cancelado no e-Frete |
+
+No `develop`, sem prova externa:
+
+- **Averbação AT&M:** cliente, fila por CT-e, credenciais cifradas no emitente e `nAver` do MDF-e vindo das
+  averbações. Fica inerte até a torre escolher AT&M no emitente. Nenhuma chamada foi feita à AT&M.
+- **Carta de correção de CT-e:** só as rotas, sem tela.
+- **Conciliação automática de CT-e preso:** roda no worker a cada 10 minutos.
+
 ## Pendências
 
 **Dados reais que só a operação tem:**
@@ -86,12 +106,10 @@ NF-e, chat e oportunidades; JWT com algoritmo fixo; validação de ambiente no b
 - Tabelas de preço do corredor e acordos de custo de transportadores e hubs.
 
 **Construir:**
-- Averbação automática pela AT&M (pesquisa em `docs/fiscal/atm-averbacao-pesquisa.md`). Hoje a averbação é digitada
-  na viagem. Falta pedir à AT&M o acesso de homologação.
-- Cancelar e substituir CT-e.
-- Fila de exceções para o hub (hoje os alertas só aparecem para ADMIN).
+- Validar a averbação AT&M: pedir à AT&M o acesso de homologação e confirmar com ela o nome da operação e qual
+  número vai no MDF-e (pesquisa em `docs/fiscal/atm-averbacao-pesquisa.md`).
+- Flags "Rastreado" e "Carga e Descarga" no XML do CT-e: ficam gravadas no emitente, ainda não vão no documento.
 - Entrega parcial devolve o pedido inteiro ao estoque, com nota; não divide o pedido.
-- Varredor de conciliação de CT-e pendente (9 presos desde julho no staging).
 
 **Não verificado:**
 - Telas no navegador. As telas novas (Entregar, conferência, fechamento, acordos de custo, faturas) passaram em
@@ -100,6 +118,5 @@ NF-e, chat e oportunidades; JWT com algoritmo fixo; validação de ambiente no b
 - Nada foi emitido em produção.
 
 **Limpeza no staging:**
-- CIOT `560000617005/6166` ficou aberto no e-Frete de homologação (duplicado antes da correção 13).
 - Números 1 a 10 do MDF-e de homologação foram consumidos pelas tentativas rejeitadas.
-- Aplicar no Portainer o `docker-stack.staging.yml` novo (`RUN_SEED: "false"`).
+- O arquivo de stack no Portainer ainda tem `RUN_SEED: "true"`; o serviço em execução já está com `false`.
