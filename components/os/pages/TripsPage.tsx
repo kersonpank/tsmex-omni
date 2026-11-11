@@ -4,6 +4,7 @@ import { hubCargoApi, manifestsApi } from '../../../lib/api';
 import type { ConsolidationQueueGroup, Manifest } from '../../../types/index';
 import { useOs } from '../OsContext';
 import { OsBadge, OsButton, OsEmpty, OsErrorNotice, OsRow, OsSectionTitle, OsSkeletonRows } from '../ui/kit';
+import { queueViaLabel } from '../lib/queueVia';
 import QueueGroupSheet from './QueueGroupSheet';
 
 /**
@@ -103,6 +104,9 @@ const TripsPage: React.FC = () => {
                                     {g.orders.length} pedido(s)
                                 </OsBadge>
                             </div>
+                            {queueViaLabel(g) ? (
+                                <p className="mt-0.5 truncate text-[13px] font-medium text-brand-600 dark:text-brand-400">{queueViaLabel(g)}</p>
+                            ) : null}
                             <p className="mt-0.5 truncate text-[13px] text-tower-500 dark:text-tower-400">
                                 {nf0.format(g.totalWeightKg)} kg · {nf1.format(g.totalVolumeM3)} m³ · mais antigo há{' '}
                                 {ageDays(g.oldestSinceAt)}d

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { hubCargoApi, hubsApi, vehicleTypesApi } from '../../../lib/api';
 import type { ConsolidationQueueGroup, Hub, VehicleType } from '../../../types/index';
+import { queueViaLabel } from '../lib/queueVia';
 import { countWithoutCubage } from '../lib/packages';
 import { docBadge, isDocumented, vehicleFit } from '../lib/readiness';
 import { OsBadge, OsButton } from '../ui/kit';
@@ -171,6 +172,9 @@ const QueueGroupSheet: React.FC<{
                 <div className="flex items-start justify-between gap-3 p-4 pb-2">
                     <div>
                         <p className="font-display text-[17px] font-bold text-tower-900 dark:text-white">{title}</p>
+                        {queueViaLabel(group) ? (
+                            <p className="text-[13px] font-medium text-brand-600 dark:text-brand-400">{queueViaLabel(group)}</p>
+                        ) : null}
                         <p className="text-[13px] text-tower-500 dark:text-tower-300">
                             {pickedOrders.length} de {group.orders.length} pedido(s) · {nf0.format(pickedWeight)} kg
                         </p>

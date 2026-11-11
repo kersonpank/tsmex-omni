@@ -422,6 +422,8 @@ export interface Hub {
     email?: string;
     canOrchestrate: boolean;
     active: boolean;
+    /** "Esta unidade é abastecida por": hub tronco pelo qual a carga chega aqui. */
+    gatewayHubId?: string | null;
 }
 
 /** Onboarding Hub: dados do depósito, responsável, documentos, bancários (steps definidos no plano 2.4). */
@@ -1153,6 +1155,11 @@ export interface ConsolidationQueueOrder {
     /** Estado do documento do frete do pedido (CT-e/DC-e/minuta). */
     freightDocState?: FreightDocState;
     sinceAt: string;
+    /** Hub final quando o próximo salto é intermediário ("via"). */
+    finalHubId?: string | null;
+    finalHubCode?: string | null;
+    finalHubName?: string | null;
+    leadTimeDays?: number | null;
 }
 
 export interface ConsolidationQueueGroup {
@@ -1161,6 +1168,11 @@ export interface ConsolidationQueueGroup {
     destHubId: string | null;
     destHubName: string | null;
     destHubCode: string | null;
+    /** Hub final comum ao grupo, quando diferente do próximo salto (destHub*). */
+    finalHubId?: string | null;
+    finalHubCode?: string | null;
+    finalHubName?: string | null;
+    leadTimeDays?: number | null;
     orders: ConsolidationQueueOrder[];
     totalWeightKg: number;
     totalVolumeM3: number;
