@@ -39,6 +39,18 @@ export async function setManifestVehicles(manifestId: string, input: ManifestVeh
     });
 }
 
+/**
+ * Limpa a composição de uma viagem em planejamento (trocou o transportador: os veículos do
+ * anterior não valem para o novo). Não mexe em updatedAt do controle otimista de motoristas
+ * além do que o próprio Prisma registra.
+ */
+export async function clearManifestVehicles(manifestId: string) {
+    return prisma.$transaction(async (tx) => {
+        await tx.manifestVehicleAssignment.deleteMany({ where: { manifestId } });
+        await tx.manifest.updateMany({ where: { id: manifestId, status: 'DRAFT' }, data: { compositionSnapshot: Prisma.DbNull } });
+    });
+}
+
 /** Conserva as placas e todos os dados fiscais da composição aceitos nesta oferta. */
 export async function publishManifestOffer(manifestId: string) {
     return prisma.$transaction(async (tx) => {

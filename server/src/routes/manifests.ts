@@ -32,7 +32,7 @@ import { getManifestReadiness } from '../services/manifestReadinessService.js';
 import { ciotDispensaSchema, dispenseManifestCiot, undoManifestCiotDispensa } from '../services/manifestCiotDispensa.js';
 import { ensureTripEmitter } from '../services/fiscal/resolveDefaultTripEmitter.js';
 import { createManifestDraft } from '../services/manifestCreate.js';
-import { manifestVehiclesSchema, setManifestVehicles, publishManifestOffer } from '../services/manifestVehicleService.js';
+import { manifestVehiclesSchema, setManifestVehicles, clearManifestVehicles, publishManifestOffer } from '../services/manifestVehicleService.js';
 import { cancelManifest, deleteEmptyManifest, getPlanningActions, reopenAcceptedManifest, requestManifestCorrection, resolveManifestCorrection } from '../services/manifestPlanningChanges.js';
 import { listManifestDeliveryProgress, recordDeliveryAttempt } from '../services/deliveryAttempts.js';
 import { manifestScope, resourceGuard, uuidParam } from '../middleware/resourceAccess.js';
@@ -1029,6 +1029,7 @@ router.patch('/:id/assignment', authenticate, async (req: AuthRequest, res: Resp
 
         if (!data.linkId) {
             const cleared = await replaceManifestDrivers(id, [], manifest.updatedAt, null);
+            if (manifest.linkId) await clearManifestVehicles(id);
             return res.json({ success: true, data: cleared, defaultsApplied: null, message: 'Responsável removido.' });
         }
 
@@ -1067,6 +1068,9 @@ router.patch('/:id/assignment', authenticate, async (req: AuthRequest, res: Resp
 
         const chosenDrivers = data.driverId || retained.length ? retained : suggestedDrivers;
         let updated = await replaceManifestDrivers(id, driverId ? [driverId, ...chosenDrivers.filter((id) => id !== driverId)] : [], manifest.updatedAt, link.id, selectedExternal ? link.id : null);
+        // Trocou o transportador: cavalo/reboques do anterior não valem para o novo (a prontidão
+        // bloquearia por RNTRC de outro titular). Limpa e aplica a composição padrão do novo.
+        if (manifest.linkId !== link.id) await clearManifestVehicles(id);
         const defaultsApplied = await applyTripCompositionDefaults(id);
         if (defaultsApplied) updated = await prisma.manifest.findUniqueOrThrow({ where: { id }, include: { link: true, driver: true, vehicleType: true, driverAssignments: { orderBy: { sequence: 'asc' }, include: { driver: true } } } });
         res.json({
