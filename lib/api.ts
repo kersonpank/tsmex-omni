@@ -287,7 +287,19 @@ export const dashboardApi = {
         const response = await api.get<ApiResponse<OperationsSummaryData>>('/dashboard/operations-summary');
         return response.data;
     },
+    /** Frete emitido (CT-e/DC-e/minuta) ainda sem fatura: contagem, valor e dias do mais antigo. */
+    getUnbilledFreight: async () => {
+        const response = await api.get<ApiResponse<UnbilledFreightSummary>>('/dashboard/unbilled-freight');
+        return response.data;
+    },
 };
+
+export interface UnbilledFreightSummary {
+    count: number;
+    totalAmount: number;
+    oldestAt: string | null;
+    oldestDays: number;
+}
 
 // ========== DEMANDS API ==========
 
@@ -2023,9 +2035,18 @@ export const hubCoverageApi = {
 
 // ========== INVOICES API ==========
 
+export type InvoiceableOrder =
+    | { id: string; nfNumber?: string | null; clientName?: string | null; accountId: string; amount: number; billable: true }
+    | { id: string; nfNumber?: string | null; clientName?: string | null; amount: number; billable: false; reason: 'PAYER_WITHOUT_ACCOUNT' | 'PAYER_UNDEFINED'; payerPersonId: string | null; payerName: string | null };
+
 export const invoicesApi = {
-    eligibleOrders: async () => {
-        const response = await api.get<ApiResponse<Array<{ id: string; nfNumber?: string | null; clientName?: string; accountId: string; amount: number }>>>('/invoices/eligible-orders');
+    eligibleOrders: async (params?: { limit?: number; offset?: number }) => {
+        const response = await api.get<ApiResponse<InvoiceableOrder[]> & { pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>('/invoices/eligible-orders', { params });
+        return response.data;
+    },
+    /** Cria a conta de faturamento do pagador (sem credencial) e devolve o pedido já faturável. */
+    preparePayer: async (orderId: string) => {
+        const response = await api.post<ApiResponse<Extract<InvoiceableOrder, { billable: true }>>>('/invoices/prepare-payer', { orderId });
         return response.data;
     },
     createGroup: async (accountId: string, orderIds: string[], dueDate?: string) => {

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRegisterGestaoModuleActions } from './layout/GestaoModuleActionsContext';
-import { invoicesApi, uploadApi } from '../../lib/api';
+import { dashboardApi, invoicesApi, uploadApi, type InvoiceableOrder, type UnbilledFreightSummary } from '../../lib/api';
 import PayablesPanel from './PayablesPanel';
 
 const statusLabels: Record<string, string> = {
@@ -25,7 +25,10 @@ const FaturasTab: React.FC = () => {
   const [reversingId, setReversingId] = useState<string | null>(null);
   const [reversalReason, setReversalReason] = useState('');
   const [showCreate, setShowCreate] = useState(false);
-  const [eligibleOrders, setEligibleOrders] = useState<Array<{ id: string; nfNumber?: string | null; clientName?: string; accountId: string; amount: number }>>([]);
+  const [eligibleOrders, setEligibleOrders] = useState<InvoiceableOrder[]>([]);
+  const [eligibleTotal, setEligibleTotal] = useState(0);
+  const [preparingId, setPreparingId] = useState<string | null>(null);
+  const [unbilled, setUnbilled] = useState<UnbilledFreightSummary | null>(null);
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
   const [dueDate, setDueDate] = useState('');
   const [saving, setSaving] = useState(false);
@@ -52,16 +55,52 @@ const FaturasTab: React.FC = () => {
     void load();
   }, [load]);
 
+  const loadUnbilled = useCallback(() => {
+    void dashboardApi.getUnbilledFreight().then((res) => setUnbilled(res.data)).catch(() => setUnbilled(null));
+  }, []);
+
+  useEffect(() => {
+    loadUnbilled();
+  }, [loadUnbilled]);
+
+  const loadEligible = useCallback(async (offset: number) => {
+    try {
+      const res = await invoicesApi.eligibleOrders({ limit: 200, offset });
+      setEligibleOrders((current) => (offset === 0 ? res.data : [...current, ...res.data]));
+      setEligibleTotal(res.pagination.total);
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Erro ao carregar pedidos faturáveis');
+    }
+  }, []);
+
   const openNew = useCallback(() => {
     setShowCreate(true);
     setSelectedOrderIds([]);
     setError(null);
-    void invoicesApi.eligibleOrders().then((res) => setEligibleOrders(res.data)).catch((e) => setError(e.response?.data?.error || e.message || 'Erro ao carregar pedidos faturáveis'));
-  }, []);
+    void loadEligible(0);
+  }, [loadEligible]);
+
+  /** Pagador sem conta: cria a conta e já gera a fatura do pedido (dois passos num clique). */
+  const prepareAndInvoice = async (orderId: string) => {
+    if (preparingId) return;
+    setPreparingId(orderId);
+    setError(null);
+    try {
+      const prepared = (await invoicesApi.preparePayer(orderId)).data;
+      const isoDate = dueDate ? new Date(`${dueDate}T12:00:00`).toISOString() : undefined;
+      await invoicesApi.create({ orderId: prepared.id, accountId: prepared.accountId, ...(isoDate ? { dueDate: isoDate } : {}) });
+      await Promise.all([load(), loadEligible(0)]);
+      loadUnbilled();
+    } catch (e: any) {
+      // A conta pode ter sido criada mesmo que a fatura falhe: recarrega para o pedido aparecer faturável.
+      setError(e.response?.data?.error || e.message || 'Erro ao criar conta e faturar');
+      void loadEligible(0);
+    } finally { setPreparingId(null); }
+  };
 
   const createInvoice = async (event: React.FormEvent) => {
     event.preventDefault();
-    const selected = eligibleOrders.filter((order) => selectedOrderIds.includes(order.id));
+    const selected = eligibleOrders.filter((order): order is Extract<InvoiceableOrder, { billable: true }> => order.billable && selectedOrderIds.includes(order.id));
     if (!selected.length || saving) return;
     setSaving(true);
     setError(null);
@@ -73,6 +112,7 @@ const FaturasTab: React.FC = () => {
       setSelectedOrderIds([]);
       setDueDate('');
       await load();
+      loadUnbilled();
     } catch (e: any) {
       setError(e.response?.data?.error || e.message || 'Erro ao criar fatura');
     } finally { setSaving(false); }
@@ -113,6 +153,9 @@ const FaturasTab: React.FC = () => {
     finally { setSavingReceipt(false); }
   };
 
+  const billableOrders = useMemo(() => eligibleOrders.filter((o): o is Extract<InvoiceableOrder, { billable: true }> => o.billable), [eligibleOrders]);
+  const blockedOrders = useMemo(() => eligibleOrders.filter((o): o is Extract<InvoiceableOrder, { billable: false }> => !o.billable), [eligibleOrders]);
+
   const fatGestao = useMemo(
     () => ({
       listActive: !gestaoFilterOpen,
@@ -149,6 +192,15 @@ const FaturasTab: React.FC = () => {
       <div className="mb-6">
         <h2 className="text-lg font-bold text-tower-700 dark:text-tower-200">Notas / Faturamento</h2>
       </div>
+      {unbilled && unbilled.count > 0 && (
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="status" aria-label="Frete emitido não faturado">
+          <div>
+            <p className="font-bold">Frete emitido não faturado</p>
+            <p>{unbilled.count} {unbilled.count === 1 ? 'pedido' : 'pedidos'} · R$ {unbilled.totalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · o mais antigo espera há {unbilled.oldestDays} {unbilled.oldestDays === 1 ? 'dia' : 'dias'}</p>
+          </div>
+          {!showCreate && <button type="button" onClick={openNew} className="rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white">Ver a faturar</button>}
+        </div>
+      )}
       {showCreate && (
         <form onSubmit={createInvoice} className="mb-5 rounded-xl border border-tower-200 bg-white p-4 dark:border-tower-600 dark:bg-tower-800">
           <h3 className="mb-3 text-sm font-bold">Nova fatura de pedido</h3>
@@ -156,16 +208,28 @@ const FaturasTab: React.FC = () => {
             <fieldset className="text-sm"><legend className="font-semibold">Pedidos com frete confirmado</legend>
               <p className="mt-1 text-xs text-tower-500">Selecione vários pedidos do mesmo pagador para uma única fatura.</p>
               <div className="mt-2 max-h-48 space-y-1 overflow-y-auto rounded-lg border border-tower-300 p-2">
-                {eligibleOrders.map((order) => {
-                  const selectedAccount = eligibleOrders.find((item) => selectedOrderIds.includes(item.id))?.accountId;
+                {billableOrders.map((order) => {
+                  const selectedAccount = billableOrders.find((item) => selectedOrderIds.includes(item.id))?.accountId;
                   return <label key={order.id} className="flex items-center gap-2 py-1">
                     <input type="checkbox" checked={selectedOrderIds.includes(order.id)} disabled={!!selectedAccount && selectedAccount !== order.accountId} onChange={(event) => setSelectedOrderIds((current) => event.target.checked ? [...current, order.id] : current.filter((id) => id !== order.id))} />
                     <span>{order.nfNumber || order.id.slice(0, 8)} · {order.clientName || 'Cliente'} · R$ {order.amount.toFixed(2)}</span>
                   </label>;
                 })}
-                {!eligibleOrders.length && <p className="text-tower-500">Nenhum pedido faturável encontrado.</p>}
+                {!billableOrders.length && <p className="text-tower-500">Nenhum pedido faturável encontrado.</p>}
               </div>
-              {!!selectedOrderIds.length && <p className="mt-1 font-semibold">Total: R$ {eligibleOrders.filter((order) => selectedOrderIds.includes(order.id)).reduce((sum, order) => sum + order.amount, 0).toFixed(2)}</p>}
+              {!!blockedOrders.length && <>
+                <p className="mt-3 text-xs font-semibold text-amber-700">Pagador sem conta de cliente ({blockedOrders.length})</p>
+                <div className="mt-1 max-h-48 space-y-1 overflow-y-auto rounded-lg border border-amber-300 p-2">
+                  {blockedOrders.map((order) => <div key={order.id} className="flex flex-wrap items-center justify-between gap-2 py-1">
+                    <span>{order.nfNumber || order.id.slice(0, 8)} · {order.payerName || 'Pagador não definido'} · R$ {order.amount.toFixed(2)}</span>
+                    {order.reason === 'PAYER_WITHOUT_ACCOUNT'
+                      ? <button type="button" disabled={!!preparingId} onClick={() => { void prepareAndInvoice(order.id); }} className="rounded-lg border border-brand-600 px-2 py-1 text-xs font-semibold text-brand-700 disabled:opacity-50">{preparingId === order.id ? 'Criando…' : 'Criar conta e faturar'}</button>
+                      : <span className="text-xs text-tower-500">Defina o pagador no pedido</span>}
+                  </div>)}
+                </div>
+              </>}
+              {eligibleOrders.length < eligibleTotal && <p className="mt-2 text-xs text-tower-500">Mostrando {eligibleOrders.length} de {eligibleTotal} (do mais antigo ao mais novo). <button type="button" className="underline" onClick={() => { void loadEligible(eligibleOrders.length); }}>Carregar mais</button></p>}
+              {!!selectedOrderIds.length && <p className="mt-1 font-semibold">Total: R$ {billableOrders.filter((order) => selectedOrderIds.includes(order.id)).reduce((sum, order) => sum + order.amount, 0).toFixed(2)}</p>}
             </fieldset>
             <label className="text-sm">Vencimento
               <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="mt-1 w-full rounded-lg border border-tower-300 p-2 dark:bg-tower-800" />
