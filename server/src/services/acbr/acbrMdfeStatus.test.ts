@@ -21,3 +21,9 @@ describe('evidência de autorização MDF-e', () => {
         assert.equal(xmlConfirmsMdfeAuthorization(xml.replace('<cStat>100</cStat>', '<cStat>204</cStat>'), key, protocol), false);
     });
 });
+
+it('status "denegado" da ACBr com rejeição da SEFAZ é rejeição definitiva, não processamento', async () => {
+    const { interpretMdfeStatus } = await import('./acbrMdfeEmit.js');
+    const outcome = interpretMdfeStatus({ status: 'denegado', autorizacao: { status: 'registrado', codigo_status: 301, motivo_status: 'Rejeição: O NCM do produto predominante da carga lotação deve ser informado' } });
+    assert.deepEqual(outcome, { state: 'rejected', reason: 'Rejeição: O NCM do produto predominante da carga lotação deve ser informado' });
+});

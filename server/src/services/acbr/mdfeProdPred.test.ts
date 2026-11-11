@@ -17,8 +17,22 @@ describe('buildMdfeProdPred', () => {
     });
 
     it('com um único CT-e inclui infLotacao com os CEPs de carga e descarga', () => {
-        const result = buildMdfeProdPred({ orders: [{ commodity: 'Peças', weight: 1 }], documentCount: 1, loadingCep: '07222-000', unloadingCep: '65300000' });
-        assert.deepEqual(result, { ok: true, prodPred: { tpCarga: '05', xProd: 'Peças', infLotacao: { infLocalCarrega: { CEP: '07222000' }, infLocalDescarrega: { CEP: '65300000' } } } });
+        const result = buildMdfeProdPred({ orders: [{ commodity: 'Peças', weight: 1, products: [{ ncm: '42029200', value: 10 }, { ncm: '91052100', value: 900 }] }], documentCount: 1, loadingCep: '07222-000', unloadingCep: '65300000' });
+        assert.deepEqual(result, { ok: true, prodPred: { tpCarga: '05', xProd: 'Peças', NCM: '91052100', infLotacao: { infLocalCarrega: { CEP: '07222000' }, infLocalDescarrega: { CEP: '65300000' } } } });
+    });
+
+    it('carga lotação sem XML usa a natureza do CIOT e recusa quando não há NCM nenhum', () => {
+        const base = { orders: [{ commodity: 'Peças', weight: 1 }], documentCount: 1, loadingCep: '07222000', unloadingCep: '65300000' };
+        const viaCiot = buildMdfeProdPred({ ...base, naturezaNcm4: '8708' });
+        assert.equal(viaCiot.ok && viaCiot.prodPred.NCM, '87080000');
+        assert.equal(buildMdfeProdPred(base).ok, false);
+        assert.equal(buildMdfeProdPred({ ...base, naturezaNcm4: '9999' }).ok, false);
+    });
+
+    it('nfeProducts lê os produtos do XML guardado na demanda', async () => {
+        const { nfeProducts } = await import('./mdfeProdPred.js');
+        assert.deepEqual(nfeProducts({ nfeXmlData: { produtos: [{ ncm: '91052100', valorTotal: 252 }] } }), [{ ncm: '91052100', value: 252 }]);
+        assert.deepEqual(nfeProducts(null), []);
     });
 
     it('recusa carga lotação sem CEP e tipo de carga fora da tabela', () => {

@@ -1,5 +1,5 @@
 import prisma from '../../lib/prisma.js';
-import { buildMdfeProdPred } from './mdfeProdPred.js';
+import { buildMdfeProdPred, nfeProducts } from './mdfeProdPred.js';
 import { buildMdfeSeg, MDFE_CARGO_INSURANCE_ERROR, type CargoInsuranceEmitter } from './mdfeCargoInsurance.js';
 import { buildMdfeAntt, persistedCiotContratante } from './acbrMdfeAntt.js';
 import { cteEmitterMismatchMessage, missingMdfeEmitterData } from '../fiscal/mdfePreflight.js';
@@ -285,7 +285,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
     }
     const legs = await prisma.orderLeg.findMany({
         where: { manifestId },
-        include: { order: { select: { destinatarioPerson: { select: { cep: true } }, demand: { select: { orderNumber: true, nfValue: true, weight: true, commodity: true } }, freightCalculations: {
+        include: { order: { select: { destinatarioPerson: { select: { cep: true } }, demand: { select: { orderNumber: true, nfValue: true, weight: true, commodity: true, rawInputData: true } }, freightCalculations: {
             where: { status: 'CTE_AUTHORIZED', documentType: 'CTE' }, orderBy: { createdAt: 'desc' },
             select: { cteAccessKey: true, cteProtocol: true, cteXml: true, cteXmlStorageKey: true },
         } } } },
@@ -421,6 +421,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
 
     let percursoUfs: string[];
     let ciotTipoCarga: number | undefined;
+    let ciotNcmNatureza: string | undefined;
     let infANTT: ReturnType<typeof buildMdfeAntt>;
     try {
         percursoUfs = resolvePercursoUfs(ufIni, ufFim, manifest.tripStops.map((stop) => (stop.destHub?.state ?? stop.destState ?? '').slice(0, 2).toUpperCase()));
@@ -433,6 +434,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
         const job = await prisma.ciotEmissionJob.findFirst({ where: { manifestId }, orderBy: { createdAt: 'desc' }, select: { requestData: true } });
         const request = job?.requestData as unknown as CiotRequestData | undefined;
         ciotTipoCarga = request?.codigoTipoCarga;
+        ciotNcmNatureza = request?.codigoNcmNaturezaCarga;
         infANTT = buildMdfeAntt({
             rntrc,
             ciot: ciotDoc ? { number: ciotDoc.number, contratanteDocument: ciotContratante! } : null,
@@ -446,8 +448,9 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string): P
     }
 
     const prodPredResult = buildMdfeProdPred({
-        orders: legs.map((leg) => ({ commodity: leg.order.demand.commodity, weight: leg.order.demand.weight })),
+        orders: legs.map((leg) => ({ commodity: leg.order.demand.commodity, weight: leg.order.demand.weight, products: nfeProducts(leg.order.demand.rawInputData) })),
         tipoCarga: ciotTipoCarga,
+        naturezaNcm4: ciotNcmNatureza,
         documentCount: allChaves.length,
         loadingCep: manifest.hub.person.cep,
         unloadingCep: manifest.destHub?.person?.cep ?? (legs.length === 1 ? legs[0].order.destinatarioPerson?.cep : null),
@@ -584,7 +587,9 @@ export function interpretMdfeStatus(doc: Record<string, unknown>): MdfeStatusOut
     if ((authSt.includes('autorizado') || st === 'autorizado') && chave.length === 44 && protocol.length > 0) {
         return { state: 'authorized', chave, protocol };
     }
-    if (st.includes('rejeit') || st.includes('erro')) {
+    // A ACBr devolve rejeições da SEFAZ ora como "rejeitado", ora como "denegado" (visto em homologação
+    // com cStat 301). Sem tratar os dois, o documento ficava SENT para sempre e bloqueava nova emissão.
+    if (st.includes('rejeit') || st.includes('deneg') || st.includes('erro') || authSt.includes('rejeit') || authSt.includes('deneg')) {
         return { state: 'rejected', reason: String(auth.motivo_status ?? doc.motivo_status ?? 'MDF-e rejeitado') };
     }
     return { state: 'processing' };
