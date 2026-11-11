@@ -91,3 +91,33 @@ describe('autorização de conclusão pelo HUB', () => {
         assert.equal((await call('/stops/s1/complete')).status, 403);
     });
 });
+
+describe('conferência de chegada no corpo da conclusão', () => {
+    const orderId = '22222222-2222-4222-8222-222222222222';
+    beforeEach(() => {
+        manifest = { status: 'COMPLETED', tripType: 'TRANSFER', hubId: 'hub-b', destHubId: 'hub-a' };
+        stop = { manifestId, purpose: 'TRANSFER', destHubId: 'hub-a', manifest: { hubId: 'hub-b' } };
+    });
+
+    it('arrivals inválido é recusado com 400 antes de tocar a viagem (resultado desconhecido)', async () => {
+        const res = await call('/complete', { arrivals: [{ orderId, result: 'LOST' }] });
+        assert.equal(res.status, 400);
+        assert.doesNotMatch(res.body.error, /not in progress/);
+        const stopRes = await call('/stops/s1/complete', { arrivals: [{ orderId: 'nao-uuid', result: 'OK' }] });
+        assert.equal(stopRes.status, 400);
+        assert.doesNotMatch(stopRes.body.error, /not in progress/);
+    });
+
+    it('arrivals válido chega ao serviço (hub destino autorizado); sem arrivals continua aceito', async () => {
+        const withArrivals = await call('/complete', { arrivals: [{ orderId, result: 'MISSING', note: 'não veio' }] });
+        assert.equal(withArrivals.status, 400);
+        assert.match(withArrivals.body.error, /not in progress/);
+        const legacy = await call('/complete', {});
+        assert.match(legacy.body.error, /not in progress/);
+    });
+
+    it('hub que não é destino não consegue concluir nem com arrivals', async () => {
+        manifest = { status: 'IN_PROGRESS', tripType: 'TRANSFER', hubId: 'hub-b', destHubId: 'hub-c' };
+        assert.equal((await call('/complete', { arrivals: [{ orderId, result: 'OK' }] })).status, 403);
+    });
+});
