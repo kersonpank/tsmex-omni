@@ -6,6 +6,7 @@ import { createManifestDraft } from '../manifestCreate.js';
 import { deleteEmptyManifest } from '../manifestPlanningChanges.js';
 import { getManifestMargin } from '../pricingService.js';
 import { getConsolidationQueues } from './consolidationQueue.js';
+import { resolveDeliveryDestination } from './deliveryDestination.js';
 
 /**
  * Consolidar a partir da fila de próximo salto (estação Consolidar, NORTE Etapa A4/B1).
@@ -49,6 +50,7 @@ interface ConsolidateFromQueueDeps {
     addOrder: typeof addOrderToManifest;
     deleteEmpty: typeof deleteEmptyManifest;
     getMargin: typeof getManifestMargin;
+    resolveDeliveryDestination: typeof resolveDeliveryDestination;
 }
 
 const defaultDeps: ConsolidateFromQueueDeps = {
@@ -57,6 +59,7 @@ const defaultDeps: ConsolidateFromQueueDeps = {
     addOrder: addOrderToManifest,
     deleteEmpty: deleteEmptyManifest,
     getMargin: getManifestMargin,
+    resolveDeliveryDestination,
 };
 
 /** Seleção manual da estação Cargas; a disponibilidade sempre vem da fila recalculada. */
@@ -102,15 +105,27 @@ export async function consolidateFromQueue(
     const isTransfer = routeChosen ? Boolean(chosenHub) : group!.kind === 'TRANSFER';
     const destHubId = isTransfer ? chosenHub?.id ?? group?.destHubId ?? undefined : undefined;
     const hubLabel = `${hub.city}, ${hub.state}`;
+    // Entrega: o destino é a cidade onde os pedidos serão entregues, não a do hub. Sem IBGE de
+    // entrega nos pedidos, mantém o comportamento anterior (a pendência segue bloqueando a viagem).
+    const delivery = isTransfer ? null : await deps.resolveDeliveryDestination(picked);
     const manifest = await deps.createDraft(
         {
             vehicleTypeId: input.vehicleTypeId,
             tripType: isTransfer ? 'TRANSFER' : 'DELIVERY',
             origin: hubLabel,
-            destination: isTransfer ? chosenHub?.name ?? group?.destHubName ?? group?.destHubCode ?? 'Hub destino' : hubLabel,
+            destination: isTransfer
+                ? chosenHub?.name ?? group?.destHubName ?? group?.destHubCode ?? 'Hub destino'
+                : delivery?.label ?? hubLabel,
             ...(isTransfer
                 ? { destHubId }
-                : {}),
+                : delivery
+                    ? {
+                        destinationCity: delivery.city,
+                        destinationState: delivery.state,
+                        destinationCityIbgeCode: delivery.cityIbgeCode,
+                        destinationLabel: delivery.label,
+                    }
+                    : {}),
         },
         input.hubId,
         { allowIncompleteHubCity: true },

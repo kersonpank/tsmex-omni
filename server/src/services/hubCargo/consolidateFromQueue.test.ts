@@ -62,10 +62,12 @@ describe('consolidateFromQueue — destino escolhido e seleção do estoque', ()
     };
     let feedback: any;
     let destinationActive = true;
+    let delivery: Awaited<ReturnType<typeof import('./deliveryDestination.js').resolveDeliveryDestination>> = null;
 
     beforeEach(() => {
         feedback = undefined;
         destinationActive = true;
+        delivery = null;
         prisma.hub.findUnique = (async ({ where }: any) => {
             if (where.id === 'origin') return { id: 'origin', city: 'Guarulhos', state: 'SP', cityIbgeCode: null, active: true };
             if (where.id === 'destination') return { id: 'destination', name: 'Hub destino', code: 'DEST', active: destinationActive };
@@ -106,6 +108,7 @@ describe('consolidateFromQueue — destino escolhido e seleção do estoque', ()
             },
             deleteEmpty: async (id) => { deleted.push(id); return {} as any; },
             getMargin: async () => ({ margin: null, revenue: 0 }) as any,
+            resolveDeliveryDestination: async () => delivery,
         };
         return { input, deps, drafts, added, deleted, rejected };
     }
@@ -136,6 +139,26 @@ describe('consolidateFromQueue — destino escolhido e seleção do estoque', ()
         assert.equal(feedback.action, 'MODIFIED');
         assert.equal(feedback.finalManifests[0].destHubId, null);
         assert.equal(feedback.finalManifests[0].local, true);
+    });
+
+    it('entrega local usa a cidade de entrega dos pedidos, não a do hub', async () => {
+        delivery = { city: 'Santa Inês', state: 'MA', cityIbgeCode: '2111201', label: 'Santa Inês, MA +2 cidades', otherCities: 2 };
+        const fixture = setup();
+        await consolidateFromQueue({ ...fixture.input, local: true }, fixture.deps);
+        const draft = fixture.drafts[0].data;
+        assert.equal(draft.tripType, 'DELIVERY');
+        assert.equal(draft.destination, 'Santa Inês, MA +2 cidades');
+        assert.equal(draft.destinationLabel, 'Santa Inês, MA +2 cidades');
+        assert.equal(draft.destinationCity, 'Santa Inês');
+        assert.equal(draft.destinationState, 'MA');
+        assert.equal(draft.destinationCityIbgeCode, '2111201');
+    });
+
+    it('transferência não recebe destino de entrega', async () => {
+        delivery = { city: 'Santa Inês', state: 'MA', cityIbgeCode: '2111201', label: 'Santa Inês, MA', otherCities: 0 };
+        const fixture = setup();
+        await consolidateFromQueue({ ...fixture.input, destHubId: 'destination' }, fixture.deps);
+        assert.equal(fixture.drafts[0].data.destinationCityIbgeCode, undefined);
     });
 
     it('UNROUTED exige exatamente uma escolha de destino antes de criar o rascunho', async () => {

@@ -17,6 +17,8 @@ export interface ManifestDraftInput {
     destinationCity?: string;
     destinationState?: string;
     destinationCityIbgeCode?: string;
+    /** Rótulo livre do destino (ex.: "Santa Inês, MA +2 cidades"); o trio cidade/UF/IBGE segue validado. */
+    destinationLabel?: string;
     startsWithCollection?: boolean;
     tripType: OperationalTripType;
     destHubId?: string;
@@ -92,6 +94,7 @@ export async function createManifestDraft(
             destinationCityIbgeCode: data.destinationCityIbgeCode,
             ...originSelection,
             ...destinationSelection,
+            ...(data.destinationLabel ? { destination: data.destinationLabel } : {}),
             startsWithCollection: data.startsWithCollection ?? false,
             tripType: data.tripType,
             hubId,
