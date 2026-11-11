@@ -13,7 +13,7 @@ export interface GatewayHubRow {
  */
 export function validateGatewayAssignment(hubId: string | null, gatewayHubId: string | null, hubs: GatewayHubRow[]): void {
     if (!gatewayHubId) return;
-    if (hubId && gatewayHubId === hubId) throw new AppError('Uma unidade não pode ser abastecida por ela mesma.', 400);
+    if (hubId && gatewayHubId === hubId) throw new AppError('O hub tronco não pode ser o próprio hub.', 400);
     const byId = new Map(hubs.map((h) => [h.id, h]));
     const gateway = byId.get(gatewayHubId);
     if (!gateway) throw new AppError('O hub tronco informado não existe.', 400);
