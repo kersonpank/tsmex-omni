@@ -1722,6 +1722,15 @@ export const ordersFreightApi = {
         return response.data;
     },
 
+    /** "Tentar averbar agora" (AT&M): roda a averbação do CT-e na hora e devolve o resultado. */
+    averbar: async (orderId: string, calcId: string) => {
+        const response = await api.post<{
+            success: boolean;
+            data: { outcome: { status: string; message?: string }; averbacao: { status: string; numeroAverbacao: string | null; lastError: string | null } | null };
+        }>(`/orders/${orderId}/freight-calculations/${calcId}/averbar`, {});
+        return response.data;
+    },
+
     emitMinuta: async (orderId: string, calcId: string) => {
         const response = await api.post<{
             success: boolean;

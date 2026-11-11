@@ -223,6 +223,14 @@ export interface FiscalEmitter {
     cargoInsurerName?: string | null;
     cargoInsurerCnpj?: string | null;
     cargoInsurancePolicyNumber?: string | null;
+    /** Averbação eletrônica (AT&M). A senha nunca é devolvida: use hasAtmPassword. */
+    averbacaoProvider?: 'NONE' | 'ATM';
+    atmCode?: string | null;
+    atmUser?: string | null;
+    atmEnvironment?: 'HOMOLOGACAO' | 'PRODUCAO';
+    hasAtmPassword?: boolean;
+    cargoTracked?: boolean;
+    cargoLoadUnloadCovered?: boolean;
     /** Opt-in: liga a varredura automática 2x/dia da Distribuição NF-e para este CNPJ como destinatário. */
     distribuicaoNfeEnabled: boolean;
     /** Status do checkpoint de NSU pro ambiente atual do emitente — `null` se o documento não for CNPJ.
