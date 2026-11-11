@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { EfreteApiError } from '../efrete/efreteHttp.js';
-import { processCiotEmissionJob } from './ciotEmissionProcessor.js';
+import { AppError } from '../../middleware/errorHandler.js';
+import { pdfRetryDelayMs, processCiotEmissionJob } from './ciotEmissionProcessor.js';
 
 function setup(phase: string, existing: boolean) {
     const calls: Array<[string, unknown[]]> = [];
@@ -90,3 +91,59 @@ for (const stage of ['consultarStatusCiot', 'submitCiotToEfrete']) {
         assert.equal(calls.some(([kind, args]) => kind === 'document' && (args[0] as any).data.status === 'AUTHORIZED'), false);
     });
 }
+
+describe('CIOT processor: erro local e arquivamento do PDF', () => {
+    function delayedJob() {
+        const moved: number[] = [];
+        const job: any = { data: { ciotEmissionJobId: 'job-1' }, token: 'tok', moveToDelayed: async (at: number) => { moved.push(at); } };
+        return { job, moved };
+    }
+
+    it('AppError 400 na montagem do pedido vira FAILED com a mensagem real, sem prefixo de comunicação', async () => {
+        const { calls, deps, job } = setup('QUEUED', false);
+        deps.buildCiotEmissionInputForJob = async () => { throw new AppError('Motorista sem celular válido (DDD + número) cadastrado.', 400); };
+        await processCiotEmissionJob(job, deps);
+        const updates = calls.filter(([kind]) => kind === 'update').map(([, args]) => (args[0] as any).data);
+        assert.deepEqual(updates, [{ phase: 'FAILED', lastError: 'Motorista sem celular válido (DDD + número) cadastrado.' }]);
+        assert.equal(calls.some(([kind]) => ['motorista', 'consulta', 'submit'].includes(kind)), false);
+    });
+
+    it('erro de formato (Error comum) na montagem também é FAILED, não reconciliação', async () => {
+        const { calls, deps, job } = setup('QUEUED', false);
+        deps.buildCiotEmissionInputForJob = async () => { throw new Error('Contratante do CIOT: informe um CEP válido com 8 dígitos para a eFrete.'); };
+        await processCiotEmissionJob(job, deps);
+        const data = calls.filter(([kind]) => kind === 'update').map(([, args]) => (args[0] as any).data)[0];
+        assert.equal(data.phase, 'FAILED');
+        assert.doesNotMatch(data.lastError, /comunicação/);
+    });
+
+    it('falha no PDF com CIOT já emitido reagenda com espera crescente e conta a tentativa', async () => {
+        const { calls, deps, job } = setup('DOWNLOADING_FILES', true);
+        deps.obterCiotPdf = async () => { throw new Error('timeout'); };
+        const { job: bull, moved } = delayedJob();
+        await assert.rejects(processCiotEmissionJob(bull, deps), (e: any) => e.name === 'DelayedError');
+        assert.equal(moved.length, 1);
+        const data = calls.filter(([kind]) => kind === 'update').map(([, args]) => (args[0] as any).data).at(-1);
+        assert.deepEqual(data, { phase: 'DOWNLOADING_FILES', attemptCount: 1, lastError: 'timeout' });
+        assert.equal(job.data.ciotEmissionJobId, 'job-1');
+    });
+
+    it('ao esgotar maxAttempts mantém a fase, zera o contador e explica o motivo', async () => {
+        const { calls, deps } = setup('DOWNLOADING_FILES', true);
+        const record = await deps.prisma.ciotEmissionJob.findUniqueOrThrow();
+        record.attemptCount = 2; // maxAttempts = 3
+        deps.obterCiotPdf = async () => { throw new Error('S3 indisponível'); };
+        const { job: bull, moved } = delayedJob();
+        await processCiotEmissionJob(bull, deps);
+        assert.equal(moved.length, 0);
+        const data = calls.filter(([kind]) => kind === 'update').map(([, args]) => (args[0] as any).data).at(-1);
+        assert.equal(data.phase, 'DOWNLOADING_FILES');
+        assert.equal(data.attemptCount, 0);
+        assert.match(data.lastError, /CIOT-1 emitido, mas o PDF não foi arquivado após 3 tentativas: S3 indisponível/);
+    });
+
+    it('a espera cresce e tem teto', () => {
+        assert.deepEqual([0, 1, 2, 3].map(pdfRetryDelayMs), [5000, 10000, 20000, 40000]);
+        assert.equal(pdfRetryDelayMs(20), 300000);
+    });
+});

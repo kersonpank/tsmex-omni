@@ -1,5 +1,7 @@
 import type { Job } from 'bullmq';
 import { DelayedError } from 'bullmq';
+import { Prisma } from '@prisma/client';
+import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
 import { EfreteApiError } from '../efrete/efreteHttp.js';
 import { linkVehicleInclude, manifestVehicleAssignmentsInclude } from '../vehicleUnitService.js';
@@ -23,6 +25,26 @@ function readableEfreteMessage(message: string): string {
 }
 
 const RETRY_DELAY_MS = 5_000;
+const MAX_BACKOFF_MS = 5 * 60_000;
+
+/** Espera crescente (5s, 10s, 20s ... até 5 min) entre tentativas de arquivar o PDF. */
+export function pdfRetryDelayMs(attemptCount: number): number {
+    return Math.min(RETRY_DELAY_MS * 2 ** Math.max(0, attemptCount), MAX_BACKOFF_MS);
+}
+
+/** Erro de dado/validação local (nada saiu para a eFrete): AppError ou erro de formato, nunca de banco. */
+function isLocalValidationError(err: unknown): boolean {
+    if (err instanceof AppError) return err.statusCode < 500;
+    if (err instanceof Prisma.PrismaClientKnownRequestError || err instanceof Prisma.PrismaClientInitializationError
+        || err instanceof Prisma.PrismaClientUnknownRequestError || err instanceof Prisma.PrismaClientRustPanicError) return false;
+    return err instanceof Error && !(err instanceof EfreteApiError);
+}
+
+class LocalInputError extends Error {
+    constructor(readonly original: unknown) {
+        super(original instanceof Error ? original.message : String(original));
+    }
+}
 
 type CiotEmissionJobRecord = Awaited<ReturnType<typeof prisma.ciotEmissionJob.findUniqueOrThrow>>;
 
@@ -129,7 +151,15 @@ export async function processCiotEmissionJob(
             await archiveCiotPdf(deps, ciotJob, ciotJob.codigoIdentificacaoOperacao, storedEnvironment, authorized);
             return;
         }
-        const { mapperInput, environment: builtEnvironment } = await deps.buildCiotEmissionInputForJob(ciotEmissionJobId);
+        let built: Awaited<ReturnType<typeof deps.buildCiotEmissionInputForJob>>;
+        try {
+            built = await deps.buildCiotEmissionInputForJob(ciotEmissionJobId);
+        } catch (buildError) {
+            // Montagem do pedido é 100% local (nada foi enviado à eFrete): erro de cadastro/dado.
+            if (isLocalValidationError(buildError)) throw new LocalInputError(buildError);
+            throw buildError;
+        }
+        const { mapperInput, environment: builtEnvironment } = built;
         const environment = storedEnvironment ?? builtEnvironment;
 
         const manifest = await deps.prisma.manifest.findUniqueOrThrow({
@@ -227,13 +257,36 @@ export async function processCiotEmissionJob(
             throw err;
         }
 
+        if (err instanceof LocalInputError) {
+            // Falha de validação local antes de qualquer chamada ao provedor: FAILED com a mensagem real.
+            await deps.prisma.ciotEmissionJob.update({ where: { id: ciotEmissionJobId }, data: { phase: 'FAILED', lastError: err.message } });
+            return;
+        }
+
         const message = err instanceof EfreteApiError ? readableEfreteMessage(err.excecaoMensagem || err.message) : err instanceof Error ? err.message : String(err);
         if (err instanceof EfreteApiError) {
             console.warn({ source: 'ciotEmission', manifestId: ciotJob.manifestId, idOperacaoCliente: ciotJob.idOperacaoCliente, excecaoCodigo: err.excecaoCodigo, message });
         }
         if (ciotJob.phase === 'DOWNLOADING_FILES' && ciotJob.codigoIdentificacaoOperacao) {
-            await deps.prisma.ciotEmissionJob.update({ where: { id: ciotEmissionJobId }, data: { phase: 'DOWNLOADING_FILES', lastError: message } });
-            return;
+            // O CIOT já existe na eFrete: só falta arquivar o PDF. Tenta de novo com espera crescente
+            // até maxAttempts; ao esgotar, deixa o motivo claro (reenviar pela rota retoma este job).
+            const nextAttempt = ciotJob.attemptCount + 1;
+            if (nextAttempt >= ciotJob.maxAttempts) {
+                await deps.prisma.ciotEmissionJob.update({
+                    where: { id: ciotEmissionJobId },
+                    data: {
+                        phase: 'DOWNLOADING_FILES',
+                        attemptCount: 0,
+                        lastError: `CIOT ${ciotJob.codigoIdentificacaoOperacao} emitido, mas o PDF não foi arquivado após ${nextAttempt} tentativas: ${message}. Reenvie a emissão para retomar o arquivamento.`,
+                    },
+                });
+                return;
+            }
+            await deps.prisma.ciotEmissionJob.update({
+                where: { id: ciotEmissionJobId },
+                data: { phase: 'DOWNLOADING_FILES', attemptCount: nextAttempt, lastError: message },
+            });
+            await rescheduleJob(job, pdfRetryDelayMs(ciotJob.attemptCount));
         }
 
         // Rejeição de negócio da própria eFrete (`Sucesso: false` com Excecao preenchida — ex.:
