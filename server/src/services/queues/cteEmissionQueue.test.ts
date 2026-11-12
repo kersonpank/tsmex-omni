@@ -69,4 +69,11 @@ describe('enqueueCteEmissionJob', () => {
         await assert.rejects(enqueueCteEmissionJob({ ...data, reconciliationRunId: 'run:bad' }, queue as any), /inválido/);
         await assert.rejects(enqueueCteEmissionJob({ ...data, reconciliationRunId: '' }, queue as any), /inválido/);
     });
+
+    it('reenvio apos conferencia usa jobId novo (o original ainda existe no Redis), com o mesmo cteEmissionJobId nos dados', async () => {
+        const { queue, calls } = makeFakeQueue();
+        const id = await enqueueCteEmissionJob({ calcId: 'c', cteEmissionJobId: 'job-1', phaseHint: 'submit', resubmitRunId: 'r1' }, queue as any);
+        assert.equal(id, 'job-1-resubmit-r1');
+        assert.equal((calls[0] as { data: CteEmissionJobData }).data.cteEmissionJobId, 'job-1');
+    });
 });
