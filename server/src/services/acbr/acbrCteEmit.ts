@@ -13,6 +13,9 @@ export type FiscalEmitterContext = {
     certificatePasswordEncrypted?: string | null;
 };
 
+/** A autorização síncrona da SEFAZ demora: o POST /cte espera até 60 s (consultas seguem com o padrão curto). */
+export const CTE_SUBMIT_TIMEOUT_MS = 60_000;
+
 /** O provedor pode ter recebido o POST mesmo sem devolver uma resposta utilizável. */
 export class AcbrCteSubmissionUncertainError extends Error {
     constructor(message: string) {
@@ -104,6 +107,7 @@ export async function submitCteToAcbr(
         body,
         scopes: ['empresa', 'cte'],
         apiEnvironment: input.ambiente,
+        timeoutMs: CTE_SUBMIT_TIMEOUT_MS,
     });
     return { providerDocId: cteProviderDocIdFromCreateResponse(created) };
 }

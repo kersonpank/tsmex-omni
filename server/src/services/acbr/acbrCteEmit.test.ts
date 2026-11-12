@@ -88,3 +88,14 @@ it('cStat 100 fiscal prevalece sobre erro de topo; processamento continua penden
         (async () => ({ autorizacao: { status: 'não autorizado' } })) as CteSubmitDeps['acbrFetchJson']);
     assert.equal(notAuthorized.kind, 'PENDING');
 });
+
+it('POST /cte espera até 60 s pela SEFAZ (consultas seguem com o padrão curto)', async () => {
+    const seen: Array<{ path: string; init: Record<string, unknown> }> = [];
+    const deps = submitDeps([]);
+    deps.acbrFetchJson = (async (path: string, init: Record<string, unknown>) => { seen.push({ path, init }); return { id: 'doc-1' }; }) as unknown as CteSubmitDeps['acbrFetchJson'];
+    await submitCteToAcbr(input, 'ref', emitter, async () => true, deps);
+    assert.equal(seen[0].path, '/cte');
+    assert.equal(seen[0].init.timeoutMs, 60_000);
+    await pollCteStatusOnce('doc-1', 'HOMOLOGACAO', 0, (async (path: string, init: Record<string, unknown>) => { seen.push({ path, init }); return { status: 'pendente' }; }) as unknown as CteSubmitDeps['acbrFetchJson']);
+    assert.equal(seen[1].init.timeoutMs, undefined);
+});

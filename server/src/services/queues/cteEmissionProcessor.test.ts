@@ -370,4 +370,24 @@ describe('proteção do worker CT-e', () => {
         assert.equal(db.calc.status, 'CTE_SENT');
         assert.equal((deps.pollCteStatusOnce as any).mock.callCount(), 0);
     });
+    it('envia ao ACBr com referencia = id do CteEmissionJob (unica por tentativa), nao o id do calculo', async () => {
+        const db = fakeDatabase();
+        let referencia = '';
+        const submit: CteEmissionProcessorDeps['submitCteToAcbr'] = async (_input, ref, _emitter, beforePost) => {
+            referencia = ref;
+            if (!beforePost || !(await beforePost())) return { skipped: true };
+            return { providerDocId: 'doc-1' };
+        };
+        await assert.rejects(processCteEmissionJob(bullJob().job, depsFor(db, { submitCteToAcbr: submit })), DelayedError);
+        assert.equal(referencia, 'job-1');
+    });
+
+    it('job reenfileirado para reenvio apos conferencia (QUEUED, sem marcador, calc CTE_SENT) faz o POST uma unica vez', async () => {
+        const db = fakeDatabase({ phase: 'QUEUED', submitStartedAt: null, providerDocId: null }, { status: 'CTE_SENT' });
+        let posts = 0;
+        const deps = depsFor(db, { submitCteToAcbr: guardedSubmit(async () => { posts++; return { providerDocId: 'doc-novo' }; }) });
+        await assert.rejects(processCteEmissionJob(bullJob({ phaseHint: 'submit' }, 'job-1-resubmit-x').job, deps), DelayedError);
+        assert.equal(posts, 1);
+        assert.equal(db.record.providerDocId, 'doc-novo');
+    });
 });

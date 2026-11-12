@@ -254,7 +254,7 @@ export async function processCteEmissionJob(
 
         const { input, fiscalEmitterContext } = await deps.buildCteEmissionInputForJob(calcId, cteEmissionJobId);
         if (!record.providerDocId) {
-            const submitted = await deps.submitCteToAcbr(input, calcId, fiscalEmitterContext, async () => {
+            const submitted = await deps.submitCteToAcbr(input, cteEmissionJobId, fiscalEmitterContext, async () => {
                 // O CAS e o estado do cálculo são gravados juntos. A rota não deve conseguir
                 // declarar falha de enqueue após esta transição e liberar uma nova emissão.
                 const startedAt = new Date();
