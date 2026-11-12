@@ -1,6 +1,7 @@
 import prisma from '../lib/prisma.js';
 import { encerrarCiot } from './efrete/efreteCiotEmit.js';
 import { encerrarMdfeViaAcbr } from './acbr/acbrMdfeEmit.js';
+import { createOrMergeSystemAlert } from './systemAlertService.js';
 import { DEFAULT_DUE_HOURS, dueIn, originHubIdOfManifest } from './exceptions/alertOwner.js';
 
 /**
@@ -49,16 +50,16 @@ export async function closeFiscalDocumentsForCompletedManifest(manifestId: strin
                     error: message,
                 })
             );
-            await prisma.systemAlert.create({
-                data: {
-                    category: 'FISCAL_ENCERRAMENTO_PENDENTE',
-                    severity: 'WARNING',
-                    hubId: await originHubIdOfManifest(manifestId),
-                    dueAt: dueIn(DEFAULT_DUE_HOURS.FISCAL_CLOSURE),
-                    title: `Encerramento de ${doc.documentType} pendente — manifesto ${manifestId.slice(0, 8)}`,
-                    message: `Falha ao encerrar automaticamente ao concluir a viagem: ${message}. Encerre manualmente pelo canal do provider (console eFrete/ACBr) e atualize o documento.`,
-                    context: { manifestId, documentId: doc.id, documentType: doc.documentType },
-                },
+            // Repetições automáticas do mesmo documento mesclam no alerta aberto (não criam um por tentativa).
+            await createOrMergeSystemAlert({
+                category: 'FISCAL_ENCERRAMENTO_PENDENTE',
+                severity: 'WARNING',
+                hubId: await originHubIdOfManifest(manifestId),
+                dueAt: dueIn(DEFAULT_DUE_HOURS.FISCAL_CLOSURE),
+                title: `Encerramento de ${doc.documentType} pendente — manifesto ${manifestId.slice(0, 8)}`,
+                message: `Falha ao encerrar automaticamente ao concluir a viagem: ${message}. Encerre manualmente pelo canal do provider (console eFrete/ACBr) e atualize o documento.`,
+                context: { manifestId, documentId: doc.id, documentType: doc.documentType },
+                dedupMatch: (ctx) => ctx.manifestId === manifestId && ctx.documentId === doc.id,
             });
         }
     }

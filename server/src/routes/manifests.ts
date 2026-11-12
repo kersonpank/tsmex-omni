@@ -1679,9 +1679,10 @@ router.post('/:id/fiscal-closure/retry', authenticate, authorize('ADMIN', 'HUB')
             where: { manifestId: id, status: 'AUTHORIZED', documentType: { in: ['CIOT', 'MDFE'] } },
         });
         if (!open) throw new AppError('Não há CIOT nem MDF-e aberto nesta viagem.', 409);
+        // Também vale para a tarefa que espera a próxima repetição automática; o botão zera a contagem.
         const requeued = await prisma.fiscalClosureTask.updateMany({
-            where: { manifestId: id, status: 'RECONCILIATION_REQUIRED' },
-            data: { status: 'PENDING', reason: null, startedAt: null, finishedAt: null },
+            where: { manifestId: id, OR: [{ status: 'RECONCILIATION_REQUIRED' }, { status: 'PENDING', nextAttemptAt: { not: null } }] },
+            data: { status: 'PENDING', reason: null, startedAt: null, finishedAt: null, attemptCount: 0, nextAttemptAt: null },
         });
         if (!requeued.count) {
             const existing = await prisma.fiscalClosureTask.findUnique({ where: { manifestId: id }, select: { status: true } });
