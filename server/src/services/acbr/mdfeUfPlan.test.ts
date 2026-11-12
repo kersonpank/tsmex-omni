@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
 import type { MdfeDescargaGroup } from './acbrMdfeEmit.js';
-import { mdfeDocumentUf, mdfeProviderDocId, planMdfeByUf, stopUfsUpTo, uncoveredMdfeUfs } from './mdfeUfPlan.js';
+import { summarizeMdfeEmission, mdfeDocumentUf, mdfeProviderDocId, planMdfeByUf, stopUfsUpTo, uncoveredMdfeUfs } from './mdfeUfPlan.js';
 
 const group = (state: string | null, city: string, chaves: string[], stopId: string | null = 's'): MdfeDescargaGroup => ({
     stopId, destHubId: null, destHub: null, destCity: city, destState: state, destCityIbgeCode: '1', chaves,
@@ -42,4 +42,13 @@ it('cobertura: só some quando todas as UFs têm MDF-e autorizado; registro anti
     assert.deepEqual(uncoveredMdfeUfs(['PI', 'CE'], [ok('PI'), ok('CE')]), []);
     assert.deepEqual(uncoveredMdfeUfs(['PI', 'CE'], [ok(null)]), []);
     assert.deepEqual(uncoveredMdfeUfs(['PI'], [{ ...ok('PI'), xmlUrl: null }]), ['PI']);
+});
+
+it('status HTTP da emissão: 200 todos autorizados, 202 algum processando, 422 algum recusado (com a lista)', () => {
+    const a = { uf: 'MA', status: 'AUTHORIZED' as const, message: null };
+    assert.deepEqual(summarizeMdfeEmission([a, { ...a, uf: 'PI' }]), { httpStatus: 200, pending: false, message: null });
+    assert.deepEqual(summarizeMdfeEmission([a, { uf: 'PI', status: 'PENDING', message: 'ainda processando' }]), { httpStatus: 202, pending: true, message: 'MDF-e PI: ainda processando' });
+    const refused = summarizeMdfeEmission([{ uf: 'MA', status: 'REJECTED', message: 'cStat 301' }, { uf: 'PI', status: 'PENDING', message: null }]);
+    assert.equal(refused.httpStatus, 422);
+    assert.equal(refused.message, 'MDF-e MA: cStat 301');
 });

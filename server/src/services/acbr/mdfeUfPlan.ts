@@ -72,3 +72,16 @@ export function uncoveredMdfeUfs(expectedUfs: string[], docs: MdfeCoverageDoc[])
     const covered = new Set(ok.map((doc) => doc.unloadUf));
     return expectedUfs.filter((uf) => !covered.has(uf));
 }
+
+export interface MdfeUfSummaryInput { uf: string; status: 'AUTHORIZED' | 'PENDING' | 'REJECTED'; message: string | null }
+
+/** Resposta HTTP de `POST /manifests/:id/emit-mdfe`: 200 todos autorizados, 202 algum em processamento, 422 algum recusado. */
+export function summarizeMdfeEmission(mdfes: MdfeUfSummaryInput[]): { httpStatus: 200 | 202 | 422; pending: boolean; message: string | null } {
+    const describe = (items: MdfeUfSummaryInput[], fallback: string) =>
+        items.map((item) => `${item.uf ? `MDF-e ${item.uf}` : 'MDF-e'}: ${item.message ?? fallback}`).join(' | ');
+    const rejected = mdfes.filter((item) => item.status === 'REJECTED');
+    const processing = mdfes.filter((item) => item.status === 'PENDING');
+    if (rejected.length) return { httpStatus: 422, pending: processing.length > 0, message: describe(rejected, 'recusado') };
+    if (processing.length) return { httpStatus: 202, pending: true, message: describe(processing, 'em processamento') };
+    return { httpStatus: 200, pending: false, message: null };
+}
