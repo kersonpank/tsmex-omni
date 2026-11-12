@@ -1,4 +1,4 @@
-import type { AnttFloor, CiotEmissionJob, CiotTipoViagem, CiotTipoViagemSuggestion, EmitCiotRequest, Hub, Manifest, ManifestReadiness, Person, PersonPaymentAccount } from '../../../types/index';
+import type { AnttFloor, CiotEmissionJob, CiotRecipientSuggestion, CiotTipoViagem, CiotTipoViagemSuggestion, EmitCiotRequest, Hub, Manifest, ManifestReadiness, Person, PersonPaymentAccount } from '../../../types/index';
 import { groupIssues, type TripFixGroup } from './trip';
 
 /** Lógica pura do formulário de CIOT do TSM O.S. (sem React, sem rede). */
@@ -166,6 +166,27 @@ export function ciotRecipientFromPerson(person: Partial<Person>) {
     };
 }
 
+/** Destinatário já resolvido pelo servidor (transferência: hub destino; entrega: pedido mais pesado). */
+export function ciotRecipientFromSuggestion(r: CiotRecipientSuggestion) {
+    return {
+        form: { destNome: r.name, destCpfCnpj: r.document },
+        address: { cep: r.cep, address: r.address, number: r.number, complement: r.complement, neighborhood: r.neighborhood, city: r.city, state: r.state, cityIbgeCode: r.cityIbgeCode },
+    };
+}
+
+const RECIPIENT_FIELD_LABELS: Array<[string, string]> = [
+    ['name', 'nome'], ['document', 'CPF/CNPJ'], ['cep', 'CEP'], ['address', 'logradouro'], ['neighborhood', 'bairro'], ['city', 'cidade'],
+];
+
+/** Campos do destinatário que ainda faltam (ao vivo, conforme o operador completa). */
+export function ciotRecipientMissing(form: Pick<CiotFormState, 'destNome' | 'destCpfCnpj'>, address: CiotAddressState): string[] {
+    const empty: Record<string, boolean> = {
+        name: !form.destNome.trim(), document: form.destCpfCnpj.replace(/\D/g, '').length < 11, cep: address.cep.replace(/\D/g, '').length !== 8,
+        address: !address.address.trim(), neighborhood: !address.neighborhood.trim(), city: !address.cityIbgeCode,
+    };
+    return RECIPIENT_FIELD_LABELS.filter(([key]) => empty[key]).map(([, label]) => label);
+}
+
 export function ciotRecipientFromHub(hub: Pick<Hub, 'name' | 'city' | 'state' | 'cityIbgeCode' | 'address' | 'person'>) {
     return ciotRecipientFromPerson({
         legalName: hub.name, city: hub.city, state: hub.state, cityIbgeCode: hub.cityIbgeCode,
@@ -199,7 +220,7 @@ export function ciotPaymentAccount(form: ReturnType<typeof ciotPaymentFromAccoun
 export function initialCiotForm(
     manifest: Manifest,
     now = new Date(),
-    suggestion: Partial<Pick<CiotTipoViagemSuggestion, 'distanceKm' | 'endDate' | 'embalagem'>> | null = null,
+    suggestion: Partial<Pick<CiotTipoViagemSuggestion, 'distanceKm' | 'endDate' | 'embalagem' | 'recipient'>> | null = null,
 ): { form: CiotFormState; address: CiotAddressState } {
     const fa = manifest.freightAgreement;
     const startDate = manifest.plannedDepartureAt ? new Date(manifest.plannedDepartureAt) : new Date(now.getTime() + 3_600_000);
@@ -248,7 +269,8 @@ export function initialCiotForm(
         destNome: manifest.destHub?.name ?? '',
         destCpfCnpj: manifest.destHub?.person?.document ?? '',
     };
-    const recipient = manifest.destHub ? ciotRecipientFromHub(manifest.destHub) : null;
+    const resolved = suggestion?.recipient ?? manifest.ciotSuggestion?.recipient ?? null;
+    const recipient = resolved ? ciotRecipientFromSuggestion(resolved) : manifest.destHub ? ciotRecipientFromHub(manifest.destHub) : null;
     if (recipient) Object.assign(form, recipient.form);
     const address: CiotAddressState = recipient?.address ?? { ...emptyCiotAddress };
     return { form, address };

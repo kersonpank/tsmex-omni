@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CiotTipoViagem, Manifest } from '../../../types/index';
-import { buildCiotRequest, CIOT_DEFAULT_PACKAGING, ciotDispensaError, ciotFixGroup, ciotFixNote, ciotStartInPast, emptyCiotAddress, initialCiotForm, isTacAgregadoAllowed, mergeCiotDefaults, type CiotFormState } from './ciot';
+import { buildCiotRequest, CIOT_DEFAULT_PACKAGING, ciotDispensaError, ciotFixGroup, ciotFixNote, ciotRecipientMissing, ciotStartInPast, emptyCiotAddress, initialCiotForm, isTacAgregadoAllowed, mergeCiotDefaults, type CiotFormState } from './ciot';
 import { CIOT_CARGO_TYPES, ciotNcmOptions, ciotPaymentFromAccount, ciotPaymentAccount, ciotRecipientFromHub, ciotRecipientFromPerson } from './ciot';
 
 const now = new Date('2026-10-25T10:00:00Z');
@@ -313,4 +313,25 @@ it.each([
 ])('orienta a rejeição ANTT: %s', (message, group, note) => {
     expect(ciotFixGroup(message)?.group ?? null).toBe(group);
     expect(ciotFixNote(message)).toBe(note);
+});
+
+describe('destinatário resolvido pelo servidor', () => {
+    const recipient = {
+        source: 'HUB_EMITTER' as const, name: 'Hub Teresina', document: '11222333000181', cep: '', address: 'Av. Frei Serafim, 100', number: '', complement: '',
+        neighborhood: '', city: 'Teresina', state: 'PI', cityIbgeCode: '2211001', missing: ['cep', 'neighborhood'] as Array<'cep' | 'neighborhood'>, otherCount: 0, note: null,
+    };
+    const base = { id: 'abcdef123456', totalWeight: 10, destHub: { name: 'Outro', city: 'X', state: 'MA' } } as unknown as Manifest;
+
+    it('pré-preenche nome, documento e endereço a partir da sugestão', () => {
+        const { form, address } = initialCiotForm(base, now, { recipient });
+        expect(form.destNome).toBe('Hub Teresina');
+        expect(form.destCpfCnpj).toBe('11222333000181');
+        expect(address.address).toBe('Av. Frei Serafim, 100');
+        expect(address.cityIbgeCode).toBe('2211001');
+    });
+    it('lista só o que falta completar, ao vivo', () => {
+        const { form, address } = initialCiotForm(base, now, { recipient });
+        expect(ciotRecipientMissing(form, address)).toEqual(['CEP', 'bairro']);
+        expect(ciotRecipientMissing(form, { ...address, cep: '64000000', neighborhood: 'Centro' })).toEqual([]);
+    });
 });

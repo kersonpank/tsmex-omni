@@ -1,16 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { personsApi } from '../../../../lib/api';
-import type { Hub, Person } from '../../../../types/index';
+import type { CiotRecipientSuggestion, Hub, Person } from '../../../../types/index';
 import type { ManifestWithLegs } from '../../lib/arrival';
-import { ciotRecipientFromHub, ciotRecipientFromPerson } from '../../lib/ciot';
+import { ciotRecipientFromHub, ciotRecipientFromPerson, ciotRecipientFromSuggestion } from '../../lib/ciot';
 import { OsButton, OsErrorNotice } from '../../ui/kit';
 import { apiErrorMessage, osFieldClass } from '../../ui/Sheet';
 
 const CiotRecipientPicker: React.FC<{
     manifest: ManifestWithLegs;
     hubs: Hub[];
+    suggested?: CiotRecipientSuggestion | null;
     onChange: (recipient: ReturnType<typeof ciotRecipientFromPerson>) => void;
-}> = ({ manifest, hubs, onChange }) => {
+}> = ({ manifest, hubs, suggested = null, onChange }) => {
     const [query, setQuery] = useState('');
     const [hits, setHits] = useState<Person[]>([]);
     const [busy, setBusy] = useState(false);
@@ -53,7 +54,8 @@ const CiotRecipientPicker: React.FC<{
     return (
         <div className="mb-3 flex flex-col gap-2">
             <div className="flex flex-wrap gap-2">
-                {manifest.destHub ? <OsButton variant="secondary" onClick={() => select(ciotRecipientFromHub(manifest.destHub!))}>Hub destino: {manifest.destHub.name}</OsButton> : null}
+                {suggested ? <OsButton variant="secondary" onClick={() => select(ciotRecipientFromSuggestion(suggested))}>Sugerido: {suggested.name}</OsButton> : null}
+                {manifest.destHub && !suggested ? <OsButton variant="secondary" onClick={() => select(ciotRecipientFromHub(manifest.destHub!))}>Hub destino: {manifest.destHub.name}</OsButton> : null}
                 {hubs.filter((hub) => hub.active && hub.id !== manifest.destHubId && hub.id !== manifest.hubId).map((hub) => (
                     <OsButton key={hub.id} variant="secondary" onClick={() => select(ciotRecipientFromHub(hub))}>{hub.name}</OsButton>
                 ))}

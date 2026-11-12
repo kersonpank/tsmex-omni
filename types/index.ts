@@ -1364,6 +1364,17 @@ export interface CiotTipoViagemSuggestion {
     anttFloor?: AnttFloor | null;
     endDate?: string | null;
     embalagem?: string | null;
+    /** Destinatário do CIOT já resolvido pelo servidor (transferência: hub destino; entrega: pedido mais pesado). */
+    recipient?: CiotRecipientSuggestion | null;
+}
+
+export interface CiotRecipientSuggestion {
+    source: 'HUB_PERSON' | 'HUB_EMITTER' | 'ORDER';
+    name: string; document: string; cep: string; address: string; number: string; complement: string;
+    neighborhood: string; city: string; state: string; cityIbgeCode: string;
+    missing: Array<'name' | 'document' | 'cep' | 'address' | 'neighborhood' | 'city' | 'state' | 'cityIbgeCode'>;
+    otherCount: number;
+    note: string | null;
 }
 
 export interface CiotEndereco {
