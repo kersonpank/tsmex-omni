@@ -676,6 +676,8 @@ export interface ManifestStop {
     plannedArrivalAt?: string | null;
     startedAt?: string | null;
     completedAt?: string | null;
+    arrivedAt?: string | null;
+    arrivedByUserId?: string | null;
     createdAt: string;
     updatedAt: string;
 }
@@ -785,6 +787,8 @@ export interface Manifest extends Partial<ManifestMarginInfo> {
     liberacao?: string | null;
     kmSaida?: number | null;
     kmChegada?: number | null;
+    arrivedAt?: string | null;
+    arrivedByUserId?: string | null;
     freightAgreement?: ManifestFreightAgreement | null;
     totalWeight: number;
     totalVolume: number;

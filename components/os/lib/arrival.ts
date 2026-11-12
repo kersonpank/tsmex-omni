@@ -17,6 +17,8 @@ export interface ArrivalLeg {
         id: string;
         status?: string;
         nfNumber?: string | null;
+        /** NFs do pedido (número e chave) para casar a leitura da conferência. */
+        invoices?: Array<{ nfNumber?: string | null; nfKey?: string | null }>;
         /** Estado do documento do frete (vem de GET /manifests/:id). */
         freightDocState?: FreightDocState;
         destinatarioPerson?: ManifestOrderParty | null;
@@ -49,6 +51,7 @@ export interface UnloadItem {
     legId: string;
     orderId: string;
     nfNumber: string | null;
+    nfKeys: string[];
     orderNumber: number | null;
     destination: string | null;
 }
@@ -65,7 +68,8 @@ export function ordersToUnload(manifest: ManifestWithLegs, hubId: string): Unloa
     return relevant.map((leg) => ({
         legId: leg.id,
         orderId: leg.orderId,
-        nfNumber: leg.order?.nfNumber ?? null,
+        nfNumber: leg.order?.nfNumber ?? leg.order?.invoices?.[0]?.nfNumber ?? null,
+        nfKeys: (leg.order?.invoices ?? []).map((invoice) => invoice.nfKey).filter((chave): chave is string => Boolean(chave)),
         orderNumber: leg.order?.demand?.orderNumber ?? null,
         destination: leg.order?.demand?.destination ?? null,
     }));

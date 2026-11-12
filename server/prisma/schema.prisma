@@ -944,6 +944,8 @@ model Manifest {
   liberacao          String?
   kmSaida            Float? // gravado no início real da viagem (startManifest)
   kmChegada          Float? // gravado na conclusão da última parada
+  arrivedAt          DateTime? // veículo chegou ao hub de destino (antes da conferência); viagem sem paradas
+  arrivedByUserId    String? // quem registrou a chegada
   freightAgreement   ManifestFreightAgreement?
 
   // Vehicle type
@@ -2319,6 +2321,8 @@ model ManifestStop {
   plannedArrivalAt DateTime?
   startedAt        DateTime?
   completedAt      DateTime?
+  arrivedAt        DateTime? // veículo chegou nesta parada (antes da conferência)
+  arrivedByUserId  String? // quem registrou a chegada
   legs             OrderLeg[]
   deliveryAttempts DeliveryAttempt[]
   createdAt        DateTime   @default(now())

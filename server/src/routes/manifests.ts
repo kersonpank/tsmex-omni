@@ -24,6 +24,7 @@ import { splitPhone } from '../services/efrete/efreteUtil.js';
 import { suggestCiotTipoViagem } from '../services/efrete/ciotTipoViagemRule.js';
 import { ciotSuggestionDefaults } from '../services/efrete/ciotSuggestionDefaults.js';
 import { suggestCiotRecipient } from '../services/ciotRecipient.js';
+import { manifestArrivalRouter } from './manifestArrival.js';
 import { getManifestAnttSuggestion } from '../services/manifestAnttSuggestion.js';
 import { cancelarCiot } from '../services/efrete/efreteCiotEmit.js';
 import { getObjectDownloadUrl } from '../lib/objectStorage.js';
@@ -84,6 +85,7 @@ const router = Router();
 
 // Anti-IDOR: HUB só viagens do próprio depósito (origem/destino/parada); LINK só as suas; CLIENT nunca.
 router.use(uuidParam(), ...resourceGuard('manifest'));
+router.use('/:id', manifestArrivalRouter); // PATCH /:id/arrive e /:id/stops/:stopId/arrive
 
 const operationalTripTypeSchema = z.enum(OPERATIONAL_TRIP_TYPES);
 
@@ -368,6 +370,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
                               id: leg.order.id,
                               status: leg.order.status,
                               nfNumber: leg.order.nfNumber,
+                              invoices: leg.order.invoicesRel?.map((invoice) => ({ nfNumber: invoice.nfNumber, nfKey: invoice.nfKey })) ?? [],
                               destinatarioPerson: leg.order.destinatarioPerson,
                               freightDocState: (leg.order as unknown as { freightDocState?: FreightDocState }).freightDocState ?? 'none',
                               freightCalculations: leg.order.freightCalculations,

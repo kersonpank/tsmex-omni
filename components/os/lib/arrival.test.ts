@@ -92,8 +92,8 @@ describe('ordersToUnload', () => {
 
 describe('conferência: nunca encerrar em silêncio', () => {
     const items: UnloadItem[] = [
-        { legId: 'l1', orderId: 'o1', nfNumber: null, orderNumber: null, destination: null },
-        { legId: 'l2', orderId: 'o2', nfNumber: null, orderNumber: null, destination: null },
+        { legId: 'l1', orderId: 'o1', nfNumber: null, nfKeys: [], orderNumber: null, destination: null },
+        { legId: 'l2', orderId: 'o2', nfNumber: null, nfKeys: [], orderNumber: null, destination: null },
     ];
 
     it('não conclui com item sem marcação', () => {
@@ -123,9 +123,9 @@ describe('conferência: nunca encerrar em silêncio', () => {
 
 describe('buildArrivals', () => {
     const items = [
-        { legId: 'l1', orderId: 'o1', nfNumber: null, orderNumber: 1, destination: null },
-        { legId: 'l2', orderId: 'o2', nfNumber: null, orderNumber: 2, destination: null },
-        { legId: 'l3', orderId: 'o3', nfNumber: null, orderNumber: 3, destination: null },
+        { legId: 'l1', orderId: 'o1', nfNumber: null, nfKeys: [], orderNumber: 1, destination: null },
+        { legId: 'l2', orderId: 'o2', nfNumber: null, nfKeys: [], orderNumber: 2, destination: null },
+        { legId: 'l3', orderId: 'o3', nfNumber: null, nfKeys: [], orderNumber: 3, destination: null },
     ];
     it('traduz as marcações para a API, com nota só nas divergências', () => {
         expect(buildArrivals(items, { o1: 'OK', o2: 'AVARIA', o3: 'FALTA' }, { o1: 'ignorada', o2: ' caixa amassada ', o3: '' })).toEqual([

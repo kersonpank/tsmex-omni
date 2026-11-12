@@ -665,6 +665,13 @@ export const manifestsApi = {
         const response = await api.patch<ApiResponse<{ allStopsCompleted: boolean; arrivals?: ArrivalSummary | null }>>(`/manifests/${manifestId}/stops/${stopId}/complete`, data ?? {});
         return response.data;
     },
+    /** Etapa 1 do recebimento: "a carreta chegou" (viagem inteira ou parada). Idempotente. */
+    arrive: async (manifestId: string, stopId?: string | null) => {
+        const response = await api.patch<ApiResponse<{ arrivedAt: string; alreadyArrived: boolean; ordersNotified: number; hubName: string; stopId: string | null }>>(
+            stopId ? `/manifests/${manifestId}/stops/${stopId}/arrive` : `/manifests/${manifestId}/arrive`,
+        );
+        return response.data;
+    },
     deliveryProgress: async (manifestId: string) => {
         const response = await api.get<ApiResponse<DeliveryProgress[]>>(`/manifests/${manifestId}/delivery-progress`);
         return response.data;
