@@ -4,6 +4,7 @@ import { linksApi, personsApi } from '../../../../lib/api';
 import type { Driver } from '../../../../types/index';
 import { digits, driverToDraft, UFS, type RegistryDriver } from '../../lib/carrier';
 import AddressFields, { addressFrom, addressReady, type AddressValue } from '../../ui/AddressFields';
+import { DateField } from '../../ui/DateField';
 import { OsButton } from '../../ui/kit';
 import OsSheet, { apiErrorMessage, osFieldClass } from '../../ui/Sheet';
 
@@ -166,7 +167,10 @@ const DriverEditor: React.FC<{
             {field('Nome completo', name, setName)}
             {driver ? <p className="mt-3 text-[13px] text-tower-500">CPF {driver.document}</p> : null}
             {field('Telefone com DDD', phone, setPhone, { inputMode: 'tel' })}
-            {field('Data de nascimento', birthDate, setBirthDate, { type: 'date' })}
+            <label className={label}>
+                Data de nascimento
+                <DateField value={birthDate} onChange={setBirthDate} className="mt-1.5" />
+            </label>
             {field('Número da CNH', cnhNumber, setCnhNumber, { inputMode: 'numeric' })}
             <div className="grid grid-cols-3 gap-2">
                 <label className={label}>
@@ -179,7 +183,7 @@ const DriverEditor: React.FC<{
                 </label>
                 <label className={clsx(label, 'col-span-2')}>
                     Validade da CNH
-                    <input type="date" value={cnhExpiry} onChange={(e) => setCnhExpiry(e.target.value)} className={clsx(osFieldClass, 'mt-1.5')} />
+                    <DateField value={cnhExpiry} onChange={setCnhExpiry} className="mt-1.5" />
                 </label>
             </div>
             <label className={label}>

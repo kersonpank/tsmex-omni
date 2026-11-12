@@ -4,6 +4,7 @@ import { fiscalEmittersApi, manifestsApi, ordersFreightApi } from '../../../../l
 import type { AnttFloor, FiscalEmitter, TripPriceEstimate } from '../../../../types/index';
 import { ceilAnttCents, formatAnttFloor, formatAnttMoney, isBelowAnttFloor } from '../../lib/ciot';
 import { parseMoney } from '../../lib/trip';
+import { DateTimeField } from '../../ui/DateField';
 import { OsButton } from '../../ui/kit';
 import OsSheet, { apiErrorMessage, osFieldClass } from '../../ui/Sheet';
 
@@ -89,11 +90,11 @@ export const DepartureEditor: React.FC<EditorProps & { departure?: string | null
         >
             <label className="block text-[13px] font-bold text-tower-600 dark:text-tower-300">
                 Saída
-                <input type="datetime-local" value={dep} onChange={(e) => setDep(e.target.value)} className={clsx(osFieldClass, 'mt-1.5')} />
+                <DateTimeField value={dep} onChange={setDep} shortcuts={['now', 'today18', 'tomorrow08']} className="mt-1.5" />
             </label>
             <label className="mt-4 block text-[13px] font-bold text-tower-600 dark:text-tower-300">
                 Chegada prevista (opcional)
-                <input type="datetime-local" value={arr} onChange={(e) => setArr(e.target.value)} className={clsx(osFieldClass, 'mt-1.5')} />
+                <DateTimeField value={arr} onChange={setArr} shortcuts={['tomorrow08']} className="mt-1.5" />
             </label>
             <label className="mt-4 block text-[13px] font-bold text-tower-600 dark:text-tower-300">
                 Averbação do seguro

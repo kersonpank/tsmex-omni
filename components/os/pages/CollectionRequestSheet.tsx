@@ -19,6 +19,7 @@ import {
 } from '../lib/collection';
 import { EMPTY_PACKAGE_ROW, parsePackageRows, type PackageRow } from '../lib/packages';
 import AddressFields, { addressFrom, EMPTY_ADDRESS, type AddressValue } from '../ui/AddressFields';
+import { DateField } from '../ui/DateField';
 import { OsBadge, OsButton } from '../ui/kit';
 import OsSheet, { apiErrorMessage, osFieldClass } from '../ui/Sheet';
 import PartyPicker from './entry/PartyPicker';
@@ -776,13 +777,7 @@ const CollectionRequestSheet: React.FC<{
                 <div className="mt-2.5 grid grid-cols-2 gap-2">
                     <label className={LABEL}>
                         Data desejada
-                        <input
-                            type="date"
-                            min={todayIso()}
-                            value={date}
-                            onChange={(e) => setDate(e.target.value)}
-                            className={clsx(osFieldClass, 'mt-1.5')}
-                        />
+                        <DateField min={todayIso()} value={date} onChange={setDate} className="mt-1.5" />
                     </label>
                     <label className={LABEL}>
                         Janela de atendimento

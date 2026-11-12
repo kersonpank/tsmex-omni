@@ -29,6 +29,7 @@ import {
     type CiotFormState,
     type CiotDispensaReason,
 } from '../../lib/ciot';
+import { DateTimeField } from '../../ui/DateField';
 import { OsBadge, OsButton, OsErrorNotice } from '../../ui/kit';
 import OsSheet, { apiErrorMessage, osFieldClass } from '../../ui/Sheet';
 import PaymentAccountFields from './PaymentAccountFields';
@@ -361,14 +362,14 @@ const CiotEditor: React.FC<{
                                 ) : null}
                             </div>
                         ) : null}
-                        {selectedType !== 'TAC_AGREGADO' ? <Field label="Início da viagem*">{text('dataInicioViagem', 'datetime-local')}</Field> : null}
+                        {selectedType !== 'TAC_AGREGADO' ? <Field label="Início da viagem*"><DateTimeField value={form.dataInicioViagem} onChange={(v) => set('dataInicioViagem', v)} shortcuts={['now']} /></Field> : null}
                         {startInPast ? (
                             <div role="alert" className="flex flex-col gap-2 rounded-xl bg-brand-red-500/10 p-3">
                                 <p className="text-[13px] font-semibold text-brand-red-600 dark:text-brand-red-400">O início da viagem já passou. Atualize a saída prevista.</p>
                                 <OsButton full variant="secondary" onClick={() => { setFormOpen(false); onResolve('departure'); }}>Ajustar saída prevista</OsButton>
                             </div>
                         ) : null}
-                        <Field label="Fim da viagem*">{text('dataFimViagem', 'datetime-local')}</Field>
+                        <Field label="Fim da viagem*"><DateTimeField value={form.dataFimViagem} onChange={(v) => set('dataFimViagem', v)} shortcuts={['tomorrow08']} /></Field>
                         <p className="text-[12px] text-tower-500">{selectedType === 'TAC_AGREGADO' ? 'Até 30 dias da declaração.' : 'Início a partir de agora. Término em até 90 dias do início.'}</p>
                         {selectedType !== 'TAC_AGREGADO' ? (
                             <>
