@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { hubCargoApi, manifestsApi } from '../../../lib/api';
 import type { ConsolidationQueueGroup, Manifest } from '../../../types/index';
 import { useOs } from '../OsContext';
@@ -28,6 +28,7 @@ function groupTitle(g: ConsolidationQueueGroup): string {
 
 const TripsPage: React.FC = () => {
     const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
     const { hubId, capabilities, isAdmin } = useOs();
     const [groups, setGroups] = useState<ConsolidationQueueGroup[]>([]);
     const [active, setActive] = useState<Manifest[]>([]);
@@ -61,6 +62,14 @@ const TripsPage: React.FC = () => {
     useEffect(() => {
         void load();
     }, [load]);
+
+    // Vindo do recebimento ou da estação Entregar: abre direto o grupo de entrega local.
+    useEffect(() => {
+        if (searchParams.get('grupo') !== 'local' || loading) return;
+        const local = groups.find((g) => g.kind === 'LOCAL');
+        if (local) setSelected(local);
+        setSearchParams({}, { replace: true });
+    }, [searchParams, setSearchParams, groups, loading]);
 
     return (
         <div className="pb-6">

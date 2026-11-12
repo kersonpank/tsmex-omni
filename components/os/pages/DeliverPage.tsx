@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { manifestsApi } from '../../../lib/api';
+import { useNavigate } from 'react-router-dom';
+import { hubCargoApi, manifestsApi } from '../../../lib/api';
 import type { DeliveryProgress, Manifest } from '../../../types/index';
 import { useOs } from '../OsContext';
 import { concludePlan, deliveryTripsForHub, legState, legStatusLine, tripSummary } from '../lib/delivery';
@@ -73,7 +74,9 @@ const TripCard: React.FC<{
 };
 
 const DeliverPage: React.FC = () => {
+    const navigate = useNavigate();
     const { hubId, refresh } = useOs();
+    const [localWaiting, setLocalWaiting] = useState(0);
     const [entries, setEntries] = useState<TripEntry[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -91,7 +94,19 @@ const DeliverPage: React.FC = () => {
             const loaded = await Promise.all(
                 trips.map(async (manifest) => ({ manifest, items: (await manifestsApi.deliveryProgress(manifest.id)).data ?? [] })),
             );
-            setEntries(loaded.filter((entry) => entry.items.length > 0));
+            const withItems = loaded.filter((entry) => entry.items.length > 0);
+            setEntries(withItems);
+            // Sem viagem de entrega em andamento: avisa se há pedido local parado em estoque (o caminho é montar a entrega).
+            setLocalWaiting(0);
+            if (withItems.length === 0) {
+                try {
+                    const queues = await hubCargoApi.queues(hubId);
+                    const groups = Array.isArray(queues.data) ? queues.data : [];
+                    setLocalWaiting(groups.filter((g) => g.kind === 'LOCAL').reduce((sum, g) => sum + g.orders.length, 0));
+                } catch {
+                    /* a dica é opcional */
+                }
+            }
         } catch {
             setError('Não foi possível carregar as entregas. Verifique a conexão e tente de novo.');
         } finally {
@@ -136,10 +151,19 @@ const DeliverPage: React.FC = () => {
             ) : error ? (
                 <OsErrorNotice message={error} onRetry={() => void load()} />
             ) : entries.length === 0 ? (
-                <OsEmpty
-                    title="Nada saiu para entrega"
-                    detail="Quando uma viagem de entrega deste hub sair, os pedidos aparecem aqui para você comprovar."
-                />
+                <div className="flex flex-col gap-3">
+                    <OsEmpty
+                        title="Nada saiu para entrega"
+                        detail="Quando uma viagem de entrega deste hub sair, os pedidos aparecem aqui para você comprovar."
+                    />
+                    {localWaiting > 0 ? (
+                        <OsCard className="!p-4">
+                            <p className="font-semibold text-tower-900 dark:text-white">{localWaiting} pedido(s) em estoque são entrega desta unidade</p>
+                            <p className="mt-0.5 text-[13px] text-tower-500 dark:text-tower-400">Falta montar a viagem de entrega para eles saírem.</p>
+                            <OsButton full className="mt-3" onClick={() => navigate('/hubs/viagens?grupo=local')}>Montar entrega</OsButton>
+                        </OsCard>
+                    ) : null}
+                </div>
             ) : (
                 <div className="flex flex-col gap-3">
                     {entries.map((entry) => (
