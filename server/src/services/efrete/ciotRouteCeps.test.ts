@@ -12,14 +12,14 @@ describe('resolveCiotRouteCeps', () => {
         assert.deepEqual(result, {});
     });
 
-    it('cidades diferentes com os dois CEPs: envia em par', () => {
+    it('cidades diferentes: não envia CEP (o par de códigos IBGE basta e CEP desconhecido é recusado)', () => {
         const result = resolveCiotRouteCeps({
             manifest: {
                 hub: hub(), destinationCity: 'Santa Inês', destinationState: 'MA', destinationCityIbgeCode: '2111201',
                 legs: [{ order: { fimIbgeCode: '2111201', destinatarioPerson: { cep: '65.300-000', cityIbgeCode: '2111201' } } }],
             } as any,
         });
-        assert.deepEqual(result, { cepOrigem: '65010000', cepDestino: '65300000' });
+        assert.deepEqual(result, {});
     });
 
     it('só um CEP disponível (cidades diferentes): omite os dois, pois a ANTT recusa tipos mistos', () => {

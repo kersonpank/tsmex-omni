@@ -73,6 +73,10 @@ export function resolveCiotRouteCeps(input: CiotRouteCepsInput): { cepOrigem?: s
             400,
         );
     }
+    // Entre municípios diferentes o par de códigos IBGE basta. Mandar CEP sem necessidade expõe a viagem a
+    // uma recusa nova ("O CEP … ainda não está cadastrado em nossos sistemas", vista em homologação): o CEP
+    // só vai quando origem e destino são o mesmo município, que é quando a eFrete o exige.
+    if (!sameMunicipality) return {};
     // Manual v8.2 pág. 6: o mesmo tipo de dado na origem e no destino; CEP sozinho é recusado pela ANTT.
     if (!cepOrigem || !cepDestino) return {};
     return { cepOrigem, cepDestino };
