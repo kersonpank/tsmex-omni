@@ -69,6 +69,8 @@ type FormState = {
   atmEnvironment: 'HOMOLOGACAO' | 'PRODUCAO';
   cargoTracked: boolean;
   cargoLoadUnloadCovered: boolean;
+  atmDeclareMdfe: boolean;
+  rcvBlocksDeparture: boolean;
   hasAtmPassword: boolean;
 };
 
@@ -105,6 +107,8 @@ const emptyForm: FormState = {
   atmEnvironment: 'HOMOLOGACAO',
   cargoTracked: false,
   cargoLoadUnloadCovered: false,
+  atmDeclareMdfe: true,
+  rcvBlocksDeparture: false,
   hasAtmPassword: false,
 };
 
@@ -155,6 +159,8 @@ function emitterToForm(emitter: FiscalEmitter): FormState {
     atmEnvironment: emitter.atmEnvironment ?? 'HOMOLOGACAO',
     cargoTracked: Boolean(emitter.cargoTracked),
     cargoLoadUnloadCovered: Boolean(emitter.cargoLoadUnloadCovered),
+    atmDeclareMdfe: emitter.atmDeclareMdfe ?? true,
+    rcvBlocksDeparture: Boolean(emitter.rcvBlocksDeparture),
     hasAtmPassword: Boolean(emitter.hasAtmPassword),
   };
 }
@@ -426,6 +432,8 @@ const IdentidadeVisualTab: React.FC = () => {
         atmEnvironment: form.atmEnvironment,
         cargoTracked: form.cargoTracked,
         cargoLoadUnloadCovered: form.cargoLoadUnloadCovered,
+        atmDeclareMdfe: form.atmDeclareMdfe,
+        rcvBlocksDeparture: form.rcvBlocksDeparture,
       };
 
       const result = form.id
@@ -829,7 +837,7 @@ const IdentidadeVisualTab: React.FC = () => {
                 <div className="mt-4 border-t border-tower-100 pt-4 dark:border-tower-700">
                   <p className="text-sm font-semibold text-tower-800 dark:text-tower-100">Averbação eletrônica</p>
                   <p className="mt-1 text-xs text-tower-500 dark:text-tower-400">
-                    Com AT&amp;M, cada CT-e autorizado é averbado automaticamente e o MDF-e usa esses números. Sem provedor, a averbação segue manual na viagem.
+                    Com AT&amp;M, cada CT-e autorizado é averbado automaticamente e o MDF-e usa esses números. Teste e produção usam o mesmo endereço da AT&amp;M: o que muda é a caixa postal (código, usuário e senha). Sem provedor, a averbação segue manual na viagem.
                   </p>
                   <div className="mt-3 grid gap-4 sm:grid-cols-3">
                     <label className="block">
@@ -846,7 +854,7 @@ const IdentidadeVisualTab: React.FC = () => {
                     {form.averbacaoProvider === 'ATM' && (
                       <>
                         <label className="block">
-                          <span className="text-sm font-medium text-tower-800 dark:text-tower-200">Ambiente AT&amp;M</span>
+                          <span className="text-sm font-medium text-tower-800 dark:text-tower-200">Ambiente (rótulo)</span>
                           <select
                             className="admin-focus mt-1 w-full rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900"
                             value={form.atmEnvironment}
@@ -888,6 +896,18 @@ const IdentidadeVisualTab: React.FC = () => {
                       <input type="checkbox" className="h-4 w-4 rounded border-tower-300 text-brand-600" checked={form.cargoLoadUnloadCovered} onChange={(e) => update('cargoLoadUnloadCovered', e.target.checked)} />
                       Carga e Descarga
                     </label>
+                    {form.averbacaoProvider === 'ATM' && (
+                      <>
+                        <label className="flex items-center gap-2 text-sm text-tower-800 dark:text-tower-200">
+                          <input type="checkbox" className="h-4 w-4 rounded border-tower-300 text-brand-600" checked={form.atmDeclareMdfe} onChange={(e) => update('atmDeclareMdfe', e.target.checked)} />
+                          Averbar MDF-e na AT&amp;M (RC-V)
+                        </label>
+                        <label className="flex items-center gap-2 text-sm text-tower-800 dark:text-tower-200">
+                          <input type="checkbox" className="h-4 w-4 rounded border-tower-300 text-brand-600" checked={form.rcvBlocksDeparture} onChange={(e) => update('rcvBlocksDeparture', e.target.checked)} />
+                          Bloquear a saída se o RC-V for recusado
+                        </label>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
