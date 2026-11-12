@@ -324,6 +324,16 @@ const TripPrepPage: React.FC = () => {
                                 {leg.order?.demand?.destination ? (
                                     <p className="truncate text-[12px] text-tower-500 dark:text-tower-400">{leg.order.demand.destination}</p>
                                 ) : null}
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        navigate(`/hubs/pedidos/${leg.orderId}`, { state: { focus: 'rastreio' } });
+                                    }}
+                                    className="mt-1 mr-4 min-h-[36px] text-[13px] font-bold text-brand-600 dark:text-brand-300"
+                                >
+                                    Rastreio
+                                </button>
                                 {editable ? (
                                     <button
                                         type="button"
@@ -402,6 +412,7 @@ const TripPrepPage: React.FC = () => {
                     departure={manifest.plannedDepartureAt}
                     arrival={manifest.plannedArrivalAt}
                     averbacao={manifest.cargoInsuranceAverbacao}
+                    electronicAverbacao={manifest.fiscalEmitter?.averbacaoProvider === 'ATM'}
                     averbacaoOrders={(readiness?.issues ?? []).find((issue) => issue.code === 'MDFE_CARGO_AVERBACAO_PENDING')?.averbacaoOrders}
                     onClose={() => setOpen(null)}
                     onSaved={closeAndReload}

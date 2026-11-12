@@ -1,21 +1,19 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { hubExceptionsApi, manifestsApi } from '../../../lib/api';
 import type { HubExceptionItem, HubExceptionList } from '../../../types/index';
 import { useOs } from '../OsContext';
-import { ageLabel, dueLabel, exceptionAction, MIN_NOTE_LENGTH } from '../lib/exceptions';
+import { MIN_NOTE_LENGTH } from '../lib/exceptions';
 import OsSheet, { apiErrorMessage, osFieldClass } from '../ui/Sheet';
-import { OsBadge, OsButton, OsEmpty, OsErrorNotice, OsRow, OsSectionTitle, OsSkeletonRows, type RowTone } from '../ui/kit';
+import { OsBadge, OsButton, OsEmpty, OsErrorNotice, OsSectionTitle, OsSkeletonRows } from '../ui/kit';
+import ExceptionList from './exceptions/ExceptionList';
+import ExceptionsIntro from './exceptions/ExceptionsIntro';
 
 /**
  * EXCEÇÕES — "o que travou e é meu para resolver". Fila ordenada por prazo (vencidas primeiro);
  * cada cartão diz o que travou, há quanto tempo e traz a ação que resolve.
  */
 
-const TONE: Record<HubExceptionItem['severity'], RowTone> = { CRITICAL: 'bad', WARNING: 'attention', INFO: 'route' };
-
 const ExceptionsPage: React.FC = () => {
-    const navigate = useNavigate();
     const { hubId, refreshExceptions } = useOs();
     const [data, setData] = useState<HubExceptionList | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -98,6 +96,7 @@ const ExceptionsPage: React.FC = () => {
             <OsSectionTitle action={<OsBadge tone={data.counts.overdue > 0 ? 'bad' : 'neutral'}>{data.counts.overdue} vencida(s)</OsBadge>}>
                 Exceções
             </OsSectionTitle>
+            <ExceptionsIntro />
             {notice ? (
                 <p role="status" className={`mb-3 text-[13px] font-semibold ${notice.ok ? 'text-emerald-700 dark:text-emerald-300' : 'text-brand-red-600'}`}>
                     {notice.text}
@@ -106,43 +105,13 @@ const ExceptionsPage: React.FC = () => {
             {data.items.length === 0 ? (
                 <OsEmpty title="Nada travado" detail="Quando algo exigir ação deste hub (avaria, atraso, estoque parado), aparece aqui com prazo." />
             ) : (
-                <div className="flex flex-col gap-2.5">
-                    {data.items.map((item) => {
-                        const action = exceptionAction(item);
-                        const busy = busyId === item.id;
-                        return (
-                            <OsRow key={item.id} tone={item.overdue ? 'bad' : TONE[item.severity]} chevron={false} className="!items-start">
-                                <div className="flex items-start justify-between gap-2">
-                                    <p className="font-semibold leading-snug text-tower-900 dark:text-white">{item.title}</p>
-                                    <OsBadge tone={item.overdue ? 'bad' : 'warn'}>{dueLabel(item)}</OsBadge>
-                                </div>
-                                <p className="mt-1 text-[13px] leading-relaxed text-tower-600 dark:text-tower-300">{item.message}</p>
-                                <p className="mt-1 text-[11px] text-tower-400">
-                                    {ageLabel(item)}
-                                    {item.status === 'ACKNOWLEDGED' ? ' · ciente' : ''}
-                                </p>
-                                <div className="mt-2.5 flex flex-wrap gap-2">
-                                    {action.kind === 'link' ? (
-                                        <OsButton className="min-h-[44px]" onClick={() => navigate(action.to)}>{action.label}</OsButton>
-                                    ) : null}
-                                    {action.kind === 'retryFiscalClosure' ? (
-                                        <OsButton className="min-h-[44px]" disabled={busy} onClick={() => void retryClosure(item, action.manifestId)}>
-                                            {action.label}
-                                        </OsButton>
-                                    ) : null}
-                                    <OsButton variant="secondary" className="min-h-[44px]" disabled={busy} onClick={() => { setResolving(item); setSheetError(null); }}>
-                                        Resolver
-                                    </OsButton>
-                                    {item.status === 'OPEN' ? (
-                                        <OsButton variant="ghost" className="min-h-[44px]" disabled={busy} onClick={() => void acknowledge(item)}>
-                                            Ciente
-                                        </OsButton>
-                                    ) : null}
-                                </div>
-                            </OsRow>
-                        );
-                    })}
-                </div>
+                <ExceptionList
+                    items={data.items}
+                    busyId={busyId}
+                    onRetryClosure={(item, manifestId) => void retryClosure(item, manifestId)}
+                    onResolve={(item) => { setResolving(item); setSheetError(null); }}
+                    onAcknowledge={(item) => void acknowledge(item)}
+                />
             )}
 
             {resolving ? (

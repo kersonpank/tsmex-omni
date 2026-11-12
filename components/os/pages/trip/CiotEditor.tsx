@@ -24,15 +24,18 @@ import {
     ciotNcmOptions,
     ciotPaymentFromAccount,
     ciotPaymentAccount,
+    ciotRecipientMissing,
     type CiotAddressState,
     type CiotFixGroup,
     type CiotFormState,
     type CiotDispensaReason,
 } from '../../lib/ciot';
+import { DateTimeField } from '../../ui/DateField';
 import { OsBadge, OsButton, OsErrorNotice } from '../../ui/kit';
 import OsSheet, { apiErrorMessage, osFieldClass } from '../../ui/Sheet';
 import PaymentAccountFields from './PaymentAccountFields';
 import CiotRecipientPicker from './CiotRecipientPicker';
+import CiotRecipientNotice from './CiotRecipientNotice';
 
 const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
     <label className="block text-[13px] font-bold text-tower-600 dark:text-tower-300">
@@ -72,6 +75,8 @@ const CiotEditor: React.FC<{
     const [savePayment, setSavePayment] = useState(true);
     const [paymentEdited, setPaymentEdited] = useState(false);
     const baseline = useRef<CiotFormState | null>(null);
+    const baselineAddress = useRef<CiotAddressState | null>(null);
+    const [recipientTouched, setRecipientTouched] = useState(false);
     const timer = useRef<number | null>(null);
     const alive = useRef(true);
 
@@ -148,6 +153,8 @@ const CiotEditor: React.FC<{
     const openForm = () => {
         const initial = initialCiotForm(manifest, new Date(), manifest.ciotSuggestion);
         baseline.current = initial.form;
+        baselineAddress.current = initial.address;
+        setRecipientTouched(false);
         setForm(initial.form);
         setAddress(initial.address);
         setOverride(manifest.ciotTipoViagemOverride ?? '');
@@ -166,6 +173,14 @@ const CiotEditor: React.FC<{
             if (data && base) {
                 const next = initialCiotForm(manifest, new Date(), data).form;
                 setForm((current) => mergeCiotDefaults(current, base, next));
+                // Destinatário resolvido pelo servidor entra só se o operador ainda não mexeu nele.
+                const nextBase = initialCiotForm(manifest, new Date(), data);
+                const baseAddress = baselineAddress.current;
+                if (data.recipient && baseAddress) {
+                    setForm((current) => (current.destNome === base.destNome && current.destCpfCnpj === base.destCpfCnpj ? { ...current, destNome: nextBase.form.destNome, destCpfCnpj: nextBase.form.destCpfCnpj } : current));
+                    setAddress((current) => (JSON.stringify(current) === JSON.stringify(baseAddress) ? nextBase.address : current));
+                    baselineAddress.current = nextBase.address;
+                }
                 baseline.current = next;
             }
         }).catch(() => setSuggestion(null));
@@ -361,14 +376,14 @@ const CiotEditor: React.FC<{
                                 ) : null}
                             </div>
                         ) : null}
-                        {selectedType !== 'TAC_AGREGADO' ? <Field label="Início da viagem*">{text('dataInicioViagem', 'datetime-local')}</Field> : null}
+                        {selectedType !== 'TAC_AGREGADO' ? <Field label="Início da viagem*"><DateTimeField value={form.dataInicioViagem} onChange={(v) => set('dataInicioViagem', v)} shortcuts={['now']} /></Field> : null}
                         {startInPast ? (
                             <div role="alert" className="flex flex-col gap-2 rounded-xl bg-brand-red-500/10 p-3">
                                 <p className="text-[13px] font-semibold text-brand-red-600 dark:text-brand-red-400">O início da viagem já passou. Atualize a saída prevista.</p>
                                 <OsButton full variant="secondary" onClick={() => { setFormOpen(false); onResolve('departure'); }}>Ajustar saída prevista</OsButton>
                             </div>
                         ) : null}
-                        <Field label="Fim da viagem*">{text('dataFimViagem', 'datetime-local')}</Field>
+                        <Field label="Fim da viagem*"><DateTimeField value={form.dataFimViagem} onChange={(v) => set('dataFimViagem', v)} shortcuts={['tomorrow08']} /></Field>
                         <p className="text-[12px] text-tower-500">{selectedType === 'TAC_AGREGADO' ? 'Até 30 dias da declaração.' : 'Início a partir de agora. Término em até 90 dias do início.'}</p>
                         {selectedType !== 'TAC_AGREGADO' ? (
                             <>
@@ -468,7 +483,9 @@ const CiotEditor: React.FC<{
                     </div>
 
                     <Legend>Destinatário</Legend>
-                    <CiotRecipientPicker manifest={manifest} hubs={hubs} onChange={(recipient) => {
+                    <CiotRecipientNotice recipient={suggestion?.recipient ?? manifest.ciotSuggestion?.recipient ?? null} missing={ciotRecipientMissing(form, address)} touched={recipientTouched} />
+                    <CiotRecipientPicker manifest={manifest} hubs={hubs} suggested={suggestion?.recipient ?? manifest.ciotSuggestion?.recipient ?? null} onChange={(recipient) => {
+                        setRecipientTouched(true);
                         setForm((current) => ({ ...current, ...recipient.form }));
                         setAddress(recipient.address);
                     }} />

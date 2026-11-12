@@ -23,6 +23,8 @@ import { ciotCompositionFlag, emitCiotSchema, validateCiotPersonAddress, validat
 import { splitPhone } from '../services/efrete/efreteUtil.js';
 import { suggestCiotTipoViagem } from '../services/efrete/ciotTipoViagemRule.js';
 import { ciotSuggestionDefaults } from '../services/efrete/ciotSuggestionDefaults.js';
+import { suggestCiotRecipient } from '../services/ciotRecipient.js';
+import { manifestArrivalRouter } from './manifestArrival.js';
 import { getManifestAnttSuggestion } from '../services/manifestAnttSuggestion.js';
 import { cancelarCiot } from '../services/efrete/efreteCiotEmit.js';
 import { getObjectDownloadUrl } from '../lib/objectStorage.js';
@@ -83,6 +85,7 @@ const router = Router();
 
 // Anti-IDOR: HUB só viagens do próprio depósito (origem/destino/parada); LINK só as suas; CLIENT nunca.
 router.use(uuidParam(), ...resourceGuard('manifest'));
+router.use('/:id', manifestArrivalRouter); // PATCH /:id/arrive e /:id/stops/:stopId/arrive
 
 const operationalTripTypeSchema = z.enum(OPERATIONAL_TRIP_TYPES);
 
@@ -367,6 +370,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
                               id: leg.order.id,
                               status: leg.order.status,
                               nfNumber: leg.order.nfNumber,
+                              invoices: leg.order.invoicesRel?.map((invoice) => ({ nfNumber: invoice.nfNumber, nfKey: invoice.nfKey })) ?? [],
                               destinatarioPerson: leg.order.destinatarioPerson,
                               freightDocState: (leg.order as unknown as { freightDocState?: FreightDocState }).freightDocState ?? 'none',
                               freightCalculations: leg.order.freightCalculations,
@@ -378,7 +382,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response, next: N
                 })),
                 ...marginInfo,
                 ...(req.user!.roles.some((role) => role === 'ADMIN' || role === 'HUB') ? {
-                    ciotSuggestion: { ...await suggestCiotTipoViagem(id), ...ciotSuggestionDefaults(manifest), ...await getManifestAnttSuggestion(id), override: manifest.ciotTipoViagemOverride },
+                    ciotSuggestion: { ...await suggestCiotTipoViagem(id), ...ciotSuggestionDefaults(manifest), ...await getManifestAnttSuggestion(id), recipient: await suggestCiotRecipient(id), override: manifest.ciotTipoViagemOverride },
                 } : {}),
             },
         });
@@ -1627,7 +1631,7 @@ router.get('/:id/ciot-suggestion', authenticate, authorize('ADMIN', 'HUB'), asyn
         }
 
         const suggestion = await suggestCiotTipoViagem(id);
-        res.json({ success: true, data: { ...suggestion, ...ciotSuggestionDefaults(manifest), ...await getManifestAnttSuggestion(id), override: manifest.ciotTipoViagemOverride } });
+        res.json({ success: true, data: { ...suggestion, ...ciotSuggestionDefaults(manifest), ...await getManifestAnttSuggestion(id), recipient: await suggestCiotRecipient(id), override: manifest.ciotTipoViagemOverride } });
     } catch (error) {
         next(error);
     }

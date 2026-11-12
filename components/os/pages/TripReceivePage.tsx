@@ -1,7 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import clsx from 'clsx';
-import { manifestsApi } from '../../../lib/api';
+import { manifestsApi, ordersApi } from '../../../lib/api';
 import { useOs } from '../OsContext';
 import {
     arrivalStopForHub,
@@ -12,27 +11,43 @@ import {
     summarizeConference,
     type ConferenceMark,
     type ManifestWithLegs,
+    type UnloadItem,
 } from '../lib/arrival';
+import {
+    arrivedTime,
+    clearDraft,
+    emptyDraft,
+    itemLabel,
+    loadDraft,
+    matchScanLocal,
+    pruneDraft,
+    saveDraft,
+    scanOutcomeFor,
+    type ConferenceDraft,
+} from '../lib/conference';
 import { OsActionBar, OsButton, OsCard, OsEmpty, OsErrorNotice, OsSkeletonRows } from '../ui/kit';
-import { IconAlert, IconCheck, IconX, type OsIconProps } from '../ui/icons';
+import { apiErrorMessage } from '../ui/Sheet';
+import ConferenceRow from './receive/ConferenceRow';
+import ConferenceScan, { type ScanFeedback } from './receive/ConferenceScan';
+import { DamageSheet, MissingSheet } from './receive/ConferenceSheets';
+import ReceiveDone from './receive/ReceiveDone';
 
 /**
- * RECEBER VIAGEM — conferência da descarga, pedido a pedido.
- * Regra da estação: divergência nunca encerra em silêncio. As marcações vão na MESMA
- * chamada que conclui a descarga (atômica): avaria entra no estoque com evento de avaria,
- * "não chegou" volta ao estoque do hub de origem; ambos abrem alerta, com ator da sessão.
+ * RECEBER VIAGEM — duas etapas.
+ * 1) "A carreta chegou": um toque registra quem e quando (rastro em cada pedido), sem mudar o status.
+ * 2) Conferência por leitura, pedido a pedido. Regra da estação: divergência nunca encerra em silêncio.
+ * As marcações vão na MESMA chamada que conclui a descarga (atômica): avaria entra no estoque com evento
+ * de avaria, "não chegou" volta ao estoque do hub de origem; ambos abrem alerta, com ator da sessão.
+ * A conferência em andamento fica guardada no aparelho, por viagem.
  */
 
-const MARKS: Array<{
-    mark: ConferenceMark;
-    label: string;
-    Icon: React.FC<OsIconProps>;
-    selected: string;
-}> = [
-    { mark: 'OK', label: 'Chegou', Icon: IconCheck, selected: 'border-emerald-600 bg-emerald-600 text-white' },
-    { mark: 'AVARIA', label: 'Avaria', Icon: IconAlert, selected: 'border-brand-yellow-500 bg-brand-yellow-400 text-brand-950' },
-    { mark: 'FALTA', label: 'Não chegou', Icon: IconX, selected: 'border-brand-red-600 bg-brand-red-500 text-white' },
-];
+const buzz = (pattern: number | number[]) => {
+    try {
+        navigator.vibrate?.(pattern);
+    } catch {
+        /* sem vibração */
+    }
+};
 
 const TripReceivePage: React.FC = () => {
     const { manifestId } = useParams<{ manifestId: string }>();
@@ -41,11 +56,15 @@ const TripReceivePage: React.FC = () => {
     const [manifest, setManifest] = useState<ManifestWithLegs | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [marks, setMarks] = useState<Record<string, ConferenceMark | undefined>>({});
-    const [notes, setNotes] = useState<Record<string, string>>({});
+    const [draft, setDraft] = useState<ConferenceDraft>(emptyDraft);
+    const [draftReady, setDraftReady] = useState(false);
+    const [arrivedAt, setArrivedAt] = useState<string | null>(null);
+    const [arriving, setArriving] = useState(false);
+    const [feedback, setFeedback] = useState<ScanFeedback>(null);
+    const [sheet, setSheet] = useState<{ kind: 'damage' | 'missing'; item: UnloadItem } | null>(null);
     const [ack, setAck] = useState(false);
     const [saving, setSaving] = useState(false);
-    const [doneMessage, setDoneMessage] = useState<string | null>(null);
+    const [done, setDone] = useState<{ message: string; received: string[]; photoFailures: number } | null>(null);
 
     useEffect(() => {
         if (!manifestId) return;
@@ -67,8 +86,88 @@ const TripReceivePage: React.FC = () => {
     }, [manifestId]);
 
     const items = useMemo(() => (manifest && hubId ? ordersToUnload(manifest, hubId) : []), [manifest, hubId]);
+    const stop = useMemo(() => (manifest && hubId ? arrivalStopForHub(manifest, hubId) : null), [manifest, hubId]);
+    const { marks, notes, photos } = draft;
     const summary = useMemo(() => summarizeConference(items, marks), [items, marks]);
     const concludable = canConclude(summary, ack);
+
+    useEffect(() => {
+        if (!manifest) return;
+        setArrivedAt((stop ? stop.arrivedAt : manifest.arrivedAt) ?? null);
+    }, [manifest, stop]);
+
+    useEffect(() => {
+        if (!manifest || !manifestId || draftReady) return;
+        setDraft(pruneDraft(loadDraft(manifestId), items));
+        setDraftReady(true);
+    }, [manifest, manifestId, items, draftReady]);
+
+    useEffect(() => {
+        if (manifestId && draftReady && !done) saveDraft(manifestId, draft);
+    }, [manifestId, draft, draftReady, done]);
+
+    const setMark = useCallback((orderId: string, mark: ConferenceMark, note?: string, photo?: string) => {
+        setDraft((prev) => ({
+            marks: { ...prev.marks, [orderId]: mark },
+            notes: note !== undefined ? { ...prev.notes, [orderId]: note } : prev.notes,
+            photos: photo !== undefined ? { ...prev.photos, [orderId]: photo } : prev.photos,
+        }));
+    }, []);
+
+    const registerArrival = async () => {
+        if (!manifest || arriving) return;
+        setArriving(true);
+        setError(null);
+        try {
+            const body = await manifestsApi.arrive(manifest.id, stop?.id);
+            setArrivedAt(body.data?.arrivedAt ?? new Date().toISOString());
+        } catch (cause) {
+            setError(apiErrorMessage(cause, 'Não foi possível registrar a chegada. Tente de novo.'));
+        } finally {
+            setArriving(false);
+        }
+    };
+
+    const handleCode = async (code: string) => {
+        let target = matchScanLocal(code, items);
+        if (!target) {
+            try {
+                const res = await ordersApi.resolve(code);
+                if (res.match === 'single') {
+                    target = items.find((item) => item.orderId === res.order.id) ?? null;
+                    if (!target) {
+                        buzz([120, 60, 120]);
+                        setFeedback({ tone: 'bad', text: `${res.order.orderNumber ? `Pedido ${res.order.orderNumber}` : 'Esse pedido'} não pertence a esta viagem. Separe a carga.` });
+                        return;
+                    }
+                } else if (res.match === 'multiple') {
+                    const inTrip = res.candidates.map((c) => items.find((item) => item.orderId === c.id)).filter((x): x is UnloadItem => Boolean(x));
+                    if (inTrip.length !== 1) {
+                        buzz([120, 60, 120]);
+                        setFeedback({ tone: 'warn', text: inTrip.length ? 'Mais de um pedido desta viagem responde por esse código. Use a chave de 44 dígitos.' : 'Nenhum pedido desta viagem tem esse código.' });
+                        return;
+                    }
+                    target = inTrip[0];
+                } else {
+                    buzz([120, 60, 120]);
+                    setFeedback({ tone: 'bad', text: 'Código não encontrado. Confira a etiqueta ou use os botões abaixo.' });
+                    return;
+                }
+            } catch {
+                setFeedback({ tone: 'bad', text: 'Não foi possível consultar o código. Confira a conexão ou use os botões abaixo.' });
+                return;
+            }
+        }
+        const outcome = scanOutcomeFor(target, marks[target.orderId]);
+        if (outcome.kind === 'marked') {
+            setMark(target.orderId, 'OK');
+            buzz(60);
+            setFeedback({ tone: 'ok', text: `${outcome.message} Conferidos ${summary.marked + (marks[target.orderId] ? 0 : 1)}/${summary.total}.` });
+        } else {
+            buzz([60, 40, 60]);
+            setFeedback({ tone: 'warn', text: outcome.message });
+        }
+    };
 
     const conclude = async () => {
         if (!manifest || !hubId || !concludable || saving) return;
@@ -78,17 +177,28 @@ const TripReceivePage: React.FC = () => {
             // Uma chamada só: conclui a descarga (parada deste hub, ou a viagem quando é o destino final)
             // levando a conferência; o servidor aplica o efeito de cada marcação na mesma transação.
             const arrivals = buildArrivals(items, marks, notes);
-            const stop = arrivalStopForHub(manifest, hubId);
             const body = stop
                 ? await manifestsApi.completeStop(manifest.id, stop.id, { arrivals })
                 : await manifestsApi.complete(manifest.id, { arrivals });
-            const applied = body.data?.arrivals ?? {
-                stocked: summary.ok + summary.avaria,
-                damaged: summary.avaria,
-                missing: summary.falta,
-            };
+            const applied = body.data?.arrivals ?? { stocked: summary.ok + summary.avaria, damaged: summary.avaria, missing: summary.falta };
+            if (manifestId) clearDraft(manifestId);
+            // Foto da avaria vai ao histórico do pedido (a conclusão em si não carrega anexos).
+            let photoFailures = 0;
+            for (const item of items) {
+                const photo = photos[item.orderId];
+                if (marks[item.orderId] !== 'AVARIA' || !photo) continue;
+                try {
+                    await ordersApi.addHistory(item.orderId, { eventType: 'NOTE', description: 'Foto da avaria na conferência de chegada.', photoUrl: photo });
+                } catch {
+                    photoFailures += 1;
+                }
+            }
             await refresh();
-            setDoneMessage(arrivalSuccessMessage(applied));
+            setDone({
+                message: arrivalSuccessMessage(applied),
+                received: items.filter((item) => marks[item.orderId] === 'OK' || marks[item.orderId] === 'AVARIA').map((item) => item.orderId),
+                photoFailures,
+            });
         } catch {
             setError('Não foi possível concluir o recebimento. Nada foi perdido — tente de novo.');
         } finally {
@@ -97,96 +207,64 @@ const TripReceivePage: React.FC = () => {
     };
 
     if (loading) return <OsSkeletonRows count={4} />;
-    if (doneMessage) {
+    if (done) return <ReceiveDone hubId={hubId} message={done.message} receivedOrderIds={done.received} photoFailures={done.photoFailures} />;
+    if (!manifest) return <OsErrorNotice message={error ?? 'Viagem não encontrada.'} />;
+
+    const header = (
+        <div className="mb-4 rounded-xl bg-brand-500 p-4 text-white dark:bg-brand-600">
+            <p className="font-display text-[17px] font-bold leading-snug">{manifest.origin} → {manifest.destination}</p>
+            <p className="mt-1 text-[13px] text-brand-100">
+                {items.length} pedido(s) descem aqui
+                {arrivedAt ? <> · carreta chegou às <span className="font-bold text-white">{arrivedTime(arrivedAt)}</span></> : null}
+            </p>
+        </div>
+    );
+
+    if (!arrivedAt) {
         return (
-            <div className="pb-40 pt-2">
+            <div className="pb-40">
+                {header}
+                {error ? <div className="mb-3"><OsErrorNotice message={error} /></div> : null}
                 <OsCard className="!p-4">
-                    <p className="font-display text-[17px] font-bold text-tower-900 dark:text-white">Recebimento registrado</p>
-                    <p className="mt-1.5 text-[14px] text-tower-600 dark:text-tower-300" role="status">{doneMessage}</p>
+                    <p className="font-display text-[15px] font-bold text-tower-900 dark:text-white">Etapa 1 de 2 · Chegada</p>
+                    <p className="mt-1.5 text-[14px] text-tower-600 dark:text-tower-300">
+                        Quando o veículo parar no seu pátio, toque abaixo. Fica registrado quem e quando, e a conferência da carga é liberada.
+                    </p>
                 </OsCard>
                 <OsActionBar>
-                    <OsButton full onClick={() => navigate('/hubs/receber', { replace: true })}>Voltar às chegadas</OsButton>
+                    <OsButton full disabled={arriving} onClick={() => void registerArrival()}>
+                        {arriving ? 'Registrando…' : 'A carreta chegou'}
+                    </OsButton>
                 </OsActionBar>
             </div>
         );
     }
-    if (!manifest) return <OsErrorNotice message={error ?? 'Viagem não encontrada.'} />;
 
     return (
         <div className="pb-40">
-            <div className="mb-4 rounded-xl bg-brand-500 p-4 text-white dark:bg-brand-600">
-                <p className="font-display text-[17px] font-bold leading-snug">
-                    {manifest.origin} → {manifest.destination}
-                </p>
-                <p className="mt-1 text-[13px] text-brand-100">
-                    {items.length} pedido(s) descem aqui · conferidos{' '}
-                    <span className="font-display font-bold text-white">
-                        {summary.marked}/{summary.total}
-                    </span>
-                </p>
-            </div>
-
-            {error ? (
-                <div className="mb-3">
-                    <OsErrorNotice message={error} />
-                </div>
-            ) : null}
-
+            {header}
+            {error ? <div className="mb-3"><OsErrorNotice message={error} /></div> : null}
             {items.length === 0 ? (
-                <OsEmpty
-                    title="Nenhum pedido vinculado a esta descarga"
-                    detail="Confira na Torre se as pernas desta viagem foram vinculadas à parada deste hub."
-                />
+                <OsEmpty title="Nenhum pedido vinculado a esta descarga" detail="Confira na Torre se as pernas desta viagem foram vinculadas à parada deste hub." />
             ) : (
-                <div className="flex flex-col gap-2.5">
-                    {items.map((item) => {
-                        const current = marks[item.orderId];
-                        return (
-                            <OsCard key={item.orderId} className="!p-3.5">
-                                <p className="font-semibold text-tower-900 dark:text-white">
-                                    {item.orderNumber ? `Pedido ${item.orderNumber}` : 'Pedido'}
-                                    {item.nfNumber ? (
-                                        <>
-                                            {' · NF '}
-                                            <span className="font-mono text-[14px] font-medium">{item.nfNumber}</span>
-                                        </>
-                                    ) : null}
-                                </p>
-                                {item.destination ? (
-                                    <p className="mt-0.5 text-[13px] text-tower-500 dark:text-tower-400">{item.destination}</p>
-                                ) : null}
-                                <div className="mt-3 grid grid-cols-3 gap-2">
-                                    {MARKS.map(({ mark, label, Icon, selected }) => (
-                                        <button
-                                            key={mark}
-                                            type="button"
-                                            aria-pressed={current === mark}
-                                            onClick={() => setMarks((prev) => ({ ...prev, [item.orderId]: mark }))}
-                                            className={clsx(
-                                                'flex min-h-[48px] flex-col items-center justify-center gap-0.5 rounded-lg border-2 text-[12px] font-bold transition-colors focus-visible:outline-2 focus-visible:outline-brand-500',
-                                                current === mark
-                                                    ? selected
-                                                    : 'border-tower-200 bg-white text-tower-500 active:bg-tower-50 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-300',
-                                            )}
-                                        >
-                                            <Icon size={18} />
-                                            {label}
-                                        </button>
-                                    ))}
-                                </div>
-                                {current === 'AVARIA' || current === 'FALTA' ? (
-                                    <input
-                                        type="text"
-                                        value={notes[item.orderId] ?? ''}
-                                        onChange={(e) => setNotes((prev) => ({ ...prev, [item.orderId]: e.target.value }))}
-                                        placeholder="O que aconteceu? (opcional)"
-                                        className="mt-2.5 w-full rounded-lg border-2 border-tower-200 bg-white px-3 py-2.5 text-sm text-tower-900 placeholder:text-tower-400 focus:border-brand-400 focus:outline-none dark:border-tower-600 dark:bg-tower-800 dark:text-white"
-                                    />
-                                ) : null}
-                            </OsCard>
-                        );
-                    })}
-                </div>
+                <>
+                    <ConferenceScan onCode={handleCode} feedback={feedback} conferred={summary.marked} total={summary.total} />
+                    <div className="flex flex-col gap-2.5">
+                        {items.map((item) => (
+                            <ConferenceRow
+                                key={item.orderId}
+                                item={item}
+                                current={marks[item.orderId]}
+                                note={notes[item.orderId]}
+                                hasPhoto={Boolean(photos[item.orderId])}
+                                onPick={(mark) => {
+                                    if (mark === 'OK') setMark(item.orderId, 'OK');
+                                    else setSheet({ kind: mark === 'AVARIA' ? 'damage' : 'missing', item });
+                                }}
+                            />
+                        ))}
+                    </div>
+                </>
             )}
 
             {summary.hasDivergence ? (
@@ -202,13 +280,32 @@ const TripReceivePage: React.FC = () => {
             {items.length > 0 ? (
                 <OsActionBar>
                     <OsButton full disabled={!concludable || saving} onClick={() => void conclude()}>
-                        {saving
-                            ? 'Concluindo…'
-                            : summary.hasDivergence
-                              ? 'Concluir com divergências'
-                              : `Confirmar recebimento (${summary.marked}/${summary.total})`}
+                        {saving ? 'Concluindo…' : summary.hasDivergence ? 'Concluir com divergências' : `Confirmar recebimento (${summary.marked}/${summary.total})`}
                     </OsButton>
                 </OsActionBar>
+            ) : null}
+
+            {sheet?.kind === 'damage' ? (
+                <DamageSheet
+                    title={itemLabel(sheet.item)}
+                    initialNote={notes[sheet.item.orderId]}
+                    initialPhoto={photos[sheet.item.orderId]}
+                    onClose={() => setSheet(null)}
+                    onConfirm={(note, photo) => {
+                        setMark(sheet.item.orderId, 'AVARIA', note, photo ?? '');
+                        setSheet(null);
+                    }}
+                />
+            ) : null}
+            {sheet?.kind === 'missing' ? (
+                <MissingSheet
+                    title={itemLabel(sheet.item)}
+                    onClose={() => setSheet(null)}
+                    onConfirm={() => {
+                        setMark(sheet.item.orderId, 'FALTA');
+                        setSheet(null);
+                    }}
+                />
             ) : null}
         </div>
     );

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageLabel, dueLabel, exceptionAction, spanLabel } from './exceptions';
+import { ageLabel, dueLabel, exceptionAction, exceptionExplain, groupExceptions, spanLabel } from './exceptions';
 
 const NOW = new Date('2026-11-11T12:00:00Z');
 
@@ -28,5 +28,20 @@ describe('exceptions helpers', () => {
         expect(exceptionAction({ category: 'OPERATIONAL_TRIP_LATE', orderId: null, manifestId: 'm1' }))
             .toEqual({ kind: 'link', to: '/hubs/viagens/m1', label: 'Abrir viagem' });
         expect(exceptionAction({ category: 'GENERIC', orderId: null, manifestId: null })).toEqual({ kind: 'none' });
+    });
+});
+
+describe('explicação e agrupamento', () => {
+    const item = (id: string, category: string) => ({ id, category }) as never;
+    it('cada categoria diz por que aparece e o que fazer; categoria desconhecida tem texto genérico', () => {
+        expect(exceptionExplain('OPERATIONAL_STOCK_AGING').why).toMatch(/parada/);
+        expect(exceptionExplain('OPERATIONAL_UNROUTED').what).toMatch(/endereço/);
+        expect(exceptionExplain('XYZ').why).toMatch(/precisa de uma pessoa/);
+    });
+    it('agrupa a partir de 3 do mesmo tipo e mantém a ordem', () => {
+        const rows = groupExceptions([item('1', 'OPERATIONAL_STOCK_AGING'), item('2', 'OPERATIONAL_TRIP_LATE'), item('3', 'OPERATIONAL_STOCK_AGING'), item('4', 'OPERATIONAL_STOCK_AGING')]);
+        expect(rows.map((r) => r.kind)).toEqual(['group', 'single']);
+        expect(rows[0].kind === 'group' && rows[0].items.map((i) => i.id)).toEqual(['1', '3', '4']);
+        expect(groupExceptions([item('1', 'A'), item('2', 'A')]).every((r) => r.kind === 'single')).toBe(true);
     });
 });

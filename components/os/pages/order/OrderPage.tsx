@@ -11,6 +11,7 @@ import { orderReadiness } from '../../lib/readiness';
 import { OsBadge, OsButton, OsCard, OsErrorNotice, OsRow, OsSectionTitle, OsSkeletonRows } from '../../ui/kit';
 import { IconCheck, IconTag } from '../../ui/icons';
 import FreightComposer from './FreightComposer';
+import OrderTimeline from './OrderTimeline';
 import FreightDocuments from './FreightDocuments';
 import PackagesEditor from './PackagesEditor';
 import PayerRow from './PayerRow';
@@ -31,7 +32,11 @@ const OrderPage: React.FC = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const { hubId, refresh } = useOs();
-    const state = (location.state ?? null) as { item?: HubCargoItem; fromEntry?: boolean } | null;
+    const state = (location.state ?? null) as { item?: HubCargoItem; fromEntry?: boolean; focus?: 'rastreio' } | null;
+    const trackingSection = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (state?.focus === 'rastreio') trackingSection.current?.scrollIntoView?.({ block: 'start' });
+    }, [state?.focus, orderId]);
     const [item, setItem] = useState<HubCargoItem | null>(state?.item ?? null);
     const [another, setAnother] = useState(false);
     const freight = useFreightDoc(orderId);
@@ -116,6 +121,10 @@ const OrderPage: React.FC = () => {
                 {item ? <p className="mt-0.5 text-[13px] text-tower-500 dark:text-tower-400">{cargoFacts(item) || item.statusLabel}</p> : null}
                 {item?.destination ? <p className="text-[13px] text-tower-400">Destino: {item.destination}</p> : null}
             </OsCard>
+
+            <div ref={trackingSection} />
+            <OsSectionTitle>Rastreio</OsSectionTitle>
+            {orderId ? <OrderTimeline orderId={orderId} /> : null}
 
             {readiness.items.length > 0 ? (
                 <div

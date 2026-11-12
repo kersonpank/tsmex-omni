@@ -666,6 +666,13 @@ export const manifestsApi = {
         const response = await api.patch<ApiResponse<{ allStopsCompleted: boolean; arrivals?: ArrivalSummary | null }>>(`/manifests/${manifestId}/stops/${stopId}/complete`, data ?? {});
         return response.data;
     },
+    /** Etapa 1 do recebimento: "a carreta chegou" (viagem inteira ou parada). Idempotente. */
+    arrive: async (manifestId: string, stopId?: string | null) => {
+        const response = await api.patch<ApiResponse<{ arrivedAt: string; alreadyArrived: boolean; ordersNotified: number; hubName: string; stopId: string | null }>>(
+            stopId ? `/manifests/${manifestId}/stops/${stopId}/arrive` : `/manifests/${manifestId}/arrive`,
+        );
+        return response.data;
+    },
     deliveryProgress: async (manifestId: string) => {
         const response = await api.get<ApiResponse<DeliveryProgress[]>>(`/manifests/${manifestId}/delivery-progress`);
         return response.data;
@@ -1929,6 +1936,12 @@ export const ordersApi = {
 
     getById: async (id: string) => {
         const response = await api.get<ApiResponse<any>>(`/orders/${id}`);
+        return response.data;
+    },
+
+    /** Rastreio do pedido para o O.S. (histórico, trechos e tentativas de entrega). */
+    timeline: async (id: string) => {
+        const response = await api.get<ApiResponse<unknown>>(`/orders/${id}/timeline`);
         return response.data;
     },
 

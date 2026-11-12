@@ -79,4 +79,18 @@ describe('ExceptionsPage', () => {
         render(<ExceptionsPage />);
         expect(await screen.findByText('Nada travado')).toBeTruthy();
     });
+
+    it('explica a estação (dispensável), diz por que e o que fazer, e agrupa tipos repetidos', async () => {
+        window.localStorage.clear();
+        listWith([1, 2, 3].map((n) => ({ ...base, id: `s${n}`, category: 'OPERATIONAL_STOCK_AGING', title: `Parado ${n}`, orderId: `o${n}` })).concat([closure]));
+        render(<ExceptionsPage />);
+        expect(await screen.findByText(/Aqui aparece o que travou e precisa de alguém/)).toBeTruthy();
+        expect(screen.getByText('Carga parada no estoque')).toBeTruthy();
+        expect(screen.queryByText('Parado 1')).toBeNull();
+        expect(screen.getByText(/Por que estou vendo isto:/)).toBeTruthy();
+        await userEvent.click(screen.getByText('Carga parada no estoque'));
+        expect(screen.getByText('Parado 1')).toBeTruthy();
+        await userEvent.click(screen.getByRole('button', { name: /Entendi/ }));
+        expect(screen.queryByText(/Aqui aparece o que travou/)).toBeNull();
+    });
 });
