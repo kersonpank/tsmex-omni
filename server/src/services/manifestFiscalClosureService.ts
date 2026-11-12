@@ -27,7 +27,8 @@ export async function closeFiscalDocumentsForCompletedManifest(manifestId: strin
                 const trip = await prisma.manifest.findUnique({ where: { id: manifestId }, select: { totalWeight: true } });
                 await encerrarCiot(doc.number, doc.environment ?? previousJob?.environment ?? null, trip?.totalWeight ?? null);
             } else {
-                const result = await encerrarMdfeViaAcbr(manifestId);
+                // Um MDF-e por UF: cada documento é encerrado com a UF e o município de descarga DELE.
+                const result = await encerrarMdfeViaAcbr(manifestId, doc.id);
                 if (!result.ok) {
                     throw new Error(result.error ?? 'Falha desconhecida ao encerrar MDF-e.');
                 }
