@@ -44,12 +44,18 @@ it('resposta sem ID, vazia ou com ID inválido é incerta, nunca rejeição', as
     }
 });
 
-it('reconciliação usa apenas GET e erro genérico não é rejeição SEFAZ', async () => {
+it('reconciliação nunca reenvia o documento: só consulta e sincroniza; erro genérico não é rejeição SEFAZ', async () => {
     const calls: Array<{ path: string; method?: string }> = [];
     const fakeFetch = async (path: string, init: { method?: string }) => { calls.push({ path, method: init.method }); return { status: 'erro' }; };
     const result = await pollCteStatusOnce('doc-1', 'HOMOLOGACAO', 6, fakeFetch as CteSubmitDeps['acbrFetchJson']);
     assert.equal(result.kind, 'RECONCILIATION_REQUIRED');
-    assert.deepEqual(calls, [{ path: '/cte/doc-1', method: 'GET' }]);
+    // A sincronização é uma consulta da situação na SEFAZ; o documento em si (POST /cte) nunca é reenviado.
+    assert.deepEqual(calls, [
+        { path: '/cte/doc-1', method: 'GET' },
+        { path: '/cte/doc-1/sincronizar', method: 'POST' },
+        { path: '/cte/doc-1', method: 'GET' },
+    ]);
+    assert.ok(!calls.some((c) => c.path === '/cte'));
 });
 
 it('prioriza cStat e motivo da SEFAZ em rejeição 524, mesmo com erro genérico da ACBr', async () => {
@@ -98,4 +104,37 @@ it('POST /cte espera até 60 s pela SEFAZ (consultas seguem com o padrão curto)
     assert.equal(seen[0].init.timeoutMs, 60_000);
     await pollCteStatusOnce('doc-1', 'HOMOLOGACAO', 0, (async (path: string, init: Record<string, unknown>) => { seen.push({ path, init }); return { status: 'pendente' }; }) as unknown as CteSubmitDeps['acbrFetchJson']);
     assert.equal(seen[1].init.timeoutMs, undefined);
+});
+
+it('status erro na ACBr (falha de transmissão): sincroniza com a SEFAZ e reavalia', async () => {
+    const calls: string[] = [];
+    let synced = false;
+    const fakeFetch = async (path: string, init: { method: string }) => {
+        calls.push(`${init.method} ${path}`);
+        if (path.endsWith('/sincronizar')) { synced = true; return {}; }
+        return synced
+            ? { id: 'doc-1', status: 'autorizado', chave: '3'.repeat(44), autorizacao: { status: 'autorizado', codigo_status: 100, numero_protocolo: '135000000000001', chave_acesso: '3'.repeat(44) } }
+            : { id: 'doc-1', status: 'erro', autorizacao: { status: 'erro', motivo_status: 'ESoapClientRequestException: (12002) The request has timed out' } };
+    };
+    const outcome = await pollCteStatusOnce('doc-1', 'HOMOLOGACAO', 0, fakeFetch as never);
+    assert.deepEqual(calls, ['GET /cte/doc-1', 'POST /cte/doc-1/sincronizar', 'GET /cte/doc-1']);
+    assert.equal(outcome.kind, 'AUTHORIZED');
+});
+
+it('sincronização que falha mantém a conferência pendente, sem rejeitar nem autorizar', async () => {
+    const fakeFetch = async (path: string) => {
+        if (path.endsWith('/sincronizar')) throw new Error('ACBr HTTP 500');
+        return { id: 'doc-1', status: 'erro', autorizacao: { status: 'erro', motivo_status: 'The request has timed out' } };
+    };
+    const outcome = await pollCteStatusOnce('doc-1', 'HOMOLOGACAO', 0, fakeFetch as never);
+    assert.equal(outcome.kind, 'RECONCILIATION_REQUIRED');
+});
+
+it('cStat 217 depois da sincronização: CT-e não chegou à SEFAZ, vira rejeição para emitir de novo', async () => {
+    const fakeFetch = async (path: string) => (path.endsWith('/sincronizar')
+        ? {}
+        : { id: 'doc-1', status: 'erro', autorizacao: { status: 'rejeitado', codigo_status: 217, motivo_status: 'Rejeição: CT-e não consta na base de dados da SEFAZ' } });
+    const outcome = await pollCteStatusOnce('doc-1', 'HOMOLOGACAO', 0, fakeFetch as never);
+    assert.equal(outcome.kind, 'REJECTED');
+    assert.match((outcome as { result: { rejectionReason: string } }).result.rejectionReason, /não chegou à SEFAZ/);
 });

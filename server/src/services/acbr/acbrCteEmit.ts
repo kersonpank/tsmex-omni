@@ -125,11 +125,22 @@ export async function pollCteStatusOnce(
 ): Promise<CtePollOutcome> {
     const baseUrl = getAcbrApiBaseUrlForEnvironment(ambiente);
 
-    const doc = await fetchJson<Record<string, unknown>>(`/cte/${providerDocId}`, {
+    let doc = await fetchJson<Record<string, unknown>>(`/cte/${providerDocId}`, {
         method: 'GET',
         scopes: ['empresa', 'cte'],
         apiEnvironment: ambiente,
     });
+    // Status `erro` na ACBr = falha de transmissão dela com a SEFAZ (timeout, instabilidade): o CT-e pode
+    // ou não ter chegado. O provedor documenta `POST /cte/{id}/sincronizar` para esse caso: ele consulta a
+    // situação na SEFAZ e atualiza o documento. Falha na sincronização não muda nada: segue pendente.
+    if (norm(doc.status) === 'erro') {
+        try {
+            await fetchJson(`/cte/${providerDocId}/sincronizar`, { method: 'POST', scopes: ['empresa', 'cte'], apiEnvironment: ambiente });
+            doc = await fetchJson<Record<string, unknown>>(`/cte/${providerDocId}`, { method: 'GET', scopes: ['empresa', 'cte'], apiEnvironment: ambiente });
+        } catch {
+            // SEFAZ ou emissor ainda instável; a próxima conferência tenta de novo.
+        }
+    }
     const st = norm(doc.status);
     const auth = doc.autorizacao && typeof doc.autorizacao === 'object' && !Array.isArray(doc.autorizacao)
         ? doc.autorizacao as Record<string, unknown> : {};
@@ -150,6 +161,14 @@ export async function pollCteStatusOnce(
     }
     if (code === '100') {
         return { kind: 'AUTHORIZED', result: mapAuthorizedResult(doc, auth, providerDocId, baseUrl), providerDocId };
+    }
+    // 217 = "CT-e não consta na base de dados da SEFAZ": prova de que a transmissão não chegou. O documento
+    // deixa de estar pendente e o operador emite de novo.
+    if (code === '217') {
+        return {
+            kind: 'REJECTED',
+            result: { status: 'REJECTED', rejectionCode: code, rejectionReason: 'O CT-e não chegou à SEFAZ (falha de transmissão do emissor). Emita novamente.', rawResponse: doc },
+        };
     }
     if (unsafeCode || (unsafeReason && (authRejects || st.includes('rejeit') || st.includes('erro') || authSt.includes('erro')))) {
         return {
