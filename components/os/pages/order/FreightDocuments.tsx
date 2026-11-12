@@ -6,6 +6,7 @@ import DactePrintPreview from '../../../ui/DactePrintPreview';
 import { loadFreightPrint } from '../../freightActions';
 import { documentStatusView, formatBRL } from '../../lib/freight';
 import { OsBadge, OsButton } from '../../ui/kit';
+import CteConferir from './CteConferir';
 import { apiErrorMessage, osFieldClass } from '../../ui/Sheet';
 import { partyFixForRejection, partyLabels, type PartyRole } from '../../lib/partyFix';
 
@@ -195,6 +196,7 @@ const FreightDocuments: React.FC<{ orderId: string; documents: FreightDocumentSu
                         {doc.status === 'CTE_PENDING_RECONCILIATION' && doc.statusReason ? (
                             <p className="mt-1 line-clamp-3 text-[12px] text-tower-500 dark:text-tower-400">{doc.statusReason}</p>
                         ) : null}
+                        {doc.status === 'CTE_PENDING_RECONCILIATION' && !doc.canResend ? <CteConferir orderId={orderId} calcId={doc.id} onDone={onResent} /> : null}
                         {doc.attempt && view.tone === 'route' ? (
                             <p className="mt-1 text-[12px] text-tower-400">
                                 tentativa {doc.attempt.count} de {doc.attempt.max}

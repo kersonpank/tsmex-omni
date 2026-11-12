@@ -6,5 +6,5 @@
 export function pendingReconciliationRecoveryHint(providerDocId: string | null | undefined): string {
     return providerDocId
         ? ' Documento já submetido à ACBr — só reconciliação (consulta de status) é permitida; reemissão automática está bloqueada para evitar duplicidade.'
-        : ' ID do documento não disponível. O envio pode ter ocorrido; investigue na ACBr e na SEFAZ antes de qualquer reemissão.';
+        : ' ID do documento não disponível. O sistema confere sozinho no emissor fiscal (por referência e numeração); só reenvia se comprovar que o documento não existe.';
 }

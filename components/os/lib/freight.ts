@@ -71,7 +71,7 @@ export const IN_FLIGHT: FreightCalcStatus[] = ['CTE_READY', 'CTE_SENT', 'CTE_PRO
 export type DocTone = 'ok' | 'route' | 'warn' | 'danger' | 'none';
 
 /** Como mostrar um documento do pedido: tom + frase curta. */
-export function documentStatusView(doc: { documentType: FreightDocType; status: FreightCalcStatus; number: string | null; statusReason: string | null; canResend?: boolean }): {
+export function documentStatusView(doc: { documentType: FreightDocType; status: FreightCalcStatus; number: string | null; statusReason: string | null; canResend?: boolean; reconcile?: { providerDown: boolean } | null }): {
     tone: DocTone;
     label: string;
     hint?: string;
@@ -90,9 +90,11 @@ export function documentStatusView(doc: { documentType: FreightDocType; status: 
         case 'DCE_SENT':
             return { tone: 'route', label: `${name} · enviando à SEFAZ…` };
         case 'CTE_PENDING_RECONCILIATION':
-            return doc.canResend
-                ? { tone: 'warn', label: `${name} · envio pendente` }
-                : { tone: 'warn', label: `${name} · aguardando conferência na SEFAZ (torre)`, hint: 'a torre confere na SEFAZ antes de reenviar' };
+            if (doc.canResend) return { tone: 'warn', label: `${name} · envio pendente` };
+            // A conferência no emissor roda sozinha (a cada 2 min); o operador acompanha ou toca em "Conferir agora".
+            return doc.reconcile?.providerDown
+                ? { tone: 'warn', label: `${name} · emissor fiscal fora do ar`, hint: 'o emissor fiscal está fora do ar; tentaremos de novo sozinhos' }
+                : { tone: 'warn', label: `${name} · conferindo no emissor…`, hint: 'a conferência roda sozinha; se quiser, toque em “Conferir agora”' };
         case 'CTE_CANCEL_PENDING':
             return { tone: 'warn', label: `${name} · cancelamento em andamento`, hint: 'o provedor fiscal ainda não confirmou — use “Consultar”' };
         case 'CTE_REJECTED':

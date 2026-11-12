@@ -8,7 +8,7 @@ import { CTE_CFOP_OPTIONS } from '../../../../server/src/services/fiscal/cteTaxR
 import FreightDocuments from './FreightDocuments';
 
 const { ordersFreightApi } = vi.hoisted(() => ({
-    ordersFreightApi: { cteCancelEligibility: vi.fn(), cancelCte: vi.fn(), reconcileCteCancel: vi.fn(), emitCte: vi.fn(), retryRejectedCte: vi.fn(), prepare: vi.fn(), ctePreflight: vi.fn().mockResolvedValue({ data: { tax: { cfop: null } } }) },
+    ordersFreightApi: { cteCancelEligibility: vi.fn(), cancelCte: vi.fn(), reconcileCteCancel: vi.fn(), reconcileCte: vi.fn(), emitCte: vi.fn(), retryRejectedCte: vi.fn(), prepare: vi.fn(), ctePreflight: vi.fn().mockResolvedValue({ data: { tax: { cfop: null } } }) },
 }));
 
 vi.mock('../../../../lib/api', () => ({ ordersFreightApi }));
@@ -107,13 +107,28 @@ describe('FreightDocuments — reenvio do CT-e pendente de reconciliação', () 
         expect(screen.getByText(DOCUMENT.statusReason!)).toHaveClass('line-clamp-3');
     });
 
-    it('mantém a conferência pela torre e explica a espera quando o reenvio não está disponível', () => {
-        render(<FreightDocuments orderId="order-1" documents={[{ ...DOCUMENT, canResend: false }]} onResent={vi.fn()} />);
+    it('sem reenvio: mostra "Conferindo no emissor…" (sem mandar falar com a torre) e o botão Conferir agora', async () => {
+        const onResent = vi.fn();
+        const user = userEvent.setup();
+        ordersFreightApi.reconcileCte.mockResolvedValue({ data: { state: 'FOUND', message: 'CT-e encontrado no emissor; acompanhando a autorização.' } });
+        render(<FreightDocuments orderId="order-1" documents={[{ ...DOCUMENT, canResend: false, reconcile: { hasProviderId: false, failedChecks: 1, providerDown: false } }]} onResent={onResent} />);
 
-        expect(screen.getByText('CT-e nº 21794 · aguardando conferência na SEFAZ (torre)')).toBeInTheDocument();
-        expect(screen.getByText('a torre confere na SEFAZ antes de reenviar')).toBeInTheDocument();
+        expect(screen.getByText('CT-e nº 21794 · conferindo no emissor…')).toBeInTheDocument();
+        expect(screen.queryByText(/torre/i)).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Reenviar à SEFAZ' })).not.toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: 'Conferir agora' }));
+        await waitFor(() => expect(ordersFreightApi.reconcileCte).toHaveBeenCalledWith('order-1', DOCUMENT.id));
+        expect(await screen.findByRole('status')).toHaveTextContent('CT-e encontrado no emissor');
+        await waitFor(() => expect(onResent).toHaveBeenCalledTimes(1));
         expect(ordersFreightApi.emitCte).not.toHaveBeenCalled();
+    });
+
+    it('depois de 3 conferências sem resposta do provedor, diz que o emissor está fora do ar e que tentaremos de novo', () => {
+        render(<FreightDocuments orderId="order-1" documents={[{ ...DOCUMENT, canResend: false, reconcile: { hasProviderId: false, failedChecks: 3, providerDown: true } }]} onResent={vi.fn()} />);
+
+        expect(screen.getByText('CT-e nº 21794 · emissor fiscal fora do ar')).toBeInTheDocument();
+        expect(screen.getByText('o emissor fiscal está fora do ar; tentaremos de novo sozinhos')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Conferir agora' })).toBeEnabled();
     });});
 
 describe('FreightDocuments — correção de CFOP rejeitado', () => {
