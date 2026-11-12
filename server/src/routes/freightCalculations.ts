@@ -25,6 +25,7 @@ import { getAcbrProviderDecision } from '../services/acbr/acbrConfig.js';
 import { enqueueCteEmissionJob } from '../services/queues/cteEmissionQueue.js';
 import { getObjectDownloadUrl } from '../lib/objectStorage.js';
 import { averbarCalculo } from '../services/averbacao/cargoAverbacaoService.js';
+import { averbacaoRequiredFor, summarizeAverbacao } from '../services/averbacao/averbacaoView.js';
 import { BREAKDOWN_KEYS, computeFreightFromTable, informedFreight, orderFreightParams } from '../services/freight/freightPricing.js';
 import { ACTIVE_DOC_STATUSES, REUSABLE_STATUSES, isPendingReconciliationWithoutSubmission } from '../services/freight/freightDocRules.js';
 import { getFreightSuggestion } from '../services/freight/freightQueries.js';
@@ -304,6 +305,7 @@ router.get('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest
                 emissor: { select: { id: true, name: true, code: true, person: { select: { document: true, legalName: true } } } },
                 fiscalEmitter: { include: { person: true, hub: true } },
                 pricingTable: { select: { id: true, description: true } },
+                cargoAverbacao: true,
                 // Só o job mais recente, só os campos que a UI usa pra mostrar progresso do
                 // polling assíncrono (attemptCount/maxAttempts) enquanto CTE_SENT/CTE_PROCESSING
                 // — sem isso a tela não tinha como distinguir "ainda processando" de "travado".
@@ -316,7 +318,13 @@ router.get('/', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest
             orderBy: { createdAt: 'asc' },
         });
 
-        res.json({ success: true, data: calcs });
+        // `averbacao` resumida (sem o corpo bruto da AT&M) + `averbacaoRequired` para o botão "Averbar".
+        const data = calcs.map(({ cargoAverbacao, ...calc }) => ({
+            ...calc,
+            averbacao: summarizeAverbacao(cargoAverbacao),
+            averbacaoRequired: averbacaoRequiredFor(calc),
+        }));
+        res.json({ success: true, data });
     } catch (error) {
         next(error);
     }
@@ -694,9 +702,9 @@ router.post('/:orderId/freight-calculations/:calcId/averbar', authenticate, auth
         const outcome = await averbarCalculo(calc.id, { force: true });
         const record = await prisma.cargoAverbacao.findUnique({
             where: { orderFreightCalculationId: calc.id },
-            select: { status: true, numeroAverbacao: true, protocolo: true, averbadoAt: true, attemptCount: true, lastError: true },
+            select: { status: true, numeroAverbacao: true, protocolo: true, averbadoAt: true, attemptCount: true, lastError: true, dadosSeguro: true },
         });
-        res.json({ success: outcome.status === 'AVERBADO', data: { outcome, averbacao: record } });
+        res.json({ success: outcome.status === 'AVERBADO', data: { outcome, averbacao: record ? { ...summarizeAverbacao(record), attemptCount: record.attemptCount } : null } });
     } catch (error) {
         next(error);
     }

@@ -5,7 +5,9 @@ import {
     buildAtmEnvelope,
     cancelarAverbacaoCte,
     declararMdfe,
-    ATM_ENDPOINTS,
+    atmEndpoint,
+    ATM_SOAP_URL_DEFAULT,
+    parseMdfeResponse,
     ATM_OPERATIONS,
     parseAtmResponse,
     type AtmHttpRequest,
@@ -42,7 +44,7 @@ test('envelope: operação, credenciais escapadas e XML em CDATA', () => {
 test('averbarCte: usa endpoint por ambiente, SOAPAction e interpreta sucesso (retorno escapado)', async () => {
     const { calls, transport } = fakeTransport(wrapReturn(averbadoXml));
     const r = await averbarCte('<cteProc/>', creds, 'HOMOLOGACAO', transport);
-    assert.equal(calls[0]!.url, ATM_ENDPOINTS.HOMOLOGACAO);
+    assert.equal(calls[0]!.url, 'http://webserver.averba.com.br/20/index.soap');
     assert.equal(calls[0]!.soapAction, 'urn:ATMWebSvr#averbaCTe');
     assert.equal(calls[0]!.timeoutMs, 30_000);
     assert.equal(r.kind, 'AVERBADO');
@@ -101,12 +103,81 @@ test('cancelarAverbacaoCte reenvia o evento pela mesma operação', async () => 
     assert.match(calls[0]!.body, /<procEventoCTe\/>/);
 });
 
-test('declararMdfe usa declaraMDFe/xmlMDFe e lê Declarado/Protocolo', async () => {
-    const declarado = '<Response><Declarado><Protocolo>PROT123</Protocolo><dhChancela>2026-11-11T10:00:00</dhChancela></Declarado></Response>';
-    const { calls, transport } = fakeTransport(wrapReturn(declarado));
+test('endpoint único para teste e produção, sobreponível por ATM_SOAP_URL', async () => {
+    assert.equal(ATM_SOAP_URL_DEFAULT, 'http://webserver.averba.com.br/20/index.soap');
+    assert.equal(atmEndpoint({}), ATM_SOAP_URL_DEFAULT);
+    assert.equal(atmEndpoint({ ATM_SOAP_URL: ' http://x.test/soap ' }), 'http://x.test/soap');
+    const h = fakeTransport(wrapReturn(averbadoXml));
+    const p = fakeTransport(wrapReturn(averbadoXml));
+    await averbarCte('<x/>', creds, 'HOMOLOGACAO', h.transport);
+    await averbarCte('<x/>', creds, 'PRODUCAO', p.transport);
+    assert.equal(h.calls[0]!.url, p.calls[0]!.url);
+});
+
+// Resposta real da homologação AT&M (2026-11-11), documentos mascarados.
+const realAverbaCte = '<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"><SOAP-ENV:Body><ns1:averbaCTeResponse xmlns:ns1="http://schemas.xmlsoap.org/soap/envelope/"><Response><Numero>21813</Numero><Serie>1</Serie><Filial></Filial><CNPJCli>00000000000000</CNPJCli><TpDoc>6</TpDoc><Averbado><dhAverbacao>2026-11-11T22:28:26</dhAverbacao><Protocolo>TESTE</Protocolo><DadosSeguro><NumeroAverbacao>0000011272687982000027057001000021813000</NumeroAverbacao><CNPJSeguradora>00000000000000</CNPJSeguradora><NomeSeguradora>HOMOLOGACAO WS</NomeSeguradora><NumApolice>PROVISORIA</NumApolice><TpMov>1</TpMov><TpDDR></TpDDR><ValorAverbado>598.80</ValorAverbado><RamoAverbado>55</RamoAverbado></DadosSeguro></Averbado></Response></ns1:averbaCTeResponse></SOAP-ENV:Body></SOAP-ENV:Envelope>';
+
+test('resposta real de averbaCTe: guarda DadosSeguro normalizado', () => {
+    const r = parseAtmResponse(realAverbaCte);
+    assert.equal(r.kind, 'AVERBADO');
+    if (r.kind !== 'AVERBADO') return;
+    assert.equal(r.protocolo, 'TESTE');
+    assert.equal(r.numeroAverbacao, '0000011272687982000027057001000021813000');
+    assert.equal(r.dhAverbacao, '2026-11-11T22:28:26');
+    assert.deepEqual(r.dadosSeguro, [{
+        numeroAverbacao: '0000011272687982000027057001000021813000',
+        cnpjSeguradora: '00000000000000',
+        nomeSeguradora: 'HOMOLOGACAO WS',
+        numApolice: 'PROVISORIA',
+        ramo: '55',
+        valorAverbado: '598.80',
+        tpMov: '1',
+    }]);
+});
+
+test('dois DadosSeguro (ramos 54 e 55) viram dois itens; o primeiro alimenta numeroAverbacao', () => {
+    const two = realAverbaCte.replace('</DadosSeguro></Averbado>', '</DadosSeguro><DadosSeguro><NumeroAverbacao>0000011272687982000027054001000021813000</NumeroAverbacao><CNPJSeguradora>11222333000181</CNPJSeguradora><NomeSeguradora>SEG REAL</NomeSeguradora><NumApolice>AP-77</NumApolice><TpMov>1</TpMov><ValorAverbado>100.00</ValorAverbado><RamoAverbado>54</RamoAverbado></DadosSeguro></Averbado>');
+    const r = parseAtmResponse(two);
+    assert.equal(r.kind, 'AVERBADO');
+    if (r.kind !== 'AVERBADO') return;
+    assert.equal(r.dadosSeguro.length, 2);
+    assert.deepEqual(r.dadosSeguro.map((d) => d.ramo), ['55', '54']);
+    assert.equal(r.dadosSeguro[1]!.cnpjSeguradora, '11222333000181');
+    assert.equal(r.numeroAverbacao, r.dadosSeguro[0]!.numeroAverbacao);
+});
+
+const realMdfe = '<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"><SOAP-ENV:Body><ns1:declaraMDFeResponse xmlns:ns1="http://schemas.xmlsoap.org/soap/envelope/"><Response><Numero>15</Numero><Serie>1</Serie><Filial>0002</Filial><Declarado><dhChancela>2026-11-11T22:29:49</dhChancela><Protocolo>TESTE</Protocolo></Declarado><ErroRCV><Codigo>006</Codigo><Descricao>Data de embarque fora dos limites da apolice. Deve-se averbar antes do embarque. Consulte a corretora ou a seguradora.</Descricao></ErroRCV></Response></ns1:declaraMDFeResponse></SOAP-ENV:Body></SOAP-ENV:Envelope>';
+
+test('declararMdfe usa declaraMDFe/xmlMDFe; resposta real: Declarado + ErroRCV recusado', async () => {
+    const { calls, transport } = fakeTransport(realMdfe);
     const r = await declararMdfe('<mdfeProc/>', creds, 'HOMOLOGACAO', transport);
     assert.equal(calls[0]!.soapAction, 'urn:ATMWebSvr#declaraMDFe');
     assert.match(calls[0]!.body, /<xmlMDFe>/);
-    assert.equal(r.kind, 'AVERBADO');
-    if (r.kind === 'AVERBADO') assert.equal(r.protocolo, 'PROT123');
+    assert.equal(r.kind, 'DECLARADO');
+    if (r.kind !== 'DECLARADO') return;
+    assert.equal(r.dhChancela, '2026-11-11T22:29:49');
+    assert.equal(r.rcv.status, 'RECUSADO');
+    if (r.rcv.status === 'RECUSADO') {
+        assert.equal(r.rcv.codigo, '006');
+        assert.match(r.rcv.mensagem, /averbar antes do embarque/);
+    }
+});
+
+test('MDF-e: nó RCV que não é ErroRCV conta como RC-V averbado (conteúdo bruto guardado)', () => {
+    const ok = realMdfe.replace(/<ErroRCV>.*<\/ErroRCV>/, '<AverbadoRCV><Protocolo>R1</Protocolo></AverbadoRCV>');
+    const r = parseMdfeResponse(ok);
+    assert.equal(r.kind, 'DECLARADO');
+    if (r.kind === 'DECLARADO') {
+        assert.equal(r.rcv.status, 'AVERBADO');
+        if (r.rcv.status === 'AVERBADO') assert.deepEqual(r.rcv.conteudo, { Protocolo: 'R1' });
+    }
+});
+
+test('MDF-e: Declarado sem retorno RC-V é AUSENTE; erro de nível raiz e 5xx seguem as regras', () => {
+    const none = parseMdfeResponse(realMdfe.replace(/<ErroRCV>.*<\/ErroRCV>/, ''));
+    assert.equal(none.kind === 'DECLARADO' && none.rcv.status, 'AUSENTE');
+    assert.equal(parseMdfeResponse(wrapReturn(erroXml('904', 'x'))).kind, 'ERRO_DEFINITIVO');
+    assert.equal(parseMdfeResponse(wrapReturn(erroXml('907', 'x'))).kind, 'ERRO_TRANSITORIO');
+    const e522 = parseMdfeResponse('<html>522</html>', 522);
+    assert.equal(e522.kind === 'ERRO_TRANSITORIO' && e522.codigo, 'HTTP_522');
 });

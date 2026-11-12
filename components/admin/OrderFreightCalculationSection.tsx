@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ordersFreightApi, ordersApi, hubsApi, pricingApi, clientsApi, fiscalEmittersApi, formatApiError } from '../../lib/api';
 import DactePrintPreview from '../ui/DactePrintPreview';
+import AverbacaoStatus from '../ui/AverbacaoStatus';
 import type {
   OrderFreightCalculation,
   Hub,
@@ -758,6 +759,7 @@ function OrderFreightCard({
               <span className="font-medium">Protocolo:</span> {calc.cteProtocol}
             </div>
           )}
+          <AverbacaoStatus orderId={orderId} calcId={calc.id} calcStatus={calc.status} required={calc.averbacaoRequired} averbacao={calc.averbacao} onDone={onCalculate} />
           {calc.status === 'CTE_AUTHORIZED' && (
             <div className="flex gap-3 mt-1">
               <button

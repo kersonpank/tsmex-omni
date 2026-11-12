@@ -7,7 +7,7 @@ import prisma from '../../lib/prisma.js';
 import { openSecret } from '../../lib/secretBox.js';
 import { getObjectAsBase64 } from '../../lib/objectStorage.js';
 import { createOrMergeSystemAlert } from '../systemAlertService.js';
-import { averbarCte, sanitizeRaw, type AtmCredentials, type AtmResult, type AtmTransport } from './atmClient.js';
+import { averbarCte, cancelarAverbacaoCte, sanitizeRaw, type AtmCredentials, type AtmResult, type AtmTransport } from './atmClient.js';
 
 export const AVERBACAO_SWEEP_BATCH = 20;
 export const AVERBACAO_MAX_TRANSIENT_ATTEMPTS = 8;
@@ -159,6 +159,7 @@ export async function averbarCalculo(calcId: string, options: { force?: boolean;
             averbadoAt: result.dhAverbacao ? new Date(result.dhAverbacao) : now,
             lastError: null,
             rawResponse: raw as never,
+            dadosSeguro: result.dadosSeguro as never,
         });
         return { status: 'AVERBADO', numeroAverbacao: result.numeroAverbacao, protocolo: result.protocolo };
     }
@@ -171,8 +172,124 @@ export async function averbarCalculo(calcId: string, options: { force?: boolean;
     return { status: 'PENDING', message: `${result.codigo}: ${result.mensagem}` };
 }
 
+/**
+ * Registros que gastaram tentativas contra o host antigo (HTTP_522) voltam a ser tentados do zero,
+ * inclusive os que esgotaram as tentativas e viraram FAILED por isso.
+ */
+const PROCESS_BOOTED_AT = new Date();
+export async function reviveHttp522Averbacoes(touchedBefore: Date = PROCESS_BOOTED_AT): Promise<number> {
+    // `touchedBefore`: só registros não tocados por este processo; se o host voltar a dar 522 não há laço a cada rodada.
+    const result = await prisma.cargoAverbacao.updateMany({
+        where: { status: { in: ['PENDING', 'FAILED'] }, lastError: { startsWith: 'HTTP_522' }, updatedAt: { lt: touchedBefore } },
+        data: { status: 'PENDING', attemptCount: 0, lastAttemptAt: null, lockedUntil: null, lastError: null },
+    });
+    return result.count;
+}
+
+const CANCEL_ERROR_PREFIX = 'CANCEL_FALHOU:';
+const CANCEL_TRANSIENT_PREFIX = 'CANCEL_TRANSITORIO:';
+const CANCEL_RETRY_MS = 10 * 60_000;
+
+/**
+ * CT-e cancelado com averbação feita: reenvia o XML do evento de cancelamento à AT&M (Manual §13).
+ * Best-effort: transitório tenta de novo mais tarde; definitivo gera alerta e para de tentar.
+ */
+export async function cancelarAverbacaoCalculo(calcId: string, options: { transport?: AtmTransport; now?: Date; loadXml?: (storageKey: string) => Promise<string> } = {}): Promise<AverbarOutcomeCancel> {
+    const now = options.now ?? new Date();
+    const calc = await prisma.orderFreightCalculation.findUnique({
+        where: { id: calcId },
+        select: {
+            id: true, orderId: true, status: true, cteCancelXmlStorageKey: true,
+            fiscalEmitter: { select: { averbacaoProvider: true, atmCode: true, atmUser: true, atmPasswordEncrypted: true, atmEnvironment: true } },
+            cargoAverbacao: true,
+        },
+    });
+    const row = calc?.cargoAverbacao;
+    if (!calc || calc.status !== 'CTE_CANCELLED' || !row || row.status !== 'AVERBADO') return { status: 'SKIPPED' };
+    if (!calc.cteCancelXmlStorageKey) return { status: 'SKIPPED', message: 'XML do evento de cancelamento ainda não está disponível.' };
+    const config = resolveAtmCredentials(calc.fiscalEmitter);
+    if (!config) return { status: 'SKIPPED', message: 'Emitente sem averbação AT&M configurada.' };
+    const claim = await prisma.cargoAverbacao.updateMany({
+        where: { orderFreightCalculationId: calc.id, status: 'AVERBADO', OR: [{ lockedUntil: null }, { lockedUntil: { lt: now } }] },
+        data: { lockedUntil: new Date(now.getTime() + LOCK_MS) },
+    });
+    if (!claim.count) return { status: 'LOCKED' };
+    const done = (data: Record<string, unknown>) => prisma.cargoAverbacao.update({ where: { orderFreightCalculationId: calc.id }, data: { lockedUntil: null, ...data } });
+
+    let xml: string;
+    try {
+        xml = options.loadXml ? await options.loadXml(calc.cteCancelXmlStorageKey) : Buffer.from(await getObjectAsBase64(calc.cteCancelXmlStorageKey), 'base64').toString('utf8');
+    } catch (error) {
+        await done({ lockedUntil: new Date(now.getTime() + CANCEL_RETRY_MS), lastError: `${CANCEL_TRANSIENT_PREFIX} XML do evento indisponível: ${error instanceof Error ? error.message : String(error)}` });
+        return { status: 'PENDING' };
+    }
+    const result = await cancelarAverbacaoCte(xml, config.credentials, config.environment, options.transport);
+    if (result.kind === 'AVERBADO' || result.kind === 'JA_AVERBADO') {
+        await done({ status: 'CANCELLED', lastError: null, rawResponse: safeRaw(result, config.credentials) as never });
+        return { status: 'CANCELLED' };
+    }
+    // Resposta sem erro e sem averbação: a AT&M pode confirmar o cancelamento com um nó próprio (ex.: Cancelado).
+    const unrecognized = result.kind === 'ERRO_TRANSITORIO' && result.codigo === 'SEM_RESULTADO';
+    if (unrecognized && JSON.stringify(result.raw ?? '').toLowerCase().includes('cancel')) {
+        await done({ status: 'CANCELLED', lastError: null, rawResponse: safeRaw(result, config.credentials) as never });
+        return { status: 'CANCELLED' };
+    }
+    if (result.kind === 'ERRO_TRANSITORIO' && !unrecognized) {
+        await done({ lockedUntil: new Date(now.getTime() + CANCEL_RETRY_MS), lastError: `${CANCEL_TRANSIENT_PREFIX} ${result.codigo}: ${result.mensagem}` });
+        return { status: 'PENDING', message: result.mensagem };
+    }
+    await done({ lastError: `${CANCEL_ERROR_PREFIX} ${result.codigo}: ${result.mensagem}` });
+    await createOrMergeSystemAlert({
+        category: 'FISCAL_PROVIDER_ERROR',
+        severity: 'WARNING',
+        title: 'Cancelamento da averbação (AT&M) recusado',
+        message: `O CT-e foi cancelado, mas a AT&M recusou cancelar a averbação do seguro (${result.codigo}): ${result.mensagem}. Cancele a averbação diretamente no portal da AT&M.`,
+        context: { orderId: calc.orderId, calcId: calc.id, codigo: result.codigo, kind: 'CANCEL_AVERBACAO' },
+        dedupMatch: (ctx) => ctx.calcId === calc.id && ctx.kind === 'CANCEL_AVERBACAO',
+    }).catch(() => undefined);
+    return { status: 'FAILED', message: `${result.codigo}: ${result.mensagem}` };
+}
+
+export interface AverbarOutcomeCancel {
+    status: 'CANCELLED' | 'PENDING' | 'FAILED' | 'SKIPPED' | 'LOCKED';
+    message?: string;
+}
+
+/** Cancela na AT&M as averbações de CT-e cancelados (uma rodada do varredor). */
+export async function sweepCancelledAverbacoes(options: { transport?: AtmTransport; now?: Date; loadXml?: (storageKey: string) => Promise<string> } = {}): Promise<number> {
+    const now = options.now ?? new Date();
+    const candidates = await prisma.orderFreightCalculation.findMany({
+        where: {
+            documentType: 'CTE',
+            status: 'CTE_CANCELLED',
+            cteCancelXmlStorageKey: { not: null },
+            cargoAverbacao: {
+                is: {
+                    status: 'AVERBADO',
+                    OR: [{ lockedUntil: null }, { lockedUntil: { lt: now } }],
+                    AND: [{ OR: [{ lastError: null }, { NOT: { lastError: { startsWith: CANCEL_ERROR_PREFIX } } }] }],
+                },
+            },
+        },
+        orderBy: { cteCancelledAt: 'asc' },
+        select: { id: true },
+        take: AVERBACAO_SWEEP_BATCH,
+    });
+    let processed = 0;
+    for (const candidate of candidates) {
+        try {
+            const outcome = await cancelarAverbacaoCalculo(candidate.id, options);
+            if (outcome.status !== 'SKIPPED' && outcome.status !== 'LOCKED') processed += 1;
+        } catch (error) {
+            console.error(JSON.stringify({ level: 'error', source: 'averbacaoCancelSweep', calcId: candidate.id, error: error instanceof Error ? error.message : String(error) }));
+        }
+    }
+    return processed;
+}
+
 /** Varredor: CT-e autorizados de emitente ATM ainda sem averbação concluída. Máx. 20 por rodada. */
 export async function sweepPendingAverbacoes(options: { transport?: AtmTransport; now?: Date } = {}): Promise<number> {
+    await reviveHttp522Averbacoes().catch(() => 0);
     const candidates = await prisma.orderFreightCalculation.findMany({
         where: {
             documentType: 'CTE',

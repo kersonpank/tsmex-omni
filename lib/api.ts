@@ -42,6 +42,7 @@ import type {
     PricingCalculateRequest,
     PricingCalculateResponse,
     OrderFreightCalculation,
+    CteAverbacao,
     OrderPackage,
     CtePreflightResult,
     FiscalAcbrDiagnostics,
@@ -1729,7 +1730,7 @@ export const ordersFreightApi = {
     averbar: async (orderId: string, calcId: string) => {
         const response = await api.post<{
             success: boolean;
-            data: { outcome: { status: string; message?: string }; averbacao: { status: string; numeroAverbacao: string | null; lastError: string | null } | null };
+            data: { outcome: { status: string; message?: string }; averbacao: ({ attemptCount?: number } & CteAverbacao) | null };
         }>(`/orders/${orderId}/freight-calculations/${calcId}/averbar`, {});
         return response.data;
     },

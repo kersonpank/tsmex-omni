@@ -3,6 +3,7 @@ import { ordersFreightApi } from '../../../../lib/api';
 import { CTE_CFOP_SELECT_OPTIONS, cfopOptionSelectText } from '../../../../lib/cteTaxCatalog';
 import type { BrandingForDocuments, CteCancelEligibility, FreightDocumentSummary } from '../../../../types/index';
 import DactePrintPreview from '../../../ui/DactePrintPreview';
+import AverbacaoStatus from '../../../ui/AverbacaoStatus';
 import { loadFreightPrint } from '../../freightActions';
 import { documentStatusView, formatBRL } from '../../lib/freight';
 import { OsBadge, OsButton } from '../../ui/kit';
@@ -201,6 +202,7 @@ const FreightDocuments: React.FC<{ orderId: string; documents: FreightDocumentSu
                             </p>
                         ) : null}
                         {doc.accessKey ? <p className="mt-1 font-mono text-[11px] text-tower-400">chave …{doc.accessKey.slice(-8)}</p> : null}
+                        <AverbacaoStatus orderId={orderId} calcId={doc.id} calcStatus={doc.status} required={doc.averbacaoRequired} averbacao={doc.averbacao} onDone={onResent} />
                         {canCorrectCfop ? (
                             editingId === doc.id ? (
                                 <form className="mt-3 flex flex-col gap-3" onSubmit={(event) => { event.preventDefault(); void retryRejected(doc); }}>

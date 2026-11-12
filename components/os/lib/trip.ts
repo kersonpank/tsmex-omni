@@ -58,6 +58,9 @@ const BY_CODE: Record<string, TripGroupKey> = {
     // Seguro: a torre cadastra seguradora/apólice no emitente; a averbação é digitada na saída/capa da viagem.
     MDFE_CARGO_INSURANCE_PENDING: 'emitter',
     MDFE_CARGO_AVERBACAO_PENDING: 'departure',
+    // RC-V (seguro do veículo) averbado pelo MDF-e: estado e recusa aparecem junto dos documentos.
+    MDFE_RCV_PENDING: 'documents',
+    MDFE_RCV_REFUSED: 'documents',
     ORIGIN_REQUIRED: 'route',
     DESTINATION_REQUIRED: 'route',
     DEST_HUB_REQUIRED: 'route',

@@ -43,6 +43,8 @@ import { assertProductionEnv } from './lib/envValidation.js';
 import { installProcessErrorHandlers } from './lib/processHandlers.js';
 import { createJsonBodyParser } from './middleware/bodyLimits.js';
 import { applyRateLimits } from './middleware/rateLimit.js';
+import { fiscalSecretsGuard } from './lib/fiscalSecrets.js';
+import { manifestAverbacaoRouter } from './routes/manifestAverbacao.js';
 
 dotenv.config();
 
@@ -86,6 +88,7 @@ app.use(cors({
     credentials: true,
 }));
 app.use(createJsonBodyParser());
+app.use(fiscalSecretsGuard); // nenhuma resposta leva senha de AT&M/certificado
 app.use(morgan('dev'));
 
 // Health check
@@ -106,6 +109,7 @@ app.use('/api/hubs', hubsRouter);
 app.use('/api/clients', clientsRouter);
 app.use('/api/links', linksRouter);
 app.use('/api/demands', demandsRouter);
+app.use('/api/manifests', manifestAverbacaoRouter);
 app.use('/api/manifests', manifestsRouter);
 app.use('/api/pricing', pricingRouter);
 app.use('/api/settings/llm', settingsRouter);

@@ -96,8 +96,22 @@ export type FiscalProviderStatus = 'NOT_CONFIGURED' | 'PENDING' | 'READY' | 'ERR
 export type FiscalCertificateStatus = 'MISSING' | 'READY' | 'EXPIRED' | 'INVALID';
 export type FiscalTaxRegime = 'SIMPLES_NACIONAL' | 'LUCRO_PRESUMIDO' | 'LUCRO_REAL' | 'MEI' | 'OUTRO';
 
+/** Averbação do seguro (AT&M) de um CT-e, como as telas a veem. */
+export interface CteAverbacao {
+    status: 'PENDING' | 'AVERBADO' | 'FAILED' | 'CANCELLED' | string;
+    numeroAverbacao: string | null;
+    protocolo: string | null;
+    averbadoAt: string | null;
+    lastError: string | null;
+    seguros: Array<{ ramo: string | null; nomeSeguradora: string | null; numApolice: string | null }>;
+}
+
 export interface OrderFreightCalculation {
     id: string;
+    /** Averbação do seguro na AT&M; null = ainda sem tentativa. */
+    averbacao?: CteAverbacao | null;
+    /** Emitente usa AT&M: mostra o estado e o botão "Averbar". */
+    averbacaoRequired?: boolean;
     orderId: string;
     documentType: FreightDocType;
     emissorId: string;
@@ -232,6 +246,10 @@ export interface FiscalEmitter {
     hasAtmPassword?: boolean;
     cargoTracked?: boolean;
     cargoLoadUnloadCovered?: boolean;
+    /** Declara o MDF-e na AT&M (averba o RC-V). */
+    atmDeclareMdfe?: boolean;
+    /** Recusa do RC-V bloqueia a saída da viagem (padrão: só avisa). */
+    rcvBlocksDeparture?: boolean;
     /** Opt-in: liga a varredura automática 2x/dia da Distribuição NF-e para este CNPJ como destinatário. */
     distribuicaoNfeEnabled: boolean;
     /** Status do checkpoint de NSU pro ambiente atual do emitente — `null` se o documento não for CNPJ.
@@ -1113,6 +1131,8 @@ export interface FreightBreakdownValues {
 
 export interface FreightDocumentSummary {
     id: string;
+    averbacao?: CteAverbacao | null;
+    averbacaoRequired?: boolean;
     documentType: FreightDocType;
     status: FreightCalcStatus;
     number: string | null;

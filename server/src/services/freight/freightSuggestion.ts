@@ -16,6 +16,7 @@ import {
     type PricingChoice,
 } from './freightDocRules.js';
 import type { FreightContext, FreightOrder } from './freightContext.js';
+import { averbacaoRequiredFor, summarizeAverbacao, type AverbacaoView } from '../averbacao/averbacaoView.js';
 
 /**
  * Sugestão do DOCUMENTO DO FRETE de um pedido: quem paga, CT-e/DC-e/minuta, emitente, tabela de
@@ -27,6 +28,10 @@ export interface FreightDocumentSummary {
     documentType: FreightDocType;
     status: FreightCalcStatus;
     canResend: boolean;
+    /** Averbação do seguro (AT&M) do CT-e; null = ainda não houve tentativa. */
+    averbacao: AverbacaoView | null;
+    /** Emitente usa AT&M: a tela mostra o estado e o botão "Averbar". */
+    averbacaoRequired: boolean;
     number: string | null;
     freightTotal: number;
     calculationMethod: string;
@@ -100,6 +105,8 @@ export function summarizeDocuments(order: FreightOrder): FreightDocumentSummary[
         documentType: c.documentType as FreightDocType,
         status: c.status,
         canResend: c.documentType === 'CTE' && isPendingReconciliationWithoutSubmission(c),
+        averbacao: summarizeAverbacao(c.cargoAverbacao),
+        averbacaoRequired: averbacaoRequiredFor(c),
         number: c.cteNumber ?? c.dceNumber ?? c.minutaNumber ?? null,
         freightTotal: c.freightTotal,
         calculationMethod: c.calculationMethod,
