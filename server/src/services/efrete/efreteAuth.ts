@@ -21,6 +21,23 @@ export function clearEfreteTokenCache(): void {
     inFlightByEnv.clear();
 }
 
+/**
+ * A sessão do eFrete pode expirar no provedor antes do nosso TTL. Nesse caso a API responde com erro de
+ * negócio ("Usuário não logado", "token inválido", "sessão expirada"). A chamada NÃO foi processada, então
+ * é seguro descartar o token, autenticar de novo e repetir UMA vez.
+ */
+export function isEfreteSessionInvalid(err: unknown): boolean {
+    if (!(err instanceof EfreteApiError)) return false;
+    const text = [err.excecaoMensagem, err.message].filter(Boolean).join(' ')
+        .toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
+    return /nao (esta )?logad|token (invalido|expirado)|sessao (expirada|invalida)|usuario nao autenticado/.test(text);
+}
+
+function discardEfreteToken(env: EfreteEnvironment, usedToken: string): void {
+    // Só descarta se ainda é o token que falhou: outra chamada pode já ter renovado a sessão.
+    if (cachedByEnv.get(env)?.token === usedToken) cachedByEnv.delete(env);
+}
+
 export async function getEfreteToken(env: EfreteEnvironment = getEfreteEnvironment()): Promise<string> {
     const now = Date.now();
     const cached = cachedByEnv.get(env);
@@ -86,14 +103,21 @@ export async function efreteAuthedPost<T extends { Sucesso?: boolean; Excecao?: 
 ): Promise<T> {
     const env = opts.environment ?? getEfreteEnvironment();
     const { integrador } = getEfreteCredentials(env);
-    const token = await getEfreteToken(env);
-    return efreteFetchJson<T>({
+    const call = (token: string) => efreteFetchJson<T>({
         method: 'POST',
         path,
         query: opts.query,
         body: { ...body, Integrador: integrador, Token: token, Versao: opts.versao ?? 8 },
         environment: env,
     });
+    const token = await getEfreteToken(env);
+    try {
+        return await call(token);
+    } catch (err) {
+        if (!isEfreteSessionInvalid(err)) throw err;
+        discardEfreteToken(env, token);
+        return call(await getEfreteToken(env));
+    }
 }
 
 export async function efreteAuthedGet<T extends { Sucesso?: boolean; Excecao?: { Mensagem?: string; Codigo?: string } }>(
@@ -103,13 +127,20 @@ export async function efreteAuthedGet<T extends { Sucesso?: boolean; Excecao?: {
 ): Promise<T> {
     const env = opts.environment ?? getEfreteEnvironment();
     const { integrador } = getEfreteCredentials(env);
-    const token = await getEfreteToken(env);
-    return efreteFetchJson<T>({
+    const call = (token: string) => efreteFetchJson<T>({
         method: 'GET',
         path,
         query: { ...query, Integrador: integrador, Token: token },
         environment: env,
     });
+    const token = await getEfreteToken(env);
+    try {
+        return await call(token);
+    } catch (err) {
+        if (!isEfreteSessionInvalid(err)) throw err;
+        discardEfreteToken(env, token);
+        return call(await getEfreteToken(env));
+    }
 }
 
 export async function logoutEfrete(env: EfreteEnvironment = getEfreteEnvironment()): Promise<void> {
