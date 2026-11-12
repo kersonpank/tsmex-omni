@@ -3,6 +3,7 @@ import { FiscalAddressFields, fiscalAddressFromPerson, type FiscalAddress } from
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
+import { mdfeUfRows, printableFiscalDocuments } from '../os/lib/mdfe';
 import { manifestsApi, hubsApi, linksApi, fiscalEmittersApi, vehicleTypesApi, cnpjApi } from '../../lib/api';
 import type { Manifest, ResolvedOrderSummary, Hub, Link, FiscalEmitter, Driver, CiotTipoViagemSuggestion, CiotEmissionJob, ManifestJourneyStep, ManifestPlanningAction, ManifestReadiness, VehicleType, ManifestTripType, TripPriceEstimate } from '../../types/index';
 import EmptyState from '../ui/EmptyState';
@@ -813,6 +814,20 @@ const ManifestDetailPage: React.FC = () => {
     }
   };
 
+  const mdfeUfList = mdfeUfRows(manifest?.fiscalDocuments, readiness?.mdfeUnloadUfs);
+  const mdfeAllDone = mdfeUfList.length > 1 ? mdfeUfList.every((row) => row.state === 'authorized') : !!getMdfeAuthorizedDoc();
+  const printableDocs = printableFiscalDocuments(manifest?.fiscalDocuments);
+  const handleOpenFiscalPdf = async (documentId: string) => {
+    if (!id) return;
+    setError(null);
+    try {
+      const { downloadUrl } = await manifestsApi.fiscalDocumentPdf(id, documentId);
+      window.open(downloadUrl, '_blank', 'noopener');
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Não foi possível abrir o PDF.');
+    }
+  };
+
   const handleEmitMdfe = async () => {
     if (!id) return;
     setError(null);
@@ -820,7 +835,7 @@ const ManifestDetailPage: React.FC = () => {
     try {
       const response = await manifestsApi.emitMdfe(id);
       if (response.pending) setMdfeMessage(response.message ?? 'MDF-e pendente de conciliação. Não reemita.');
-      else { setMdfeMessage(null); flashSuccess('MDF-e autorizado e XML conferido.'); }
+      else { setMdfeMessage(null); flashSuccess(response.mdfes && response.mdfes.length > 1 ? 'MDF-e de todas as UFs autorizados.' : 'MDF-e autorizado e XML conferido.'); }
       await load();
     } catch (e: any) {
       setError(e.response?.data?.error || e.response?.data?.message || e.message || 'Erro ao emitir MDF-e');
@@ -1986,6 +2001,15 @@ const ManifestDetailPage: React.FC = () => {
 
       {currentStep === 'fiscal' && (
       <JourneySection eyebrow="Etapa 8" title="Documentos e execução" description="Acompanhe CIOT e MDF-e sem alterar a verdade fiscal dos documentos autorizados.">
+        {!canShowFiscalActions(manifest.status) && printableDocs.length > 0 && (
+          <div className="mb-3 flex flex-wrap gap-2">
+            {printableDocs.map(({ doc, label }) => (
+              <button key={doc.id} type="button" onClick={() => void handleOpenFiscalPdf(doc.id)} className="rounded-lg border border-tower-300 bg-white px-3 py-1.5 text-sm text-tower-800 hover:bg-tower-50 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100">
+                Abrir PDF · {label}
+              </button>
+            ))}
+          </div>
+        )}
         {canShowFiscalActions(manifest.status) && (
           <>
             <div className="flex gap-2 flex-wrap items-center mb-3">
@@ -2007,10 +2031,24 @@ const ManifestDetailPage: React.FC = () => {
                   Emitir CIOT
                 </button>
               )}
-              <button type="button" disabled={fiscalBusy || !!getMdfeAuthorizedDoc() || (!getCiotAuthorizedDoc() && !manifest.ciotDispensado)} onClick={handleEmitMdfe} className="rounded-lg border border-tower-300 bg-white px-3 py-1.5 text-sm text-tower-800 hover:bg-tower-50 disabled:opacity-50 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100">
-                {getMdfeAuthorizedDoc() ? 'MDF-e autorizado' : getMdfePendingDoc() ? 'Consultar MDF-e pendente' : 'Emitir MDF-e (ACBr)'}
+              <button type="button" disabled={fiscalBusy || mdfeAllDone || (!getCiotAuthorizedDoc() && !manifest.ciotDispensado)} onClick={handleEmitMdfe} className="rounded-lg border border-tower-300 bg-white px-3 py-1.5 text-sm text-tower-800 hover:bg-tower-50 disabled:opacity-50 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100">
+                {mdfeAllDone ? (mdfeUfList.length > 1 ? 'MDF-e autorizados' : 'MDF-e autorizado') : getMdfePendingDoc() ? 'Consultar MDF-e pendente' : mdfeUfList.length > 1 ? 'Emitir MDF-e (um por UF)' : 'Emitir MDF-e (ACBr)'}
               </button>
             </div>
+            {mdfeUfList.length > 1 && (
+              <ul className="mb-3 space-y-1 text-sm text-tower-700 dark:text-tower-200">
+                {mdfeUfList.map((row) => <li key={row.uf}>{row.text}</li>)}
+              </ul>
+            )}
+            {printableDocs.length > 0 && (
+              <div className="mb-3 flex flex-wrap gap-2">
+                {printableDocs.map(({ doc, label }) => (
+                  <button key={doc.id} type="button" onClick={() => void handleOpenFiscalPdf(doc.id)} className="rounded-lg border border-tower-300 bg-white px-3 py-1.5 text-sm text-tower-800 hover:bg-tower-50 dark:border-tower-600 dark:bg-tower-800 dark:text-tower-100">
+                    Abrir PDF · {label}
+                  </button>
+                ))}
+              </div>
+            )}
             {getMdfePendingDoc() && <InlineNotice variant="info" message={`MDF-e nº ${getMdfePendingDoc()!.number ?? '?'} enviado e ainda sem autorização comprovada. ${getMdfePendingDoc()!.statusReason ?? 'Consulte a ACBr; não reemita.'}`} />}
             {mdfeMessage && <InlineNotice variant="info" message={mdfeMessage} />}
 

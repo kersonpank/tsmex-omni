@@ -3,6 +3,8 @@ import { cteEmitterMismatchMessage, missingMdfeEmitterData } from './fiscal/mdfe
 import { emitterCargoInsuranceComplete } from './acbr/mdfeCargoInsurance.js';
 import { mdfeAverbacaoReadiness, mdfeRcvReadiness } from './averbacao/mdfeAverbacao.js';
 import { mdfeBankInfo, mdfePaymentTerms } from './acbr/acbrMdfeAntt.js';
+import { expectedMdfeUfs } from './acbr/mdfeExpectedUfs.js';
+import { uncoveredMdfeUfs } from './acbr/mdfeUfPlan.js';
 import type { CiotRequestData } from './efrete/efreteCiotMapper.js';
 import prisma from '../lib/prisma.js';
 import { getManifestAnttSuggestion } from './manifestAnttSuggestion.js';
@@ -44,6 +46,8 @@ export interface ManifestReadiness {
     currentStep: ManifestJourneyStep;
     steps: Record<ManifestJourneyStep, { state: ManifestStepState; issues: ManifestReadinessIssue[] }>;
     issues: ManifestReadinessIssue[];
+    /** UFs de descarregamento da viagem, na ordem de emissão — só quando há mais de uma (um MDF-e por UF). */
+    mdfeUnloadUfs?: string[];
     /** Só para ADMIN/HUB (anexado pela rota): o que dá para fazer com a viagem agora e por quê. */
     planningActions?: PlanningActions;
 }
@@ -389,16 +393,23 @@ export async function getManifestReadiness(manifestId: string, ciotRequestData?:
         if (warning) add(issue('fiscal', 'CIOT_DISPENSA_NOT_ALLOWED', warning, 'ciotDispensado'));
     }
 
+    let mdfeUnloadUfs: string[] = [];
     if (manifest.status === 'ACCEPTED') {
         const [legs, fiscalDocs] = await Promise.all([
             prisma.orderLeg.findMany({ where: { manifestId }, select: { orderId: true, order: { select: { freightCalculations: { where: { documentType: 'CTE', status: 'CTE_AUTHORIZED' }, select: { cteAccessKey: true, cteProtocol: true, cteXml: true, cteXmlStorageKey: true } } } } } }),
-            prisma.manifestFiscalDocument.findMany({ where: { manifestId, documentType: { in: ['MDFE', 'CIOT'] }, status: 'AUTHORIZED' }, select: { documentType: true, accessKey: true, protocol: true, xmlUrl: true } }),
+            prisma.manifestFiscalDocument.findMany({ where: { manifestId, documentType: { in: ['MDFE', 'CIOT'] }, status: 'AUTHORIZED' }, select: { documentType: true, accessKey: true, protocol: true, xmlUrl: true, unloadUf: true } }),
         ]);
+        mdfeUnloadUfs = await expectedMdfeUfs(manifestId);
         for (const leg of legs) {
             const validCte = leg.order.freightCalculations.some((doc) => /^\d{44}$/.test(doc.cteAccessKey ?? '') && !!doc.cteProtocol && !!(doc.cteXml || doc.cteXmlStorageKey));
             if (!validCte) add(issue('fiscal', 'CTE_AUTHORIZATION_REQUIRED', `Pedido ${leg.orderId.slice(0, 8)} sem CT-e autorizado com XML, chave e protocolo.`, leg.orderId));
         }
-        if (!fiscalDocs.some((doc) => doc.documentType === 'MDFE' && /^\d{44}$/.test(doc.accessKey ?? '') && !!doc.protocol && !!doc.xmlUrl)) {
+        const mdfeDocs = fiscalDocs.filter((doc) => doc.documentType === 'MDFE');
+        if (mdfeUnloadUfs.length > 1) {
+            // Um MDF-e por UF de descarregamento: a pendência só some quando TODAS as UFs têm MDF-e autorizado.
+            const missing = uncoveredMdfeUfs(mdfeUnloadUfs, mdfeDocs.map((doc) => ({ ...doc, status: 'AUTHORIZED' })));
+            if (missing.length) add(issue('fiscal', 'MDFE_AUTHORIZATION_REQUIRED', `MDF-e pendente para: ${missing.join(', ')}.`));
+        } else if (!mdfeDocs.some((doc) => /^\d{44}$/.test(doc.accessKey ?? '') && !!doc.protocol && !!doc.xmlUrl)) {
             add(issue('fiscal', 'MDFE_AUTHORIZATION_REQUIRED', 'MDF-e autorizado com XML, chave e protocolo obrigatório para a saída.'));
         }
         if (!manifest.ciotDispensado && !fiscalDocs.some((doc) => doc.documentType === 'CIOT')) {
@@ -436,5 +447,6 @@ export async function getManifestReadiness(manifestId: string, ciotRequestData?:
         currentStep,
         steps,
         issues: Array.from(byStep.values()).flat(),
+        ...(mdfeUnloadUfs.length > 1 ? { mdfeUnloadUfs } : {}),
     };
 }

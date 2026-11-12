@@ -14,7 +14,9 @@ import { arrivalsSchema } from '../services/arrivalConference.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { isAcbrCredentialsConfigured } from '../services/acbr/acbrConfig.js';
-import { emitMdfeViaAcbr, reconcileMdfeDocument } from '../services/acbr/acbrMdfeEmit.js';
+import { emitMdfesForManifest } from '../services/acbr/acbrMdfeEmit.js';
+import { archiveMdfePdf } from '../services/acbr/acbrMdfePdf.js';
+import { summarizeMdfeEmission } from '../services/acbr/mdfeUfPlan.js';
 import { getManifestMargin } from '../services/pricingService.js';
 import { upsertFreightAgreement } from '../services/manifestFreightAgreementService.js';
 import { getManifestTripPriceEstimate } from '../services/manifestTripPriceEstimateService.js';
@@ -1481,7 +1483,10 @@ router.patch('/:id/complete', authenticate, async (req: AuthRequest, res: Respon
     }
 });
 
-// POST /api/manifests/:id/emit-mdfe — MDF-e (ACBr) para viagem com CT-es autorizados
+// POST /api/manifests/:id/emit-mdfe — MDF-e (ACBr), UM POR UF de descarregamento, para viagem com CT-es autorizados.
+// Emite os que faltam (idempotente: autorizado só é reportado, enviado é conciliado). Resposta:
+//   { success, pending, message, mdfes: [{ uf, status: AUTHORIZED|PENDING|REJECTED, number, message, docId }] }
+//   200 = todos autorizados; 202 = algum em processamento; 422 = algum recusado (a lista vem junto).
 router.post('/:id/emit-mdfe', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const id = req.params.id as string;
@@ -1496,55 +1501,11 @@ router.post('/:id/emit-mdfe', authenticate, authorize('ADMIN', 'HUB'), async (re
         }
         if (manifest.status !== 'ACCEPTED') throw new AppError('Aceite a oferta antes de emitir o MDF-e desta viagem.', 409);
 
-        const blocking = () => prisma.manifestFiscalDocument.findFirst({
-            where: { manifestId: id, documentType: 'MDFE', status: { in: ['AUTHORIZED', 'SENT', 'READY'] } },
-        });
-        let dup = await blocking();
-        if (dup?.status === 'SENT') {
-            // Emissão anterior sem desfecho (timeout/queda): concilia com o provedor em vez de reemitir.
-            const reconciled = await reconcileMdfeDocument(dup.id);
-            if (reconciled.ok) {
-                const doc = await prisma.manifestFiscalDocument.findUnique({ where: { id: dup.id } });
-                return res.json({ success: true, data: doc, mdfe: reconciled });
-            }
-            dup = await blocking();
-            if (dup) {
-                return res.status(202).json({
-                    success: true,
-                    pending: true,
-                    data: dup,
-                    message: reconciled.error ?? 'MDF-e em processamento. Não reemita — consulte novamente em instantes.',
-                });
-            }
-        } else if (dup) {
-            throw new AppError('MDF-e já existe ou está em processamento para este manifesto.', 409);
-        }
-
-        const result = await emitMdfeViaAcbr(id, id);
-        if (result.pending) {
-            const doc = result.docId ? await prisma.manifestFiscalDocument.findUnique({ where: { id: result.docId } }) : null;
-            return res.status(202).json({ success: true, pending: true, data: doc, message: result.error });
-        }
-        if (!result.ok) {
-            if (!result.docId) {
-                // Falha antes de qualquer envio ao provedor (validação): nenhum número foi consumido.
-                await prisma.manifestFiscalDocument.create({
-                    data: {
-                        manifestId: id,
-                        documentType: 'MDFE',
-                        status: 'REJECTED',
-                        statusReason: result.error ?? 'Falha MDF-e',
-                        rawResponse: (result.raw ?? { error: result.error }) as object,
-                        rejectedAt: new Date(),
-                    },
-                });
-            }
-            throw new AppError(result.error ?? 'Falha ao emitir MDF-e', 400);
-        }
-
-        const doc = await prisma.manifestFiscalDocument.findUnique({ where: { id: result.docId! } });
-
-        res.json({ success: true, data: doc, mdfe: result });
+        const mdfes = await emitMdfesForManifest(id);
+        const summary = summarizeMdfeEmission(mdfes);
+        if (summary.httpStatus === 422) return res.status(422).json({ success: false, pending: summary.pending, error: summary.message, message: summary.message, mdfes });
+        if (summary.httpStatus === 202) return res.status(202).json({ success: true, pending: true, message: summary.message, mdfes });
+        res.json({ success: true, pending: false, mdfes });
     } catch (error) {
         next(error);
     }
@@ -1699,20 +1660,31 @@ router.post('/:id/fiscal-closure/retry', authenticate, authorize('ADMIN', 'HUB')
     }
 });
 
-// GET /api/manifests/:manifestId/fiscal-documents/:documentId/pdf
+// GET /api/manifests/:manifestId/fiscal-documents/:documentId/pdf — CIOT e MDF-e (DAMDFE) autorizados ou já encerrados.
+// ADMIN, ou HUB de origem OU destino da viagem (o hub que recebe também imprime). O PDF do MDF-e é baixado do
+// provedor e arquivado na primeira vez; depois é servido por URL assinada.
 router.get('/:id/fiscal-documents/:documentId/pdf', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const manifestId = String(req.params.id);
         const documentId = String(req.params.documentId);
-        const manifest = await prisma.manifest.findUnique({ where: { id: manifestId }, select: { hubId: true } });
+        const manifest = await prisma.manifest.findUnique({ where: { id: manifestId }, select: { hubId: true, destHubId: true, tripStops: { select: { destHubId: true } } } });
         if (!manifest) throw new AppError('Manifesto não encontrado.', 404);
-        if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && manifest.hubId !== req.user!.hubId) {
-            throw new AppError('Sem acesso a este manifesto.', 403);
+        if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN')) {
+            const hubId = req.user!.hubId;
+            const involved = !!hubId && (manifest.hubId === hubId || manifest.destHubId === hubId || manifest.tripStops.some((stop) => stop.destHubId === hubId));
+            if (!involved) throw new AppError('Sem acesso a este manifesto.', 403);
         }
-        const document = await prisma.manifestFiscalDocument.findFirst({ where: { id: documentId, manifestId, documentType: 'CIOT', status: 'AUTHORIZED' } });
-        if (!document?.pdfUrl?.startsWith('s3:')) throw new AppError('PDF do CIOT não arquivado.', 404);
-        const key = document.pdfUrl.slice(3);
-        if (!key) throw new AppError('Referência de PDF inválida.', 404);
+        const document = await prisma.manifestFiscalDocument.findFirst({
+            where: { id: documentId, manifestId, documentType: { in: ['CIOT', 'MDFE'] }, status: { in: ['AUTHORIZED', 'CLOSED'] } },
+        });
+        if (!document) throw new AppError('Documento fiscal autorizado não encontrado.', 404);
+        let key = document.pdfUrl?.startsWith('s3:') ? document.pdfUrl.slice(3) : '';
+        if (!key && document.documentType === 'MDFE') {
+            const archived = await archiveMdfePdf(document.id);
+            if (!archived.ok) throw new AppError(`Não foi possível obter o PDF do MDF-e agora: ${archived.error}`, 502);
+            key = archived.storageKey;
+        }
+        if (!key) throw new AppError(`PDF do ${document.documentType === 'CIOT' ? 'CIOT' : 'MDF-e'} não arquivado.`, 404);
         res.json({ downloadUrl: await getObjectDownloadUrl(key, 300), expiresInSeconds: 300 });
     } catch (err) { next(err); }
 });

@@ -12,6 +12,7 @@ const prismaSnapshot = {
     orderLegFindMany: prisma.orderLeg.findMany,
     fiscalFindMany: prisma.manifestFiscalDocument.findMany,
     ciotJobFindFirst: prisma.ciotEmissionJob.findFirst,
+    stopFindMany: prisma.manifestStop.findMany,
 };
 
 function restorePrismaMocks() {
@@ -23,6 +24,7 @@ function restorePrismaMocks() {
     prisma.orderLeg.findMany = prismaSnapshot.orderLegFindMany;
     prisma.manifestFiscalDocument.findMany = prismaSnapshot.fiscalFindMany;
     prisma.ciotEmissionJob.findFirst = prismaSnapshot.ciotJobFindFirst;
+    prisma.manifestStop.findMany = prismaSnapshot.stopFindMany;
 }
 
 // Dates used throughout
@@ -98,6 +100,7 @@ describe('manifestReadinessService', () => {
         prisma.link.findUnique = (async () => baseLink) as any;
         prisma.driver.findMany = (async () => []) as any;
         prisma.orderLeg.findMany = (async () => []) as any;
+        prisma.manifestStop.findMany = (async () => []) as any;
         prisma.ciotEmissionJob.findFirst = (async () => null) as any;
         const link = linkOverrides !== undefined ? { ...baseLink, ...linkOverrides } : baseLink;
         const driver = driverOverrides !== undefined ? { ...baseDriver, ...driverOverrides } : baseDriver;
@@ -294,6 +297,43 @@ describe('manifestReadinessService', () => {
         assert.equal(result.canStart, false);
         assert.ok(result.issues.some(item => item.code === 'CTE_AUTHORIZATION_REQUIRED' && item.field === 'order-2'));
         assert.ok(result.issues.some(item => item.code === 'CIOT_REQUIRED'));
+    });
+
+    describe('um MDF-e por UF de descarregamento', () => {
+        const cte = (digit: string) => ({ cteAccessKey: digit.repeat(44), cteProtocol: 'p', cteXml: '<x/>', cteXmlStorageKey: null });
+        const stop = (id: string, sequence: number, state: string, digit: string) => ({
+            id, sequence, destHubId: null, destHub: null, destCity: `Cidade ${state}`, destState: state, destCityIbgeCode: '1',
+            legs: [{ order: { freightCalculations: [cte(digit)] } }],
+        });
+        const mdfe = (uf: string | null, digit: string) => ({ documentType: 'MDFE', unloadUf: uf, accessKey: digit.repeat(44), protocol: 'p', xmlUrl: 'stored' });
+        const setup = (docs: unknown[]) => {
+            mockWith({ carrierType: 'FROTA' }, undefined, { status: 'ACCEPTED', ciotDispensado: true });
+            prisma.manifestStop.findMany = (async () => [stop('s1', 1, 'PI', '1'), stop('s2', 2, 'CE', '2')]) as any;
+            prisma.orderLeg.findMany = (async () => [
+                { orderId: 'o1', order: { demand: { orderNumber: 1, nfValue: 1, weight: 1 }, freightCalculations: [cte('1')] } },
+                { orderId: 'o2', order: { demand: { orderNumber: 2, nfValue: 1, weight: 1 }, freightCalculations: [cte('2')] } },
+            ]) as any;
+            prisma.manifestFiscalDocument.findMany = (async () => docs) as any;
+        };
+
+        it('MDFE_AUTHORIZATION_REQUIRED só some com todas as UFs autorizadas e diz quais faltam', async () => {
+            setup([mdfe('PI', '7')]);
+            const partial = await getManifestReadiness('manifest-1');
+            const issue = partial.issues.find((item) => item.code === 'MDFE_AUTHORIZATION_REQUIRED');
+            assert.equal(issue?.message, 'MDF-e pendente para: CE.');
+            assert.deepEqual(partial.mdfeUnloadUfs, ['PI', 'CE']);
+            assert.equal(partial.canStart, false);
+
+            setup([mdfe('PI', '7'), mdfe('CE', '8')]);
+            const complete = await getManifestReadiness('manifest-1');
+            assert.equal(complete.issues.some((item) => item.code === 'MDFE_AUTHORIZATION_REQUIRED'), false);
+        });
+
+        it('MDF-e antigo sem UF cobre a viagem toda', async () => {
+            setup([mdfe(null, '7')]);
+            const result = await getManifestReadiness('manifest-1');
+            assert.equal(result.issues.some((item) => item.code === 'MDFE_AUTHORIZATION_REQUIRED'), false);
+        });
     });
 
     it('transportador sem app só avisa (o hub opera a viagem — NORTE #24); motorista adicional inativo bloqueia', async () => {

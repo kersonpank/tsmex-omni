@@ -8,6 +8,8 @@ import { mdfeFixGroup, type TripFixGroup } from '../../lib/trip';
 import { OsBadge, OsButton, OsErrorNotice, OsRow } from '../../ui/kit';
 import OsSheet, { apiErrorMessage } from '../../ui/Sheet';
 import CiotEditor from './CiotEditor';
+import FiscalPdfButton from './FiscalPdfButton';
+import { mdfeUfRows } from '../../lib/mdfe';
 
 export type TripDocumentStep = 'cte' | 'ciot' | 'mdfe';
 export type TripDocumentResolution = TripFixGroup | 'confirm';
@@ -45,9 +47,15 @@ const TripDocumentsSheet: React.FC<{
     const ciotDone = Boolean(ciot || manifest.ciotDispensado);
     const mdfe = manifest.fiscalDocuments?.find((doc) => doc.documentType === 'MDFE' && doc.status === 'AUTHORIZED');
     const mdfePending = manifest.fiscalDocuments?.some((doc) => doc.documentType === 'MDFE' && ['SENT', 'READY'].includes(doc.status));
-    const processing = !mdfe && (pending || mdfePending);
+    // Um MDF-e por UF de descarregamento: só aparece por UF quando a viagem descarrega em mais de uma.
+    const ufRows = mdfeUfRows(manifest.fiscalDocuments, readiness?.mdfeUnloadUfs);
+    const multiUf = ufRows.length > 1;
+    const allUfsDone = multiUf && ufRows.every((row) => row.state === 'authorized');
+    const anyUfProcessing = multiUf && ufRows.some((row) => row.state === 'processing');
+    const mdfeDone = multiUf ? allUfsDone : Boolean(mdfe);
+    const processing = multiUf ? false : !mdfe && (pending || mdfePending);
     const accepted = manifest.status === 'ACCEPTED';
-    const canEmitMdfe = cteDone && ciotDone && accepted && !mdfe && !processing;
+    const canEmitMdfe = cteDone && ciotDone && accepted && !mdfeDone && !processing;
 
     useEffect(() => {
         const target = initialStep === 'ciot' ? ciotRef : initialStep === 'mdfe' ? mdfeRef : cteRef;
@@ -129,15 +137,38 @@ const TripDocumentsSheet: React.FC<{
             </section>
 
             <section ref={mdfeRef} className="scroll-mt-2 border-t border-tower-200 py-4 dark:border-tower-700">
-                <StepHeading number={3} title="MDF-e" done={Boolean(mdfe)} locked={!cteDone || !ciotDone} />
+                <StepHeading number={3} title={multiUf ? 'MDF-e (um por UF)' : 'MDF-e'} done={mdfeDone} locked={!cteDone || !ciotDone} />
                 {error ? (
                     <div className="mb-3 flex flex-col gap-2" role="alert">
                         <OsErrorNotice message={error} />
                         {mdfeFix ? <OsButton full variant="secondary" onClick={() => resolveFix(mdfeFix.group)}>{mdfeFix.label}</OsButton> : null}
                     </div>
                 ) : null}
-                {mdfe ? (
-                    <p className="text-[14px] font-bold text-emerald-700 dark:text-emerald-300">MDF-e autorizado{mdfe.number ? ` · nº ${mdfe.number}` : ''}</p>
+                {multiUf ? (
+                    <div className="flex flex-col gap-2">
+                        {ufRows.map((row) => (
+                            <OsRow key={row.uf} tone={row.state === 'authorized' ? 'ok' : 'attention'}>
+                                <div className="flex items-center justify-between gap-2">
+                                    <p className="text-[13px] font-semibold text-tower-900 dark:text-white">{row.text}</p>
+                                    {row.state === 'authorized' && row.doc ? <FiscalPdfButton manifestId={manifest.id} documentId={row.doc.id} /> : null}
+                                </div>
+                            </OsRow>
+                        ))}
+                        {!mdfeDone ? (
+                            <>
+                                <p className="text-[13px] text-tower-500 dark:text-tower-300">
+                                    {!cteDone ? 'Conclua os CT-es dos pedidos primeiro.' : !ciotDone ? 'Autorize ou dispense o CIOT para liberar o MDF-e.' : !accepted ? 'Confirme o transportador para emitir o MDF-e.' : 'A viagem descarrega em mais de uma UF: cada UF tem o seu MDF-e. O botão emite todos os que faltam.'}
+                                </p>
+                                <OsButton full disabled={!canEmitMdfe || busy} onClick={() => void emitMdfe()}>{busy ? 'Emitindo…' : 'Emitir MDF-e'}</OsButton>
+                                {anyUfProcessing ? <OsButton full variant="ghost" disabled={busy} onClick={() => void refresh()}>{busy ? 'Consultando…' : 'Consultar'}</OsButton> : null}
+                            </>
+                        ) : null}
+                    </div>
+                ) : mdfe ? (
+                    <div className="flex items-center justify-between gap-2">
+                        <p className="text-[14px] font-bold text-emerald-700 dark:text-emerald-300">MDF-e autorizado{mdfe.number ? ` · nº ${mdfe.number}` : ''}</p>
+                        <FiscalPdfButton manifestId={manifest.id} documentId={mdfe.id} />
+                    </div>
                 ) : processing ? (
                     <div role="status">
                         <p className="mb-3 text-[13px] font-semibold text-tower-700 dark:text-tower-200">MDF-e em processamento na SEFAZ — não reemita</p>

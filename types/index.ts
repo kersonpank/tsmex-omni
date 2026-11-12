@@ -879,6 +879,8 @@ export interface ManifestReadiness {
     currentStep: ManifestJourneyStep;
     steps: Record<ManifestJourneyStep, { state: ManifestStepState; issues: ManifestReadinessIssue[] }>;
     issues: ManifestReadinessIssue[];
+    /** UFs de descarregamento, na ordem de emissão — presente só quando há mais de uma (um MDF-e por UF). */
+    mdfeUnloadUfs?: string[];
     /** Só para ADMIN/HUB: o que dá para fazer com a viagem agora e por quê. */
     planningActions?: Record<ManifestPlanningAction, { allowed: boolean; reason?: string }>;
 }
@@ -1342,6 +1344,9 @@ export interface ManifestFiscalDocument {
     statusReason?: string | null;
     xmlUrl?: string | null;
     pdfUrl?: string | null;
+    /** UF de descarregamento do MDF-e (um MDF-e por UF). Nulo = MDF-e anterior a essa regra. */
+    unloadUf?: string | null;
+    rawPayload?: unknown;
     authorizedAt?: string | null;
     rejectedAt?: string | null;
     closedAt?: string | null;

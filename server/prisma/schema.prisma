@@ -1242,6 +1242,10 @@ model ManifestFiscalDocument {
   statusReason String? @db.Text
   xmlUrl       String?
   pdfUrl       String?
+  /// Id do documento no provedor fiscal (ACBr: id do MDF-e). Fonte única para consultar/baixar/encerrar.
+  providerDocId String?
+  /// UF de descarregamento do MDF-e (um MDF-e por UF). Nulo = registro anterior à regra (cobre a viagem toda).
+  unloadUf     String?
   rawPayload   Json?
   rawResponse  Json?
 
