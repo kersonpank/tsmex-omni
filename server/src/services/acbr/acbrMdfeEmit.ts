@@ -711,7 +711,7 @@ async function finalizeAuthorized(
             authorizedAt: new Date(),
         },
     });
-    await declararMdfeAposAutorizacao({ docId, xml }); // best-effort; desligado sem ATM_DECLARA_MDFE=true
+    await declararMdfeAposAutorizacao({ docId, xml }); // best-effort; só age se o emitente usa AT&M e atmDeclareMdfe
     return { ok: true, docId, apiId, accessKey: outcome.chave || undefined, protocol: outcome.protocol, xml, raw: doc };
 }
 

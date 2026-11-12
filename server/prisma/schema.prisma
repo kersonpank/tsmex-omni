@@ -1183,6 +1183,10 @@ model FiscalEmitter {
   /// Flags da apólice: iriam como ObsCont RASTREADO/OCD no CT-e (ainda não ligado ao mapper).
   cargoTracked           Boolean                @default(false)
   cargoLoadUnloadCovered Boolean                @default(false)
+  /// Declara o MDF-e autorizado na AT&M (averbação do RC-V, ramo 59).
+  atmDeclareMdfe         Boolean                @default(true)
+  /// Recusa do RC-V pela AT&M bloqueia a saída da viagem (padrão: só avisa).
+  rcvBlocksDeparture     Boolean                @default(false)
   environment      FiscalEnvironment @default(HOMOLOGACAO)
   efreteEnvironment FiscalEnvironment @default(HOMOLOGACAO)
 
@@ -1245,6 +1249,7 @@ model ManifestFiscalDocument {
   cancelledAt  DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+  averbacao    ManifestAverbacao?
 
   @@index([manifestId])
   @@index([fiscalEmitterId])
@@ -2727,8 +2732,39 @@ model CargoAverbacao {
   lockedUntil               DateTime?
   lastError                 String?                 @db.Text
   rawResponse               Json?
+  /// Todos os DadosSeguro devolvidos: [{numeroAverbacao, cnpjSeguradora, nomeSeguradora, numApolice, ramo, valorAverbado, tpMov}]
+  dadosSeguro               Json?
   createdAt                 DateTime                @default(now())
   updatedAt                 DateTime                @updatedAt
+
+  @@index([status])
+}
+
+enum ManifestAverbacaoStatus {
+  PENDING
+  DECLARADO
+  RCV_AVERBADO
+  RCV_RECUSADO
+  FAILED
+}
+
+/// Declaração do MDF-e autorizado na AT&M; o resultado do RC-V (ramo 59) vem na mesma resposta.
+model ManifestAverbacao {
+  id                       String                  @id @default(uuid())
+  manifestFiscalDocumentId String                  @unique
+  manifestFiscalDocument   ManifestFiscalDocument  @relation(fields: [manifestFiscalDocumentId], references: [id], onDelete: Cascade)
+  status                   ManifestAverbacaoStatus @default(PENDING)
+  protocolo                String?
+  chancelaAt               DateTime?
+  rcvCodigo                String?
+  rcvMensagem              String?                 @db.Text
+  attemptCount             Int                     @default(0)
+  lastAttemptAt            DateTime?
+  lockedUntil              DateTime?
+  lastError                String?                 @db.Text
+  rawResponse              Json?
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime                @updatedAt
 
   @@index([status])
 }

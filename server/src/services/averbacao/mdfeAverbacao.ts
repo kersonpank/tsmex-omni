@@ -4,14 +4,15 @@
  * de averbação de cada CT-e da viagem (ordem estável, sem repetir); CT-e sem averbação pendura a emissão.
  */
 import prisma from '../../lib/prisma.js';
-import { buildMdfeSeg, MDFE_CARGO_INSURANCE_ERROR, parseAverbacoes, type CargoInsuranceEmitter } from '../acbr/mdfeCargoInsurance.js';
+import { buildMdfeSeg, emitterCargoInsuranceComplete, MDFE_CARGO_INSURANCE_ERROR, parseAverbacoes, type CargoInsuranceEmitter } from '../acbr/mdfeCargoInsurance.js';
+import { isValidCnpj } from '../documentValidation.js';
 import { emitterUsesAtm, nAverOf, type AtmEmitterConfig } from './cargoAverbacaoService.js';
 
 export interface TripCteAverbacao {
     orderId: string;
     calcId: string;
     orderNumber: string;
-    averbacao: { status: string; numeroAverbacao: string | null; protocolo: string | null } | null;
+    averbacao: { status: string; numeroAverbacao: string | null; protocolo: string | null; dadosSeguro?: unknown } | null;
 }
 
 export interface NAverResolution {
@@ -49,7 +50,7 @@ export async function loadTripCteAverbacoes(manifestId: string): Promise<TripCte
                 where: { status: 'CTE_AUTHORIZED', documentType: 'CTE' },
                 orderBy: { createdAt: 'desc' },
                 take: 1,
-                select: { id: true, cargoAverbacao: { select: { status: true, numeroAverbacao: true, protocolo: true } } },
+                select: { id: true, cargoAverbacao: { select: { status: true, numeroAverbacao: true, protocolo: true, dadosSeguro: true } } },
             },
         } } },
     });
@@ -64,23 +65,90 @@ export async function loadTripCteAverbacoes(manifestId: string): Promise<TripCte
     return out.sort((a, b) => a.orderNumber.localeCompare(b.orderNumber, undefined, { numeric: true }) || a.calcId.localeCompare(b.calcId));
 }
 
+const digitsOnly = (value?: string | null) => (value ?? '').replace(/\D/g, '');
+
+interface SeguroUsavel { cnpj: string; nome: string; apolice: string }
+
+/** `DadosSeguro` da AT&M só serve ao `seg` se tiver CNPJ válido, nome e apólice real (nunca vazia nem PROVISORIA). */
+function seguroUsavel(item: Record<string, unknown>, emitter: CargoInsuranceEmitter | null | undefined): SeguroUsavel | null {
+    const cnpj = digitsOnly(typeof item.cnpjSeguradora === 'string' ? item.cnpjSeguradora : null);
+    const apolice = typeof item.numApolice === 'string' ? item.numApolice.trim() : '';
+    if (cnpj.length !== 14 || !isValidCnpj(cnpj)) return null;
+    if (!apolice || apolice.toUpperCase() === 'PROVISORIA') return null;
+    const nomeAtm = typeof item.nomeSeguradora === 'string' ? item.nomeSeguradora.trim() : '';
+    const nome = nomeAtm || (digitsOnly(emitter?.cargoInsurerCnpj) === cnpj ? emitter?.cargoInsurerName?.trim() ?? '' : '');
+    return nome ? { cnpj, nome, apolice } : null;
+}
+
+function storedItems(raw: unknown): Record<string, unknown>[] {
+    return Array.isArray(raw) ? raw.filter((x): x is Record<string, unknown> => Boolean(x) && typeof x === 'object' && !Array.isArray(x)) : [];
+}
+
+/**
+ * Um `seg` por (CNPJ da seguradora, apólice), cada um com os nAver dos CT-e. Seguradora/apólice vêm do
+ * `DadosSeguro` da AT&M quando utilizável; senão do cadastro do emitente. Nunca envia TESTE nem PROVISORIA.
+ * Devolve null se faltar dado (sem averbação, ou sem seguradora utilizável em nenhuma das fontes).
+ */
+export function buildMdfeSegFromAverbacoes(emitter: CargoInsuranceEmitter | null | undefined, ctes: TripCteAverbacao[]): Record<string, unknown>[] | null {
+    const fallback: SeguroUsavel | null = emitterCargoInsuranceComplete(emitter)
+        ? { cnpj: digitsOnly(emitter!.cargoInsurerCnpj), nome: emitter!.cargoInsurerName!.trim(), apolice: emitter!.cargoInsurancePolicyNumber!.trim() }
+        : null;
+    const groups = new Map<string, { seguro: SeguroUsavel; nAver: string[] }>();
+    for (const cte of ctes) {
+        if (!cte.averbacao || cte.averbacao.status !== 'AVERBADO') return null;
+        let items = storedItems(cte.averbacao.dadosSeguro).filter((item) => typeof item.numeroAverbacao === 'string' && item.numeroAverbacao.trim());
+        if (!items.length) {
+            const single = nAverOf(cte.averbacao as never);
+            if (!single) return null;
+            items = [{ numeroAverbacao: single }];
+        }
+        for (const item of items) {
+            const seguro = seguroUsavel(item, emitter) ?? fallback;
+            if (!seguro) return null;
+            const key = `${seguro.cnpj}|${seguro.apolice}`;
+            const group = groups.get(key) ?? { seguro, nAver: [] };
+            const numero = String(item.numeroAverbacao).trim().slice(0, 40);
+            if (!group.nAver.includes(numero)) group.nAver.push(numero);
+            groups.set(key, group);
+        }
+    }
+    if (!groups.size) return null;
+    return [...groups.values()].map(({ seguro, nAver }) => ({
+        infResp: { respSeg: 1 },
+        infSeg: { xSeg: seguro.nome.slice(0, 30), CNPJ: seguro.cnpj },
+        nApol: seguro.apolice.slice(0, 20),
+        nAver,
+    }));
+}
+
 export type MdfeSegResolution =
     | { ok: true; seg: Record<string, unknown>[]; manual: boolean }
     | { ok: false; error: string };
 
-/** Ponto único usado pela emissão do MDF-e (acbrMdfeEmit.ts). Não reserva numeração; só decide o `seg`. */
+/**
+ * Ponto único usado pela emissão do MDF-e (acbrMdfeEmit.ts). Não reserva numeração; só decide o `seg`.
+ * `orderIds`: considera só os CT-e desses pedidos (um MDF-e por UF de descarga).
+ */
 export async function resolveMdfeSeg(input: {
     manifestId: string;
     emitter: (CargoInsuranceEmitter & AtmEmitterConfig) | null | undefined;
     manualAverbacao: string | null | undefined;
+    orderIds?: string[];
 }): Promise<MdfeSegResolution> {
     const usesAtm = emitterUsesAtm(input.emitter);
-    const ctes = usesAtm && !parseAverbacoes(input.manualAverbacao).length ? await loadTripCteAverbacoes(input.manifestId) : [];
-    const resolved = resolveNAver({ usesAtm, manualText: input.manualAverbacao, ctes });
+    const manual = parseAverbacoes(input.manualAverbacao);
+    if (manual.length) {
+        const seg = buildMdfeSeg(input.emitter, manual.join(';'));
+        return seg ? { ok: true, seg, manual: true } : { ok: false, error: MDFE_CARGO_INSURANCE_ERROR };
+    }
+    if (!usesAtm) return { ok: false, error: MDFE_CARGO_INSURANCE_ERROR };
+    const all = await loadTripCteAverbacoes(input.manifestId);
+    const ctes = input.orderIds ? all.filter((c) => input.orderIds!.includes(c.orderId)) : all;
+    const resolved = resolveNAver({ usesAtm, manualText: null, ctes });
     if (resolved.pending.length) return { ok: false, error: averbacaoPendingMessage(resolved.pending) };
-    const seg = buildMdfeSeg(input.emitter, resolved.nAver.join(';'));
+    const seg = buildMdfeSegFromAverbacoes(input.emitter, ctes);
     if (!seg) return { ok: false, error: MDFE_CARGO_INSURANCE_ERROR };
-    return { ok: true, seg, manual: resolved.manual };
+    return { ok: true, seg, manual: false };
 }
 
 export interface AverbacaoReadiness {
@@ -121,4 +189,34 @@ export async function recordManualAverbacaoNote(input: { manifestId: string; emi
             description: 'Averbação do seguro informada manualmente pelo operador (contingência), sobrepondo a averbação eletrônica AT&M.',
         } });
     }
+}
+
+export interface RcvIssue { code: 'MDFE_RCV_PENDING' | 'MDFE_RCV_REFUSED'; message: string; severity: 'blocking' | 'warning' }
+
+/** Estado do RC-V (averbação do MDF-e) para a prontidão da viagem. Recusa avisa; bloqueia só se `rcvBlocksDeparture`. */
+export async function mdfeRcvReadiness(input: {
+    manifestId: string;
+    emitter: (AtmEmitterConfig & { atmDeclareMdfe?: boolean | null; rcvBlocksDeparture?: boolean | null }) | null | undefined;
+}): Promise<RcvIssue[]> {
+    if (!emitterUsesAtm(input.emitter) || input.emitter?.atmDeclareMdfe === false) return [];
+    const docs = await prisma.manifestFiscalDocument.findMany({
+        where: { manifestId: input.manifestId, documentType: 'MDFE', status: { in: ['AUTHORIZED', 'CLOSED'] } },
+        select: { number: true, averbacao: { select: { status: true, rcvCodigo: true, rcvMensagem: true, lastError: true } } },
+        orderBy: { createdAt: 'asc' },
+    });
+    const refusedSeverity = input.emitter?.rcvBlocksDeparture ? 'blocking' : 'warning';
+    const issues: RcvIssue[] = [];
+    for (const doc of docs) {
+        const label = doc.number ? `MDF-e ${doc.number}` : 'MDF-e';
+        const status = doc.averbacao?.status ?? 'PENDING';
+        if (status === 'PENDING') {
+            issues.push({ code: 'MDFE_RCV_PENDING', severity: 'warning', message: `Seguro do veículo (RC-V) do ${label} ainda não foi averbado na AT&M; confirme antes do embarque.` });
+        } else if (status === 'RCV_RECUSADO' || status === 'FAILED') {
+            const detail = status === 'RCV_RECUSADO'
+                ? `${doc.averbacao?.rcvMensagem ?? 'sem detalhe'}${doc.averbacao?.rcvCodigo ? ` (código ${doc.averbacao.rcvCodigo})` : ''}`
+                : doc.averbacao?.lastError ?? 'sem detalhe';
+            issues.push({ code: 'MDFE_RCV_REFUSED', severity: refusedSeverity, message: `Seguro do veículo (RC-V) do ${label} recusado pela AT&M: ${detail}. Não libere o embarque sem resolver.` });
+        }
+    }
+    return issues;
 }
