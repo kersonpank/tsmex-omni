@@ -30,6 +30,7 @@ import { apiErrorMessage } from '../ui/Sheet';
 import ConferenceRow from './receive/ConferenceRow';
 import ConferenceScan, { type ScanFeedback } from './receive/ConferenceScan';
 import { DamageSheet, MissingSheet } from './receive/ConferenceSheets';
+import TripFiscalDocuments from './trip/TripFiscalDocuments';
 import ReceiveDone from './receive/ReceiveDone';
 
 /**
@@ -224,6 +225,7 @@ const TripReceivePage: React.FC = () => {
         return (
             <div className="pb-40">
                 {header}
+                <TripFiscalDocuments manifest={manifest} />
                 {error ? <div className="mb-3"><OsErrorNotice message={error} /></div> : null}
                 <OsCard className="!p-4">
                     <p className="font-display text-[15px] font-bold text-tower-900 dark:text-white">Etapa 1 de 2 · Chegada</p>
@@ -243,6 +245,7 @@ const TripReceivePage: React.FC = () => {
     return (
         <div className="pb-40">
             {header}
+            <TripFiscalDocuments manifest={manifest} />
             {error ? <div className="mb-3"><OsErrorNotice message={error} /></div> : null}
             {items.length === 0 ? (
                 <OsEmpty title="Nenhum pedido vinculado a esta descarga" detail="Confira na Torre se as pernas desta viagem foram vinculadas à parada deste hub." />

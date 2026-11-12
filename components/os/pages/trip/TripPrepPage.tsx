@@ -12,7 +12,8 @@ import OsSheet, { apiErrorMessage, osFieldClass } from '../../ui/Sheet';
 import ResponsibleEditor from './ResponsibleEditor';
 import { DepartureEditor, EmitterEditor, FreightEditor } from './TripEditors';
 import FiscalClosureNotice from './FiscalClosureNotice';
-import TripDocumentsSheet, { type TripDocumentResolution, type TripDocumentStep } from './TripDocumentsSheet';
+import TripFiscalDocuments from './TripFiscalDocuments';
+import TripDocumentsSheet,{ type TripDocumentResolution, type TripDocumentStep } from './TripDocumentsSheet';
 import RouteEditor from './RouteEditor';
 import TripInfoEditor from './TripInfoEditor';
 import TripClosingCard from '../../../manifest/TripClosingCard';
@@ -237,6 +238,7 @@ const TripPrepPage: React.FC = () => {
             ) : null}
 
             <FiscalClosureNotice manifest={manifest} onDone={load} />
+            {['IN_PROGRESS', 'COMPLETED'].includes(manifest.status) ? <TripFiscalDocuments manifest={manifest} /> : null}
             {manifest.status === 'COMPLETED' ? <TripClosingCard data={manifest} /> : null}
 
             {['DRAFT', 'PENDING_ACCEPT', 'ACCEPTED'].includes(manifest.status) ? (

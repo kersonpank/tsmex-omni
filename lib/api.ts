@@ -787,7 +787,7 @@ export const manifestsApi = {
     },
 
     emitMdfe: async (id: string) => {
-        const response = await api.post<ApiResponse<unknown> & { pending?: boolean; message?: string }>(`/manifests/${id}/emit-mdfe`, {});
+        const response = await api.post<ApiResponse<unknown> & { pending?: boolean; message?: string; mdfes?: Array<{ uf: string; status: 'AUTHORIZED' | 'PENDING' | 'REJECTED'; number: string | null; message: string | null; docId: string | null }> }>(`/manifests/${id}/emit-mdfe`, {});
         return response.data;
     },
 
