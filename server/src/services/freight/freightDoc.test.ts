@@ -219,6 +219,15 @@ describe('summarizeDocuments: reenvio do CT-e', () => {
 
     const job = (providerDocId: string | null) => ({ phase: 'PENDING_RECONCILIATION' as const, attemptCount: 3, maxAttempts: 3, providerDocId });
 
+    it('expõe a conferência automática: providerDown só depois de 3 conferências sem resposta do provedor e sem id', () => {
+        const j = (attemptCount: number, providerDocId: string | null) => ({ phase: 'PENDING_RECONCILIATION' as const, attemptCount, maxAttempts: 24, providerDocId });
+        assert.deepEqual(document({ cteEmissionJobs: [j(0, null)] }).reconcile, { hasProviderId: false, failedChecks: 0, providerDown: false });
+        assert.deepEqual(document({ cteEmissionJobs: [j(2, null)] }).reconcile, { hasProviderId: false, failedChecks: 2, providerDown: false });
+        assert.deepEqual(document({ cteEmissionJobs: [j(3, null)] }).reconcile, { hasProviderId: false, failedChecks: 3, providerDown: true });
+        assert.deepEqual(document({ cteEmissionJobs: [j(24, 'doc-1')] }).reconcile, { hasProviderId: true, failedChecks: 0, providerDown: false });
+        assert.equal(document({ status: 'CTE_AUTHORIZED' }).reconcile, null);
+    });
+
     it('bloqueia reenvio em reconciliação sem job comprovadamente seguro', () => {
         const doc = document();
         assert.equal(doc.canResend, false);

@@ -464,16 +464,42 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
         assert.match(response.body.error, /Reconciliação só é permitida/);
     });
 
-    it('POST /emit-cte/reconcile não presume que ausência de providerDocId significa ausência de envio', async () => {
-        const response = await httpJson<{ success: boolean; error: string }>(
+    it('POST /emit-cte/reconcile sem providerDocId vai para a conferência no provedor (nunca reenvia direto) e responde 202', async () => {
+        const origFindUnique = prisma.orderFreightCalculation.findUnique;
+        const origThrow = prisma.orderFreightCalculation.findUniqueOrThrow;
+        const origJobCreate = prisma.cteEmissionJob.create;
+        let created = 0;
+        prisma.cteEmissionJob.create = (async () => { created++; return {}; }) as any;
+        prisma.orderFreightCalculation.findUnique = (async () => ({
+            ...calcById.get(calcPendingReconciliationNoDocId),
+            cteEmissionJobs: [{ id: 'job-x', providerDocId: null, phase: 'PENDING_RECONCILIATION', submitStartedAt: new Date(), createdAt: new Date(), attemptCount: 0 }],
+        })) as any;
+        prisma.orderFreightCalculation.findUniqueOrThrow = (async () => { throw new Error('sem dados do emitente'); }) as any;
+        try {
+            const response = await httpJson<{ success: boolean; data: { state: string; message: string } }>(
+                baseUrl,
+                `/api/orders/${orderId}/freight-calculations/${calcPendingReconciliationNoDocId}/emit-cte/reconcile`,
+                token,
+                { method: 'POST', body: '{}' },
+            );
+            assert.equal(response.status, 202);
+            assert.equal(response.body.data.state, 'ERROR');
+            assert.equal(created, 0);
+        } finally {
+            prisma.orderFreightCalculation.findUnique = origFindUnique;
+            prisma.orderFreightCalculation.findUniqueOrThrow = origThrow;
+            prisma.cteEmissionJob.create = origJobCreate;
+        }
+    });
+
+    it('POST /emit-cte/reconcile: HUB de outro pedido recebe 403 (o hub dono pode acionar, não o alheio)', async () => {
+        const response = await httpJson<{ error: string }>(
             baseUrl,
-            `/api/orders/${orderId}/freight-calculations/${calcPendingReconciliationNoDocId}/emit-cte/reconcile`,
-            token,
+                `/api/orders/${orderId}/freight-calculations/${calcPendingReconciliationNoDocId}/emit-cte/reconcile`,
+            jwt.sign({ userId: 'hub-outro' }, jwtSecret),
             { method: 'POST', body: '{}' },
         );
-
-        assert.equal(response.status, 400);
-        assert.match(response.body.error, /não comprova que o envio não ocorreu/i);
+        assert.equal(response.status, 403);
     });
 
     beforeEach(() => {

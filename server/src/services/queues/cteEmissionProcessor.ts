@@ -108,7 +108,8 @@ async function markPendingReconciliation(
 ): Promise<boolean> {
     if (['DONE', 'FAILED', 'PENDING_RECONCILIATION'].includes(record.phase)) return false;
     return transition(deps, record,
-        { ...extra, phase: 'PENDING_RECONCILIATION', lastError: reason },
+        // Sem id, `attemptCount` passa a contar conferências seguidas sem resposta do provedor (cteReconcileWithoutId).
+        { ...(record.providerDocId ? {} : { attemptCount: 0 }), ...extra, phase: 'PENDING_RECONCILIATION', lastError: reason },
         { status: 'CTE_PENDING_RECONCILIATION', cteStatusReason: `${reason}${pendingReconciliationRecoveryHint(record.providerDocId)}` },
         { queueJobId, calcStatuses: record.submitStartedAt || record.providerDocId ? SUBMITTED_CALC_STATUSES : ACTIVE_CALC_STATUSES },
     );
