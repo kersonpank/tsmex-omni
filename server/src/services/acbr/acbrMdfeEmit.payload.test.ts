@@ -88,3 +88,12 @@ it('seg: sem seguradora, CNPJ invalido, apolice ou averbacao nao monta seg parci
     assert.equal(build().seg, undefined);
     assert.deepEqual(parseAverbacoes(null), []);
 });
+
+it('início da viagem do MDF-e é a saída prevista quando futura; senão, a emissão', async () => {
+    const { mdfeTripStart } = await import('./acbrMdfeEmit.js');
+    const issued = new Date('2026-11-12T10:00:00.000Z');
+    const future = new Date('2026-11-12T13:00:00.000Z');
+    assert.equal(mdfeTripStart(future, issued).toISOString(), future.toISOString());
+    assert.equal(mdfeTripStart(new Date('2026-11-12T09:00:00.000Z'), issued).toISOString(), issued.toISOString());
+    assert.equal(mdfeTripStart(null, issued).toISOString(), issued.toISOString());
+});

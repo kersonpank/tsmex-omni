@@ -242,6 +242,15 @@ export interface MdfeInfMdfeInput {
  * procEmi/cMDF/cMunCarrega/cMunDescarga/RNTRC/CIOT são string; cUF/tpAmb/tpEmit/tpTransp/mod/serie/nMDF/cDV/modal/tpEmis/indPag/nParcela
  * são inteiros; vCarga/qCarga/vContrato/vComp são number.
  */
+/**
+ * Início da viagem no MDF-e: a saída prevista quando ela ainda está no futuro; senão, a própria emissão.
+ * A seguradora (RC-V pela AT&M) exige averbar ANTES do embarque: com o início igual ao instante da emissão,
+ * a declaração chegava segundos depois e era recusada ("Data de embarque fora dos limites da apólice").
+ */
+export function mdfeTripStart(plannedDepartureAt: Date | null | undefined, issuedAt: Date): Date {
+    return plannedDepartureAt && plannedDepartureAt.getTime() > issuedAt.getTime() ? plannedDepartureAt : issuedAt;
+}
+
 export function buildMdfeInfMdfe(input: MdfeInfMdfeInput): Record<string, unknown> {
     const { emit } = input;
     const phone = digits(emit.phone ?? '');
@@ -590,7 +599,7 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string, un
     const infMDFe = buildMdfeInfMdfe({
         cUF, tpAmb, carrierType: manifest.link.carrierType, serie, nMDF, cMDF,
         cDV: calculateMdfeCheckDigit({ cUF, cnpj: emitCnpj, series: serie, number: nMDF, cMDF, issuedAt }),
-        issuedAt, dhIniViagem: new Date(), ufIni, ufFim, loadingCmun, loadingCity, percursoUfs,
+        issuedAt, dhIniViagem: mdfeTripStart(manifest.plannedDepartureAt, issuedAt), ufIni, ufFim, loadingCmun, loadingCity, percursoUfs,
         emit: {
             cnpj: emitCnpj, ie: emitIe, legalName: emit.legalName, fantasy: manifest.hub.name, address: emit.address, number: emit.number,
             neighborhood: emit.neighborhood, cMun: emitCmun, city: emit.city, uf: emit.state, cep: emitCep, phone: manifest.hub.phone,
