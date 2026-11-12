@@ -3,6 +3,7 @@ import { afterEach, it } from 'node:test';
 import prisma from '../../lib/prisma.js';
 import { emitMdfesForManifest, encerrarMdfeViaAcbr, MDFE_NOT_RECEIVED_REASON, reconcileMdfeDocument, type MdfeEmitResult } from './acbrMdfeEmit.js';
 import type { MdfeDescargaGroup } from './acbrMdfeEmit.js';
+import type { MdfeLookupOutcome } from './acbrMdfeLookup.js';
 
 const group = (stopId: string, state: string, city: string, ibge: string, key: string): MdfeDescargaGroup => ({
     stopId, destHubId: null, destHub: null, destCity: city, destState: state, destCityIbgeCode: ibge, chaves: [key],
@@ -45,7 +46,7 @@ it('reemissão não duplica: autorizado é só reportado, enviado é conciliado,
         emit: async (_m, _r, uf) => { emitted.push(uf); return ok(`doc-${uf}`); },
     });
     assert.deepEqual(emitted, ['PI']);
-    assert.deepEqual(reconciled, []);
+    assert.equal(reconciled.length, 0);
     assert.deepEqual(results[0], { uf: 'MA', status: 'AUTHORIZED', number: '15', message: null, docId: 'a' });
 
     const sent = fakeDb([{ id: 'a', unloadUf: 'MA', status: 'AUTHORIZED', number: '15' }, { id: 'b', unloadUf: 'PI', status: 'SENT', number: '16' }]);
@@ -55,7 +56,7 @@ it('reemissão não duplica: autorizado é só reportado, enviado é conciliado,
         reconcile: async (id) => { reconciled.push(id); return { ok: false, pending: true, docId: id, error: 'ainda processando' }; },
         emit: async (_m, _r, uf) => { emitted.push(uf); return ok(uf); },
     });
-    assert.deepEqual(emitted, []);
+    assert.equal(emitted.length, 0);
     assert.deepEqual(reconciled, ['b']);
     assert.deepEqual(again[1], { uf: 'PI', status: 'PENDING', number: '16', message: 'ainda processando', docId: 'b' });
 });
@@ -133,7 +134,8 @@ it('conciliação sem id: busca vazia e envio com mais de 10 min -> REJECTED "em
 });
 
 it('conciliação sem id: busca falhou (ou ambígua) -> continua SENT, nunca libera nem altera', async () => {
-    for (const outcome of [{ kind: 'LOOKUP_FAILED', error: 'timeout' }, { kind: 'AMBIGUOUS', ids: ['a', 'b'] }] as const) {
+    const outcomes: MdfeLookupOutcome[] = [{ kind: 'LOOKUP_FAILED', error: 'timeout' }, { kind: 'AMBIGUOUS', ids: ['a', 'b'] }];
+    for (const outcome of outcomes) {
         const { db, updates } = reconcileDb(sentDoc());
         const result = await reconcileMdfeDocument('d1', { db, now: at('2026-11-12T10:00:00Z'), lookup: async () => outcome });
         assert.equal(result.pending, true);
