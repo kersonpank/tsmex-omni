@@ -98,6 +98,32 @@ No `develop`, sem prova externa:
 - **Carta de correção de CT-e:** só as rotas, sem tela.
 - **Conciliação automática de CT-e preso:** roda no worker a cada 10 minutos.
 
+## Terceira rodada (2026-11-12): teste do dono pelo O.S.
+
+O dono percorreu o O.S. no staging e apontou travas. Corrigido e reprovado por execução real em homologação:
+
+| Item | Resultado |
+|---|---|
+| Averbação AT&M do CT-e | Automática em segundos após autorizar; 17 CT-e averbados; botão "Averbar agora" no hub e na torre |
+| Seguro no MDF-e | Sai sozinho: seguradora e apólice do emitente, `nAver` de cada CT-e. O hub não digita nada |
+| RC-V (seguro do veículo) | Averbado pela AT&M a partir do MDF-e, antes da saída (`AverbadoRCV` com protocolo) |
+| CT-e preso em "aguardando conferência" | A conferência busca o CT-e no emissor e sincroniza com a SEFAZ; pedido 111 saiu do limbo (não chegou à SEFAZ: emitir de novo) |
+| PDF do MDF-e | Baixado pela rota (85 KB), disponível antes, durante e depois da viagem |
+| Chegada em duas etapas | "A carreta chegou" + conferência; ocorrência aparece no rastreio |
+| Rastreio do pedido | Linha do tempo com quem fez cada passo |
+| Destinatário do CIOT | Vem sugerido (hub de destino na transferência, destinatário do pedido na entrega) |
+| Encerramento de MDF-e e CIOT | Fechou sozinho nas duas viagens; sessão vencida do e-Frete é renovada |
+
+Fatos novos impostos pelos provedores:
+
+- AT&M usa o mesmo endereço para teste e produção; muda só a caixa postal.
+- RC-V só é aceito se averbado antes do embarque: o MDF-e passou a sair com o início da viagem na saída prevista.
+- e-Frete recusa CEP de rota que não conhece: o CEP só vai quando origem e destino são o mesmo município.
+- "Erro" no emissor por instabilidade da SEFAZ se resolve com a sincronização que o próprio emissor oferece.
+
+No `develop`, sem prova externa: um MDF-e por UF de descarga (não houve viagem com dois estados), datas DD/MM/AAAA,
+leitura por câmera na conferência, textos da estação Exceções. Nenhuma tela foi vista em navegador por quem implementou.
+
 ## Pendências
 
 **Dados reais que só a operação tem:**
@@ -106,8 +132,7 @@ No `develop`, sem prova externa:
 - Tabelas de preço do corredor e acordos de custo de transportadores e hubs.
 
 **Construir:**
-- Validar a averbação AT&M: pedir à AT&M o acesso de homologação e confirmar com ela o nome da operação e qual
-  número vai no MDF-e (pesquisa em `docs/fiscal/atm-averbacao-pesquisa.md`).
+- Cadastro dos hubs parceiros: sem endereço e CNPJ, o destinatário do CIOT pede CEP e rua a cada viagem.
 - Flags "Rastreado" e "Carga e Descarga" no XML do CT-e: ficam gravadas no emitente, ainda não vão no documento.
 - Entrega parcial devolve o pedido inteiro ao estoque, com nota; não divide o pedido.
 
