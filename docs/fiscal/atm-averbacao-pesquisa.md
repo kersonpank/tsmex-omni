@@ -1,6 +1,6 @@
 # Integração com a AT&M (averbação eletrônica) para o TSM EX OMNI
 
-Data da pesquisa: 2026-11-10. Somente leitura; nenhuma API da AT&M foi chamada.
+Data da pesquisa: 2026-11-10. Somente leitura; nenhuma API da AT&M foi chamada. **As seções 1 a 5 são a pesquisa original; o que foi provado em homologação real em 2026-11-11 está na seção 6 e prevalece sobre elas.**
 
 Legenda de confiança: ALTA = manual oficial AT&M (v3.0) ou código de cliente open source funcional; MÉDIA = fonte secundária coerente; BAIXA = relato isolado/inferência.
 
@@ -146,3 +146,38 @@ Corretora/HDI:
 7. AT&M fora: não travar o CT-e (autorização fiscal independe). Operação da viagem: deixar MDF-e em "aguardando averbação" com alerta, retries e contingência manual (averbar no site averba.com.br e registrar manualmente o número no TMS, com usuário/justificativa/auditoria). Não inventar `nAver`.
 8. Cadastro do emitente (por CNPJ/filial): seguradora (nome ≤30 e CNPJ), apólice(s) por ramo (RCTR-C, RC-DC), responsável do seguro (`respSeg`), provedor de averbação (ATM/Porto/ELT/e-mail/nenhum), `codatm`, usuário, senha (cifrados, mesmo padrão do `FISCAL_SECRET_KEY`), ambiente (produção/homologação com URLs distintas), flags `rastreado` e `carga_descarga` (e `ramo` preferencial, `meios próprios`), `modo_averbacao` (obrigatória/ best effort). Nunca registrar credenciais em logs/JSON de auditoria.
 9. Teste: pedir login de homologação à AT&M; os XMLs devem ser CT-e `tpAmb=2` apenas para ver o retorno "TESTE"; para testar fluxo real completo usa-se o ambiente de testes AT&M (não afeta seguradora).
+
+---------------------------------------------------------------------
+## 6. Validado em homologação em 2026-11-11
+---------------------------------------------------------------------
+Teste real com as credenciais de teste do cliente (caixa postal de teste). Documentos mascarados abaixo.
+
+**Endpoint.** `homologaws.averba.com.br` não responde (HTTP 522). A AT&M informou que homologação e produção usam o MESMO endpoint: SOAP `http://webserver.averba.com.br/20/index.soap` (existe REST em `webserver.averba.com.br/rest`, não usado). O que distingue teste de produção é a caixa postal (código, usuário e senha). No código: `ATM_SOAP_URL` sobrepõe o endereço; o campo "ambiente" do emitente virou só rótulo.
+
+**`averbaCTe`** com o envelope atual funcionou de primeira (HTTP 200, cerca de 1 s). Resposta real:
+
+```xml
+<ns1:averbaCTeResponse xmlns:ns1="http://schemas.xmlsoap.org/soap/envelope/"><Response><Numero>21813</Numero><Serie>1</Serie><Filial></Filial><CNPJCli>00000000000000</CNPJCli><TpDoc>6</TpDoc><Averbado><dhAverbacao>2026-11-11T22:28:26</dhAverbacao><Protocolo>TESTE</Protocolo><DadosSeguro><NumeroAverbacao>0000011272687982000027057001000021813000</NumeroAverbacao><CNPJSeguradora>00000000000000</CNPJSeguradora><NomeSeguradora>HOMOLOGACAO WS</NomeSeguradora><NumApolice>PROVISORIA</NumApolice><TpMov>1</TpMov><TpDDR></TpDDR><ValorAverbado>598.80</ValorAverbado><RamoAverbado>55</RamoAverbado></DadosSeguro></Averbado></Response></ns1:averbaCTeResponse>
+```
+
+- A resposta vem com nós inline (sem string escapada em `<return>`); o parser aceita as duas formas.
+- `DadosSeguro` pode repetir (um por ramo/apólice: 54 = RCTR-C, 55 = RC-DC). O sistema guarda a lista inteira em `CargoAverbacao.dadosSeguro` (`numeroAverbacao`, `cnpjSeguradora`, `nomeSeguradora`, `numApolice`, `ramo`, `valorAverbado`, `tpMov`); `numeroAverbacao`/`protocolo` ficam com o primeiro item.
+- Em homologação o `Protocolo` é o literal `TESTE`, a apólice é `PROVISORIA`, o CNPJ da seguradora é zerado e o `NumeroAverbacao` tem 40 dígitos. Esses literais nunca vão para o MDF-e: o grupo `seg` usa o `DadosSeguro` só quando o CNPJ tem 14 dígitos válidos e a apólice não é vazia nem `PROVISORIA`; senão usa o cadastro do emitente (`cargoInsurerName/Cnpj/PolicyNumber`).
+
+**`declaraMDFe`** (tag `xmlMDFe`) também funciona. Resposta real para um MDF-e já embarcado:
+
+```xml
+<ns1:declaraMDFeResponse ...><Response><Numero>15</Numero><Serie>1</Serie><Filial>0002</Filial><Declarado><dhChancela>2026-11-11T22:29:49</dhChancela><Protocolo>TESTE</Protocolo></Declarado><ErroRCV><Codigo>006</Codigo><Descricao>Data de embarque fora dos limites da apolice. Deve-se averbar antes do embarque. Consulte a corretora ou a seguradora.</Descricao></ErroRCV></Response></ns1:declaraMDFeResponse>
+```
+
+A resposta traz a chancela (`Declarado`) e, separadamente, o resultado do seguro RC-V (ramo 59): `ErroRCV{Codigo,Descricao}` em falha. O nome do nó de sucesso do RC-V ainda não foi visto: o código trata qualquer nó cujo nome contenha `RCV` (e não seja `ErroRCV`) como RC-V averbado e guarda o conteúdo bruto em `ManifestAverbacao.rawResponse`.
+
+**RC-V pelo MDF-e (Manual "Averbação RC-V", Nstech/AT&M).**
+- RC-V (Responsabilidade Civil do Veículo, ramo 59, obrigatório pela Lei 14.599/2023) é averbado PELO MDF-e quando a seguradora autoriza: basta enviar o MDF-e à mesma caixa postal. O sistema da AT&M lê `tpEmit` e `tpTransp` (1 ETC, 2 TAC, 3 CTC; `tpEmit=2` é transporte próprio).
+- Deve ser averbado ANTES do embarque. Se há MDF-e, ele é obrigatoriamente o documento do RC-V e os CT-e do mesmo embarque não devem pedir RC-V: sem as tags `ObsCont` de RC-V, o CT-e é aceito só nas apólices 54/55. Por isso o CT-e do sistema NÃO leva tags de RC-V.
+- Cada MDF-e é uma viagem no RC-V.
+- Recusas possíveis (manual): placa inválida, tipo de transporte inválido na apólice, data de embarque fora dos limites, CNPJ emissor não autorizado, apólice não localizada ou vencida para o ramo, entre outras. Como "se o documento for recusado, não libere o embarque", a prontidão da viagem mostra `MDFE_RCV_REFUSED` com a mensagem da AT&M (aviso forte; bloqueia só se o emitente ligar `rcvBlocksDeparture`).
+
+**Como o sistema usa isso.** Logo após o MDF-e autorizado, `declararMdfeAposAutorizacao` declara na AT&M (se o emitente usa AT&M e `atmDeclareMdfe` está ligado). Estado em `ManifestAverbacao`: `PENDING`, `DECLARADO`, `RCV_AVERBADO`, `RCV_RECUSADO`, `FAILED`. O varredor do worker repete transitórios a cada 30 s, reaproveita registros de CT-e que ficaram com `HTTP_522` e cancela na AT&M a averbação de CT-e cancelado (reenvio do XML do evento; `cancelarAverbacaoCte`).
+
+**Ainda não visto.** Resposta de cancelamento da averbação (o código aceita `Averbado` ou `Cancelado`; erro definitivo gera alerta), nome do nó de sucesso do RC-V e comportamento do RC-V com o MDF-e antes do embarque.

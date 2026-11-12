@@ -80,6 +80,16 @@ describe('dadosSeguro, revive 522 e cancelamento', () => {
         assert.match(store!.lastError, /^CANCEL_FALHOU:/);
         assert.equal(alerts.length, 1);
     });
+    it('cancelamento: nó Cancelado confirma; resposta irreconhecível alerta em vez de repetir para sempre', async () => {
+        store = { status: 'AVERBADO', numeroAverbacao: 'N1', lockedUntil: null };
+        calcRow = { ...calcRow, status: 'CTE_CANCELLED', cteCancelXmlStorageKey: 'k' };
+        const ok = await cancelarAverbacaoCalculo('calc1', { loadXml: async () => '<e/>', transport: async () => ({ status: 200, body: wrap('<Response><Cancelado><Protocolo>P</Protocolo></Cancelado></Response>') }) });
+        assert.equal(ok.status, 'CANCELLED');
+        store = { status: 'AVERBADO', numeroAverbacao: 'N1', lockedUntil: null };
+        const odd = await cancelarAverbacaoCalculo('calc1', { loadXml: async () => '<e/>', transport: async () => ({ status: 200, body: wrap('<Response><Outra>x</Outra></Response>') }) });
+        assert.equal(odd.status, 'FAILED');
+        assert.equal(alerts.length, 1);
+    });
     it('cancelamento ignora CT-e não cancelado ou sem XML do evento', async () => {
         store = { status: 'AVERBADO', lockedUntil: null };
         assert.equal((await cancelarAverbacaoCalculo('calc1', { loadXml: async () => '<e/>' })).status, 'SKIPPED');

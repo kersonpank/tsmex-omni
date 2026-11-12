@@ -228,7 +228,13 @@ export async function cancelarAverbacaoCalculo(calcId: string, options: { transp
         await done({ status: 'CANCELLED', lastError: null, rawResponse: safeRaw(result, config.credentials) as never });
         return { status: 'CANCELLED' };
     }
-    if (result.kind === 'ERRO_TRANSITORIO') {
+    // Resposta sem erro e sem averbação: a AT&M pode confirmar o cancelamento com um nó próprio (ex.: Cancelado).
+    const unrecognized = result.kind === 'ERRO_TRANSITORIO' && result.codigo === 'SEM_RESULTADO';
+    if (unrecognized && JSON.stringify(result.raw ?? '').toLowerCase().includes('cancel')) {
+        await done({ status: 'CANCELLED', lastError: null, rawResponse: safeRaw(result, config.credentials) as never });
+        return { status: 'CANCELLED' };
+    }
+    if (result.kind === 'ERRO_TRANSITORIO' && !unrecognized) {
         await done({ lockedUntil: new Date(now.getTime() + CANCEL_RETRY_MS), lastError: `${CANCEL_TRANSIENT_PREFIX} ${result.codigo}: ${result.mensagem}` });
         return { status: 'PENDING', message: result.mensagem };
     }
