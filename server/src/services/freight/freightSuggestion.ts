@@ -39,6 +39,11 @@ export interface FreightDocumentSummary {
     statusReason: string | null;
     accessKey: string | null;
     attempt: { count: number; max: number } | null;
+    /**
+     * Só em CTE_PENDING_RECONCILIATION: a conferência automática no emissor. `providerDown` = 3 conferências
+     * seguidas sem resposta do provedor (o contador fica em `CteEmissionJob.attemptCount` enquanto não há id).
+     */
+    reconcile: { hasProviderId: boolean; failedChecks: number; providerDown: boolean } | null;
     createdAt: string;
     /** Cancelamento do CT-e (em andamento ou concluído); null quando nunca foi pedido. */
     cancel: { reason: string | null; protocol: string | null; requestedAt: string | null; cancelledAt: string | null } | null;
@@ -99,6 +104,14 @@ function stripClients<T extends { clients?: unknown } | null>(person: T): Person
     return rest as unknown as Person;
 }
 
+const PROVIDER_DOWN_AFTER_FAILURES = 3;
+
+function reconcileView(job: { attemptCount: number; providerDocId: string | null } | undefined): FreightDocumentSummary['reconcile'] {
+    const hasProviderId = Boolean(job?.providerDocId);
+    const failedChecks = job && !hasProviderId ? job.attemptCount : 0;
+    return { hasProviderId, failedChecks, providerDown: failedChecks >= PROVIDER_DOWN_AFTER_FAILURES };
+}
+
 export function summarizeDocuments(order: FreightOrder): FreightDocumentSummary[] {
     return order.freightCalculations.map((c) => ({
         id: c.id,
@@ -114,6 +127,7 @@ export function summarizeDocuments(order: FreightOrder): FreightDocumentSummary[
         statusReason: c.cteStatusReason ?? c.dceStatusReason ?? null,
         accessKey: c.cteAccessKey ?? c.dceAccessKey ?? null,
         attempt: c.cteEmissionJobs[0] ? { count: c.cteEmissionJobs[0].attemptCount, max: c.cteEmissionJobs[0].maxAttempts } : null,
+        reconcile: c.status === 'CTE_PENDING_RECONCILIATION' ? reconcileView(c.cteEmissionJobs[0]) : null,
         createdAt: c.createdAt.toISOString(),
         cancel: c.status === 'CTE_CANCEL_PENDING' || c.status === 'CTE_CANCELLED'
             ? {

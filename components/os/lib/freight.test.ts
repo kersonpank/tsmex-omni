@@ -30,11 +30,18 @@ describe('documentStatusView', () => {
         });
     });
 
-    it('reconciliação sem reenvio orienta a conferência pela torre', () => {
-        expect(documentStatusView({ documentType: 'CTE', status: 'CTE_PENDING_RECONCILIATION', number: '21794', statusReason: null, canResend: false })).toEqual({
+    it('reconciliação sem reenvio: conferindo no emissor; só após 3 conferências sem resposta diz que está fora do ar', () => {
+        const base = { documentType: 'CTE' as const, status: 'CTE_PENDING_RECONCILIATION' as const, number: '21794', statusReason: null, canResend: false };
+        expect(documentStatusView(base)).toEqual({
             tone: 'warn',
-            label: 'CT-e nº 21794 · aguardando conferência na SEFAZ (torre)',
-            hint: 'a torre confere na SEFAZ antes de reenviar',
+            label: 'CT-e nº 21794 · conferindo no emissor…',
+            hint: 'a conferência roda sozinha; se quiser, toque em “Conferir agora”',
+        });
+        expect(documentStatusView({ ...base, reconcile: { providerDown: false } }).label).toBe('CT-e nº 21794 · conferindo no emissor…');
+        expect(documentStatusView({ ...base, reconcile: { providerDown: true } })).toEqual({
+            tone: 'warn',
+            label: 'CT-e nº 21794 · emissor fiscal fora do ar',
+            hint: 'o emissor fiscal está fora do ar; tentaremos de novo sozinhos',
         });
     });
 });

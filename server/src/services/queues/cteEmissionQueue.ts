@@ -11,6 +11,11 @@ export interface CteEmissionJobData {
     phaseHint?: 'submit' | 'poll-only';
     /** Identificador estável desta solicitação de consulta, inclusive em retries de enqueue. */
     reconciliationRunId?: string;
+    /**
+     * Reenvio autorizado por PROVA de inexistência no provedor (conferência sem id): o mesmo
+     * CteEmissionJob volta a 'submit' com um jobId BullMQ novo (o original ainda existe no Redis).
+     */
+    resubmitRunId?: string;
     /** Aguarda a rota publicar queueJobId quando o job inicia antes da escrita no banco. */
     queueIdWaitCount?: number;
     /**
@@ -91,7 +96,9 @@ export async function enqueueCteEmissionJob(
 ): Promise<string> {
     const runId = data.phaseHint === 'poll-only' ? data.reconciliationRunId ?? randomUUID() : undefined;
     const jobData = runId !== undefined ? { ...data, reconciliationRunId: runId } : data;
-    const jobId = runId !== undefined ? cteReconciliationQueueJobId(data.cteEmissionJobId, runId) : data.cteEmissionJobId;
+    const jobId = runId !== undefined
+        ? cteReconciliationQueueJobId(data.cteEmissionJobId, runId)
+        : data.resubmitRunId !== undefined ? `${data.cteEmissionJobId}-resubmit-${data.resubmitRunId}` : data.cteEmissionJobId;
     const job = await queue.add('emit', jobData, { jobId });
     if (!job.id) throw new Error('BullMQ não retornou id para o job enfileirado.');
     return job.id;

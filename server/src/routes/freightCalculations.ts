@@ -27,6 +27,7 @@ import { getObjectDownloadUrl } from '../lib/objectStorage.js';
 import { averbarCalculo } from '../services/averbacao/cargoAverbacaoService.js';
 import { averbacaoRequiredFor, summarizeAverbacao } from '../services/averbacao/averbacaoView.js';
 import { BREAKDOWN_KEYS, computeFreightFromTable, informedFreight, orderFreightParams } from '../services/freight/freightPricing.js';
+import { reconcileCteWithoutProviderId, describeReconcileResult } from '../services/queues/cteReconcileWithoutId.js';
 import { ACTIVE_DOC_STATUSES, REUSABLE_STATUSES, isPendingReconciliationWithoutSubmission } from '../services/freight/freightDocRules.js';
 import { getFreightSuggestion } from '../services/freight/freightQueries.js';
 import { normalizeCteUf, type CtePreflightResult } from '../services/fiscal/ctePreflight.js';
@@ -1340,9 +1341,10 @@ const emitCteHandler = (correctRejected: boolean) => async (req: AuthRequest, re
 router.post('/:calcId/emit-cte', authenticate, authorize('ADMIN', 'HUB'), emitCteHandler(false));
 router.post('/:calcId/retry-cte-cfop', authenticate, authorize('ADMIN', 'HUB'), emitCteHandler(true));
 
-// POST .../emit-cte/reconcile — só permite a partir de CTE_PENDING_RECONCILIATION.
-// Reenfileira em modo 'poll-only': NUNCA refaz POST /cte, só consulta o status já existente.
-router.post('/:calcId/emit-cte/reconcile', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+// POST .../emit-cte/reconcile — só permite a partir de CTE_PENDING_RECONCILIATION. ADMIN ou o HUB dono do pedido.
+// Com providerDocId: reenfileira em modo 'poll-only' (só consulta o status). Sem providerDocId: procura o
+// documento no provedor (GET /cte por referência/série+número) e só reenvia com PROVA de inexistência.
+router.post('/:calcId/emit-cte/reconcile', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const orderId = req.params.orderId as string;
         const calcId = req.params.calcId as string;
@@ -1352,15 +1354,24 @@ router.post('/:calcId/emit-cte/reconcile', authenticate, authorize('ADMIN'), asy
             include: { cteEmissionJobs: { orderBy: { createdAt: 'desc' }, take: 1 } },
         });
         if (!calc) throw new AppError('Cálculo de frete não encontrado', 404);
+        const order = await prisma.order.findUnique({ where: { id: orderId }, select: { currentHubId: true } });
+        if (!order) throw new AppError('Order not found', 404);
+        if (!req.user!.roles.includes('ADMIN') && (!req.user!.hubId || order.currentHubId !== req.user!.hubId)) {
+            throw new AppError('Not authorized to reconcile document for this order', 403);
+        }
         if (calc.status !== 'CTE_PENDING_RECONCILIATION') {
             throw new AppError('Reconciliação só é permitida quando o CT-e está em estado de alerta/conciliação.', 400);
         }
         const lastJob = calc.cteEmissionJobs[0];
-        if (!lastJob?.providerDocId) {
-            throw new AppError(
-                'Não há ID do provedor para consultar. Isso não comprova que o envio não ocorreu; confirme com a torre e o provedor antes de qualquer reenvio.',
-                400,
-            );
+        if (!lastJob) {
+            throw new AppError('Não há tentativa de emissão registrada para conferir. A torre precisa investigar no painel do emissor.', 400);
+        }
+
+        if (!lastJob.providerDocId) {
+            const outcome = await reconcileCteWithoutProviderId(calcId);
+            const view = describeReconcileResult(outcome);
+            res.status(202).json({ success: true, data: { state: view.state, message: view.message }, message: view.message });
+            return;
         }
 
         await prisma.cteEmissionJob.update({ where: { id: lastJob.id }, data: { phase: 'POLLING', attemptCount: 0, pausedForQuota: false } });
@@ -1368,7 +1379,7 @@ router.post('/:calcId/emit-cte/reconcile', authenticate, authorize('ADMIN'), asy
         await prisma.cteEmissionJob.update({ where: { id: lastJob.id }, data: { queueJobId } });
         await prisma.orderFreightCalculation.update({ where: { id: calcId }, data: { status: 'CTE_PROCESSING', cteStatusReason: null } });
 
-        res.status(202).json({ success: true, message: 'Reconciliação reenfileirada — apenas consulta de status, sem novo envio à ACBr.' });
+        res.status(202).json({ success: true, data: { state: 'POLLING', message: 'Consulta reenfileirada.' }, message: 'Reconciliação reenfileirada — apenas consulta de status, sem novo envio à ACBr.' });
     } catch (error) {
         next(error);
     }

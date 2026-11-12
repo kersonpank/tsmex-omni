@@ -1840,6 +1840,12 @@ export const ordersFreightApi = {
         return response.data;
     },
 
+    /** Conferir agora: procura o CT-e no emissor fiscal (ou reconsulta o status) — só reenvia com prova de que não existe. */
+    reconcileCte: async (orderId: string, calcId: string) => {
+        const response = await api.post<ApiResponse<{ state: string; message: string }>>(`/orders/${orderId}/freight-calculations/${calcId}/emit-cte/reconcile`, {});
+        return response.data;
+    },
+
     getCteDocumentUrl: async (orderId: string, calcId: string, type: 'xml' | 'pdf') => {
         const response = await api.get<{
             success: boolean;

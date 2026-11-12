@@ -77,8 +77,10 @@ it('ADMIN reenfileira uma tarefa que exigia conciliação (202)', async () => {
     requeuedCount = 1;
     const response = await retry();
     assert.equal(response.status, 202);
-    assert.equal(requeueArgs.where.status, 'RECONCILIATION_REQUIRED');
+    assert.deepEqual(requeueArgs.where.OR, [{ status: 'RECONCILIATION_REQUIRED' }, { status: 'PENDING', nextAttemptAt: { not: null } }]);
     assert.equal(requeueArgs.data.status, 'PENDING');
+    assert.equal(requeueArgs.data.attemptCount, 0, 'o botão zera a contagem das repetições automáticas');
+    assert.equal(requeueArgs.data.nextAttemptAt, null);
     assert.equal(created.length, 0);
 });
 

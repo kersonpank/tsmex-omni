@@ -1271,6 +1271,9 @@ model FiscalClosureTask {
   reason     String?                 @db.Text
   startedAt  DateTime?
   finishedAt DateTime?
+  // Repetição automática com espera crescente (fiscalClosureProcessor): tentativas feitas e próxima janela.
+  attemptCount  Int                  @default(0)
+  nextAttemptAt DateTime?
   createdAt  DateTime                @default(now())
   updatedAt  DateTime                @updatedAt
 

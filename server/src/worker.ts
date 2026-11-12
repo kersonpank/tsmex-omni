@@ -142,6 +142,8 @@ void Promise.all([worker.waitUntilReady(), distribuicaoNfeWorker.waitUntilReady(
         };
         exceptionSweep();
         setInterval(exceptionSweep, 10 * 60_000).unref();
+        // CT-e sem id do provedor: conferência no emissor de 2 em 2 minutos (cada cálculo é espaçado por claim atômico).
+        setInterval(() => { void sweepPendingCteReconciliation().catch((error) => console.error('[worker] cte reconciliation sweep (2min) failed', error)); }, 2 * 60_000).unref();
         // Averbação AT&M dos CT-e autorizados (no-op para emitentes sem ATM). Trava por registro evita rodadas sobrepostas.
         // CT-e (averbação e cancelamento) e MDF-e (declaração/RC-V). A primeira tentativa não tem espera; o intervalo curto dá rapidez.
         const averbacaoSweep = () => {

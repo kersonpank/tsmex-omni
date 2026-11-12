@@ -108,7 +108,8 @@ async function markPendingReconciliation(
 ): Promise<boolean> {
     if (['DONE', 'FAILED', 'PENDING_RECONCILIATION'].includes(record.phase)) return false;
     return transition(deps, record,
-        { ...extra, phase: 'PENDING_RECONCILIATION', lastError: reason },
+        // Sem id, `attemptCount` passa a contar conferências seguidas sem resposta do provedor (cteReconcileWithoutId).
+        { ...(record.providerDocId ? {} : { attemptCount: 0 }), ...extra, phase: 'PENDING_RECONCILIATION', lastError: reason },
         { status: 'CTE_PENDING_RECONCILIATION', cteStatusReason: `${reason}${pendingReconciliationRecoveryHint(record.providerDocId)}` },
         { queueJobId, calcStatuses: record.submitStartedAt || record.providerDocId ? SUBMITTED_CALC_STATUSES : ACTIVE_CALC_STATUSES },
     );
@@ -254,7 +255,7 @@ export async function processCteEmissionJob(
 
         const { input, fiscalEmitterContext } = await deps.buildCteEmissionInputForJob(calcId, cteEmissionJobId);
         if (!record.providerDocId) {
-            const submitted = await deps.submitCteToAcbr(input, calcId, fiscalEmitterContext, async () => {
+            const submitted = await deps.submitCteToAcbr(input, cteEmissionJobId, fiscalEmitterContext, async () => {
                 // O CAS e o estado do cálculo são gravados juntos. A rota não deve conseguir
                 // declarar falha de enqueue após esta transição e liberar uma nova emissão.
                 const startedAt = new Date();

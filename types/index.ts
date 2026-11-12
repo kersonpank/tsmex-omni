@@ -1143,6 +1143,8 @@ export interface FreightDocumentSummary {
     canResend: boolean;
     accessKey: string | null;
     attempt: { count: number; max: number } | null;
+    /** CT-e em conciliação: conferência automática no emissor (3 falhas seguidas = emissor fora do ar). */
+    reconcile?: { hasProviderId: boolean; failedChecks: number; providerDown: boolean } | null;
     createdAt: string;
     cancel?: { reason: string | null; protocol: string | null; requestedAt: string | null; cancelledAt: string | null } | null;
     corrections?: { id: string; status: string; protocol: string | null; requestedAt: string; reason: string | null; fields: string[] }[];
