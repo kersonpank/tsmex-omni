@@ -122,6 +122,9 @@ const fiscalEmitterShape = z.object({
     atmEnvironment: z.enum(['HOMOLOGACAO', 'PRODUCAO']).optional(),
     cargoTracked: z.boolean().optional(),
     cargoLoadUnloadCovered: z.boolean().optional(),
+    /** Declara o MDF-e na AT&M (averba o RC-V) e se a recusa do RC-V bloqueia a saída. */
+    atmDeclareMdfe: z.boolean().optional(),
+    rcvBlocksDeparture: z.boolean().optional(),
 });
 
 /** Separa a senha AT&M (cifrada com sealSecret) do restante; vazia não altera o valor gravado. */

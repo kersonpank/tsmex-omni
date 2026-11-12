@@ -81,6 +81,8 @@ export const freightOrderInclude = {
         orderBy: { createdAt: 'asc' },
         include: {
             pricingTable: { select: { description: true } },
+            cargoAverbacao: true,
+            fiscalEmitter: { select: { averbacaoProvider: true, atmCode: true, atmUser: true, atmPasswordEncrypted: true } },
             cteEmissionJobs: {
                 orderBy: { createdAt: 'desc' },
                 take: 1,

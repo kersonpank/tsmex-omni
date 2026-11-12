@@ -1,7 +1,7 @@
 import type { ManifestStatus } from '@prisma/client';
 import { cteEmitterMismatchMessage, missingMdfeEmitterData } from './fiscal/mdfePreflight.js';
 import { emitterCargoInsuranceComplete } from './acbr/mdfeCargoInsurance.js';
-import { mdfeAverbacaoReadiness } from './averbacao/mdfeAverbacao.js';
+import { mdfeAverbacaoReadiness, mdfeRcvReadiness } from './averbacao/mdfeAverbacao.js';
 import { mdfeBankInfo, mdfePaymentTerms } from './acbr/acbrMdfeAntt.js';
 import type { CiotRequestData } from './efrete/efreteCiotMapper.js';
 import prisma from '../lib/prisma.js';
@@ -176,6 +176,7 @@ export async function getManifestReadiness(manifestId: string, ciotRequestData?:
     if (averbacao.pending) {
         add({ ...issue('fiscal', 'MDFE_CARGO_AVERBACAO_PENDING', averbacao.message, 'cargoInsuranceAverbacao', mdfeSeverity), ...(averbacao.orders ? { averbacaoOrders: averbacao.orders } : {}) });
     }
+    for (const rcv of await mdfeRcvReadiness({ manifestId, emitter: insuranceEmitter })) add(issue('fiscal', rcv.code, rcv.message, undefined, rcv.severity));
     if (manifest._count.legs > 0) {
         const cargo = await prisma.orderLeg.findMany({ where: { manifestId }, select: { orderId: true, order: { select: {
             demand: { select: { orderNumber: true, nfValue: true, weight: true } },
