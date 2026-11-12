@@ -1932,6 +1932,12 @@ export const ordersApi = {
         return response.data;
     },
 
+    /** Rastreio do pedido para o O.S. (histórico, trechos e tentativas de entrega). */
+    timeline: async (id: string) => {
+        const response = await api.get<ApiResponse<unknown>>(`/orders/${id}/timeline`);
+        return response.data;
+    },
+
     resolve: async (code: string, manifestId?: string) => {
         const response = await api.get<OrderResolveResponse>('/orders/resolve', { params: { code, manifestId } });
         return response.data;

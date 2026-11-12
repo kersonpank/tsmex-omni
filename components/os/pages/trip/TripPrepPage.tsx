@@ -324,6 +324,16 @@ const TripPrepPage: React.FC = () => {
                                 {leg.order?.demand?.destination ? (
                                     <p className="truncate text-[12px] text-tower-500 dark:text-tower-400">{leg.order.demand.destination}</p>
                                 ) : null}
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        navigate(`/hubs/pedidos/${leg.orderId}`, { state: { focus: 'rastreio' } });
+                                    }}
+                                    className="mt-1 mr-4 min-h-[36px] text-[13px] font-bold text-brand-600 dark:text-brand-300"
+                                >
+                                    Rastreio
+                                </button>
                                 {editable ? (
                                     <button
                                         type="button"

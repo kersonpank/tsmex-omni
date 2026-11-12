@@ -1,5 +1,6 @@
 import type { ConsolidationQueueGroup } from '../../../types/index';
 import type { ConferenceMark, UnloadItem } from './arrival';
+import { formatDateTimeBR } from './dateBR';
 
 /**
  * Conferência de chegada por leitura (sem React, sem rede): casa o que o operador leu com os pedidos
@@ -106,5 +107,5 @@ export function closingSummary(groups: ConsolidationQueueGroup[], receivedOrderI
     return { local, onward: [...onward.entries()].map(([hubName, count]) => ({ hubName, count })) };
 }
 
-export const arrivedTime = (iso: string | null | undefined): string =>
-    iso ? new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+/** Hora (24 h) em que a carreta chegou; o formatador único pt-BR cuida do resto. */
+export const arrivedTime = (iso: string | null | undefined): string => formatDateTimeBR(iso).slice(11);

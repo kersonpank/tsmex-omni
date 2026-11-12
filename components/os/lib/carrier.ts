@@ -1,5 +1,6 @@
 import type { VehicleUnitInput } from '../../../lib/api';
 import type { Driver, Person, PersonPaymentAccount } from '../../../types/index';
+import { formatDateOnlyBR } from './dateBR';
 
 /**
  * Lógica pura da ficha do transportador (cadastro para CIOT/MDF-e no TSM O.S.).
@@ -236,7 +237,7 @@ export function cnhStatus(expiry: string | null | undefined, now: Date = new Dat
     if (!expiry) return { tone: 'missing', label: 'CNH não informada' };
     const date = new Date(String(expiry).slice(0, 10) + 'T12:00:00');
     if (Number.isNaN(date.getTime())) return { tone: 'missing', label: 'CNH não informada' };
-    const shown = date.toLocaleDateString('pt-BR');
+    const shown = formatDateOnlyBR(date);
     const days = Math.floor((date.getTime() - now.getTime()) / 86_400_000);
     if (days < 0) return { tone: 'bad', label: `CNH vencida em ${shown}` };
     if (days <= 30) return { tone: 'warn', label: `CNH vence em ${shown}` };
