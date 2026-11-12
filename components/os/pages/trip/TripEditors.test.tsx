@@ -48,3 +48,23 @@ it('saída prevista grava a averbação do seguro pela mesma chamada de capa', a
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(manifestsApi.updateCapa).toHaveBeenCalledWith('trip', expect.objectContaining({ cargoInsuranceAverbacao: 'AV-2; AV-3' }));
 });
+
+it('averbação eletrônica: esconde o campo, mostra o estado e libera a contingência manual', async () => {
+    const user = userEvent.setup();
+    manifestsApi.updateCapa.mockResolvedValue({ success: true });
+    const orders = [{ orderId: 'o1', calcId: 'c1', orderNumber: '77' }];
+    render(<DepartureEditor manifestId="trip" departure="2026-11-20T12:00:00.000Z" electronicAverbacao averbacaoOrders={orders} onClose={vi.fn()} onSaved={vi.fn()} />);
+    expect(screen.queryByLabelText('Averbação do seguro')).toBeNull();
+    expect(screen.getByText('Seguro: averbado automaticamente a cada CT-e')).toBeInTheDocument();
+    expect(screen.getByText('Averbação pendente em 1 pedido(s).')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Tentar averbar agora' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Salvar' }));
+    expect(manifestsApi.updateCapa).toHaveBeenCalledWith('trip', expect.not.objectContaining({ cargoInsuranceAverbacao: expect.anything() }));
+    await user.click(screen.getByRole('button', { name: /Informar averbação manualmente/ }));
+    expect(screen.getByLabelText('Averbação do seguro')).toBeInTheDocument();
+});
+
+it('datas do editor de saída aparecem em dd/mm/aaaa hh:mm', () => {
+    render(<DepartureEditor manifestId="trip" departure={new Date(2026, 10, 20, 15, 30).toISOString()} onClose={vi.fn()} onSaved={vi.fn()} />);
+    expect(screen.getByDisplayValue('20/11/2026 15:30')).toBeInTheDocument();
+});

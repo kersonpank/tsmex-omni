@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import clsx from 'clsx';
-import { fiscalEmittersApi, manifestsApi, ordersFreightApi } from '../../../../lib/api';
+import { fiscalEmittersApi, manifestsApi } from '../../../../lib/api';
 import type { AnttFloor, FiscalEmitter, TripPriceEstimate } from '../../../../types/index';
 import { ceilAnttCents, formatAnttFloor, formatAnttMoney, isBelowAnttFloor } from '../../lib/ciot';
 import { parseMoney } from '../../lib/trip';
 import { DateTimeField } from '../../ui/DateField';
+import AverbacaoSection, { type AverbacaoOrder } from './AverbacaoSection';
 import { OsButton } from '../../ui/kit';
 import OsSheet, { apiErrorMessage, osFieldClass } from '../../ui/Sheet';
 
@@ -26,38 +27,21 @@ const ErrorLine: React.FC<{ message: string | null }> = ({ message }) =>
         </p>
     ) : null;
 
-export const DepartureEditor: React.FC<EditorProps & { departure?: string | null; arrival?: string | null; averbacao?: string | null; averbacaoOrders?: Array<{ orderId: string; calcId: string; orderNumber: string }> }> = ({
+export const DepartureEditor: React.FC<EditorProps & { departure?: string | null; arrival?: string | null; averbacao?: string | null; averbacaoOrders?: AverbacaoOrder[]; electronicAverbacao?: boolean }> = ({
     manifestId,
     departure,
     arrival,
     averbacao,
     averbacaoOrders = [],
+    electronicAverbacao = false,
     onClose,
     onSaved,
 }) => {
     const [dep, setDep] = useState(() => toLocalInput(departure, 1));
     const [arr, setArr] = useState(() => (arrival ? toLocalInput(arrival, 0) : ''));
     const [averb, setAverb] = useState(averbacao ?? '');
-    const [averbResults, setAverbResults] = useState<Record<string, string>>({});
-    const [averbBusy, setAverbBusy] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
-
-    const averbarAgora = async (orderId: string, calcId: string) => {
-        setAverbBusy(calcId);
-        try {
-            const res = await ordersFreightApi.averbar(orderId, calcId);
-            const record = res.data.averbacao;
-            setAverbResults((prev) => ({
-                ...prev,
-                [calcId]: res.success ? `Averbado${record?.numeroAverbacao ? ` (${record.numeroAverbacao})` : ''}` : (res.data.outcome.message ?? record?.lastError ?? 'Averbação não concluída.'),
-            }));
-        } catch (cause) {
-            setAverbResults((prev) => ({ ...prev, [calcId]: apiErrorMessage(cause, 'Não foi possível averbar agora.') }));
-        } finally {
-            setAverbBusy(null);
-        }
-    };
 
     const save = async () => {
         setBusy(true);
@@ -66,7 +50,8 @@ export const DepartureEditor: React.FC<EditorProps & { departure?: string | null
             await manifestsApi.updateCapa(manifestId, {
                 plannedDepartureAt: new Date(dep).toISOString(),
                 ...(arr ? { plannedArrivalAt: new Date(arr).toISOString() } : {}),
-                cargoInsuranceAverbacao: averb.trim(),
+                // Averbação eletrônica: o campo manual só segue se o operador (ou o histórico) já tinha um número.
+                ...(!electronicAverbacao || averb.trim() || averbacao ? { cargoInsuranceAverbacao: averb.trim() } : {}),
             });
             onSaved();
         } catch (cause) {
@@ -96,36 +81,7 @@ export const DepartureEditor: React.FC<EditorProps & { departure?: string | null
                 Chegada prevista (opcional)
                 <DateTimeField value={arr} onChange={setArr} shortcuts={['tomorrow08']} className="mt-1.5" />
             </label>
-            <label className="mt-4 block text-[13px] font-bold text-tower-600 dark:text-tower-300">
-                Averbação do seguro
-                <input
-                    type="text"
-                    value={averb}
-                    maxLength={500}
-                    onChange={(e) => setAverb(e.target.value)}
-                    placeholder="Número da averbação (vários: separe por vírgula)"
-                    className={clsx(osFieldClass, 'mt-1.5')}
-                />
-            </label>
-            {averbacaoOrders.length ? (
-                <div className="mt-3 rounded-xl border border-tower-200 p-3 text-[13px] dark:border-tower-700">
-                    <p className="font-bold text-tower-700 dark:text-tower-200">Averbação eletrônica pendente</p>
-                    <ul className="mt-2 space-y-2">
-                        {averbacaoOrders.map((item) => (
-                            <li key={item.calcId} className="flex items-center justify-between gap-3">
-                                <span className="text-tower-600 dark:text-tower-300">
-                                    Pedido {item.orderNumber}
-                                    {averbResults[item.calcId] ? <span className="block text-[12px] text-tower-500">{averbResults[item.calcId]}</span> : null}
-                                </span>
-                                <OsButton disabled={averbBusy === item.calcId} onClick={() => void averbarAgora(item.orderId, item.calcId)}>
-                                    {averbBusy === item.calcId ? 'Averbando…' : 'Tentar averbar agora'}
-                                </OsButton>
-                            </li>
-                        ))}
-                    </ul>
-                    <p className="mt-2 text-[12px] text-tower-500">Se a AT&amp;M estiver fora, informe a averbação manualmente acima: ela prevalece e fica registrada no histórico.</p>
-                </div>
-            ) : null}
+            <AverbacaoSection electronic={electronicAverbacao} value={averb} onChange={setAverb} orders={averbacaoOrders} />
         </OsSheet>
     );
 };
