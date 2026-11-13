@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { Link as RouterLink } from 'react-router-dom';
 import { linksApi } from '../../../../lib/api';
 import type { Hub, Link, VehicleType } from '../../../../types/index';
 import { approvalVehicleType, carrierTypeLabel } from '../../lib/redeCarriers';
@@ -15,7 +14,7 @@ const Fact: React.FC<{ label: string; value: React.ReactNode; mono?: boolean }> 
 );
 
 /** Transportador aguardando decisão: dados para decidir e as duas ações ao lado. Decisão Manual. */
-export const PendingCarrierRow: React.FC<{ link: Link; hubs: Hub[]; vehicleTypes: VehicleType[]; typesError: string | null }> = ({ link, hubs, vehicleTypes, typesError }) => {
+export const PendingCarrierRow: React.FC<{ link: Link; hubs: Hub[]; vehicleTypes: VehicleType[]; typesError: string | null; onOpen: () => void }> = ({ link, hubs, vehicleTypes, typesError, onOpen }) => {
     const { busy, run } = useAction();
     const [chosenType, setChosenType] = useState('');
     const [rejecting, setRejecting] = useState(false);
@@ -50,9 +49,9 @@ export const PendingCarrierRow: React.FC<{ link: Link; hubs: Hub[]; vehicleTypes
                         {link.createdByHubId ? `Cadastrado pelo hub ${hubName}` : 'Cadastro direto, sem hub de origem'}
                     </p>
                 </div>
-                <RouterLink to={`/hubs/transportadores/${link.id}`} className="gx-btn gx-btn-ghost gx-btn-sm">
-                    Ficha completa
-                </RouterLink>
+                <Button variant="ghost" size="sm" onClick={onOpen}>
+                    Abrir ficha
+                </Button>
             </div>
 
             <div className="grid grid-cols-2 gap-x-5 gap-y-3 md:grid-cols-5">
