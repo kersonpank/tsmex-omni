@@ -94,6 +94,7 @@ export type FiscalEnvironment = 'HOMOLOGACAO' | 'PRODUCAO';
 export type FiscalProvider = 'SIMULATED' | 'ACBR' | 'NUVEM_FISCAL' | 'FOCUS_NFE' | 'TECNOSPEED' | 'PLUGNOTAS' | 'OTHER';
 export type FiscalProviderStatus = 'NOT_CONFIGURED' | 'PENDING' | 'READY' | 'ERROR';
 export type FiscalCertificateStatus = 'MISSING' | 'READY' | 'EXPIRED' | 'INVALID';
+export type MdfeCargoTotalsSource = 'TRIP_COUNTER' | 'ORDER_REAL_WEIGHT';
 export type FiscalTaxRegime = 'SIMPLES_NACIONAL' | 'LUCRO_PRESUMIDO' | 'LUCRO_REAL' | 'MEI' | 'OUTRO';
 
 /** Averbação do seguro (AT&M) de um CT-e, como as telas a veem. */
@@ -250,6 +251,8 @@ export interface FiscalEmitter {
     atmDeclareMdfe?: boolean;
     /** Recusa do RC-V bloqueia a saída da viagem (padrão: só avisa). */
     rcvBlocksDeparture?: boolean;
+    /** Peso e valor da carga no MDF-e (e peso no encerramento do CIOT): totais da viagem ou soma dos pedidos. */
+    mdfeCargoTotalsSource?: MdfeCargoTotalsSource;
     /** Opt-in: liga a varredura automática 2x/dia da Distribuição NF-e para este CNPJ como destinatário. */
     distribuicaoNfeEnabled: boolean;
     /** Status do checkpoint de NSU pro ambiente atual do emitente — `null` se o documento não for CNPJ.
@@ -275,6 +278,15 @@ export interface OrderSequenceConfig {
     id: string;
     lastNumber: number;
     updatedAt: string;
+    updatedBy?: string | null;
+}
+
+/** Configurações da operação (registro único). `updatedAt` é null enquanto vale o padrão. */
+export interface OperationSettings {
+    id: string;
+    /** Papéis que podem trocar o status do pedido à mão. ADMIN sempre incluído. */
+    manualOrderStatusRoles: UserRole[];
+    updatedAt: string | null;
     updatedBy?: string | null;
 }
 

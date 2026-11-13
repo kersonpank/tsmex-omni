@@ -125,6 +125,8 @@ const fiscalEmitterShape = z.object({
     /** Declara o MDF-e na AT&M (averba o RC-V) e se a recusa do RC-V bloqueia a saída. */
     atmDeclareMdfe: z.boolean().optional(),
     rcvBlocksDeparture: z.boolean().optional(),
+    /** Peso e valor da carga no MDF-e (e peso no encerramento do CIOT): totais da viagem ou soma dos pedidos. */
+    mdfeCargoTotalsSource: z.enum(['TRIP_COUNTER', 'ORDER_REAL_WEIGHT']).optional(),
 });
 
 /** Separa a senha AT&M (cifrada com sealSecret) do restante; vazia não altera o valor gravado. */

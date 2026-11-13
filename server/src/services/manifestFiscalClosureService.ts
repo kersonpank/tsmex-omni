@@ -4,6 +4,12 @@ import { encerrarMdfeViaAcbr } from './acbr/acbrMdfeEmit.js';
 import { createOrMergeSystemAlert } from './systemAlertService.js';
 import { DEFAULT_DUE_HOURS, dueIn, originHubIdOfManifest } from './exceptions/alertOwner.js';
 
+/** Soma o peso real dos pedidos da viagem, contando uma vez o pedido que aparece em mais de uma perna. */
+export function sumDistinctOrderWeight(legs: { orderId: string; order: { demand: { weight: number } } }[]): number {
+    const weights = new Map(legs.map((leg) => [leg.orderId, leg.order.demand.weight]));
+    return [...weights.values()].reduce((sum, weight) => sum + weight, 0);
+}
+
 /**
  * Encerra (baixa) automaticamente o CIOT e o MDF-e da viagem quando ela é concluída
  * (Fatia E). Chamada depois que o manifesto já virou COMPLETED — nunca bloqueia nem reverte
@@ -24,8 +30,14 @@ export async function closeFiscalDocumentsForCompletedManifest(manifestId: strin
                 }
                 const previousJob = doc.environment ? null : await prisma.ciotEmissionJob.findFirst({ where: { manifestId, phase: 'DONE' }, orderBy: { createdAt: 'desc' }, select: { environment: true } });
                 // O e-Frete recusa o encerramento sem o peso transportado ("Verifique se peso da carga é maior que zero").
-                const trip = await prisma.manifest.findUnique({ where: { id: manifestId }, select: { totalWeight: true } });
-                await encerrarCiot(doc.number, doc.environment ?? previousJob?.environment ?? null, trip?.totalWeight ?? null);
+                const trip = await prisma.manifest.findUnique({ where: { id: manifestId }, select: { totalWeight: true, fiscalEmitter: { select: { mdfeCargoTotalsSource: true } } } });
+                let weight = trip?.totalWeight ?? null;
+                // Emitente configurado para a soma dos pedidos: peso real dos pedidos distintos da viagem, igual ao MDF-e.
+                if (trip?.fiscalEmitter?.mdfeCargoTotalsSource === 'ORDER_REAL_WEIGHT') {
+                    const legs = await prisma.orderLeg.findMany({ where: { manifestId }, select: { orderId: true, order: { select: { demand: { select: { weight: true } } } } } });
+                    weight = sumDistinctOrderWeight(legs);
+                }
+                await encerrarCiot(doc.number, doc.environment ?? previousJob?.environment ?? null, weight);
             } else {
                 // Um MDF-e por UF: cada documento é encerrado com a UF e o município de descarga DELE.
                 const result = await encerrarMdfeViaAcbr(manifestId, doc.id);

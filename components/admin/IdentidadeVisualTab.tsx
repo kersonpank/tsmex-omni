@@ -71,6 +71,7 @@ type FormState = {
   cargoLoadUnloadCovered: boolean;
   atmDeclareMdfe: boolean;
   rcvBlocksDeparture: boolean;
+  mdfeCargoTotalsSource: 'TRIP_COUNTER' | 'ORDER_REAL_WEIGHT';
   hasAtmPassword: boolean;
 };
 
@@ -109,6 +110,7 @@ const emptyForm: FormState = {
   cargoLoadUnloadCovered: false,
   atmDeclareMdfe: true,
   rcvBlocksDeparture: false,
+  mdfeCargoTotalsSource: 'TRIP_COUNTER',
   hasAtmPassword: false,
 };
 
@@ -161,6 +163,7 @@ function emitterToForm(emitter: FiscalEmitter): FormState {
     cargoLoadUnloadCovered: Boolean(emitter.cargoLoadUnloadCovered),
     atmDeclareMdfe: emitter.atmDeclareMdfe ?? true,
     rcvBlocksDeparture: Boolean(emitter.rcvBlocksDeparture),
+    mdfeCargoTotalsSource: emitter.mdfeCargoTotalsSource ?? 'TRIP_COUNTER',
     hasAtmPassword: Boolean(emitter.hasAtmPassword),
   };
 }
@@ -434,6 +437,7 @@ const IdentidadeVisualTab: React.FC = () => {
         cargoLoadUnloadCovered: form.cargoLoadUnloadCovered,
         atmDeclareMdfe: form.atmDeclareMdfe,
         rcvBlocksDeparture: form.rcvBlocksDeparture,
+        mdfeCargoTotalsSource: form.mdfeCargoTotalsSource,
       };
 
       const result = form.id
@@ -909,6 +913,22 @@ const IdentidadeVisualTab: React.FC = () => {
                       </>
                     )}
                   </div>
+                </div>
+                <div className="mt-4 border-t border-tower-100 pt-4 dark:border-tower-700">
+                  <label className="block">
+                    <span className="text-sm font-medium text-tower-800 dark:text-tower-200">Peso e valor da carga no MDF-e</span>
+                    <select
+                      className="admin-focus mt-1 w-full rounded-lg border border-tower-200 bg-white px-3 py-2 dark:border-tower-600 dark:bg-tower-900"
+                      value={form.mdfeCargoTotalsSource}
+                      onChange={(e) => update('mdfeCargoTotalsSource', e.target.value as FormState['mdfeCargoTotalsSource'])}
+                    >
+                      <option value="TRIP_COUNTER">Totais da viagem (peso taxado: maior entre real e cubado)</option>
+                      <option value="ORDER_REAL_WEIGHT">Soma dos pedidos (peso real)</option>
+                    </select>
+                    <span className="mt-1 block text-xs text-tower-500 dark:text-tower-400">
+                      Vale para o MDF-e e para o encerramento do CIOT.
+                    </span>
+                  </label>
                 </div>
               </div>
             </div>

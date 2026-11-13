@@ -24,7 +24,7 @@ import { compositionIssues, describeUnitIssues, resolveManifestComposition } fro
 import { buildMdfeVehicles } from './acbrMdfeVehicles.js';
 import { XMLParser } from 'fast-xml-parser';
 import { uploadBase64Object } from '../../lib/objectStorage.js';
-import type { Prisma } from '@prisma/client';
+import type { MdfeCargoTotalsSource, Prisma } from '@prisma/client';
 import { archiveMdfePdf } from './acbrMdfePdf.js';
 import { lookupMdfeByReferencia, type MdfeLookupOutcome } from './acbrMdfeLookup.js';
 import { groupUf, mdfeDocumentUf, mdfeProviderDocId, planMdfeByUf, stopUfsUpTo } from './mdfeUfPlan.js';
@@ -310,6 +310,26 @@ export function buildMdfeInfMdfe(input: MdfeInfMdfeInput): Record<string, unknow
 }
 
 /**
+ * Valor e peso da carga do grupo `tot` do MDF-e. Várias UFs: sempre a soma dos pedidos do documento.
+ * Uma UF: totais da viagem (peso taxado) por padrão, ou a soma dos pedidos (valor da NF e peso real)
+ * quando o emitente está em ORDER_REAL_WEIGHT. `orders` são os pedidos distintos do documento.
+ */
+export function resolveMdfeCargoTotals(input: {
+    multiUf: boolean;
+    source?: MdfeCargoTotalsSource | null;
+    tripTotals: { totalValue: number; totalWeight: number };
+    orders: { nfValue: number; weight: number }[];
+}): { totalValue: number; totalWeight: number } {
+    if (!input.multiUf && input.source !== 'ORDER_REAL_WEIGHT') {
+        return { totalValue: input.tripTotals.totalValue, totalWeight: input.tripTotals.totalWeight };
+    }
+    return {
+        totalValue: input.orders.reduce((sum, d) => sum + d.nfValue, 0),
+        totalWeight: input.orders.reduce((sum, d) => sum + d.weight, 0),
+    };
+}
+
+/**
  * Emite UM MDF-e: o da UF de descarregamento `unloadUf`. Viagem de uma UF só dispensa o parâmetro; viagem com
  * descargas em mais de uma UF exige a UF (use `emitMdfesForManifest`, que emite um por UF).
  */
@@ -403,12 +423,12 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string, un
     if (cUF === 35 && emit.state?.trim().toUpperCase() !== 'SP') return { ok: false, error: 'UF do emitente não reconhecida para o MDF-e.' };
     let apiEnv: AcbrFiscalEnvironment = manifest.fiscalEmitter?.environment ?? 'HOMOLOGACAO';
     let fiscalEmitterId: string | null = manifest.fiscalEmitter?.id ?? null;
-    let fallbackEmitter: (CargoInsuranceEmitter & AtmEmitterConfig) | null = null;
+    let fallbackEmitter: (CargoInsuranceEmitter & AtmEmitterConfig & { mdfeCargoTotalsSource: MdfeCargoTotalsSource }) | null = null;
     if (!manifest.fiscalEmitter && manifest.hubId) {
         const fe = await prisma.fiscalEmitter.findFirst({
             where: { hubId: manifest.hubId, active: true },
             orderBy: [{ defaultForHub: 'desc' }, { updatedAt: 'desc' }],
-            select: { id: true, environment: true, cargoInsurerName: true, cargoInsurerCnpj: true, cargoInsurancePolicyNumber: true, averbacaoProvider: true, atmCode: true, atmUser: true, atmPasswordEncrypted: true, atmEnvironment: true },
+            select: { id: true, environment: true, cargoInsurerName: true, cargoInsurerCnpj: true, cargoInsurancePolicyNumber: true, averbacaoProvider: true, atmCode: true, atmUser: true, atmPasswordEncrypted: true, atmEnvironment: true, mdfeCargoTotalsSource: true },
         });
         fallbackEmitter = fe;
         if (fe?.environment === 'PRODUCAO' || fe?.environment === 'HOMOLOGACAO') {
@@ -462,10 +482,14 @@ export async function emitMdfeViaAcbr(manifestId: string, referencia: string, un
     if (!drivers.length || drivers.some((driver) => !driver.active || (driver.linkId !== manifest.linkId && !driver.carriers.some((carrier) => carrier.linkId === manifest.linkId)) || digits(driver.document).length !== 11 || !driver.name.trim())) {
         return { ok: false, error: 'Defina todos os motoristas ativos e vinculados ao transportador antes de emitir MDF-e.' };
     }
-    // Viagem de uma UF usa os totais da viagem (como sempre); com várias UFs, o `tot` é só dos pedidos deste MDF-e.
+    // Viagem de uma UF usa os totais da viagem, salvo se o emitente pedir a soma dos pedidos; com várias UFs, o `tot` é só dos pedidos deste MDF-e.
     const tripOrders = new Map(planLegs.map((leg) => [leg.orderId, leg.order.demand]));
-    const totalValue = multiUf ? [...tripOrders.values()].reduce((sum, d) => sum + d.nfValue, 0) : manifest.totalValue;
-    const totalWeight = multiUf ? [...tripOrders.values()].reduce((sum, d) => sum + d.weight, 0) : manifest.totalWeight;
+    const { totalValue, totalWeight } = resolveMdfeCargoTotals({
+        multiUf,
+        source: (manifest.fiscalEmitter ?? fallbackEmitter)?.mdfeCargoTotalsSource,
+        tripTotals: manifest,
+        orders: [...tripOrders.values()],
+    });
     if (!Number.isFinite(totalValue) || totalValue <= 0 || !Number.isFinite(totalWeight) || totalWeight <= 0) {
         return { ok: false, error: 'Informe o valor total e o peso físico real da carga antes de emitir MDF-e.' };
     }

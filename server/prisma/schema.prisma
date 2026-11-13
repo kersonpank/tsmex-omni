@@ -1189,6 +1189,10 @@ model FiscalEmitter {
   atmDeclareMdfe         Boolean                @default(true)
   /// Recusa do RC-V pela AT&M bloqueia a saída da viagem (padrão: só avisa).
   rcvBlocksDeparture     Boolean                @default(false)
+  /// De onde saem o peso e o valor da carga no MDF-e de viagem de uma UF e o peso do encerramento do CIOT:
+  /// TRIP_COUNTER = totais da viagem (peso taxado: maior entre real e cubado);
+  /// ORDER_REAL_WEIGHT = soma dos pedidos (valor da NF e peso real). MDF-e de várias UFs sempre soma os pedidos.
+  mdfeCargoTotalsSource  MdfeCargoTotalsSource  @default(TRIP_COUNTER)
   environment      FiscalEnvironment @default(HOMOLOGACAO)
   efreteEnvironment FiscalEnvironment @default(HOMOLOGACAO)
 
@@ -2616,6 +2620,19 @@ model OrderSequenceConfig {
 }
 
 // ========================================
+// CONFIGURAÇÕES DA OPERAÇÃO (registro único)
+// ========================================
+
+/// Sem registro gravado vale o padrão (ver services/operationSettings.ts).
+model OperationSettings {
+  id                     String     @id @default("global")
+  /// Papéis que podem trocar o status do pedido à mão (PATCH /orders/:id/status). ADMIN sempre incluído.
+  manualOrderStatusRoles UserRole[] @default([ADMIN, HUB, LINK])
+  updatedAt              DateTime   @updatedAt
+  updatedBy              String?
+}
+
+// ========================================
 // DISTRIBUIÇÃO NF-E (ACBr) — varredura de NSU + triagem manual
 // ========================================
 
@@ -2718,6 +2735,12 @@ model OrderPackage {
 enum CargoAverbacaoProvider {
   NONE
   ATM
+}
+
+/// Fonte do peso e do valor da carga no MDF-e (e do peso no encerramento do CIOT), por emitente fiscal.
+enum MdfeCargoTotalsSource {
+  TRIP_COUNTER // totais da viagem (peso taxado: maior entre real e cubado)
+  ORDER_REAL_WEIGHT // soma dos pedidos (peso real)
 }
 
 enum CargoAverbacaoStatus {
