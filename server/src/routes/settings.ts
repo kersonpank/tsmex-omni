@@ -4,6 +4,7 @@ import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { openSecretOrLegacy, sealSecret } from '../lib/secretBox.js';
+import { getOperationSettings, updateOperationSettings } from '../services/operationSettings.js';
 
 const router = Router();
 
@@ -833,6 +834,41 @@ router.patch('/order-sequence', authenticate, authorize('ADMIN'), async (req: Au
         res.json({
             success: true,
             data: config,
+        });
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return next(new AppError(error.errors[0].message, 400));
+        }
+        next(error);
+    }
+});
+
+// ==================== CONFIGURAÇÕES DA OPERAÇÃO ====================
+
+// GET /api/settings/operation - Consulta as configurações da operação (sem registro, devolve o padrão)
+router.get('/operation', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        res.json({
+            success: true,
+            data: await getOperationSettings(),
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// PATCH /api/settings/operation - Define quem pode trocar o status do pedido à mão (ADMIN sempre incluído)
+router.patch('/operation', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const schema = z.object({
+            manualOrderStatusRoles: z.array(z.enum(['ADMIN', 'HUB', 'LINK'])),
+        });
+
+        const data = schema.parse(req.body);
+
+        res.json({
+            success: true,
+            data: await updateOperationSettings(data, req.user!.id),
         });
     } catch (error) {
         if (error instanceof z.ZodError) {

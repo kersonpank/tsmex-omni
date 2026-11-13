@@ -1,6 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { orderSequenceApi } from '../../lib/api';
-import type { OrderSequenceConfig } from '../../types/index';
+import { operationSettingsApi, orderSequenceApi } from '../../lib/api';
+import type { OrderSequenceConfig, UserRole } from '../../types/index';
+
+/** Papéis que podem ser liberados para trocar o status do pedido à mão. Administrador é sempre incluído. */
+const MANUAL_STATUS_ROLES: { role: UserRole; label: string }[] = [
+  { role: 'ADMIN', label: 'Administrador' },
+  { role: 'HUB', label: 'Hub' },
+  { role: 'LINK', label: 'Transportador' },
+];
 
 const OrderNumberSettingsTab: React.FC = () => {
   const [config, setConfig] = useState<OrderSequenceConfig | null>(null);
@@ -9,6 +16,8 @@ const OrderNumberSettingsTab: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [statusRoles, setStatusRoles] = useState<UserRole[]>(['ADMIN', 'HUB', 'LINK']);
+  const [savingRoles, setSavingRoles] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -19,6 +28,8 @@ const OrderNumberSettingsTab: React.FC = () => {
         setConfig(res.data);
         setLastNumber(res.data.lastNumber);
       }
+      const operation = await operationSettingsApi.get();
+      if (operation.data) setStatusRoles(operation.data.manualOrderStatusRoles);
     } catch (e: any) {
       setError(e.response?.data?.error ?? e.message ?? 'Erro ao carregar numeração de pedidos');
     } finally {
@@ -46,6 +57,22 @@ const OrderNumberSettingsTab: React.FC = () => {
       setError(e.response?.data?.error ?? e.message ?? 'Erro ao salvar numeração de pedidos');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveRoles = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingRoles(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await operationSettingsApi.update(statusRoles);
+      if (res.data) setStatusRoles(res.data.manualOrderStatusRoles);
+      setSuccess('Permissão de alteração manual do status do pedido atualizada.');
+    } catch (e: any) {
+      setError(e.response?.data?.error ?? e.message ?? 'Erro ao salvar quem pode alterar o status do pedido');
+    } finally {
+      setSavingRoles(false);
     }
   };
 
@@ -91,6 +118,34 @@ const OrderNumberSettingsTab: React.FC = () => {
 
           <button type="submit" disabled={saving} className="admin-focus rounded-lg bg-brand-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-brand-700 disabled:opacity-60">
             {saving ? 'Salvando...' : 'Salvar'}
+          </button>
+        </form>
+      </div>
+
+      <div className="rounded-xl border border-tower-200 bg-white/90 p-5 dark:border-tower-700 dark:bg-tower-900/50">
+        <p className="text-sm font-semibold text-tower-700 dark:text-tower-200">Quem pode alterar o status do pedido manualmente</p>
+        <p className="mt-1 text-xs text-tower-500 dark:text-tower-400">
+          Vale para a troca manual de status do pedido. O Administrador sempre pode.
+        </p>
+
+        <form onSubmit={handleSaveRoles} className="mt-4 space-y-4">
+          <div className="flex flex-wrap gap-6">
+            {MANUAL_STATUS_ROLES.map(({ role, label }) => (
+              <label key={role} className="flex items-center gap-2 text-sm text-tower-800 dark:text-tower-200">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-tower-300 text-brand-600"
+                  checked={role === 'ADMIN' || statusRoles.includes(role)}
+                  disabled={role === 'ADMIN'}
+                  onChange={(e) => setStatusRoles((prev) => (e.target.checked ? [...prev.filter((r) => r !== role), role] : prev.filter((r) => r !== role)))}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+
+          <button type="submit" disabled={savingRoles} className="admin-focus rounded-lg bg-brand-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-brand-700 disabled:opacity-60">
+            {savingRoles ? 'Salvando...' : 'Salvar'}
           </button>
         </form>
       </div>

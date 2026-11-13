@@ -114,6 +114,9 @@ app.use('/api/manifests', manifestsRouter);
 app.use('/api/pricing', pricingRouter);
 app.use('/api/settings/llm', settingsRouter);
 app.use('/api/settings/branding', brandingRouter);
+// O mesmo router também guarda configurações que não são de LLM (numeração de pedidos, operação).
+// As telas chamam /api/settings/order-sequence e /api/settings/operation; só com a montagem acima davam 404.
+app.use('/api/settings', settingsRouter);
 app.use('/api/fiscal-emitters', fiscalEmittersRouter);
 app.use('/api/fiscal', fiscalDistribuicaoRouter);
 app.use('/api/fiscal/distribuicao-nfe/triagem', nfeDistribuicaoTriagemRouter);

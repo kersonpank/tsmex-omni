@@ -49,6 +49,7 @@ import type {
     FiscalEmitter,
     FiscalEmitterReadiness,
     OrderSequenceConfig,
+    OperationSettings,
     ApiResponse,
     PaginatedResponse,
     OperationsSummaryData,
@@ -245,6 +246,19 @@ export const orderSequenceApi = {
     },
     update: async (lastNumber: number) => {
         const response = await api.patch<ApiResponse<OrderSequenceConfig>>('/settings/order-sequence', { lastNumber });
+        return response.data;
+    },
+};
+
+// ========== CONFIGURAÇÕES DA OPERAÇÃO ==========
+
+export const operationSettingsApi = {
+    get: async () => {
+        const response = await api.get<ApiResponse<OperationSettings>>('/settings/operation');
+        return response.data;
+    },
+    update: async (manualOrderStatusRoles: OperationSettings['manualOrderStatusRoles']) => {
+        const response = await api.patch<ApiResponse<OperationSettings>>('/settings/operation', { manualOrderStatusRoles });
         return response.data;
     },
 };

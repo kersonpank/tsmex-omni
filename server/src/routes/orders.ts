@@ -19,6 +19,7 @@ import { freightCalculationsRouter } from './freightCalculations.js';
 import { freightCalculationCancelRouter } from './freightCalculationCancel.js';
 import { resolveOrderByCode } from '../services/orderResolve.js';
 import { getNextOrderNumber } from '../services/orderSequence.js';
+import { getOperationSettings } from '../services/operationSettings.js';
 import { resolvePayerClient } from '../services/intake/resolvePayerClient.js';
 import { ensureBillingAccountForPayer } from '../services/billing/ensureBillingAccountForPayer.js';
 import {
@@ -1217,6 +1218,12 @@ router.post('/', authenticate, authorize('ADMIN'), async (req: AuthRequest, res:
 // PATCH /api/orders/:id/status - Update order status
 router.patch('/:id/status', authenticate, authorize('ADMIN', 'LINK', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+        // Configuração global: quais papéis podem trocar o status do pedido à mão (padrão: ADMIN, HUB e LINK).
+        const { manualOrderStatusRoles } = await getOperationSettings();
+        if (!req.user!.roles.some((role) => manualOrderStatusRoles.includes(role))) {
+            throw new AppError('Seu perfil não tem permissão para alterar o status do pedido manualmente. Fale com um administrador.', 403);
+        }
+
         const id = req.params.id as string;
         const schema = z.object({
             status: z.enum(['PENDING', 'IN_TRANSIT', 'AT_HUB', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED']),
