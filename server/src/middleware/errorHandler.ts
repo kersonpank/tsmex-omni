@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { ZodError } from 'zod';
 
 export class AppError extends Error {
     statusCode: number;
@@ -23,6 +24,14 @@ export const errorHandler = (
         return res.status(err.statusCode).json({
             success: false,
             error: err.message
+        });
+    }
+
+    // Validação de entrada que a rota não converteu em AppError: é erro do cliente (400), não 500.
+    if (err instanceof ZodError) {
+        return res.status(400).json({
+            success: false,
+            error: err.errors[0]?.message ?? 'Dados inválidos.'
         });
     }
 
