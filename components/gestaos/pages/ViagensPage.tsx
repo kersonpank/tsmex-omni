@@ -57,7 +57,7 @@ const ViagensPage: React.FC = () => {
                 title="Viagens"
                 question="Qual viagem precisa de atenção, e o que falta para ela andar?"
                 actions={
-                    <Link to="/manifests/new" className="gx-btn gx-btn-primary">
+                    <Link to="/gestaos/viagens/nova" className="gx-btn gx-btn-primary">
                         Nova viagem
                     </Link>
                 }

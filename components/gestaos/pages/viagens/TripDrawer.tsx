@@ -31,8 +31,8 @@ export const TripDrawer: React.FC<{ trip: Manifest | null; onClose: () => void }
             footer={
                 trip ? (
                     <>
-                        <Link to={`/manifests/${trip.id}`} className="gx-btn gx-btn-soft">
-                            Abrir viagem completa
+                        <Link to={`/gestaos/viagens/${trip.id}`} className="gx-btn gx-btn-soft">
+                            Abrir e operar
                         </Link>
                         <Link to={`/hubs/viagens/${trip.id}`} className="gx-btn gx-btn-ghost">
                             Abrir no hub
