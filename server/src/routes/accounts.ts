@@ -379,6 +379,8 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response, next: Ne
                     orderBy: { isPrimary: 'desc' }
                 },
                 users: {
+                    // Nunca devolver o hash da senha dos usuários da conta.
+                    omit: { password: true },
                     include: {
                         client: {
                             select: {
