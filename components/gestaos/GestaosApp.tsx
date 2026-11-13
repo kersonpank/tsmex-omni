@@ -32,6 +32,8 @@ import FinanceiroPage from './pages/FinanceiroPage';
 import RedePage from './pages/RedePage';
 import ComercialPage from './pages/ComercialPage';
 import SistemaPage from './pages/SistemaPage';
+import OrderFormPage from './pages/pedidos/OrderFormPage';
+import TripWorkPage from './pages/viagens/TripWorkPage';
 
 /**
  * Gestão V2 (/gestaos) — a torre organizada pelo que a pessoa faz no dia, não por cadastro.
@@ -172,7 +174,11 @@ const Shell: React.FC = () => {
                 <Routes>
                     <Route index element={<HojePage />} />
                     <Route path="viagens" element={<ViagensPage />} />
+                    <Route path="viagens/nova" element={<TripWorkPage />} />
+                    <Route path="viagens/:manifestId" element={<TripWorkPage />} />
                     <Route path="pedidos" element={<PedidosPage />} />
+                    <Route path="pedidos/novo" element={<OrderFormPage />} />
+                    <Route path="pedidos/:orderId/editar" element={<OrderFormPage />} />
                     <Route path="financeiro" element={<FinanceiroPage />} />
                     <Route path="rede" element={<RedePage />} />
                     <Route path="comercial" element={<ComercialPage />} />
