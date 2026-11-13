@@ -69,10 +69,10 @@ describe('Rede: cadastros na V2', () => {
         expect(within(drawer).getByText('Informe o código do hub (ex.: SP-GRU).')).toBeInTheDocument();
         expect(calls.some((c) => c.method === 'post' && c.url === '/hubs')).toBe(false);
 
-        await userEvent.type(within(drawer).getByLabelText('Nome'), 'Imperatriz Regional');
-        await userEvent.type(within(drawer).getByLabelText('Código'), 'ma-imp');
+        await userEvent.type(within(drawer).getByLabelText(/^Nome/), 'Imperatriz Regional');
+        await userEvent.type(within(drawer).getByLabelText(/^Código/), 'ma-imp');
         await userEvent.type(within(drawer).getByRole('combobox', { name: 'Cidade do hub' }), 'impe');
-        const option = await within(drawer).findByRole('option');
+        const option = await within(drawer).findByRole('option', { name: /Imperatriz/ });
         await userEvent.click(within(option).getByRole('button'));
         await userEvent.selectOptions(within(drawer).getByLabelText('Abastecido por'), 'hub-gru');
         const getsBefore = calls.filter((c) => c.method === 'get' && c.url === '/hubs').length;

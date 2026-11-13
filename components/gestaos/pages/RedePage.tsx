@@ -8,8 +8,10 @@ import { approvalCounts } from '../lib/redeCarriers';
 import { CadastrosTab } from './rede/CadastrosTab';
 import { CarriersTab } from './rede/CarriersTab';
 import { HubsTab } from './rede/HubsTab';
+import { ClientesTab } from './rede/clientes/ClientesTab';
+import { PessoasTab } from './rede/pessoas/PessoasTab';
 
-const TAB_IDS = ['hubs', 'transportadores', 'cadastros'] as const;
+const TAB_IDS = ['hubs', 'transportadores', 'pessoas', 'clientes', 'cadastros'] as const;
 type TabId = (typeof TAB_IDS)[number];
 
 const RedePage: React.FC = () => {
@@ -22,9 +24,9 @@ const RedePage: React.FC = () => {
     const pending = links.data ? approvalCounts(links.data).PENDING : null;
 
     const select = (id: string) => {
-        const next = new URLSearchParams(params);
-        if (id === 'hubs') next.delete('aba');
-        else next.set('aba', id);
+        // Cada aba guarda a própria gaveta na URL; ao trocar de aba, o resto sai.
+        const next = new URLSearchParams();
+        if (id !== 'hubs') next.set('aba', id);
         setParams(next, { replace: true });
     };
 
@@ -38,10 +40,12 @@ const RedePage: React.FC = () => {
                 tabs={[
                     { id: 'hubs', label: 'Hubs' },
                     { id: 'transportadores', label: 'Transportadores', count: pending || null },
+                    { id: 'pessoas', label: 'Pessoas' },
+                    { id: 'clientes', label: 'Clientes' },
                     { id: 'cadastros', label: 'Cadastros' },
                 ]}
             />
-            {tab === 'hubs' ? <HubsTab /> : tab === 'transportadores' ? <CarriersTab /> : <CadastrosTab />}
+            {tab === 'hubs' ? <HubsTab /> : tab === 'transportadores' ? <CarriersTab /> : tab === 'pessoas' ? <PessoasTab /> : tab === 'clientes' ? <ClientesTab /> : <CadastrosTab />}
         </div>
     );
 };
