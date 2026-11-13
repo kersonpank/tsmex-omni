@@ -44,7 +44,7 @@ const FinanceiroPage: React.FC = () => {
                         label="Frete emitido sem fatura"
                         value={unbilled.data ? money(unbilled.data.totalAmount) : pending}
                         hint={unbilled.data ? `${plural(unbilled.data.count, 'pedido', 'pedidos')}${unbilled.data.count ? ` · o mais antigo espera há ${plural(unbilled.data.oldestDays, 'dia', 'dias')}` : ''}` : (unbilled.error ?? 'Carregando')}
-                        tone={unbilledCount ? 'yellow' : 'neutral'}
+                        hintTone={unbilledCount ? 'yellow' : 'neutral'}
                         onClick={() => go('faturar')}
                     />
                     <Stat
@@ -55,14 +55,14 @@ const FinanceiroPage: React.FC = () => {
                                 ? `${plural(receivable.count, 'fatura aberta', 'faturas abertas')}${receivable.overdueCount ? ` · ${money(fromCents(receivable.overdueCents))} vencidos` : ''}${receivable.approximate ? ' · valor aproximado' : ''}`
                                 : 'Carregando'
                         }
-                        tone={receivable?.overdueCount ? 'red' : 'neutral'}
+                        hintTone={receivable?.overdueCount ? 'red' : 'neutral'}
                         onClick={() => go('receber')}
                     />
                     <Stat
                         label="A pagar"
                         value={payable ? money(fromCents(payable.totalCents)) : pending}
                         hint={payable ? `${plural(payable.count, 'título aberto', 'títulos abertos')}${payable.overdueCount ? ` · ${money(fromCents(payable.overdueCents))} vencidos` : ''}` : 'Carregando'}
-                        tone={payable?.overdueCount ? 'red' : 'neutral'}
+                        hintTone={payable?.overdueCount ? 'red' : 'neutral'}
                         onClick={() => go('pagar')}
                     />
                 </div>

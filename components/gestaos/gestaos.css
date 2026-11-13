@@ -35,10 +35,11 @@
     --gx-yellow-text: #7a5600;
     --gx-on-yellow: #2e2200;
 
-    --gx-glass: rgba(255, 255, 255, 0.56);
-    --gx-glass-strong: rgba(255, 255, 255, 0.82);
-    --gx-glass-inset: rgba(255, 255, 255, 0.46);
-    --gx-edge: rgba(255, 255, 255, 0.85);
+    --gx-glass: rgba(255, 255, 255, 0.5);
+    --gx-glass-strong: rgba(255, 255, 255, 0.78);
+    --gx-glass-inset: rgba(255, 255, 255, 0.44);
+    --gx-edge: rgba(255, 255, 255, 0.92);
+    --gx-auto-tint: rgba(26, 68, 217, 0.14);
     --gx-hair: rgba(18, 38, 120, 0.1);
     --gx-hair-strong: rgba(18, 38, 120, 0.2);
     --gx-hover: rgba(26, 68, 217, 0.07);
@@ -48,10 +49,11 @@
     --gx-shadow-float: 0 1px 0 rgba(255, 255, 255, 0.8) inset, 0 36px 90px -32px rgba(12, 26, 90, 0.6), 0 10px 28px -14px rgba(12, 26, 90, 0.28);
 
     --gx-page:
-        radial-gradient(1100px 620px at 8% -12%, rgba(26, 68, 217, 0.22), transparent 62%),
-        radial-gradient(820px 520px at 98% -6%, rgba(255, 196, 0, 0.2), transparent 58%),
-        radial-gradient(900px 700px at 72% 112%, rgba(26, 68, 217, 0.12), transparent 60%),
-        linear-gradient(180deg, #f5f8fe 0%, #e9eefa 100%);
+        radial-gradient(980px 600px at 4% -10%, rgba(26, 68, 217, 0.4), transparent 62%),
+        radial-gradient(760px 480px at 100% -4%, rgba(255, 196, 0, 0.4), transparent 60%),
+        radial-gradient(1000px 720px at 84% 108%, rgba(26, 68, 217, 0.28), transparent 62%),
+        radial-gradient(720px 520px at 12% 80%, rgba(255, 196, 0, 0.16), transparent 60%),
+        linear-gradient(180deg, #eef3fd 0%, #e1e8f8 100%);
 
     min-height: 100vh;
     color: var(--gx-ink);
@@ -83,7 +85,8 @@
     --gx-yellow-soft: rgba(255, 210, 61, 0.16);
     --gx-yellow-text: #ffd95e;
 
-    --gx-glass: rgba(20, 28, 72, 0.5);
+    --gx-glass: rgba(20, 28, 72, 0.46);
+    --gx-auto-tint: rgba(98, 130, 255, 0.22);
     --gx-glass-strong: rgba(22, 31, 80, 0.8);
     --gx-glass-inset: rgba(255, 255, 255, 0.05);
     --gx-edge: rgba(255, 255, 255, 0.12);
@@ -96,9 +99,10 @@
     --gx-shadow-float: 0 1px 0 rgba(255, 255, 255, 0.1) inset, 0 40px 100px -30px rgba(0, 0, 0, 0.85);
 
     --gx-page:
-        radial-gradient(1100px 620px at 8% -12%, rgba(63, 102, 246, 0.34), transparent 62%),
-        radial-gradient(820px 520px at 98% -6%, rgba(255, 196, 0, 0.1), transparent 58%),
-        radial-gradient(900px 700px at 70% 115%, rgba(40, 70, 220, 0.26), transparent 60%),
+        radial-gradient(980px 600px at 4% -10%, rgba(63, 102, 246, 0.42), transparent 62%),
+        radial-gradient(760px 480px at 100% -4%, rgba(255, 196, 0, 0.13), transparent 60%),
+        radial-gradient(1000px 720px at 84% 108%, rgba(52, 84, 235, 0.34), transparent 62%),
+        radial-gradient(720px 520px at 12% 80%, rgba(63, 102, 246, 0.16), transparent 60%),
         linear-gradient(180deg, #070b1e 0%, #050816 100%);
 }
 
@@ -125,8 +129,8 @@
     border: 1px solid var(--gx-edge);
     border-radius: 22px;
     box-shadow: var(--gx-shadow);
-    -webkit-backdrop-filter: blur(22px) saturate(1.5);
-    backdrop-filter: blur(22px) saturate(1.5);
+    -webkit-backdrop-filter: blur(26px) saturate(1.7);
+    backdrop-filter: blur(26px) saturate(1.7);
 }
 
 .gx-glass-strong {
@@ -148,7 +152,7 @@
 
 /* A faixa do Autopilot: vidro tingido de royal, para o olho separar "a máquina fez" do resto. */
 .gx-tint-auto {
-    background: linear-gradient(180deg, var(--gx-royal-soft), transparent 70%), var(--gx-glass);
+    background: linear-gradient(160deg, var(--gx-auto-tint), transparent 72%), var(--gx-glass);
     border-color: var(--gx-royal-line);
 }
 
@@ -209,10 +213,10 @@
 }
 
 .gx-num {
-    font-family: var(--gx-mono);
+    font-family: var(--gx-font);
     font-variant-numeric: tabular-nums;
-    font-weight: 600;
-    letter-spacing: -0.03em;
+    font-weight: 650;
+    letter-spacing: -0.035em;
 }
 
 .gx-royal-text {

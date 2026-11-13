@@ -224,7 +224,8 @@ export const DecisionQueue: React.FC<{
                                                         {exceptionExplain(entry.item.category).group} · {ageLabel(entry.item, now)}
                                                     </span>
                                                 </span>
-                                                <Pill tone={entry.item.overdue ? 'red' : entry.tone === 'yellow' ? 'yellow' : 'neutral'} dot={entry.item.overdue}>
+                                                <Pill tone={entry.tone === 'royal' ? 'neutral' : entry.tone} dot={entry.item.overdue}>
+                                                    {!entry.item.overdue && entry.item.severity === 'CRITICAL' ? 'crítico · ' : ''}
                                                     {dueLabel(entry.item, now)}
                                                 </Pill>
                                                 <ModeBadge mode={exceptionMode(entry.item)} />

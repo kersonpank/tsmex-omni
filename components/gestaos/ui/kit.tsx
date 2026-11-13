@@ -105,12 +105,16 @@ export const Pill: React.FC<{ tone?: Tone | 'solid'; dot?: boolean; className?: 
     </span>
 );
 
-/** Número grande com rótulo. `onClick` transforma em atalho. */
-export const Stat: React.FC<{ label: string; value: React.ReactNode; hint?: React.ReactNode; tone?: Tone; onClick?: () => void; className?: string }> = ({
+/**
+ * Número grande com rótulo. `onClick` transforma em atalho.
+ * `tone` colore o número; `hintTone` colore só a linha de apoio (o número segue neutro).
+ */
+export const Stat: React.FC<{ label: string; value: React.ReactNode; hint?: React.ReactNode; tone?: Tone; hintTone?: Tone; onClick?: () => void; className?: string }> = ({
     label,
     value,
     hint,
     tone = 'neutral',
+    hintTone,
     onClick,
     className,
 }) => {
@@ -118,7 +122,7 @@ export const Stat: React.FC<{ label: string; value: React.ReactNode; hint?: Reac
         <>
             <span className="gx-label block">{label}</span>
             <span className={clsx('gx-num mt-1 block text-[30px] leading-none', COUNT_TONE[tone])}>{value}</span>
-            {hint ? <span className="gx-muted mt-1.5 block text-[12.5px]">{hint}</span> : null}
+            {hint ? <span className={clsx('mt-1.5 block text-[12.5px]', hintTone && hintTone !== 'neutral' ? [COUNT_TONE[hintTone], 'font-semibold'] : 'gx-muted')}>{hint}</span> : null}
         </>
     );
     return onClick ? (

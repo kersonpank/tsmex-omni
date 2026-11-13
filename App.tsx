@@ -367,6 +367,30 @@ const AppMain: React.FC = () => {
   );
 };
 
+/** Rodapé do app clássico. A Gestão V2 (/gestaos) tem casca própria e não o exibe. */
+const AppFooter: React.FC = () => {
+  const { pathname } = useLocation();
+  if (pathname === '/gestaos' || pathname.startsWith('/gestaos/')) return null;
+  return (
+    <footer className="mt-auto border-t border-brand-800 bg-brand-900 px-4 py-8 text-tower-400 dark:border-brand-800 dark:bg-brand-950 dark:text-tower-500">
+      <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 text-xs font-medium uppercase tracking-widest md:flex-row">
+        <div>TSM EX · Sistema conectado ao backend</div>
+        <div className="flex gap-6">
+          <a href="#" className="transition-colors hover:text-brand-300">
+            Documentação
+          </a>
+          <a href="#" className="transition-colors hover:text-brand-300">
+            SLA de IA
+          </a>
+          <a href="#" className="transition-colors hover:text-brand-300">
+            Suporte
+          </a>
+        </div>
+      </div>
+    </footer>
+  );
+};
+
 const App: React.FC = () => {
   return (
     <HashRouter>
@@ -374,22 +398,7 @@ const App: React.FC = () => {
         <Navigation />
         <AppMain />
 
-        <footer className="mt-auto border-t border-brand-800 bg-brand-900 px-4 py-8 text-tower-400 dark:border-brand-800 dark:bg-brand-950 dark:text-tower-500">
-          <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 text-xs font-medium uppercase tracking-widest md:flex-row">
-            <div>TSM EX · Sistema conectado ao backend</div>
-            <div className="flex gap-6">
-              <a href="#" className="transition-colors hover:text-brand-300">
-                Documentação
-              </a>
-              <a href="#" className="transition-colors hover:text-brand-300">
-                SLA de IA
-              </a>
-              <a href="#" className="transition-colors hover:text-brand-300">
-                Suporte
-              </a>
-            </div>
-          </div>
-        </footer>
+        <AppFooter />
       </div>
     </HashRouter>
   );
