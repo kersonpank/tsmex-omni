@@ -606,6 +606,12 @@ export const nfeManualInvoicesApi = {
 
 // ========== MANIFESTS API ==========
 
+/**
+ * O servidor espera a SEFAZ por até ~90 s (envio + consultas) antes de responder "pendente — não reemita".
+ * Com o timeout padrão de 30 s o operador via "tempo esgotado" e nunca essa resposta.
+ */
+const MDFE_EMIT_TIMEOUT_MS = 150_000;
+
 export const manifestsApi = {
     list: async (params?: { status?: string; linkId?: string; includeArchived?: boolean }) => {
         const response = await api.get<PaginatedResponse<Manifest>>('/manifests', { params });
@@ -787,7 +793,7 @@ export const manifestsApi = {
     },
 
     emitMdfe: async (id: string) => {
-        const response = await api.post<ApiResponse<unknown> & { pending?: boolean; message?: string; mdfes?: Array<{ uf: string; status: 'AUTHORIZED' | 'PENDING' | 'REJECTED'; number: string | null; message: string | null; docId: string | null }> }>(`/manifests/${id}/emit-mdfe`, {});
+        const response = await api.post<ApiResponse<unknown> & { pending?: boolean; message?: string; mdfes?: Array<{ uf: string; status: 'AUTHORIZED' | 'PENDING' | 'REJECTED'; number: string | null; message: string | null; docId: string | null }> }>(`/manifests/${id}/emit-mdfe`, {}, { timeout: MDFE_EMIT_TIMEOUT_MS });
         return response.data;
     },
 
