@@ -62,6 +62,7 @@ export function getMatchingRolesForRoute(
 
 const PATH_ROLE_HINTS: { prefix: string; role: UserRole }[] = [
   { prefix: '/gestao', role: 'ADMIN' },
+  { prefix: '/gestaos', role: 'ADMIN' },
   { prefix: '/app', role: 'ADMIN' },
   { prefix: '/hub', role: 'HUB' },
   { prefix: '/link', role: 'LINK' },

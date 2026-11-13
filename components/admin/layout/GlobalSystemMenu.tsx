@@ -13,6 +13,8 @@ export function shouldShowGlobalSystemMenu(pathname: string): boolean {
   if (pathname.startsWith('/form/')) return false;
   // TSM O.S. (/hubs) é superfície operacional mobile-first com navegação própria.
   if (pathname === '/hubs' || pathname.startsWith('/hubs/')) return false;
+  // Gestão V2 (/gestaos) tem casca e navegação próprias.
+  if (pathname === '/gestaos' || pathname.startsWith('/gestaos/')) return false;
   return true;
 }
 

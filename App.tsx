@@ -3,6 +3,8 @@ import { HashRouter, Routes, Route, Navigate, Link, useLocation } from 'react-ro
 
 // TSM O.S. — superfície operacional do hub, chunk separado do app legado.
 const OsApp = React.lazy(() => import('./components/os/OsApp'));
+// Gestão V2 — torre por rotina (Autopilot/Copilot), chunk separado; a gestão clássica segue em /gestao.
+const GestaosApp = React.lazy(() => import('./components/gestaos/GestaosApp'));
 import GlobalSystemMenu, { shouldShowGlobalSystemMenu } from './components/admin/layout/GlobalSystemMenu';
 import AdminDashboard from './components/AdminDashboard';
 import ClientDashboard from './components/ClientDashboard';
@@ -66,7 +68,7 @@ const Navigation: React.FC = () => {
   }, [location.pathname]);
 
   // TSM O.S. (/hubs) tem header e navegação próprios, mobile-first.
-  if (isLogin || location.pathname === '/claim-link' || location.pathname === '/link/cadastro' || location.pathname === '/hub/cadastro' || location.pathname === '/hubs' || location.pathname.startsWith('/hubs/')) return null;
+  if (isLogin || location.pathname === '/claim-link' || location.pathname === '/link/cadastro' || location.pathname === '/hub/cadastro' || location.pathname === '/hubs' || location.pathname.startsWith('/hubs/') || location.pathname === '/gestaos' || location.pathname.startsWith('/gestaos/')) return null;
 
   const navLinks = (
     <>
@@ -341,6 +343,13 @@ const AppMain: React.FC = () => {
               <ProtectedRoute allowedRoles={['HUB', 'ADMIN']}>
                 <Suspense fallback={<div className="flex min-h-screen items-center justify-center text-tower-500">Carregando TSM O.S.…</div>}>
                   <OsApp />
+                </Suspense>
+              </ProtectedRoute>
+            } />
+            <Route path="/gestaos/*" element={
+              <ProtectedRoute allowedRoles={['ADMIN']}>
+                <Suspense fallback={<div className="flex min-h-screen items-center justify-center text-tower-500">Carregando a Gestão…</div>}>
+                  <GestaosApp />
                 </Suspense>
               </ProtectedRoute>
             } />

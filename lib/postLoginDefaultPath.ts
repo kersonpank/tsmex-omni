@@ -15,6 +15,7 @@ export function getDefaultHomePath(roles: readonly string[] | null | undefined):
 
 const PATH_TO_ROLE: { prefix: string; role: UserRole }[] = [
     { prefix: '/gestao', role: 'ADMIN' },
+    { prefix: '/gestaos', role: 'ADMIN' },
     { prefix: '/app', role: 'ADMIN' },
     { prefix: '/hub', role: 'HUB' },
     { prefix: '/link', role: 'LINK' },

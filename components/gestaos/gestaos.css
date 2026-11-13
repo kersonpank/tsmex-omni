@@ -1,0 +1,720 @@
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:wdth,wght@75..100,400..700&display=swap');
+
+/*
+ * Gestão V2 (/gestaos) — sistema visual próprio, isolado sob `.gx`.
+ * Vidro com função: a profundidade mostra hierarquia (fundo → painel → flutuante).
+ * Quatro cores com papel fixo: azul royal = o sistema (Autopilot/Copilot), branco/tinta = fato,
+ * vermelho = travado, amarelo = atenção.
+ */
+
+.gx {
+    --gx-font: 'Instrument Sans', 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+    --gx-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+    --gx-ink: #0c1535;
+    --gx-ink-2: #37416a;
+    --gx-ink-3: #58628a;
+
+    --gx-royal: #1a44d9;
+    --gx-royal-strong: #1436b4;
+    --gx-royal-text: #1a44d9;
+    --gx-royal-soft: rgba(26, 68, 217, 0.1);
+    --gx-royal-line: rgba(26, 68, 217, 0.3);
+    --gx-on-royal: #ffffff;
+
+    --gx-red: #cf1a2a;
+    --gx-red-soft: rgba(207, 26, 42, 0.1);
+    --gx-red-line: rgba(207, 26, 42, 0.32);
+
+    --gx-yellow: #ffc400;
+    --gx-yellow-soft: rgba(255, 196, 0, 0.24);
+    --gx-yellow-text: #7a5600;
+    --gx-on-yellow: #2e2200;
+
+    --gx-glass: rgba(255, 255, 255, 0.56);
+    --gx-glass-strong: rgba(255, 255, 255, 0.82);
+    --gx-glass-inset: rgba(255, 255, 255, 0.46);
+    --gx-edge: rgba(255, 255, 255, 0.85);
+    --gx-hair: rgba(18, 38, 120, 0.1);
+    --gx-hair-strong: rgba(18, 38, 120, 0.2);
+    --gx-hover: rgba(26, 68, 217, 0.07);
+    --gx-field: rgba(255, 255, 255, 0.74);
+    --gx-scrim: rgba(10, 18, 50, 0.36);
+    --gx-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset, 0 22px 50px -30px rgba(16, 34, 110, 0.45), 0 2px 8px -4px rgba(16, 34, 110, 0.12);
+    --gx-shadow-float: 0 1px 0 rgba(255, 255, 255, 0.8) inset, 0 36px 90px -32px rgba(12, 26, 90, 0.6), 0 10px 28px -14px rgba(12, 26, 90, 0.28);
+
+    --gx-page:
+        radial-gradient(1100px 620px at 8% -12%, rgba(26, 68, 217, 0.22), transparent 62%),
+        radial-gradient(820px 520px at 98% -6%, rgba(255, 196, 0, 0.2), transparent 58%),
+        radial-gradient(900px 700px at 72% 112%, rgba(26, 68, 217, 0.12), transparent 60%),
+        linear-gradient(180deg, #f5f8fe 0%, #e9eefa 100%);
+
+    min-height: 100vh;
+    color: var(--gx-ink);
+    background: var(--gx-page);
+    background-attachment: fixed;
+    font-family: var(--gx-font);
+    font-size: 14.5px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+.dark .gx {
+    --gx-ink: #eef1ff;
+    --gx-ink-2: #bcc5ea;
+    --gx-ink-3: #8f9ac8;
+
+    --gx-royal: #3f66f6;
+    --gx-royal-strong: #5578ff;
+    --gx-royal-text: #9db2ff;
+    --gx-royal-soft: rgba(98, 130, 255, 0.16);
+    --gx-royal-line: rgba(125, 152, 255, 0.4);
+
+    --gx-red: #ff6673;
+    --gx-red-soft: rgba(255, 102, 115, 0.14);
+    --gx-red-line: rgba(255, 102, 115, 0.4);
+
+    --gx-yellow: #ffd23d;
+    --gx-yellow-soft: rgba(255, 210, 61, 0.16);
+    --gx-yellow-text: #ffd95e;
+
+    --gx-glass: rgba(20, 28, 72, 0.5);
+    --gx-glass-strong: rgba(22, 31, 80, 0.8);
+    --gx-glass-inset: rgba(255, 255, 255, 0.05);
+    --gx-edge: rgba(255, 255, 255, 0.12);
+    --gx-hair: rgba(255, 255, 255, 0.09);
+    --gx-hair-strong: rgba(255, 255, 255, 0.18);
+    --gx-hover: rgba(125, 152, 255, 0.1);
+    --gx-field: rgba(8, 13, 40, 0.55);
+    --gx-scrim: rgba(2, 4, 16, 0.62);
+    --gx-shadow: 0 1px 0 rgba(255, 255, 255, 0.07) inset, 0 26px 60px -30px rgba(0, 0, 0, 0.75);
+    --gx-shadow-float: 0 1px 0 rgba(255, 255, 255, 0.1) inset, 0 40px 100px -30px rgba(0, 0, 0, 0.85);
+
+    --gx-page:
+        radial-gradient(1100px 620px at 8% -12%, rgba(63, 102, 246, 0.34), transparent 62%),
+        radial-gradient(820px 520px at 98% -6%, rgba(255, 196, 0, 0.1), transparent 58%),
+        radial-gradient(900px 700px at 70% 115%, rgba(40, 70, 220, 0.26), transparent 60%),
+        linear-gradient(180deg, #070b1e 0%, #050816 100%);
+}
+
+.gx *,
+.gx *::before,
+.gx *::after {
+    box-sizing: border-box;
+}
+
+.gx a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.gx :focus-visible {
+    outline: 2px solid var(--gx-royal-text);
+    outline-offset: 2px;
+    border-radius: 8px;
+}
+
+/* ---------- Superfícies de vidro ---------- */
+
+.gx-glass {
+    background: var(--gx-glass);
+    border: 1px solid var(--gx-edge);
+    border-radius: 22px;
+    box-shadow: var(--gx-shadow);
+    -webkit-backdrop-filter: blur(22px) saturate(1.5);
+    backdrop-filter: blur(22px) saturate(1.5);
+}
+
+.gx-glass-strong {
+    background: var(--gx-glass-strong);
+}
+
+.gx-glass-float {
+    box-shadow: var(--gx-shadow-float);
+    -webkit-backdrop-filter: blur(30px) saturate(1.6);
+    backdrop-filter: blur(30px) saturate(1.6);
+}
+
+/* Bloco interno: dá relevo dentro de um painel sem empilhar outro blur. */
+.gx-inset {
+    background: var(--gx-glass-inset);
+    border: 1px solid var(--gx-hair);
+    border-radius: 16px;
+}
+
+/* A faixa do Autopilot: vidro tingido de royal, para o olho separar "a máquina fez" do resto. */
+.gx-tint-auto {
+    background: linear-gradient(180deg, var(--gx-royal-soft), transparent 70%), var(--gx-glass);
+    border-color: var(--gx-royal-line);
+}
+
+.gx-hair-b {
+    border-bottom: 1px solid var(--gx-hair);
+}
+
+.gx-hair-t {
+    border-top: 1px solid var(--gx-hair);
+}
+
+/* ---------- Tipografia ---------- */
+
+.gx-h1 {
+    margin: 0;
+    font-size: clamp(26px, 2.4vw, 34px);
+    font-weight: 700;
+    line-height: 1.08;
+    letter-spacing: -0.025em;
+}
+
+.gx-h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+}
+
+.gx-question {
+    margin: 0;
+    max-width: 68ch;
+    font-size: 15.5px;
+    color: var(--gx-ink-2);
+}
+
+.gx-label {
+    font-size: 11.5px;
+    font-weight: 650;
+    font-stretch: 88%;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--gx-ink-3);
+}
+
+.gx-muted {
+    color: var(--gx-ink-3);
+}
+
+.gx-soft {
+    color: var(--gx-ink-2);
+}
+
+.gx-mono {
+    font-family: var(--gx-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 0.9em;
+    letter-spacing: -0.01em;
+}
+
+.gx-num {
+    font-family: var(--gx-mono);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+}
+
+.gx-royal-text {
+    color: var(--gx-royal-text);
+}
+
+.gx-red-text {
+    color: var(--gx-red);
+}
+
+.gx-yellow-text {
+    color: var(--gx-yellow-text);
+}
+
+/* ---------- Modos (Autopilot / Copilot / Manual) ---------- */
+
+.gx-mode {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 22px;
+    padding: 0 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    font-stretch: 88%;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.gx-mode-auto {
+    background: var(--gx-royal);
+    color: var(--gx-on-royal);
+}
+
+.gx-mode-copilot {
+    background: var(--gx-royal-soft);
+    color: var(--gx-royal-text);
+    box-shadow: inset 0 0 0 1px var(--gx-royal-line);
+}
+
+.gx-mode-manual {
+    color: var(--gx-ink-2);
+    box-shadow: inset 0 0 0 1px var(--gx-hair-strong);
+}
+
+.gx-pulse {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: currentColor;
+    animation: gx-pulse 2.4s ease-out infinite;
+}
+
+/* ---------- Pílulas de estado ---------- */
+
+.gx-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 22px;
+    padding: 1px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    color: var(--gx-ink-2);
+    box-shadow: inset 0 0 0 1px var(--gx-hair-strong);
+}
+
+.gx-pill-royal {
+    color: var(--gx-royal-text);
+    background: var(--gx-royal-soft);
+    box-shadow: inset 0 0 0 1px var(--gx-royal-line);
+}
+
+.gx-pill-red {
+    color: var(--gx-red);
+    background: var(--gx-red-soft);
+    box-shadow: inset 0 0 0 1px var(--gx-red-line);
+}
+
+.gx-pill-yellow {
+    color: var(--gx-yellow-text);
+    background: var(--gx-yellow-soft);
+    box-shadow: inset 0 0 0 1px rgba(160, 120, 0, 0.3);
+}
+
+.gx-pill-solid {
+    color: var(--gx-on-royal);
+    background: var(--gx-royal);
+    box-shadow: none;
+}
+
+.gx-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: currentColor;
+    flex: none;
+}
+
+/* ---------- Botões ---------- */
+
+.gx-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 0 16px;
+    border: 0;
+    border-radius: 12px;
+    font: inherit;
+    font-weight: 650;
+    font-size: 14px;
+    color: var(--gx-ink);
+    background: transparent;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: transform 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
+}
+
+.gx-btn:active:not(:disabled) {
+    transform: translateY(1px) scale(0.99);
+}
+
+.gx-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.gx-btn-sm {
+    min-height: 32px;
+    padding: 0 12px;
+    border-radius: 10px;
+    font-size: 13px;
+}
+
+.gx-btn-primary {
+    color: var(--gx-on-royal);
+    background: var(--gx-royal);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.28) inset, 0 10px 22px -12px var(--gx-royal);
+}
+
+.gx-btn-primary:hover:not(:disabled) {
+    background: var(--gx-royal-strong);
+}
+
+.gx-btn-soft {
+    color: var(--gx-royal-text);
+    background: var(--gx-royal-soft);
+}
+
+.gx-btn-soft:hover:not(:disabled) {
+    box-shadow: inset 0 0 0 1px var(--gx-royal-line);
+}
+
+.gx-btn-ghost {
+    box-shadow: inset 0 0 0 1px var(--gx-hair-strong);
+    background: var(--gx-glass-inset);
+}
+
+.gx-btn-ghost:hover:not(:disabled) {
+    background: var(--gx-hover);
+}
+
+.gx-btn-danger {
+    color: var(--gx-red);
+    background: var(--gx-red-soft);
+}
+
+.gx-btn-danger:hover:not(:disabled) {
+    box-shadow: inset 0 0 0 1px var(--gx-red-line);
+}
+
+.gx-icon-btn {
+    display: inline-grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: 0;
+    border-radius: 12px;
+    color: var(--gx-ink-2);
+    background: transparent;
+    cursor: pointer;
+    transition: background-color 0.16s ease, color 0.16s ease;
+}
+
+.gx-icon-btn:hover {
+    color: var(--gx-ink);
+    background: var(--gx-hover);
+}
+
+/* ---------- Filtros e campos ---------- */
+
+.gx-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 34px;
+    padding: 0 13px;
+    border: 0;
+    border-radius: 999px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--gx-ink-2);
+    background: var(--gx-glass-inset);
+    box-shadow: inset 0 0 0 1px var(--gx-hair);
+    cursor: pointer;
+    transition: background-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.gx-chip:hover {
+    background: var(--gx-hover);
+}
+
+.gx-chip[aria-pressed='true'],
+.gx-chip[aria-selected='true'] {
+    color: var(--gx-on-royal);
+    background: var(--gx-royal);
+    box-shadow: 0 8px 18px -12px var(--gx-royal);
+}
+
+.gx-chip-count {
+    font-family: var(--gx-mono);
+    font-size: 12px;
+    opacity: 0.8;
+}
+
+.gx .gx-input {
+    width: 100%;
+    min-height: 40px;
+    padding: 8px 12px;
+    border: 1px solid var(--gx-hair-strong);
+    border-radius: 12px;
+    font: inherit;
+    color: var(--gx-ink);
+    background: var(--gx-field);
+    transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.gx .gx-input::placeholder {
+    color: var(--gx-ink-3);
+}
+
+.gx .gx-input:focus {
+    outline: none;
+    border-color: var(--gx-royal-text);
+    box-shadow: 0 0 0 3px var(--gx-royal-soft);
+}
+
+/* ---------- Linhas clicáveis ---------- */
+
+.gx-row {
+    display: block;
+    width: 100%;
+    padding: 12px 14px;
+    border: 0;
+    border-radius: 14px;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    background: transparent;
+    cursor: pointer;
+    transition: background-color 0.16s ease, transform 0.16s ease;
+}
+
+.gx-row:hover {
+    background: var(--gx-hover);
+}
+
+.gx-row[aria-expanded='true'],
+.gx-row[aria-current='true'] {
+    background: var(--gx-glass-strong);
+    box-shadow: inset 0 0 0 1px var(--gx-hair-strong);
+}
+
+/* ---------- Tabela ---------- */
+
+.gx-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+.gx-table th {
+    padding: 10px 14px;
+    font-size: 11.5px;
+    font-weight: 650;
+    font-stretch: 88%;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    text-align: left;
+    color: var(--gx-ink-3);
+    border-bottom: 1px solid var(--gx-hair-strong);
+    white-space: nowrap;
+}
+
+.gx-table td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--gx-hair);
+    vertical-align: middle;
+}
+
+.gx-table tbody tr {
+    transition: background-color 0.16s ease;
+}
+
+.gx-table tbody tr:hover {
+    background: var(--gx-hover);
+}
+
+.gx-table tbody tr[data-clickable='true'] {
+    cursor: pointer;
+}
+
+.gx-scroll-x {
+    overflow-x: auto;
+}
+
+/* ---------- Barra de progresso / ocupação ---------- */
+
+.gx-bar {
+    position: relative;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--gx-hair-strong);
+    overflow: hidden;
+}
+
+.gx-bar > span {
+    position: absolute;
+    inset: 0 auto 0 0;
+    border-radius: 999px;
+    background: var(--gx-royal);
+    transition: width 0.5s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.gx-bar[data-tone='red'] > span {
+    background: var(--gx-red);
+}
+
+.gx-bar[data-tone='yellow'] > span {
+    background: var(--gx-yellow);
+}
+
+/* ---------- Carregando ---------- */
+
+.gx-skeleton {
+    border-radius: 10px;
+    background: linear-gradient(100deg, var(--gx-hair) 20%, var(--gx-hair-strong) 40%, var(--gx-hair) 60%);
+    background-size: 220% 100%;
+    animation: gx-shimmer 1.4s linear infinite;
+}
+
+/* ---------- Navegação ---------- */
+
+.gx-nav-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 40px;
+    padding: 0 14px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--gx-ink-2);
+    white-space: nowrap;
+    transition: background-color 0.16s ease, color 0.16s ease;
+}
+
+.gx-nav-link:hover {
+    color: var(--gx-ink);
+    background: var(--gx-hover);
+}
+
+.gx-nav-link[aria-current='page'] {
+    color: var(--gx-on-royal);
+    background: var(--gx-royal);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.25) inset, 0 10px 22px -14px var(--gx-royal);
+}
+
+.gx-kbd {
+    padding: 2px 6px;
+    border-radius: 6px;
+    font-family: var(--gx-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--gx-ink-3);
+    box-shadow: inset 0 0 0 1px var(--gx-hair-strong);
+}
+
+.gx-no-scrollbar {
+    scrollbar-width: none;
+}
+
+.gx-no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+
+/* ---------- Movimento ---------- */
+
+@keyframes gx-rise {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@keyframes gx-pulse {
+    0% {
+        box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 60%, transparent);
+    }
+    70%,
+    100% {
+        box-shadow: 0 0 0 7px transparent;
+    }
+}
+
+@keyframes gx-shimmer {
+    to {
+        background-position: -220% 0;
+    }
+}
+
+@keyframes gx-slide-in {
+    from {
+        opacity: 0;
+        transform: translateX(28px);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@keyframes gx-pop {
+    from {
+        opacity: 0;
+        transform: translateY(-8px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@keyframes gx-fade {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+.gx-rise {
+    animation: gx-rise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.gx-stagger > * {
+    animation: gx-rise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.gx-stagger > *:nth-child(2) {
+    animation-delay: 0.05s;
+}
+
+.gx-stagger > *:nth-child(3) {
+    animation-delay: 0.1s;
+}
+
+.gx-stagger > *:nth-child(4) {
+    animation-delay: 0.15s;
+}
+
+.gx-stagger > *:nth-child(n + 5) {
+    animation-delay: 0.2s;
+}
+
+.gx-slide-in {
+    animation: gx-slide-in 0.32s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.gx-pop {
+    animation: gx-pop 0.22s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.gx-fade {
+    animation: gx-fade 0.2s ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .gx *,
+    .gx *::before,
+    .gx *::after {
+        animation: none !important;
+        transition: none !important;
+    }
+}
