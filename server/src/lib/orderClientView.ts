@@ -30,7 +30,8 @@ export function sanitizeOrderForClient<T extends Record<string, any>>(order: T):
     const out: Record<string, any> = { ...order };
     if (out.manifest) out.manifest = omit(out.manifest, MANIFEST_INTERNAL);
     if (Array.isArray(out.legs)) {
-        out.legs = out.legs.map((leg: any) => ({ ...leg, manifest: omit(leg.manifest, MANIFEST_INTERNAL) }));
+        // allocatedCost é o custo rateado da TSM naquela perna: interno.
+        out.legs = out.legs.map((leg: any) => ({ ...omit(leg, ['allocatedCost']), manifest: omit(leg.manifest, MANIFEST_INTERNAL) }));
     }
     if (Array.isArray(out.freightCalculations)) {
         out.freightCalculations = out.freightCalculations.map((c: any) => omit(c, CALC_INTERNAL));

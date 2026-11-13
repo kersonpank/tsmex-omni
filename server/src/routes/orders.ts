@@ -414,7 +414,8 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response, next: Next
 
         res.json({
             success: true,
-            data: orders,
+            // Mesma visão externa do detalhe: o CLIENT não recebe transportador, custos nem XML.
+            data: isExternalClientView(req.user!.roles) ? orders.map((order) => sanitizeOrderForClient(order)) : orders,
             pagination: {
                 total,
                 limit: parsedLimit,
@@ -1287,6 +1288,7 @@ router.patch('/:id/status', authenticate, authorize('ADMIN', 'LINK', 'HUB'), asy
                     description: data.description || `Status atualizado para ${data.status}`,
                     location: data.location,
                     photoUrl: data.photoUrl,
+                    actorUserId: req.user!.id,
                 }
             });
 
