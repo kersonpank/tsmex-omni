@@ -8,7 +8,10 @@ import { Drawer } from '../../ui/overlay';
 import { OrderTrace } from './OrderTrace';
 
 /** Gaveta do pedido: resumo e rastreio. Trocar status é do hub, não daqui. */
-export const OrderDrawer: React.FC<{ orderId: string | null; row: OrderListItem | null; onClose: () => void }> = ({ orderId, row, onClose }) => (
+export const OrderDrawer: React.FC<{ orderId: string | null; row: OrderListItem | null; onClose: () => void }> = ({ orderId, row, onClose }) => {
+    // Só pedido parado num hub (ou ainda pendente) entra numa viagem nova.
+    const canPlan = row ? ['PENDING', 'AT_HUB'].includes(row.status) : false;
+    return (
     <Drawer
         open={Boolean(orderId)}
         onClose={onClose}
@@ -19,6 +22,14 @@ export const OrderDrawer: React.FC<{ orderId: string | null; row: OrderListItem 
         footer={
             orderId ? (
                 <>
+                    <Link to={`/gestaos/pedidos/${orderId}/editar`} className="gx-btn gx-btn-primary">
+                        Editar
+                    </Link>
+                    {canPlan ? (
+                        <Link to={`/gestaos/viagens/nova?orders=${orderId}`} className="gx-btn gx-btn-soft">
+                            Montar viagem com este pedido
+                        </Link>
+                    ) : null}
                     <Link to={`/orders/${orderId}`} className="gx-btn gx-btn-soft">
                         Abrir pedido completo
                     </Link>
@@ -46,4 +57,5 @@ export const OrderDrawer: React.FC<{ orderId: string | null; row: OrderListItem 
             </div>
         ) : null}
     </Drawer>
-);
+    );
+};

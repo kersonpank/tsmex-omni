@@ -6,6 +6,7 @@ import { num, money } from '../lib/format';
 import { orderFilterParams, ORDER_FILTERS, pageRange, PAGE_SIZE, type OrderFilter } from '../lib/pedidos';
 import { useResource } from '../lib/resource';
 import { IconSearch } from '../ui/icons';
+import { LinkButton } from '../ui/form';
 import { Button, Chip, EmptyState, Loadable, PageHeader, Panel, Skeleton, Stat, TextInput } from '../ui/kit';
 import { OrderDrawer } from './pedidos/OrderDrawer';
 import { OrderTable } from './pedidos/OrderTable';
@@ -84,7 +85,7 @@ const PedidosPage: React.FC = () => {
 
     return (
         <>
-            <PageHeader title="Pedidos" question="Onde está a carga, e o que falta para ela seguir?" />
+            <PageHeader title="Pedidos" question="Onde está a carga, e o que falta para ela seguir?" actions={<LinkButton to="/gestaos/pedidos/novo" variant="primary">Novo pedido</LinkButton>} />
 
             <div className="gx-rise mb-5 flex flex-col gap-3">
                 <div className="relative">
