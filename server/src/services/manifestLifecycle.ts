@@ -84,6 +84,35 @@ export async function validateCreateManifestInput(input: CreateManifestInput) {
     return { vehicleType, destHub };
 }
 
+/**
+ * Transição de estado com comparação no próprio `where` (id + estado esperado): se outra requisição
+ * já mudou o registro, o Prisma responde P2025 e a transação inteira é desfeita. Vira 409 para o operador.
+ */
+function isStaleStateError(error: unknown): boolean {
+    return (error as { code?: string } | null)?.code === 'P2025';
+}
+
+async function guardStaleState<T>(run: () => Promise<T>, message: string): Promise<T> {
+    try {
+        return await run();
+    } catch (error) {
+        if (isStaleStateError(error)) throw new AppError(message, 409);
+        throw error;
+    }
+}
+
+const STALE_TRIP_MESSAGE = 'A viagem mudou de situação enquanto você confirmava. Atualize a página.';
+
+/** Trava a linha da viagem até o fim da transação e devolve os totais gravados (não os lidos antes dela). */
+async function lockManifestTotals(tx: Prisma.TransactionClient, manifestId: string): Promise<ManifestTotals & { status: ManifestStatus }> {
+    const rows = await tx.$queryRaw<Array<ManifestTotals & { status: ManifestStatus }>>`
+        SELECT "status", "totalWeight", "totalVolume", "totalValue" FROM "Manifest" WHERE "id" = ${manifestId} FOR UPDATE
+    `;
+    const row = rows[0];
+    if (!row) throw new AppError('Manifest not found', 404);
+    return row;
+}
+
 function orderEffectiveWeight(order: { demand: { weight: number; cubedWeight: number | null } }) {
     return Math.max(order.demand.weight, order.demand.cubedWeight ?? 0);
 }
@@ -212,28 +241,12 @@ export async function addOrderToManifest(
     }
 
     const effectiveWeight = orderEffectiveWeight(order);
-    const newTotalWeight = manifest.totalWeight + effectiveWeight;
-    const newTotalVolume = manifest.totalVolume + order.demand.volume;
-    const newTotalValue = manifest.totalValue + order.demand.nfValue;
-
-    if (newTotalWeight > manifest.vehicleType.maxWeight) {
-        throw new AppError(
-            `Exceeds weight capacity: ${newTotalWeight}kg / ${manifest.vehicleType.maxWeight}kg`,
-            400
-        );
-    }
-    if (newTotalVolume > manifest.vehicleType.maxVolume) {
-        throw new AppError(
-            `Exceeds volume capacity: ${newTotalVolume}m³ / ${manifest.vehicleType.maxVolume}m³`,
-            400
-        );
-    }
-    if (newTotalValue > manifest.vehicleType.maxValue) {
-        throw new AppError(
-            `Exceeds value limit: R$ ${newTotalValue} / R$ ${manifest.vehicleType.maxValue}`,
-            400
-        );
-    }
+    // Totais calculados sobre o que está gravado, com a linha da viagem travada (duas inclusões
+    // simultâneas somavam sobre a mesma leitura e uma delas se perdia).
+    let utilizationBefore = 0;
+    let newTotalWeight = 0;
+    let newTotalVolume = 0;
+    let newTotalValue = 0;
 
     const historyDescription = allocationOrderHistoryDescription(
         manifestId,
@@ -242,6 +255,34 @@ export async function addOrderToManifest(
     );
 
     await prisma.$transaction(async (tx) => {
+        const current = await lockManifestTotals(tx, manifestId);
+        if (current.status !== 'DRAFT') {
+            throw new AppError('Cannot modify manifest in current status', 400);
+        }
+        utilizationBefore = current.totalWeight / manifest.vehicleType.maxWeight;
+        newTotalWeight = current.totalWeight + effectiveWeight;
+        newTotalVolume = current.totalVolume + order.demand.volume;
+        newTotalValue = current.totalValue + order.demand.nfValue;
+
+        if (newTotalWeight > manifest.vehicleType.maxWeight) {
+            throw new AppError(
+                `Exceeds weight capacity: ${newTotalWeight}kg / ${manifest.vehicleType.maxWeight}kg`,
+                400
+            );
+        }
+        if (newTotalVolume > manifest.vehicleType.maxVolume) {
+            throw new AppError(
+                `Exceeds volume capacity: ${newTotalVolume}m³ / ${manifest.vehicleType.maxVolume}m³`,
+                400
+            );
+        }
+        if (newTotalValue > manifest.vehicleType.maxValue) {
+            throw new AppError(
+                `Exceeds value limit: R$ ${newTotalValue} / R$ ${manifest.vehicleType.maxValue}`,
+                400
+            );
+        }
+
         // Calculate marginBefore
         const marginBeforeStats = await getManifestMargin(manifestId, tx);
         const marginBefore = (marginBeforeStats.margin !== null && marginBeforeStats.revenue > 0)
@@ -312,7 +353,7 @@ export async function addOrderToManifest(
                 orderIds: [orderId],
                 suggestedManifests: Prisma.JsonNull,
                 finalManifests: Prisma.JsonNull,
-                utilizationBefore: manifest.totalWeight / manifest.vehicleType.maxWeight,
+                utilizationBefore,
                 utilizationAfter: newTotalWeight / manifest.vehicleType.maxWeight,
                 marginBefore,
                 marginAfter,
@@ -380,6 +421,11 @@ export async function removeOrderFromManifest(
     }
 
     await prisma.$transaction(async (tx) => {
+        const current = await lockManifestTotals(tx, manifestId);
+        if (current.status !== 'DRAFT') {
+            throw new AppError('Cannot modify manifest in current status', 400);
+        }
+
         // Calculate marginBefore
         const marginBeforeStats = await getManifestMargin(manifestId, tx);
         const marginBefore = (marginBeforeStats.margin !== null && marginBeforeStats.revenue > 0)
@@ -410,7 +456,7 @@ export async function removeOrderFromManifest(
         });
 
         const { totalWeight: newTotalWeight, totalVolume: newTotalVolume, totalValue: newTotalValue } =
-            totalsAfterRemovingOrder(manifest, order);
+            totalsAfterRemovingOrder(current, order);
 
         await tx.manifest.update({
             where: { id: manifestId },
@@ -440,7 +486,7 @@ export async function removeOrderFromManifest(
                 orderIds: [orderId],
                 suggestedManifests: Prisma.JsonNull,
                 finalManifests: Prisma.JsonNull,
-                utilizationBefore: manifest.totalWeight / manifest.vehicleType.maxWeight,
+                utilizationBefore: current.totalWeight / manifest.vehicleType.maxWeight,
                 utilizationAfter: newTotalWeight / manifest.vehicleType.maxWeight,
                 marginBefore,
                 marginAfter,
@@ -630,9 +676,9 @@ export async function startManifest(
         }
     }
 
-    await prisma.$transaction(async (tx) => {
+    await guardStaleState(() => prisma.$transaction(async (tx) => {
         await tx.manifest.update({
-            where: { id: manifestId },
+            where: { id: manifestId, status: 'ACCEPTED' },
             data: {
                 status: 'IN_PROGRESS',
                 startedAt: new Date(),
@@ -668,7 +714,7 @@ export async function startManifest(
                 },
             });
         }
-    });
+    }), STALE_TRIP_MESSAGE);
 }
 
 export type CompleteOptions = { kmChegada?: number; arrivals?: ArrivalMark[] };
@@ -726,9 +772,9 @@ export async function completeManifest(
         const arrivalIndex = indexArrivals(options?.arrivals, manifest.legs.map((leg) => leg.orderId));
         const summary = emptyArrivalSummary();
 
-        await prisma.$transaction(async (tx) => {
+        await guardStaleState(() => prisma.$transaction(async (tx) => {
             await tx.manifest.update({
-                where: { id: manifestId },
+                where: { id: manifestId, status: 'IN_PROGRESS' },
                 data: {
                     status: 'COMPLETED',
                     completedAt: now,
@@ -767,15 +813,15 @@ export async function completeManifest(
             // Final cost allocation update
             await allocateLegCosts(manifestId, tx);
             await tx.fiscalClosureTask.upsert({ where: { manifestId }, create: { manifestId }, update: { status: 'PENDING', reason: null } });
-        });
+        }), STALE_TRIP_MESSAGE);
         return { arrivals: summary };
     }
 
     // tripType === 'DELIVERY' | 'TRANSFER_DELIVERY'
     let deliveredCount = 0;
-    await prisma.$transaction(async (tx) => {
+    await guardStaleState(() => prisma.$transaction(async (tx) => {
         await tx.manifest.update({
-            where: { id: manifestId },
+            where: { id: manifestId, status: 'IN_PROGRESS' },
             data: {
                 status: 'COMPLETED',
                 completedAt: now,
@@ -803,7 +849,7 @@ export async function completeManifest(
         // Final cost allocation update
         await allocateLegCosts(manifestId, tx);
         await tx.fiscalClosureTask.upsert({ where: { manifestId }, create: { manifestId }, update: { status: 'PENDING', reason: null } });
-    });
+    }), STALE_TRIP_MESSAGE);
 
     if (manifest.linkId && deliveredCount > 0) {
         await prisma.link.update({
@@ -816,22 +862,19 @@ export async function completeManifest(
 
 /**
  * Finaliza o manifesto (status COMPLETED) depois que todas as suas ManifestStop foram
- * concluídas. Separado de completeManifestStop para não acoplar o fechamento da viagem ao
- * fechamento de uma parada específica (Fatia E vai plugar o encerramento fiscal aqui).
+ * concluídas. Roda dentro da transação que conclui a última parada (o custo das pernas já foi
+ * rateado ali) e só passa se a viagem ainda estiver em andamento.
  */
-async function finalizeManifestCompletion(manifestId: string, kmChegada?: number) {
-    await prisma.$transaction(async (tx) => {
-        await tx.manifest.update({
-            where: { id: manifestId },
-            data: {
-                status: 'COMPLETED',
-                completedAt: new Date(),
-                ...(kmChegada != null ? { kmChegada } : {}),
-            },
-        });
-        await allocateLegCosts(manifestId, tx);
-        await tx.fiscalClosureTask.upsert({ where: { manifestId }, create: { manifestId }, update: { status: 'PENDING', reason: null } });
+async function finalizeManifestCompletion(tx: Prisma.TransactionClient, manifestId: string, completedAt: Date, kmChegada?: number) {
+    await tx.manifest.update({
+        where: { id: manifestId, status: 'IN_PROGRESS' },
+        data: {
+            status: 'COMPLETED',
+            completedAt,
+            ...(kmChegada != null ? { kmChegada } : {}),
+        },
     });
+    await tx.fiscalClosureTask.upsert({ where: { manifestId }, create: { manifestId }, update: { status: 'PENDING', reason: null } });
 }
 
 /**
@@ -887,9 +930,10 @@ export async function completeManifestStop(
     const summary = emptyArrivalSummary();
     const arrivedOrderIds: string[] = [];
 
-    await prisma.$transaction(async (tx) => {
+    let allStopsCompleted = false;
+    await guardStaleState(() => prisma.$transaction(async (tx) => {
         await tx.manifestStop.update({
-            where: { id: stopId },
+            where: { id: stopId, completedAt: null },
             data: { completedAt: now },
         });
 
@@ -939,7 +983,19 @@ export async function completeManifestStop(
         }
 
         await allocateLegCosts(manifestId, tx);
-    });
+
+        // Última descarga com pedidos: a viagem fecha na MESMA transação. Antes eram duas; se a segunda
+        // falhasse, a parada ficava concluída e a viagem presa em andamento, sem como repetir.
+        if (stop.legs.length > 0) {
+            const pendingStops = await tx.manifestStop.count({
+                where: { manifestId, completedAt: null, legs: { some: {} } },
+            });
+            if (pendingStops === 0) {
+                await finalizeManifestCompletion(tx, manifestId, now, options?.kmChegada);
+                allStopsCompleted = true;
+            }
+        }
+    }), 'Esta parada já foi concluída ou a viagem mudou de situação. Atualize a página.');
 
     if (isDelivery && manifest.linkId && deliveredCount > 0) {
         await prisma.link.update({
@@ -953,13 +1009,5 @@ export async function completeManifestStop(
         return { allStopsCompleted: false, arrivals: null };
     }
 
-    const pendingStops = await prisma.manifestStop.count({
-        where: { manifestId, completedAt: null, legs: { some: {} } },
-    });
-
-    if (pendingStops === 0) {
-        await finalizeManifestCompletion(manifestId, options?.kmChegada);
-    }
-
-    return { allStopsCompleted: pendingStops === 0, arrivals: isTransfer ? summary : null };
+    return { allStopsCompleted, arrivals: isTransfer ? summary : null };
 }

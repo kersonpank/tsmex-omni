@@ -29,7 +29,7 @@ function mockTx() {
     const record = (model: string, action: string) => async (args: any) => { log.push({ model, action, args }); return { id: 'x', ...(args?.data ?? {}) }; };
     return {
         manifest: { update: record('manifest', 'update'), findUnique: async () => ({ id: manifestId, legs: [], totalWeight: 0, totalVolume: 0 }) },
-        manifestStop: { update: record('manifestStop', 'update') },
+        manifestStop: { update: record('manifestStop', 'update'), count: async () => 0 },
         order: { update: record('order', 'update'), findUnique: async () => null },
         orderLeg: { updateMany: record('orderLeg', 'updateMany'), findMany: async () => [], findFirst: async () => null },
         orderHistory: { create: record('orderHistory', 'create') },

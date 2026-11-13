@@ -35,7 +35,7 @@ function mockTx() {
     const record = (model: string, action: string) => async (args: any) => { log.push({ model, action, args }); return { id: 'x', ...(args?.data ?? {}) }; };
     return {
         manifest: { update: record('manifest', 'update'), findUnique: async () => ({ id: manifestId, legs: [], totalWeight: 0, totalVolume: 0 }) },
-        manifestStop: { update: record('manifestStop', 'update') },
+        manifestStop: { update: record('manifestStop', 'update'), count: async () => 0 },
         order: { update: record('order', 'update'), findUnique: async () => null },
         orderLeg: { updateMany: record('orderLeg', 'updateMany'), findMany: async () => [], findFirst: async () => null },
         orderHistory: { create: record('orderHistory', 'create') },
@@ -147,5 +147,19 @@ describe('conclusão de viagem de entrega com desfechos', () => {
         assert.equal(result.allStopsCompleted, true);
         assert.equal(orderUpdate('order-1').status, 'AT_HUB');
         assert.equal(orderUpdate('order-1').currentHubId, originHubId);
+        // A viagem fecha na mesma transação da última parada, e só se ainda estiver em andamento.
+        const closing = log.find((op) => op.model === 'manifest' && op.action === 'update');
+        assert.deepEqual((closing?.args as any).where, { id: manifestId, status: 'IN_PROGRESS' });
+        assert.equal((closing?.args as any).data.status, 'COMPLETED');
+        const stopUpdate = log.find((op) => op.model === 'manifestStop' && op.action === 'update');
+        assert.deepEqual((stopUpdate?.args as any).where, { id: 'stop-1', completedAt: null });
+    });
+
+    it('conclusão repetida (outra requisição já fechou a viagem) responde 409 e não conta entrega em dobro', async () => {
+        attempts = [attempt(1, 'DELIVERED', 10)];
+        setup([leg(1)]);
+        prisma.$transaction = (async () => { throw Object.assign(new Error('Record to update not found.'), { code: 'P2025' }); }) as any;
+        await assert.rejects(completeManifest(manifestId, actor), (e: any) => e.statusCode === 409);
+        assert.deepEqual(linkIncrements, []);
     });
 });

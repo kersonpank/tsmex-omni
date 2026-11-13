@@ -98,6 +98,8 @@ describe('manifests lifecycle TRANSFER E2E (mocked)', () => {
     function buildTx() {
         return {
             fiscalClosureTask: { upsert: async () => ({ id: 'closure-task' }) },
+            // Trava da linha da viagem (SELECT ... FOR UPDATE): devolve os totais gravados.
+            $queryRaw: async () => [{ status: store.manifest.status, totalWeight: store.manifest.totalWeight, totalVolume: store.manifest.totalVolume, totalValue: store.manifest.totalValue }],
             demand: {
                 update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
                     const d = store.demands.get(where.id);

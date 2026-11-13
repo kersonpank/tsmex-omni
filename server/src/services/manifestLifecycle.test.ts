@@ -398,6 +398,8 @@ describe('manifestLifecycle', () => {
         prisma.$transaction = (async (fn: unknown) => {
             if (typeof fn !== 'function') throw new Error('batch not mocked');
             const tx = {
+                // Trava da linha da viagem (SELECT ... FOR UPDATE): devolve os totais gravados.
+                $queryRaw: async () => [{ status: 'DRAFT', totalWeight: 50, totalVolume: 0.5, totalValue: 200 }],
                 order: {
                     findUnique: async () => ({
                         id: orderId,
@@ -580,6 +582,8 @@ describe('manifestLifecycle', () => {
 
         prisma.$transaction = (async (fn: any) => {
             const tx = {
+                // Trava da linha da viagem (SELECT ... FOR UPDATE): devolve os totais gravados.
+                $queryRaw: async () => [{ status: 'DRAFT', totalWeight: 50, totalVolume: 0.5, totalValue: 200 }],
                 order: {
                     findUnique: async () => ({
                         id: orderId,
