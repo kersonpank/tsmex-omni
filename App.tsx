@@ -77,6 +77,11 @@ const Navigation: React.FC = () => {
           Torre de Controle
         </Link>
       )}
+      {role === 'ADMIN' && (
+        <Link to="/gestaos" className="admin-focus font-medium text-tower-600 transition hover:text-brand-600 dark:text-tower-300 dark:hover:text-brand-300" onClick={() => setMobileOpen(false)}>
+          Gestão V2
+        </Link>
+      )}
       {role === 'HUB' && (
         <Link to="/hub" className="admin-focus font-medium text-tower-600 transition hover:text-brand-600 dark:text-tower-300 dark:hover:text-brand-300" onClick={() => setMobileOpen(false)}>
           Operação Hub

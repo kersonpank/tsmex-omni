@@ -5,8 +5,12 @@
  * Vidro com função: a profundidade mostra hierarquia (fundo → painel → flutuante).
  * Quatro cores com papel fixo: azul royal = o sistema (Autopilot/Copilot), branco/tinta = fato,
  * vermelho = travado, amarelo = atenção.
+ *
+ * Tudo fica em `@layer components`: acima do `@layer base` global (campos do app clássico) e abaixo
+ * dos utilitários do Tailwind, para que `flex`, `grid`, `hidden` etc. possam ajustar o layout nas telas.
  */
 
+@layer components {
 .gx {
     --gx-font: 'Instrument Sans', 'DM Sans', ui-sans-serif, system-ui, sans-serif;
     --gx-mono: 'IBM Plex Mono', ui-monospace, monospace;
@@ -112,7 +116,6 @@
 .gx :focus-visible {
     outline: 2px solid var(--gx-royal-text);
     outline-offset: 2px;
-    border-radius: 8px;
 }
 
 /* ---------- Superfícies de vidro ---------- */
@@ -717,4 +720,5 @@
         animation: none !important;
         transition: none !important;
     }
+}
 }

@@ -284,9 +284,10 @@ export function Loadable<T>({
 }: {
     state: { data: T | null; loading: boolean; error: string | null; reload: () => void };
     skeleton?: React.ReactNode;
-    children: (data: T) => React.ReactNode;
+    /** `NoInfer`: o tipo do dado vem só de `state`; a função recebe o dado já tipado. */
+    children: (data: NoInfer<T>) => React.ReactNode;
     empty?: React.ReactNode;
-    isEmpty?: (data: T) => boolean;
+    isEmpty?: (data: NoInfer<T>) => boolean;
 }): React.ReactElement {
     if (state.data == null) {
         if (state.error) return <ErrorState message={state.error} onRetry={state.reload} />;
