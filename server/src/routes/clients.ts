@@ -126,7 +126,8 @@ router.patch('/:id', authenticate, authorize('ADMIN'), async (req: AuthRequest, 
 });
 
 // GET /api/clients/:id/demands
-router.get('/:id/demands', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+// Transportador (LINK) não consulta demandas de cliente; CLIENT só as próprias (checado abaixo).
+router.get('/:id/demands', authenticate, authorize('ADMIN', 'HUB', 'CLIENT'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const id = req.params.id as string;
         const status = req.query.status as string | undefined;

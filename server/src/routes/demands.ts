@@ -32,7 +32,8 @@ const batchDemandSchema = z.object({
 });
 
 // GET /api/demands - List demands
-router.get('/', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+// LINK sozinho não enxerga demandas (mesma regra de demandScope): sem isto a lista vinha sem filtro.
+router.get('/', authenticate, authorize('ADMIN', 'HUB', 'CLIENT'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const { status, clientId, destination, intentType, limit = '50', offset = '0' } = req.query;
 

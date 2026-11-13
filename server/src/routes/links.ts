@@ -903,7 +903,8 @@ router.patch('/:id/owner-person', authenticate, authorize('ADMIN', 'HUB'), async
 });
 
 // GET /api/links/:id/manifests - Get link's manifests
-router.get('/:id/manifests', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+// Embarcador (CLIENT) não consulta viagens de transportador; LINK só as próprias (checado abaixo).
+router.get('/:id/manifests', authenticate, authorize('ADMIN', 'HUB', 'LINK'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const id = req.params.id as string;
         const status = req.query.status as string | undefined;
