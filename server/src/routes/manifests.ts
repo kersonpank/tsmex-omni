@@ -1399,16 +1399,19 @@ router.patch('/:id/reject', authenticate, authorize('LINK'), async (req: AuthReq
             throw new AppError('Manifest not found or not assigned to you', 404);
         }
 
-        const updated = await prisma.manifest.update({
-            where: { id: id },
+        // Só oferta pendente pode ser recusada: viagem aceita, em trânsito ou concluída não volta a rascunho.
+        const rejected = await prisma.manifest.updateMany({
+            where: { id, linkId: link.id, status: 'PENDING_ACCEPT' },
             data: {
                 status: 'DRAFT',
                 linkId: null,
                 rejectedAt: new Date(),
-                rejectionReason: reason,
+                rejectionReason: typeof reason === 'string' ? reason : null,
                 offeredAt: null,
             },
         });
+        if (rejected.count !== 1) throw new AppError('A viagem não tem oferta pendente para recusar. Atualize a página.', 409);
+        const updated = await prisma.manifest.findUniqueOrThrow({ where: { id } });
 
         res.json({
             success: true,
