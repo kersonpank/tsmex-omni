@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { demandsApi } from '../../../../lib/api';
+import { demandsApi, pricingApi } from '../../../../lib/api';
 import type { Demand } from '../../../../types/index';
 import { demandClientName, parseQuotePrice } from '../../lib/comercial';
 import { kg, money } from '../../lib/format';
-import { invalidate } from '../../lib/resource';
+import { invalidate, useResource } from '../../lib/resource';
+import { freightSummary } from '../../lib/comercialForms';
+import type { PricingTable } from '../../../../types/index';
 import { KEYS } from '../../lib/data';
-import { Button, Field, Kv, ModeBadge, TextInput } from '../../ui/kit';
+import { Button, Field, Kv, ModeBadge, SelectInput, TextInput } from '../../ui/kit';
 import { Drawer, useAction } from '../../ui/overlay';
 
 const RISK_LABEL: Record<string, string> = { A: 'Risco A (alto)', B: 'Risco B (médio)', C: 'Risco C (baixo)' };
@@ -16,10 +18,13 @@ export const QuoteDrawer: React.FC<{ demand: Demand | null; onClose: () => void 
     const { busy, run } = useAction();
     const [price, setPrice] = useState('');
     const [touched, setTouched] = useState(false);
+    const [tableId, setTableId] = useState('');
+    const tables = useResource<PricingTable[]>('pricing:tables:active', async () => (await pricingApi.listTables({ active: true })).data ?? [], { staleMs: 60_000 });
 
     useEffect(() => {
         setPrice('');
         setTouched(false);
+        setTableId('');
     }, [demand?.id]);
 
     const parsed = parseQuotePrice(price);
@@ -29,7 +34,7 @@ export const QuoteDrawer: React.FC<{ demand: Demand | null; onClose: () => void 
         if (!demand) return;
         setTouched(true);
         if (!parsed.ok) return;
-        const ok = await run('quote', () => demandsApi.quote(demand.id, { price: parsed.value }), {
+        const ok = await run('quote', () => demandsApi.quote(demand.id, { price: parsed.value, ...(tableId ? { tableId } : {}) }), {
             success: 'Cotação enviada.',
             error: 'Não foi possível enviar a cotação.',
         });
@@ -84,6 +89,16 @@ export const QuoteDrawer: React.FC<{ demand: Demand | null; onClose: () => void 
                             onChange={(event) => setPrice(event.target.value)}
                             onBlur={() => setTouched(true)}
                         />
+                    </Field>
+                    <Field label="Tabela de preço usada (opcional)" hint="Fica registrada na cotação para auditoria. O valor acima continua sendo o que vale.">
+                        <SelectInput value={tableId} onChange={(event) => setTableId(event.target.value)} aria-label="Tabela de preço">
+                            <option value="">Sem tabela</option>
+                            {(tables.data ?? []).map((t) => (
+                                <option key={t.id} value={t.id}>
+                                    {t.description} · {freightSummary(t)}
+                                </option>
+                            ))}
+                        </SelectInput>
                     </Field>
                 </form>
             ) : null}

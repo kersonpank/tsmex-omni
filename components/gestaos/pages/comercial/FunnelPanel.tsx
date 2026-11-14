@@ -7,7 +7,7 @@ import { money, num } from '../../lib/format';
 import { useResource } from '../../lib/resource';
 import { Loadable, Panel, Progress } from '../../ui/kit';
 
-/** Funil lido da API; o kanban com arrastar continua na gestão clássica. */
+/** Funil lido da API; o estágio muda pela gaveta da oportunidade. */
 export const FunnelPanel: React.FC = () => {
     const state = useResource<Opportunity[]>('demands:funnel', async () => ((await opportunitiesApi.list({ limit: 100 })).data ?? []) as Opportunity[], {
         refreshMs: 120_000,
@@ -20,8 +20,8 @@ export const FunnelPanel: React.FC = () => {
             title="Funil de oportunidades"
             hint="Cotações em andamento, por estágio."
             actions={
-                <Link to="/gestao?cat=commercial&sub=cotacoes" className="gx-btn gx-btn-soft gx-btn-sm">
-                    Abrir funil completo
+                <Link to="/gestaos/comercial?aba=oportunidades" className="gx-btn gx-btn-soft gx-btn-sm">
+                    Ver oportunidades
                 </Link>
             }
         >
@@ -40,7 +40,7 @@ export const FunnelPanel: React.FC = () => {
                                 </li>
                             ))}
                         </ul>
-                        {rows.length >= 100 ? <p className="gx-muted mt-4 text-[12.5px]">Mostrando as 100 mais recentes. O funil completo está na gestão clássica.</p> : null}
+                        {rows.length >= 100 ? <p className="gx-muted mt-4 text-[12.5px]">Mostrando as 100 mais recentes. Veja todas em Oportunidades.</p> : null}
                     </>
                 )}
             </Loadable>
