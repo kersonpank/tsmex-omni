@@ -1,22 +1,76 @@
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { hubCoverageApi, locationsApi, type GeoCity } from '../../../../../lib/api';
 import type { Hub } from '../../../../../types/index';
-import { applyTeiaSelection, coverageCounts, setServed } from '../../../lib/coverageTeia';
+import { applyTeiaSelection, coverageCounts, MAX_COVERAGE, setServed } from '../../../lib/coverageTeia';
 import { coveragePayload, validateCoverage, type CoverageRow } from '../../../lib/redeCadastro';
 import { invalidate, useResource } from '../../../lib/resource';
 import { Checkbox, FormFooter, NumberInput } from '../../../ui/form';
-import { IconClose } from '../../../ui/icons';
-import { Button, EmptyState, Loadable, Skeleton, Tabs } from '../../../ui/kit';
+import { IconAlert, IconClose, IconRefresh } from '../../../ui/icons';
+import { Button, EmptyState, ErrorState, Loadable, Skeleton, Tabs } from '../../../ui/kit';
 import { useAction, useToast } from '../../../ui/overlay';
 import { CityPicker } from '../../../ui/pickers';
+import type { CoverageViewport } from './CoverageMap';
 
-const CoverageMap = React.lazy(() => import('./CoverageMap'));
+type Polygon = Array<[number, number]>;
+type MapViewport = CoverageViewport & { zoom: number };
+type CoordsStatus = 'pending' | 'settled' | 'failed';
+
+function lazyWithRetry(error?: unknown, attempt = 0) {
+    // Uma importação de módulo rejeitada pode ficar em cache no navegador até recarregar a página.
+    if (error instanceof TypeError) {
+        const failedUrl = error.message.match(/https?:\/\/[^\s"'<>]+\/CoverageMap(?:-[\w-]+\.js|\.tsx)(?:\?[^\s"'<>]*)?/u)?.[0];
+        // Alguns navegadores omitem a URL no erro. O Vite anuncia o chunk no preload.
+        const preload = document.querySelector<HTMLLinkElement>('link[rel="modulepreload"][href*="/CoverageMap-"]');
+        const href = failedUrl ?? preload?.href;
+        if (href) {
+            const url = new URL(href);
+            if (url.origin === window.location.origin) {
+                url.searchParams.set('retry', String(attempt));
+                return React.lazy((): Promise<typeof import('./CoverageMap')> => import(/* @vite-ignore */ url.href));
+            }
+        }
+    }
+    return React.lazy(() => import('./CoverageMap'));
+}
+
+type MapErrorProps = { children: React.ReactNode; onRetry: (error: unknown) => void };
+type MapErrorState = { failure: { error: unknown } | null };
+
+class MapErrorBoundary extends React.Component<MapErrorProps, MapErrorState> {
+    declare readonly props: MapErrorProps;
+    declare setState: (state: MapErrorState) => void;
+    state: MapErrorState = { failure: null };
+
+    static getDerivedStateFromError(error: unknown) {
+        return { failure: { error } };
+    }
+
+    render() {
+        const { failure } = this.state;
+        if (!failure) return this.props.children;
+
+        return (
+            <div className="gx-map-error gx-inset flex flex-wrap items-center gap-3 px-4 py-3.5" role="alert">
+                <IconAlert size={18} className="gx-red-text flex-none" />
+                <p className="min-w-0 flex-1 text-[13.5px] font-semibold">Não foi possível carregar o mapa.</p>
+                <Button variant="soft" size="sm" icon={<IconRefresh size={14} />} onClick={() => {
+                    this.props.onRetry(failure.error);
+                    this.setState({ failure: null });
+                }}>
+                    Tentar de novo
+                </Button>
+            </div>
+        );
+    }
+}
+
+const mapSkeleton = <div className="gx-skeleton gx-map-skeleton" role="status" aria-busy="true" aria-label="Carregando mapa" />;
 
 /**
  * Cobertura do hub: a tabela de roteamento da rede. Cada cidade aqui faz os pedidos com esse destino
  * cair na fila deste hub; prioridade menor vence quando dois hubs cobrem a mesma cidade.
  */
-export const HubCoverage: React.FC<{ hub: Hub }> = ({ hub }) => {
+const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
     const key = `hubs:coverage:${hub.id}`;
     const entries = useResource<CoverageRow[]>(
         key,
@@ -29,16 +83,22 @@ export const HubCoverage: React.FC<{ hub: Hub }> = ({ hub }) => {
     const [rows, setRows] = useState<CoverageRow[] | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [tab, setTab] = useState<'list' | 'map'>('list');
+    const [CoverageMap, setCoverageMap] = useState(() => lazyWithRetry());
+    const [initialViewReady, setInitialViewReady] = useState(false);
+    const [viewport, setViewport] = useState<MapViewport | null>(null);
+    const [polygon, setPolygon] = useState<Polygon>([]);
+    const [previewCities, setPreviewCities] = useState<GeoCity[] | null>(null);
     const [teiaBusy, setTeiaBusy] = useState(false);
     const { busy, run } = useAction();
     const toast = useToast();
 
-    // Cache simples em useRef<Map> por código IBGE
+    const seatCode = hub.cityIbgeCode ?? null;
+    const needsSeatCoords = hub.lat == null || hub.lng == null;
     const coordsCache = useRef<Map<string, GeoCity>>(new Map());
-    const requestedCoords = useRef<Set<string>>(new Set());
+    const coordRequests = useRef(new Map<string, CoordsStatus>());
     const [coordsVersion, setCoordsVersion] = useState(0);
-    const rowsRef = useRef<CoverageRow[] | null>(null);
-    rowsRef.current = rows;
+    const teiaRequest = useRef(0);
+    const mapRetry = useRef(0);
     const mounted = useRef(true);
     useEffect(() => {
         mounted.current = true;
@@ -50,30 +110,75 @@ export const HubCoverage: React.FC<{ hub: Hub }> = ({ hub }) => {
         if (entries.data && rows == null) setRows(entries.data);
     }, [entries.data, rows]);
 
-    // Coordenadas das linhas atuais: refazer quando o conjunto de códigos mudar
+    const coordCodes = useMemo(() => {
+        const codes = (rows ?? []).map((row) => row.cityIbgeCode);
+        if (needsSeatCoords && seatCode) codes.push(seatCode);
+        return [...new Set(codes.filter((code) => /^\d{7}$/u.test(code)))];
+    }, [rows, needsSeatCoords, seatCode]);
+
     useEffect(() => {
-        if (tab !== 'map' || !rows || rows.length === 0) return;
-        // Cada código é pedido uma só vez: códigos sem coordenada não geram nova requisição a cada edição.
-        const missing = rows
-            .map((r) => r.cityIbgeCode)
-            .filter((code) => !coordsCache.current.has(code) && !requestedCoords.current.has(code));
+        if (tab !== 'map' || !rows) return;
+        const missing = coordCodes
+            .filter((code) => !coordsCache.current.has(code) && !coordRequests.current.has(code));
         if (missing.length === 0) return;
-        for (const code of missing) requestedCoords.current.add(code);
+        for (const code of missing) coordRequests.current.set(code, 'pending');
+
+        const settle = (status: 'settled' | 'failed') => {
+            for (const code of missing) coordRequests.current.set(code, status);
+            setCoordsVersion((v) => v + 1);
+        };
 
         locationsApi
             .cityCoords(missing)
             .then((cities) => {
-                if (!mounted.current || !cities || cities.length === 0) return;
-                for (const city of cities) {
-                    coordsCache.current.set(city.ibgeCode, city);
-                }
-                setCoordsVersion((v) => v + 1);
+                if (!mounted.current) return;
+                for (const city of cities ?? []) coordsCache.current.set(city.ibgeCode, city);
+                settle('settled');
             })
             .catch((err) => {
-                for (const code of missing) requestedCoords.current.delete(code);
+                if (!mounted.current) return;
                 console.error('Falha ao obter coordenadas das cidades:', err);
+                settle('failed');
             });
-    }, [rows, tab]);
+    }, [coordCodes, rows, tab]);
+
+    const coordsReady = coordCodes.every((code) => {
+        const request = coordRequests.current.get(code);
+        return coordsCache.current.has(code) || request === 'settled' || request === 'failed';
+    });
+    useEffect(() => {
+        if (tab === 'map' && rows && coordsReady) setInitialViewReady(true);
+    }, [tab, rows, coordsReady]);
+
+    useEffect(() => {
+        if (tab !== 'map' || !viewport || viewport.zoom < 8) return;
+        const { south, north } = viewport;
+        const west = Math.max(viewport.west, -180);
+        const east = Math.min(viewport.east, 180);
+        if (west >= east) return;
+
+        let current = true;
+        const timeout = window.setTimeout(async () => {
+            try {
+                const cities = await locationsApi.citiesWithin([[south, west], [south, east], [north, east], [north, west]]);
+                if (!current || !cities?.length) return;
+                for (const city of cities) coordsCache.current.set(city.ibgeCode, city);
+                setCoordsVersion((v) => v + 1);
+            } catch (err) {
+                if (current) console.error('Falha ao buscar cidades da região:', err);
+            }
+        }, 400);
+        return () => {
+            current = false;
+            window.clearTimeout(timeout);
+        };
+    }, [tab, viewport]);
+
+    const seat = useMemo(() => {
+        if (hub.lat != null && hub.lng != null) return { lat: hub.lat, lng: hub.lng };
+        const city = seatCode ? coordsCache.current.get(seatCode) : undefined;
+        return city ? { lat: city.lat, lng: city.lng } : null;
+    }, [hub.lat, hub.lng, seatCode, coordsVersion]);
 
     const mapCities = useMemo(() => {
         if (!rows) return [];
@@ -93,37 +198,77 @@ export const HubCoverage: React.FC<{ hub: Hub }> = ({ hub }) => {
             .filter((c): c is NonNullable<typeof c> => c !== null);
     }, [rows, coordsVersion]);
 
+    const nearby = useMemo(() => {
+        if (!viewport || viewport.zoom < 8) return [];
+        const covered = new Set((rows ?? []).map((row) => row.cityIbgeCode));
+        return [...coordsCache.current.values()].filter((city) =>
+            city.ibgeCode !== seatCode && !covered.has(city.ibgeCode) &&
+            city.lat >= viewport.south && city.lat <= viewport.north && city.lng >= viewport.west && city.lng <= viewport.east,
+        );
+    }, [coordsVersion, rows, seatCode, viewport]);
+
     const dirty = rows != null && entries.data != null && JSON.stringify(rows) !== JSON.stringify(entries.data);
     const patch = (code: string, change: Partial<CoverageRow>) => {
         setError(null);
         setRows((current) => (current ?? []).map((row) => (row.cityIbgeCode === code ? { ...row, ...change } : row)));
     };
 
-    const handleTeia = async (polygon: Array<[number, number]>) => {
-        if (rowsRef.current == null) return;
+    const clearTeia = () => {
+        teiaRequest.current++;
+        setPolygon([]);
+        setPreviewCities(null);
+        setTeiaBusy(false);
+    };
+
+    const handleTeia = async (points: Polygon) => {
+        if (!rows) return;
+        const request = ++teiaRequest.current;
+        const isCurrent = () => mounted.current && request === teiaRequest.current;
         setError(null);
+        setPolygon(points);
+        setPreviewCities(null);
         setTeiaBusy(true);
         try {
-            const cities = await locationsApi.citiesWithin(polygon);
-            if (cities && cities.length > 0) {
-                for (const city of cities) {
-                    coordsCache.current.set(city.ibgeCode, city);
-                }
+            const cities = (await locationsApi.citiesWithin(points)) ?? [];
+            if (!isCurrent()) return;
+            if (cities.length > 0) {
+                for (const city of cities) coordsCache.current.set(city.ibgeCode, city);
                 setCoordsVersion((v) => v + 1);
             }
-            const currentRows = rowsRef.current ?? [];
-            const result = applyTeiaSelection(currentRows, cities ?? [], hub.cityIbgeCode ?? null);
-            setRows(result.rows);
-
-            toast.success(`Teia capturou ${result.added} ${result.added === 1 ? 'cidade nova' : 'cidades novas'} (${result.alreadyPresent} já ${result.alreadyPresent === 1 ? 'estava' : 'estavam'})`);
-            if (result.truncated > 0) {
-                toast.error(`Limite de 500 cidades: ${result.truncated} ficaram de fora`);
-            }
+            setPreviewCities(cities);
         } catch (err) {
-            toast.error(`Falha ao buscar cidades na teia: ${err instanceof Error ? err.message : String(err)}`);
+            if (isCurrent()) toast.error(`Falha ao buscar cidades na teia: ${err instanceof Error ? err.message : String(err)}`);
         } finally {
-            setTeiaBusy(false);
+            if (isCurrent()) setTeiaBusy(false);
         }
+    };
+
+    const preview = useMemo(() => rows && previewCities ? applyTeiaSelection(rows, previewCities, seatCode) : null, [rows, previewCities, seatCode]);
+
+    const applyPreview = () => {
+        if (!preview) return;
+        setError(null);
+        if (preview.added > 0) setRows(preview.rows);
+        setPreviewCities(null);
+        const { added, alreadyPresent, truncated } = preview;
+        toast.success(`Teia capturou ${added} ${added === 1 ? 'cidade nova' : 'cidades novas'} (${alreadyPresent} já ${alreadyPresent === 1 ? 'estava' : 'estavam'})`);
+        if (truncated > 0) toast.error(`Limite de ${MAX_COVERAGE} cidades: ${truncated} ficaram de fora`);
+    };
+
+    const handleAdd = (code: string) => {
+        const city = coordsCache.current.get(code);
+        if (!city || !rows) return;
+        const result = applyTeiaSelection(rows, [city], seatCode);
+        if (result.truncated > 0) toast.error(`Limite de ${MAX_COVERAGE} cidades na cobertura.`);
+        if (result.added === 0) return;
+        setError(null);
+        setRows(result.rows);
+    };
+
+    const handleViewport = (bounds: CoverageViewport, zoom: number) => {
+        const { south, west, north, east } = bounds;
+        setViewport((current) => current?.zoom === zoom && current.south === south && current.west === west &&
+            current.north === north && current.east === east ? current : { ...bounds, zoom });
     };
 
     const handleToggle = (code: string) => {
@@ -157,7 +302,19 @@ export const HubCoverage: React.FC<{ hub: Hub }> = ({ hub }) => {
                 <Tabs
                     label="Modo de visualização da cobertura"
                     value={tab}
-                    onChange={(id) => setTab(id as 'list' | 'map')}
+                    onChange={(id) => {
+                        if (id === tab) return;
+                        if (id === 'map') {
+                            for (const [code, status] of coordRequests.current) {
+                                if (status === 'failed') coordRequests.current.delete(code);
+                            }
+                            setTab('map');
+                        } else {
+                            setInitialViewReady(false);
+                            setViewport(null);
+                            setTab('list');
+                        }
+                    }}
                     tabs={[
                         { id: 'list', label: 'Lista' },
                         { id: 'map', label: 'Teia no mapa' },
@@ -172,18 +329,44 @@ export const HubCoverage: React.FC<{ hub: Hub }> = ({ hub }) => {
 
             {tab === 'map' ? (
                 <div className="flex flex-col gap-3">
-                    <p className="gx-muted text-[13px]">
-                        Desenhe a teia sobre a região. Cidades dentro entram como Atende; clique numa cidade para marcar Não atende.
+                    <p className="gx-muted max-w-[60ch] text-[13px]">
+                        Desenhe e feche a teia para revisar as cidades da região. Toque em uma cidade para incluir ou alternar o atendimento. Ao salvar, só a lista de cidades é gravada.
                     </p>
-                    <Suspense fallback={<Skeleton rows={6} height={60} />}>
-                        <CoverageMap
-                            seat={hub.lat != null && hub.lng != null ? { lat: hub.lat, lng: hub.lng } : null}
-                            cities={mapCities}
-                            onTeia={handleTeia}
-                            onToggle={handleToggle}
-                            busy={teiaBusy}
-                        />
-                    </Suspense>
+                    {preview ? (
+                        <div className="gx-map-preview">
+                            <p role="status">
+                                <strong>{preview.added} {preview.added === 1 ? 'cidade nova' : 'cidades novas'} na teia</strong>
+                                {preview.truncated > 0 ? <span className="gx-muted block">{preview.truncated} {preview.truncated === 1 ? 'fica' : 'ficam'} de fora pelo limite de {MAX_COVERAGE} cidades.</span> : null}
+                            </p>
+                            <div className="gx-map-preview-actions">
+                                <Button size="sm" variant="primary" onClick={applyPreview}>Aplicar</Button>
+                                <Button size="sm" onClick={() => setPreviewCities(null)}>Descartar</Button>
+                            </div>
+                        </div>
+                    ) : null}
+                    <Loadable state={entries} skeleton={mapSkeleton}>
+                        {() => initialViewReady ? (
+                            <MapErrorBoundary onRetry={(failure) => {
+                                setViewport(null);
+                                setCoverageMap(lazyWithRetry(failure, ++mapRetry.current));
+                            }}>
+                                <Suspense fallback={mapSkeleton}>
+                                    <CoverageMap
+                                        seat={seat}
+                                        cities={mapCities}
+                                        nearby={nearby}
+                                        polygon={polygon}
+                                        onTeia={handleTeia}
+                                        onClearTeia={clearTeia}
+                                        onToggle={handleToggle}
+                                        onAdd={handleAdd}
+                                        onViewport={handleViewport}
+                                        busy={teiaBusy}
+                                    />
+                                </Suspense>
+                            </MapErrorBoundary>
+                        ) : mapSkeleton}
+                    </Loadable>
                 </div>
             ) : (
                 <>
@@ -263,3 +446,5 @@ export const HubCoverage: React.FC<{ hub: Hub }> = ({ hub }) => {
         </div>
     );
 };
+
+export const HubCoverage: React.FC<{ hub: Hub }> = ({ hub }) => <HubCoverageEditor key={hub.id} hub={hub} />;

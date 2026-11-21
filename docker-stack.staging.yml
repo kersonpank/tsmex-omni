@@ -214,6 +214,8 @@ services:
         condition: on-failure
       labels:
         - "traefik.enable=true"
+        # Web está em 2 redes: sem isto o Traefik às vezes escolhe o IP da rede interna → 504 nos assets.
+        - "traefik.docker.network=ProxyGM"
         - "traefik.http.routers.tsmex-staging.rule=Host(`tsm.mesquitagrupo.com.br`)"
         - "traefik.http.routers.tsmex-staging.entrypoints=websecure"
         - "traefik.http.routers.tsmex-staging.priority=1"

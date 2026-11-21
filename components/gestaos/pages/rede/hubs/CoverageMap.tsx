@@ -1,347 +1,308 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import type { GeoCity } from '../../../../../lib/api';
 import { Button } from '../../../ui/kit';
 import { IconCheck, IconClose, IconRefresh } from '../../../ui/icons';
 
+type TeiaPoint = [number, number];
+type CoveredCity = GeoCity & { served: boolean };
+
+export type CoverageViewport = { south: number; west: number; north: number; east: number };
+
 export interface CoverageMapProps {
     seat: { lat: number; lng: number } | null;
-    cities: Array<{ ibgeCode: string; name: string; state: string; lat: number; lng: number; served: boolean }>;
-    onTeia: (polygon: Array<[number, number]>) => void;
+    cities: CoveredCity[];
+    nearby: GeoCity[];
+    polygon: TeiaPoint[];
+    onTeia: (polygon: TeiaPoint[]) => void;
+    onClearTeia: () => void;
     onToggle: (ibgeCode: string) => void;
+    onAdd: (ibgeCode: string) => void;
+    onViewport: (bounds: CoverageViewport, zoom: number) => void;
     busy?: boolean;
 }
 
-export const CoverageMap: React.FC<CoverageMapProps> = ({ seat, cities, onTeia, onToggle, busy = false }) => {
+const MIN_NEARBY_ZOOM = 8;
+const MAX_TEIA_POINTS = 300;
+const BLUE = '#1a44d9';
+const LIGHT = '#f8faff';
+const GRAY = '#64748b';
+
+function cityMarker(city: GeoCity, status: string, options: L.CircleMarkerOptions) {
+    const label = document.createElement('span');
+    label.textContent = `${city.name}/${city.state} · ${status}`;
+    return L.circleMarker([city.lat, city.lng], options)
+        .bindTooltip(label, { direction: 'top', offset: [0, -6] });
+}
+
+export const CoverageMap: React.FC<CoverageMapProps> = ({
+    seat, cities, nearby, polygon, onTeia, onClearTeia, onToggle, onAdd, onViewport, busy = false,
+}) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<L.Map | null>(null);
-    const seatLayerRef = useRef<L.LayerGroup | null>(null);
-    const citiesLayerRef = useRef<L.LayerGroup | null>(null);
-    const drawingLayerRef = useRef<L.LayerGroup | null>(null);
+    const layersRef = useRef<{
+        seat: L.LayerGroup;
+        covered: L.LayerGroup;
+        nearby: L.LayerGroup;
+        polygon: L.LayerGroup;
+        sketch: L.LayerGroup;
+    } | null>(null);
+    const initialView = useRef({ seat, cities });
+    const handlers = useRef({ onTeia, onToggle, onAdd, onViewport, busy });
+    handlers.current = { onTeia, onToggle, onAdd, onViewport, busy };
 
-    const [isDrawing, setIsDrawing] = useState(false);
-    const [drawingPoints, setDrawingPoints] = useState<Array<[number, number]>>([]);
+    const [draft, setDraft] = useState<TeiaPoint[] | null>(null);
+    const draftRef = useRef<TeiaPoint[] | null>(null);
+    const [zoom, setZoom] = useState(4);
+    const isDrawing = draft !== null;
 
-    const isDrawingRef = useRef(isDrawing);
-    isDrawingRef.current = isDrawing;
+    const updateDraft = useCallback((points: TeiaPoint[] | null) => {
+        draftRef.current = points;
+        setDraft(points);
+    }, []);
 
-    const drawingPointsRef = useRef(drawingPoints);
-    drawingPointsRef.current = drawingPoints;
+    const addPoint = useCallback((point: TeiaPoint) => {
+        const points = draftRef.current;
+        if (points === null || points.length >= MAX_TEIA_POINTS) return;
+        const last = points[points.length - 1];
+        if (last && Math.abs(last[0] - point[0]) < 0.00001 && Math.abs(last[1] - point[1]) < 0.00001) return;
+        updateDraft([...points, point]);
+    }, [updateDraft]);
 
-    const onTeiaRef = useRef(onTeia);
-    onTeiaRef.current = onTeia;
+    const closeTeia = useCallback(() => {
+        const points = draftRef.current;
+        if (!points || points.length < 3 || handlers.current.busy) return;
+        updateDraft(null);
+        handlers.current.onTeia(points);
+    }, [updateDraft]);
 
-    const onToggleRef = useRef(onToggle);
-    onToggleRef.current = onToggle;
-
-    const hasFittedRef = useRef(false);
-    const prevCitiesCountRef = useRef(cities.length);
-
-    // Inicialização do mapa Leaflet imperativo
     useEffect(() => {
-        if (!containerRef.current) return;
+        const container = containerRef.current;
+        if (!container) return;
 
         const tileUrl =
             (import.meta.env.VITE_MAP_TILE_URL as string | undefined) ??
             'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 
-        const map = L.map(containerRef.current, {
-            center: [-14.235, -51.925],
-            zoom: 4,
-            doubleClickZoom: true,
-            zoomControl: true,
-        });
-
+        const map = L.map(container, { scrollWheelZoom: false });
         L.tileLayer(tileUrl, {
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
             maxZoom: 19,
         }).addTo(map);
 
-        const seatLayer = L.layerGroup().addTo(map);
-        const citiesLayer = L.layerGroup().addTo(map);
-        const drawingLayer = L.layerGroup().addTo(map);
-
-        seatLayerRef.current = seatLayer;
-        citiesLayerRef.current = citiesLayer;
-        drawingLayerRef.current = drawingLayer;
+        map.createPane('gx-map-nearby-pane').style.zIndex = '410';
+        map.createPane('gx-map-covered-pane').style.zIndex = '420';
+        map.createPane('gx-map-seat-pane').style.zIndex = '430';
+        layersRef.current = {
+            polygon: L.layerGroup().addTo(map),
+            sketch: L.layerGroup().addTo(map),
+            nearby: L.layerGroup().addTo(map),
+            covered: L.layerGroup().addTo(map),
+            seat: L.layerGroup().addTo(map),
+        };
         mapRef.current = map;
 
-        // Clique no mapa durante desenho adiciona vértice
+        const { seat: startingSeat, cities: startingCities } = initialView.current;
+        if (startingCities.length > 0) {
+            const bounds = L.latLngBounds(startingCities.map(({ lat, lng }) => [lat, lng]));
+            if (startingSeat) bounds.extend([startingSeat.lat, startingSeat.lng]);
+            map.fitBounds(bounds, { padding: [40, 40], maxZoom: 10 });
+        } else if (startingSeat) {
+            map.setView([startingSeat.lat, startingSeat.lng], 9);
+        } else {
+            map.setView([-14.235, -51.925], 4);
+        }
+
+        const reportViewport = () => {
+            const bounds = map.getBounds();
+            const currentZoom = map.getZoom();
+            setZoom(currentZoom);
+            handlers.current.onViewport({
+                south: bounds.getSouth(), west: bounds.getWest(), north: bounds.getNorth(), east: bounds.getEast(),
+            }, currentZoom);
+        };
+        map.on('moveend', reportViewport);
+        reportViewport();
+
         map.on('click', (e: L.LeafletMouseEvent) => {
-            if (!isDrawingRef.current) return;
-            const pt: [number, number] = [e.latlng.lat, e.latlng.lng];
-            setDrawingPoints((prev) => {
-                if (prev.length > 0) {
-                    const last = prev[prev.length - 1];
-                    if (Math.abs(last[0] - pt[0]) < 0.00001 && Math.abs(last[1] - pt[1]) < 0.00001) {
-                        return prev;
-                    }
-                }
-                return [...prev, pt];
-            });
+            const { lat, lng } = e.latlng.wrap();
+            addPoint([lat, lng]);
         });
-
-        // Duplo clique fecha a teia se tiver >= 3 pontos
         map.on('dblclick', (e: L.LeafletMouseEvent) => {
-            if (!isDrawingRef.current) return;
-            L.DomEvent.stopPropagation(e);
-            const pts = drawingPointsRef.current;
-            if (pts.length >= 3) {
-                setIsDrawing(false);
-                setDrawingPoints([]);
-                onTeiaRef.current(pts);
-            }
+            const event = e.originalEvent as PointerEvent & {
+                sourceCapabilities?: { firesTouchEvents: boolean };
+                _simulated?: boolean;
+            };
+            if (event.pointerType === 'touch' || event.sourceCapabilities?.firesTouchEvents || event._simulated) return;
+            closeTeia();
         });
 
-        const resizeTimer = setTimeout(() => {
-            map.invalidateSize();
-        }, 120);
-        // Drawer/aba pode abrir com o contêiner sem tamanho: reajusta sempre que ele mudar.
+        const resizeTimer = setTimeout(() => map.invalidateSize(), 120);
+        // O drawer pode abrir com o contêiner sem tamanho.
         const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => map.invalidateSize()) : null;
-        observer?.observe(containerRef.current);
+        observer?.observe(container);
 
         return () => {
             clearTimeout(resizeTimer);
             observer?.disconnect();
-            // Com StrictMode o mapa é recriado: o enquadramento inicial precisa ser refeito.
-            hasFittedRef.current = false;
+            map.off('moveend', reportViewport);
             map.remove();
             mapRef.current = null;
-            seatLayerRef.current = null;
-            citiesLayerRef.current = null;
-            drawingLayerRef.current = null;
+            layersRef.current = null;
         };
-    }, []);
+    }, [addPoint, closeTeia]);
 
-    // Modo desenho: cursor crosshair e desabilitar doubleClickZoom
     useEffect(() => {
-        const map = mapRef.current;
-        if (!map) return;
-        if (isDrawing) {
-            map.doubleClickZoom.disable();
-            map.getContainer().style.cursor = 'crosshair';
-        } else {
-            map.doubleClickZoom.enable();
-            map.getContainer().style.cursor = '';
-        }
+        if (isDrawing) mapRef.current?.doubleClickZoom.disable();
+        else mapRef.current?.doubleClickZoom.enable();
     }, [isDrawing]);
 
-    // Renderização dos vértices e polyline da teia em desenho
     useEffect(() => {
-        const layer = drawingLayerRef.current;
+        const layer = layersRef.current?.polygon;
         if (!layer) return;
         layer.clearLayers();
+        if (polygon.length < 3) return;
+        L.polygon(polygon, {
+            color: BLUE, weight: 2, fillColor: BLUE, fillOpacity: 0.18, interactive: false,
+        }).addTo(layer);
+    }, [polygon]);
 
-        if (drawingPoints.length > 0) {
-            L.polyline(drawingPoints, {
-                dashArray: '6, 6',
-                color: '#1a44d9',
-                weight: 2.5,
+    useEffect(() => {
+        const layer = layersRef.current?.sketch;
+        if (!layer) return;
+        layer.clearLayers();
+        if (!draft?.length) return;
+
+        L.polyline(draft, { dashArray: '6, 6', color: BLUE, weight: 2.5, interactive: false }).addTo(layer);
+        if (draft.length >= 3) {
+            L.polyline([draft[draft.length - 1], draft[0]], {
+                dashArray: '3, 6', color: BLUE, opacity: 0.5, weight: 1.5, interactive: false,
             }).addTo(layer);
-
-            if (drawingPoints.length >= 3) {
-                L.polyline([drawingPoints[drawingPoints.length - 1], drawingPoints[0]], {
-                    dashArray: '3, 6',
-                    color: '#1a44d9',
-                    opacity: 0.5,
-                    weight: 1.5,
-                }).addTo(layer);
-            }
-
-            drawingPoints.forEach((pt, idx) => {
-                L.circleMarker(pt, {
-                    radius: idx === 0 ? 5 : 4,
-                    fillColor: idx === 0 ? '#1a44d9' : '#ffffff',
-                    color: '#1a44d9',
-                    weight: 2,
-                    fillOpacity: 1,
-                }).addTo(layer);
-            });
         }
-    }, [drawingPoints]);
+        draft.forEach((point, index) => {
+            L.circleMarker(point, {
+                radius: index === 0 ? 5 : 4,
+                fillColor: index === 0 ? BLUE : LIGHT,
+                color: BLUE, weight: 2, fillOpacity: 1, interactive: false,
+            }).addTo(layer);
+        });
+    }, [draft]);
 
-    // Renderização do marcador destacado da sede (sem ícone de imagem default)
     useEffect(() => {
-        const layer = seatLayerRef.current;
+        const layer = layersRef.current?.seat;
         if (!layer) return;
         layer.clearLayers();
+        if (!seat) return;
 
-        if (seat) {
-            const halo = L.circleMarker([seat.lat, seat.lng], {
-                radius: 12,
-                fillColor: '#ffc400',
-                fillOpacity: 0.35,
-                stroke: false,
-                interactive: false,
-            });
-            const core = L.circleMarker([seat.lat, seat.lng], {
-                radius: 7,
-                fillColor: '#ffc400',
-                fillOpacity: 1,
-                color: '#0c1535',
-                weight: 2.5,
-            });
-            core.bindTooltip('Sede do Hub', { direction: 'top', offset: [0, -8] });
-            halo.addTo(layer);
-            core.addTo(layer);
-        }
+        const position: TeiaPoint = [seat.lat, seat.lng];
+        L.circleMarker(position, {
+            pane: 'gx-map-seat-pane', radius: 12, fillColor: '#ffc400', fillOpacity: 0.35, stroke: false, interactive: false,
+        }).addTo(layer);
+        L.circleMarker(position, {
+            pane: 'gx-map-seat-pane', radius: 7, fillColor: '#ffc400', fillOpacity: 1, color: '#0c1535', weight: 2.5,
+        }).bindTooltip('Sede do hub', { direction: 'top', offset: [0, -8] }).addTo(layer);
     }, [seat]);
 
-    // Renderização das cidades (Atende = azul cheio, Não atende = cinza/vermelho vazado)
     useEffect(() => {
-        const layer = citiesLayerRef.current;
+        const layer = layersRef.current?.covered;
         if (!layer) return;
         layer.clearLayers();
 
         for (const city of cities) {
-            const marker = L.circleMarker([city.lat, city.lng], {
+            cityMarker(city, city.served ? 'Atende · Alterar para Não atende' : 'Não atende · Alterar para Atende', {
+                pane: 'gx-map-covered-pane',
                 radius: city.served ? 6 : 5,
-                fillColor: city.served ? '#1a44d9' : '#ffffff',
-                fillOpacity: city.served ? 0.9 : 0.15,
-                color: city.served ? '#ffffff' : '#cf1a2a',
+                fillColor: city.served ? BLUE : LIGHT,
+                fillOpacity: city.served ? 0.95 : 0.15,
+                color: city.served ? LIGHT : '#cf1a2a',
                 weight: city.served ? 1.5 : 2,
-            });
-
-            const status = city.served ? 'Atende' : 'Não atende';
-            marker.bindTooltip(`${city.name}/${city.state} — ${status} · clique para alternar`, {
-                direction: 'top',
-                offset: [0, -6],
-            });
-
-            marker.on('click', (e) => {
+            }).on('click', (e: L.LeafletMouseEvent) => {
                 L.DomEvent.stopPropagation(e);
-                if (isDrawingRef.current) {
-                    const pt: [number, number] = [city.lat, city.lng];
-                    setDrawingPoints((prev) => {
-                        const last = prev[prev.length - 1];
-                        return last && last[0] === pt[0] && last[1] === pt[1] ? prev : [...prev, pt];
-                    });
-                    return;
-                }
-                onToggleRef.current(city.ibgeCode);
-            });
-
-            marker.addTo(layer);
+                if (draftRef.current) addPoint([city.lat, city.lng]);
+                else if (!handlers.current.busy) handlers.current.onToggle(city.ibgeCode);
+            }).addTo(layer);
         }
-    }, [cities]);
+    }, [cities, addPoint]);
 
-    // fitBounds na primeira carga e quando a lista sai de vazia
+    const showNearby = zoom >= MIN_NEARBY_ZOOM;
     useEffect(() => {
-        const map = mapRef.current;
-        if (!map) return;
+        const layer = layersRef.current?.nearby;
+        if (!layer) return;
+        layer.clearLayers();
+        if (!showNearby) return;
 
-        const points: Array<[number, number]> = [];
-        if (seat) points.push([seat.lat, seat.lng]);
-        for (const c of cities) points.push([c.lat, c.lng]);
-
-        const wentFromEmpty = prevCitiesCountRef.current === 0 && cities.length > 0;
-        prevCitiesCountRef.current = cities.length;
-
-        if (points.length > 0) {
-            if (!hasFittedRef.current || wentFromEmpty) {
-                hasFittedRef.current = true;
-                map.fitBounds(L.latLngBounds(points), { padding: [40, 40], maxZoom: 12 });
-            }
+        for (const city of nearby) {
+            cityMarker(city, 'Fora da cobertura · Adicionar como Atende', {
+                pane: 'gx-map-nearby-pane', radius: 4, fillColor: GRAY, fillOpacity: 0.9, color: LIGHT, weight: 1,
+            }).on('click', (e: L.LeafletMouseEvent) => {
+                L.DomEvent.stopPropagation(e);
+                if (draftRef.current) addPoint([city.lat, city.lng]);
+                else if (!handlers.current.busy) handlers.current.onAdd(city.ibgeCode);
+            }).addTo(layer);
         }
-    }, [seat, cities]);
-
-    const handleCloseTeia = () => {
-        const pts = drawingPoints;
-        if (pts.length < 3) return;
-        setIsDrawing(false);
-        setDrawingPoints([]);
-        onTeia(pts);
-    };
-
-    const handleCancelDrawing = () => {
-        setIsDrawing(false);
-        setDrawingPoints([]);
-    };
-
-    const handleUndoPoint = () => {
-        setDrawingPoints((prev) => prev.slice(0, -1));
-    };
+    }, [nearby, showNearby, addPoint]);
 
     return (
-        <div className={`gx-map-root ${isDrawing ? 'gx-map-drawing-active' : ''}`}>
-            <div ref={containerRef} className="gx-map-canvas" />
-
-            {/* Barra de desenho da teia */}
-            <div className="gx-map-toolbar">
-                {!isDrawing ? (
-                    <Button
-                        size="sm"
-                        variant="primary"
-                        disabled={busy}
-                        onClick={() => {
-                            setDrawingPoints([]);
-                            setIsDrawing(true);
-                        }}
-                    >
-                        Desenhar teia
-                    </Button>
+        <div className={isDrawing ? 'gx-map-root gx-map-drawing-active' : 'gx-map-root'}>
+            <div className="gx-map-toolbar" role="group" aria-label="Ferramentas da teia">
+                {draft === null ? (
+                    <>
+                        <Button className="gx-map-tool-button" size="sm" variant="primary" disabled={busy}
+                            onClick={() => {
+                                if (polygon.length > 0) onClearTeia();
+                                updateDraft([]);
+                            }}
+                        >
+                            Desenhar teia
+                        </Button>
+                        {polygon.length > 0 ? (
+                            <Button className="gx-map-tool-button" size="sm" disabled={busy} onClick={onClearTeia}>
+                                Limpar teia
+                            </Button>
+                        ) : null}
+                    </>
                 ) : (
                     <>
-                        <span className="font-medium text-[12.5px] px-1 text-slate-800 dark:text-slate-100">
-                            {drawingPoints.length === 0
-                                ? 'Clique no mapa para traçar'
-                                : `${drawingPoints.length} ponto${drawingPoints.length === 1 ? '' : 's'}`}
-                        </span>
-                        <Button
-                            size="sm"
-                            variant="primary"
-                            icon={<IconCheck size={14} />}
-                            disabled={drawingPoints.length < 3 || busy}
-                            onClick={handleCloseTeia}
+                        <Button className="gx-map-tool-button" size="sm" variant="primary" icon={<IconCheck size={14} />}
+                            disabled={draft.length < 3} onClick={closeTeia}
                         >
                             Fechar teia
                         </Button>
-                        <Button
-                            size="sm"
-                            variant="ghost"
-                            disabled={drawingPoints.length === 0 || busy}
-                            onClick={handleUndoPoint}
+                        <Button className="gx-map-tool-button" size="sm" disabled={draft.length === 0}
+                            onClick={() => updateDraft(draft.slice(0, -1))}
                         >
                             Desfazer ponto
                         </Button>
-                        <Button
-                            size="sm"
-                            variant="ghost"
-                            icon={<IconClose size={14} />}
-                            disabled={busy}
-                            onClick={handleCancelDrawing}
-                        >
+                        <Button className="gx-map-tool-button" size="sm" icon={<IconClose size={14} />} onClick={() => updateDraft(null)}>
                             Cancelar
                         </Button>
+                        <span className="gx-map-point-count" aria-live="polite">
+                            {draft.length} {draft.length === 1 ? 'ponto' : 'pontos'}
+                            {draft.length === MAX_TEIA_POINTS ? ' (limite)' : ''}
+                        </span>
+                        {draft.length === 0 ? <p className="gx-map-drawing-hint gx-map-hint">Toque no mapa para traçar.</p> : null}
                     </>
                 )}
             </div>
 
-            {/* Legenda compacta */}
-            <div className="gx-map-legend" aria-label="Legenda do mapa">
-                <div className="flex items-center gap-1.5">
-                    <span className="gx-map-dot-served" aria-hidden="true" />
-                    <span>Atende</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                    <span className="gx-map-dot-unserved" aria-hidden="true" />
-                    <span>Não atende</span>
-                </div>
-                {seat ? (
-                    <div className="flex items-center gap-1.5">
-                        <span className="gx-map-dot-seat" aria-hidden="true" />
-                        <span>Sede</span>
+            <div className="gx-map-frame">
+                <div ref={containerRef} className="gx-map-canvas" role="region" aria-label="Mapa de cobertura do hub" />
+                {busy ? (
+                    <div className="gx-map-busy-scrim" role="status">
+                        <IconRefresh size={18} className="motion-safe:animate-spin" />
+                        <span>Buscando cidades na teia…</span>
                     </div>
                 ) : null}
             </div>
 
-            {/* Indicador de carregamento */}
-            {busy ? (
-                <div className="gx-map-busy-scrim">
-                    <IconRefresh size={18} className="animate-spin" />
-                    <span>Buscando cidades na teia...</span>
-                </div>
-            ) : null}
+            <div className="gx-map-legend" role="group" aria-label="Legenda do mapa">
+                <span><i className="gx-map-dot-served" aria-hidden="true" />Atende</span>
+                <span><i className="gx-map-dot-unserved" aria-hidden="true" />Não atende</span>
+                <span><i className="gx-map-dot-nearby" aria-hidden="true" />Fora da cobertura</span>
+                <span><i className="gx-map-dot-seat" aria-hidden="true" />Sede</span>
+            </div>
+            {!showNearby ? <p className="gx-map-hint">Aproxime para ver as cidades da região</p> : null}
         </div>
     );
 };
