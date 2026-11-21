@@ -1574,6 +1574,8 @@ export const accountsApi = {
 
 // ========== LOCATIONS API ==========
 
+export type GeoCity = { ibgeCode: string; name: string; state: string; lat: number; lng: number };
+
 export const locationsApi = {
     getStates: async () => {
         const response = await api.get<ApiResponse<any[]>>('/locations/states');
@@ -1583,6 +1585,16 @@ export const locationsApi = {
     getCities: async (params?: { state?: string; q?: string }) => {
         const response = await api.get<ApiResponse<any[]>>('/locations/cities', { params });
         return response.data;
+    },
+
+    citiesWithin: async (polygon: Array<[number, number]>): Promise<GeoCity[]> => {
+        const response = await api.post<ApiResponse<GeoCity[]>>('/locations/cities/within', { polygon });
+        return response.data.data;
+    },
+
+    cityCoords: async (ibgeCodes: string[]): Promise<GeoCity[]> => {
+        const response = await api.post<ApiResponse<GeoCity[]>>('/locations/cities/coords', { ibgeCodes });
+        return response.data.data;
     },
 
     getCityById: async (id: string) => {

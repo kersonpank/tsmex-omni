@@ -1,10 +1,36 @@
 import { Router, Response, NextFunction } from 'express';
+import { z } from 'zod';
 import prisma from '../lib/prisma.js';
+import { MUNICIPIO_COORDS } from '../data/municipiosCoords.js';
+import { authenticate, authorize } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { normalizeCityName } from '../services/selectedCity.js';
 import { lookupCep } from '../services/cepLookup.js';
+import { pointInPolygon, polygonBBox } from '../services/geo/pointInPolygon.js';
 
 const router = Router();
+
+const citiesWithinSchema = z.object({
+    polygon: z.array(z.tuple([z.number().min(-90).max(90), z.number().min(-180).max(180)])).min(3).max(300),
+});
+
+const cityCoordsSchema = z.object({
+    ibgeCodes: z.array(z.string().regex(/^\d{7}$/)).min(1).max(1000),
+});
+
+async function citiesWithCoordinates(ibgeCodes: string[]) {
+    if (ibgeCodes.length === 0) return [];
+
+    const cities = await prisma.city.findMany({
+        where: { ibgeCode: { in: ibgeCodes } },
+        include: { state: { select: { code: true } } },
+    });
+
+    return cities.map(({ ibgeCode, name, state }) => {
+        const [lat, lng] = MUNICIPIO_COORDS[ibgeCode];
+        return { ibgeCode, name, state: state.code, lat, lng };
+    });
+}
 
 // ==================== STATES ====================
 
@@ -31,6 +57,38 @@ router.get('/states', async (req, res: Response, next: NextFunction) => {
 });
 
 // ==================== CITIES ====================
+
+router.post('/cities/within', authenticate, authorize('ADMIN', 'HUB'), async (req, res: Response, next: NextFunction) => {
+    try {
+        const { polygon } = citiesWithinSchema.parse(req.body);
+        const { minLat, maxLat, minLng, maxLng } = polygonBBox(polygon);
+        const ibgeCodes: string[] = [];
+
+        for (const [ibgeCode, point] of Object.entries(MUNICIPIO_COORDS)) {
+            const [lat, lng] = point;
+            if (lat < minLat || lat > maxLat || lng < minLng || lng > maxLng) continue;
+            if (pointInPolygon(point, polygon)) ibgeCodes.push(ibgeCode);
+        }
+
+        const cities = await citiesWithCoordinates(ibgeCodes);
+        const data = cities
+            .sort((a, b) => a.state.localeCompare(b.state) || a.name.localeCompare(b.name, 'pt-BR'))
+            .slice(0, 3000);
+        res.json({ success: true, data });
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.post('/cities/coords', authenticate, authorize('ADMIN', 'HUB'), async (req, res: Response, next: NextFunction) => {
+    try {
+        const { ibgeCodes } = cityCoordsSchema.parse(req.body);
+        const data = await citiesWithCoordinates(ibgeCodes.filter(ibgeCode => Object.hasOwn(MUNICIPIO_COORDS, ibgeCode)));
+        res.json({ success: true, data });
+    } catch (error) {
+        next(error);
+    }
+});
 
 // GET /api/locations/cities - List cities (optionally filtered by state)
 router.get('/cities', async (req, res: Response, next: NextFunction) => {

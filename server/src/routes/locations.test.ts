@@ -2,35 +2,91 @@ import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import express from 'express';
 import axios from 'axios';
+import jwt from 'jsonwebtoken';
 import prisma from '../lib/prisma.js';
 import { locationsRouter } from './locations.js';
 import { errorHandler } from '../middleware/errorHandler.js';
 import { cepProviders, lookupCep } from '../services/cepLookup.js';
 
 describe('municipality lookup API', () => {
-    const originals = { cities: prisma.city.findMany, city: prisma.city.findUnique, cep: prisma.cEP.findUnique, saveCep: prisma.cEP.upsert, state: prisma.state.findUnique, get: axios.get };
+    const originals = { cities: prisma.city.findMany, city: prisma.city.findUnique, cep: prisma.cEP.findUnique, saveCep: prisma.cEP.upsert, state: prisma.state.findUnique, get: axios.get, user: prisma.user.findUnique, jwtSecret: process.env.JWT_SECRET };
     const sp = { id: 'sp', name: 'São Paulo', ibgeCode: '3550308', stateId: 'state-sp', state: { id: 'state-sp', code: 'SP', name: 'São Paulo' } };
     const rn = { id: 'rn', name: 'São Paulo do Potengi', ibgeCode: '2412609', stateId: 'state-rn', state: { id: 'state-rn', code: 'RN', name: 'Rio Grande do Norte' } };
+    const withoutCoords = { ...sp, id: 'without-coords', name: 'Município sem coordenadas', ibgeCode: '9999999' };
+    const jwtSecret = 'locations-test-secret';
+    const saoPauloGeoCity = { ibgeCode: '3550308', name: 'São Paulo', state: 'SP', lat: -23.5329, lng: -46.6395 };
     let url: string;
     let server: ReturnType<express.Express['listen']>;
     let savedCep: any;
     before(async () => {
-        prisma.city.findMany = (async ({ where }: any) => [rn, sp].filter(c => !where.state || c.state.code === where.state.code)) as any;
+        process.env.JWT_SECRET = jwtSecret;
+        prisma.user.findUnique = (async ({ where }: { where: { id: string } }) => ({
+            id: where.id,
+            email: 'locations@example.com',
+            active: true,
+            roles: [where.id === 'hub' ? 'HUB' : 'ADMIN'],
+        })) as unknown as typeof prisma.user.findUnique;
+        prisma.city.findMany = (async ({ where }: { where: { state?: { code: string }; ibgeCode?: { in: string[] } } }) =>
+            [rn, sp, withoutCoords].filter(city =>
+                (!where.state || city.state.code === where.state.code)
+                && (!where.ibgeCode || where.ibgeCode.in.includes(city.ibgeCode)),
+            )) as unknown as typeof prisma.city.findMany;
         prisma.city.findUnique = (async ({ where }: any) => [sp, rn].find(c => c.ibgeCode === where.ibgeCode)) as any;
         prisma.state.findUnique = (async () => sp.state) as any;
         // Incomplete legacy cache entries must be refreshed.
         prisma.cEP.findUnique = (async () => ({ cep: '01310100', city: null, state: sp.state })) as any;
         prisma.cEP.upsert = (async (args: any) => { savedCep = args; return args.create; }) as any;
         axios.get = (async () => ({ data: { cep: '01310-100', localidade: 'São Paulo', uf: 'SP', ibge: '3550308', logradouro: 'Avenida Paulista', bairro: 'Bela Vista' } })) as any;
-        const app = express(); app.use('/locations', locationsRouter); app.use(errorHandler);
+        const app = express();
+        app.use(express.json());
+        app.use('/locations', locationsRouter);
+        app.use(errorHandler);
         server = await new Promise(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
         url = `http://127.0.0.1:${(server.address() as any).port}`;
     });
     after(async () => {
         prisma.city.findMany = originals.cities; prisma.city.findUnique = originals.city; prisma.state.findUnique = originals.state;
         prisma.cEP.findUnique = originals.cep; prisma.cEP.upsert = originals.saveCep; axios.get = originals.get;
+        prisma.user.findUnique = originals.user;
+        if (originals.jwtSecret === undefined) delete process.env.JWT_SECRET;
+        else process.env.JWT_SECRET = originals.jwtSecret;
         await new Promise<void>(resolve => server.close(() => resolve()));
     });
+
+    const postCities = (path: 'within' | 'coords', body: unknown, userId: 'admin' | 'hub') =>
+        fetch(`${url}/locations/cities/${path}`, {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                authorization: `Bearer ${jwt.sign({ userId }, jwtSecret)}`,
+            },
+            body: JSON.stringify(body),
+        });
+
+    it('returns São Paulo when it is inside the polygon', async () => {
+        const response = await postCities('within', {
+            polygon: [[-23.6, -46.7], [-23.6, -46.6], [-23.5, -46.6], [-23.5, -46.7]],
+        }, 'admin');
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), { success: true, data: [saoPauloGeoCity] });
+    });
+
+    it('rejects a polygon with fewer than three points', async () => {
+        const response = await postCities('within', { polygon: [[-23.6, -46.7], [-23.5, -46.6]] }, 'hub');
+        assert.equal(response.status, 400);
+    });
+
+    it('returns coordinates for cities present in both catalogs', async () => {
+        const response = await postCities('coords', { ibgeCodes: ['3550308', '3552502', '9999999'] }, 'hub');
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), { success: true, data: [saoPauloGeoCity] });
+    });
+
+    it('rejects invalid IBGE codes', async () => {
+        const response = await postCities('coords', { ibgeCodes: ['355030x'] }, 'admin');
+        assert.equal(response.status, 400);
+    });
+
     it('searches accents before filtering and ranks exact names first', async () => {
         const response = await fetch(url + '/locations/search?q=sao%20paulo');
         const body = await response.json() as any;
