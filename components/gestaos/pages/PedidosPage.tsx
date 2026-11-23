@@ -8,6 +8,7 @@ import { useResource } from '../lib/resource';
 import { IconSearch } from '../ui/icons';
 import { LinkButton } from '../ui/form';
 import { Button, Chip, EmptyState, Loadable, PageHeader, Panel, Skeleton, Stat, TextInput } from '../ui/kit';
+import { FreightQueuePanel } from './pedidos/frete/FreightQueuePanel';
 import { OrderDrawer } from './pedidos/OrderDrawer';
 import { OrderTable } from './pedidos/OrderTable';
 
@@ -21,6 +22,7 @@ const PedidosPage: React.FC = () => {
     const [params, setParams] = useSearchParams();
     const urlQuery = params.get('q') ?? '';
     const openId = params.get('p');
+    const freightQueue = params.get('aba') === 'sem-frete';
     const [draft, setDraft] = useState(urlQuery);
     const [query, setQuery] = useState(urlQuery.trim());
     const [filter, setFilter] = useState<OrderFilter>('all');
@@ -64,7 +66,7 @@ const PedidosPage: React.FC = () => {
     const filterKey = JSON.stringify(filters);
 
     const list = useResource<OrderPage>(
-        `orders:list:${JSON.stringify({ ...filters, limit: PAGE_SIZE, offset })}`,
+        freightQueue ? null : `orders:list:${JSON.stringify({ ...filters, limit: PAGE_SIZE, offset })}`,
         async () => {
             const res = await ordersApi.list({ ...filters, limit: PAGE_SIZE, offset, sortBy: 'updatedAt', sortDir: 'desc' });
             const rows = Array.isArray(res?.data) ? res.data : [];
@@ -72,7 +74,7 @@ const PedidosPage: React.FC = () => {
         },
         { staleMs: 15_000 },
     );
-    const totals = useResource<OrderAggregateSummary>(`orders:aggregate:${filterKey}`, async () => (await ordersApi.aggregate(filters)).data, { staleMs: 30_000 });
+    const totals = useResource<OrderAggregateSummary>(freightQueue ? null : `orders:aggregate:${filterKey}`, async () => (await ordersApi.aggregate(filters)).data, { staleMs: 30_000 });
 
     const rows = list.data?.rows ?? [];
     const total = list.data?.total ?? 0;
@@ -81,6 +83,7 @@ const PedidosPage: React.FC = () => {
     const chooseFilter = (next: OrderFilter) => {
         setFilter(next);
         setOffset(0);
+        if (freightQueue) patchUrl({ aba: null });
     };
 
     return (
@@ -101,13 +104,19 @@ const PedidosPage: React.FC = () => {
                 </div>
                 <div className="gx-no-scrollbar flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Filtrar por situação">
                     {ORDER_FILTERS.map((item) => (
-                        <Chip key={item.id} active={filter === item.id} onClick={() => chooseFilter(item.id)}>
+                        <Chip key={item.id} active={!freightQueue && filter === item.id} onClick={() => chooseFilter(item.id)}>
                             {item.label}
                         </Chip>
                     ))}
+                    <Chip active={freightQueue} onClick={() => patchUrl({ aba: 'sem-frete' })}>
+                        Sem CT-e/minuta
+                    </Chip>
                 </div>
             </div>
 
+            {freightQueue ? <FreightQueuePanel /> : null}
+            {freightQueue ? null : (
+            <>
             <Panel className="gx-rise mb-5">
                 <Loadable state={totals} skeleton={<Skeleton rows={1} height={56} />}>
                     {(sum) => (
@@ -151,6 +160,8 @@ const PedidosPage: React.FC = () => {
                     </div>
                 ) : null}
             </Panel>
+            </>
+            )}
 
             <OrderDrawer orderId={openId} row={row} onClose={() => patchUrl({ p: null })} />
         </>

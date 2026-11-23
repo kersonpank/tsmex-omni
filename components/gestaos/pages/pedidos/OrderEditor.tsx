@@ -22,10 +22,11 @@ import {
     type SavedInvoice,
 } from '../../lib/pedidoForm';
 import { invalidate } from '../../lib/resource';
-import { FormFooter, LinkButton, useForm } from '../../ui/form';
+import { FormFooter, useForm } from '../../ui/form';
 import { Button, Panel } from '../../ui/kit';
 import { useToast } from '../../ui/overlay';
 import { toPersonSummary } from '../../ui/pickers';
+import { FreightSection } from './frete/FreightSection';
 import { OrderCollectionSection } from './OrderCollectionSection';
 import { OrderInvoicesSection } from './OrderInvoicesSection';
 import { OrderPartiesSection, type PartiesValues, type PartyRole } from './OrderPartiesSection';
@@ -207,12 +208,8 @@ export const OrderEditor: React.FC<{ order: OrderDetail | null }> = ({ order }) 
                 {orderId ? (
                     <section className="gx-hair-t flex flex-col gap-2 py-5" aria-label="Documento do frete">
                         <h3 className="gx-h2">Documento do frete</h3>
-                        <p className="gx-muted text-[13px]">O cálculo e a emissão do CT-e ou da minuta ficam no hub, onde a carga é conferida.</p>
-                        <div>
-                            <LinkButton to={`/hubs/pedidos/${orderId}`} variant="soft">
-                                Emitir no hub
-                            </LinkButton>
-                        </div>
+                        <p className="gx-muted text-[13px]">O cálculo e a emissão do CT-e ou da minuta são feitos aqui, na gaveta do pedido.</p>
+                        <FreightSection orderId={orderId} />
                     </section>
                 ) : null}
             </Panel>

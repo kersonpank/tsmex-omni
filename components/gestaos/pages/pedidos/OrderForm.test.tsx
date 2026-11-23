@@ -2,10 +2,13 @@ import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../../../../lib/api';
 import { clearResources } from '../../lib/resource';
 import OrderFormPage from './OrderFormPage';
+
+// O documento do frete tem teste próprio (pages/pedidos/frete); aqui só o formulário de pedido importa.
+vi.mock('./frete/FreightSection', () => ({ FreightSection: () => null }));
 
 /** Formulário de pedido ao vivo: só o transporte do axios é simulado; confere os corpos enviados. */
 
