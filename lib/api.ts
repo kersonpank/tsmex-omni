@@ -2421,4 +2421,107 @@ export const systemAlertsApi = {
     },
 };
 
+// ========== REPORTS API (somente leitura, ADMIN) ==========
+
+export interface ReportPeriod { from: string; to: string }
+export interface ReportExcluded { reason: string; count: number }
+export interface ReportParams { from?: string; to?: string }
+
+export interface TripsReportGroup {
+    key: string; label: string; trips: number; tripsWithMargin: number;
+    revenueNetCents: number; linkCostCents: number; hubCostCents: number; marginCents: number; marginPercent: number | null;
+    avgOccupancyPercent: number | null; onTimeMeasured: number; onTimePercent: number | null;
+}
+export interface TripsReport {
+    period: ReportPeriod;
+    coverage: { tripsInPeriod: number; tripsAnalysed: number; truncated: boolean; limit: number };
+    totals: {
+        trips: number; tripsWithMargin: number; revenueNetCents: number; revenueRealizedCents: number; tripsWithEstimatedRevenue: number;
+        linkCostCents: number; hubCostCents: number; marginCents: number; marginPercent: number | null; avgOccupancyPercent: number | null;
+        onTimeMeasured: number; onTimeTrips: number; onTimePercent: number | null;
+    };
+    byRoute: TripsReportGroup[];
+    byCarrier: TripsReportGroup[];
+    trips: Array<{
+        manifestId: string; route: string; carrierId: string | null; carrierName: string | null; completedAt: string;
+        costComplete: boolean | null; revenueNetCents: number | null; revenueEstimated: boolean | null; linkCostCents: number | null;
+        hubCostCents: number | null; marginCents: number | null; marginPercent: number | null; occupancyPercent: number | null;
+        onTime: boolean | null; maxDelayMinutes: number | null;
+    }>;
+    excluded: ReportExcluded[];
+}
+
+export interface OrdersReport {
+    period: ReportPeriod;
+    coverage: { ordersDelivered: number; ordersAnalysed: number; truncated: boolean; limit: number };
+    leadTime: { measured: number; avgHours: number | null; medianHours: number | null; p90Hours: number | null };
+    onTime: { measured: number; onTime: number; percent: number | null; note: string };
+    complete: { measured: number; complete: number; percent: number | null };
+    stoppedByHub: Array<{ hubId: string; hubName: string | null; samples: number; totalHours: number; avgHours: number }>;
+    excluded: ReportExcluded[];
+}
+
+export interface FinanceReport {
+    period: ReportPeriod;
+    asOf: string;
+    totals: {
+        invoicedCents: number; invoicesIssued: number; receivedCents: number; overdueOpenCents: number; overdueOpenInvoices: number;
+        avgReceiptDays: number | null; paidToCarriersCents: number; openPayablesCents: number; openPayablesCount: number; openPayablesOverdueCents: number;
+    };
+    byClient: Array<{ accountId: string; accountName: string | null; invoicedCents: number; receivedCents: number; overdueCents: number }>;
+    byMonth: Array<{ month: string; invoicedCents: number; receivedCents: number; paidToCarriersCents: number }>;
+    truncatedSources: string[];
+    excluded: ReportExcluded[];
+}
+
+export interface ExceptionsReport {
+    period: ReportPeriod;
+    coverage: { alertsAnalysed: number; truncated: boolean; limit: number };
+    opened: number;
+    resolved: number;
+    resolvedBy: { system: number; person: number; unattributed: number };
+    timeToResolve: { measured: number; avgHours: number | null; medianHours: number | null; p90Hours: number | null };
+    withinDue: { measured: number; within: number; percent: number | null };
+    backlogNow: { total: number; overdue: number };
+    byCategory: Array<{ category: string; opened: number; resolved: number; avgHoursToResolve: number | null }>;
+    byHub: Array<{ hubId: string; hubName: string | null; opened: number; resolved: number; avgHoursToResolve: number | null }>;
+    excluded: ReportExcluded[];
+}
+
+export interface AutonomyBeforeAfter { samples: number; beforePercent: number | null; afterPercent: number | null }
+export interface AutonomyReport {
+    period: ReportPeriod;
+    targetPercent: number;
+    coverage: { feedbackAnalysed: number; truncated: boolean; limit: number };
+    overall: { suggestions: number; accepted: number; modified: number; rejected: number; acceptedPercent: number | null; meetsTarget: boolean | null };
+    byRoutine: Array<{
+        routine: string; suggestions: number; accepted: number; modified: number; rejected: number; acceptedPercent: number | null;
+        utilization: AutonomyBeforeAfter; margin: AutonomyBeforeAfter;
+    }>;
+    excluded: ReportExcluded[];
+}
+
+export const reportsApi = {
+    trips: async (params?: ReportParams) => {
+        const response = await api.get<{ success: boolean; data: TripsReport }>('/reports/trips', { params });
+        return response.data;
+    },
+    orders: async (params?: ReportParams) => {
+        const response = await api.get<{ success: boolean; data: OrdersReport }>('/reports/orders', { params });
+        return response.data;
+    },
+    finance: async (params?: ReportParams) => {
+        const response = await api.get<{ success: boolean; data: FinanceReport }>('/reports/finance', { params });
+        return response.data;
+    },
+    exceptions: async (params?: ReportParams) => {
+        const response = await api.get<{ success: boolean; data: ExceptionsReport }>('/reports/exceptions', { params });
+        return response.data;
+    },
+    autonomy: async (params?: ReportParams) => {
+        const response = await api.get<{ success: boolean; data: AutonomyReport }>('/reports/autonomy', { params });
+        return response.data;
+    },
+};
+
 export default api;

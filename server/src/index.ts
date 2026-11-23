@@ -28,6 +28,7 @@ import { uploadRouter } from './routes/upload.js';
 import { nfSpeciesRouter } from './routes/nfSpecies.js';
 import { nfeRouter } from './routes/nfe.js';
 import { dashboardRouter } from './routes/dashboard.js';
+import { reportsRouter } from './routes/reports.js';
 import { brandingRouter } from './routes/branding.js';
 import { fiscalEmittersRouter } from './routes/fiscalEmitters.js';
 import { fiscalDistribuicaoRouter } from './routes/fiscalDistribuicao.js';
@@ -139,6 +140,7 @@ app.use('/api/upload', uploadRouter);
 app.use('/api/nf-species', nfSpeciesRouter);
 app.use('/api/nfe', nfeRouter);
 app.use('/api/dashboard', dashboardRouter);
+app.use('/api/reports', reportsRouter);
 
 // Error handler
 app.use(errorHandler);
