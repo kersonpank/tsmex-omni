@@ -37,7 +37,7 @@ export const PersonDetail: React.FC<{ person: Person; onEdit: () => void; onRole
             <section className="flex flex-col gap-3">
                 <h3 className="gx-h2">Papéis</h3>
                 {person.clients?.length ? <p className="text-[14px]">Cliente: <strong>{person.clients[0].companyName}</strong> · <RouterLink className="gx-royal-text underline" to="/gestaos/rede?aba=clientes">ver em Clientes</RouterLink></p> : null}
-                {person.links?.length ? <p className="text-[14px]">Motorista / transportador: <strong>{person.links[0].name}</strong> · <RouterLink className="gx-royal-text underline" to={`/hubs/transportadores/${person.links[0].id}`}>abrir ficha</RouterLink></p> : null}
+                {person.links?.length ? <p className="text-[14px]">Motorista / transportador: <strong>{person.links[0].name}</strong> · <RouterLink className="gx-royal-text underline" to={`/gestaos/rede?aba=transportadores&ficha=${person.links[0].id}`}>abrir ficha</RouterLink></p> : null}
                 {person.hubs?.length ? <p className="text-[14px]">Emissor fiscal (CNPJ) em: {person.hubs.map((h) => `${h.name}${h.code ? ` (${h.code})` : ''}`).join(', ')}</p> : null}
                 {operators.length ? (
                     <div>
