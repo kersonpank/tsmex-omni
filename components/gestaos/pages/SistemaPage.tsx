@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { PageHeader, Tabs } from '../ui/kit';
 import { ConfigTab } from './sistema/ConfigTab';
 import { FiscalTab } from './sistema/FiscalTab';
+import { NfeMonitor } from './sistema/NfeMonitor';
 import { EmitterHealth, NfeHealth } from './sistema/FiscalHealth';
 import { HowItWorks } from './sistema/HowItWorks';
 import { QueueHealth } from './sistema/QueueHealth';
@@ -10,6 +11,7 @@ import { QueueHealth } from './sistema/QueueHealth';
 const TABS = [
     { id: 'torre', label: 'Como a torre trabalha' },
     { id: 'fiscal', label: 'Fiscal' },
+    { id: 'nfe', label: 'NF-e' },
     { id: 'config', label: 'Configurações' },
 ];
 
@@ -41,6 +43,7 @@ const SistemaPage: React.FC = () => {
                 </div>
             ) : null}
             {aba === 'fiscal' ? <FiscalTab /> : null}
+            {aba === 'nfe' ? <NfeMonitor /> : null}
             {aba === 'config' ? <ConfigTab /> : null}
         </div>
     );

@@ -113,6 +113,49 @@ router.post('/columns', authenticate, authorize('ADMIN'), async (req: AuthReques
     }
 });
 
+// ==================== REORDER COLUMNS ====================
+
+// PATCH /api/pipeline/columns/reorder - Reorder columns
+// Precisa vir antes de PATCH /columns/:id: senão "reorder" é lido como id e a reordenação nunca chega aqui.
+router.patch('/columns/reorder', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const schema = z.object({
+            columnIds: z.array(z.string().uuid()).min(1, 'At least one column ID is required'),
+        });
+
+        const { columnIds } = schema.parse(req.body);
+
+        await prisma.$transaction(
+            columnIds.map((id, index) =>
+                prisma.pipelineColumn.update({
+                    where: { id },
+                    data: { order: index }
+                })
+            )
+        );
+
+        const columns = await prisma.pipelineColumn.findMany({
+            where: { active: true },
+            orderBy: { order: 'asc' },
+            include: {
+                _count: {
+                    select: { opportunities: true }
+                }
+            }
+        });
+
+        res.json({
+            success: true,
+            data: columns,
+        });
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return next(new AppError(error.errors[0].message, 400));
+        }
+        next(error);
+    }
+});
+
 // ==================== UPDATE COLUMN ====================
 
 // PATCH /api/pipeline/columns/:id - Update column
@@ -195,48 +238,6 @@ router.delete('/columns/:id', authenticate, authorize('ADMIN'), async (req: Auth
             message: 'Column deleted successfully',
         });
     } catch (error) {
-        next(error);
-    }
-});
-
-// ==================== REORDER COLUMNS ====================
-
-// PATCH /api/pipeline/columns/reorder - Reorder columns
-router.patch('/columns/reorder', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-        const schema = z.object({
-            columnIds: z.array(z.string().uuid()).min(1, 'At least one column ID is required'),
-        });
-
-        const { columnIds } = schema.parse(req.body);
-
-        await prisma.$transaction(
-            columnIds.map((id, index) =>
-                prisma.pipelineColumn.update({
-                    where: { id },
-                    data: { order: index }
-                })
-            )
-        );
-
-        const columns = await prisma.pipelineColumn.findMany({
-            where: { active: true },
-            orderBy: { order: 'asc' },
-            include: {
-                _count: {
-                    select: { opportunities: true }
-                }
-            }
-        });
-
-        res.json({
-            success: true,
-            data: columns,
-        });
-    } catch (error) {
-        if (error instanceof z.ZodError) {
-            return next(new AppError(error.errors[0].message, 400));
-        }
         next(error);
     }
 });

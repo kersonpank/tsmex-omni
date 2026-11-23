@@ -25,6 +25,7 @@ import { Checkbox, FormFooter, FormSection, MoneyInput, NumberInput, useForm } f
 import { Button, Field, Kv, ModeBadge, Pill, SelectInput, TextInput } from '../../ui/kit';
 import { Drawer, useAction } from '../../ui/overlay';
 import { AccountPicker } from './AccountPicker';
+import { OpportunityChat } from './OpportunityChat';
 
 interface PipelineColumn {
     id: string;
@@ -162,6 +163,12 @@ export const OpportunityDrawer: React.FC<{ open: boolean; opportunity: Opportuni
                         </Field>
                     </FormSection>
                 )}
+
+                {opportunity?.source === 'CHAT' ? (
+                    <div className="px-1 pb-4">
+                        <OpportunityChat sessionId={opportunity.sessionId} />
+                    </div>
+                ) : null}
 
                 <FormSection title="Rota e carga" hint="Tudo opcional para registrar. Para converter em demanda precisa de origem, destino, peso, valor da nota e volumes.">
                     <Field label="Origem">

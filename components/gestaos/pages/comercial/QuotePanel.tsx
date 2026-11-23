@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
 import { demandsApi } from '../../../../lib/api';
 import type { Demand } from '../../../../types/index';
+import { demandStep } from '../../lib/comercialFunnel';
 import { demandClientName, demandStatusLabel, quoteViewStatus, type QuoteView } from '../../lib/comercial';
 import { cityOnly, kg, money, relative } from '../../lib/format';
-import { useResource } from '../../lib/resource';
+import { invalidate, useResource } from '../../lib/resource';
+import { KEYS } from '../../lib/data';
 import { Button, Chip, EmptyState, Loadable, Panel, Pill, Skeleton } from '../../ui/kit';
+import { useAction } from '../../ui/overlay';
 import { QuoteDrawer } from './QuoteDrawer';
 
 const VIEWS: Array<{ id: QuoteView; label: string }> = [
@@ -29,7 +32,11 @@ function ordered(rows: Demand[], view: QuoteView): Demand[] {
     return [...rows].sort((a, b) => (view === 'PENDING' ? time(a) - time(b) : time(b) - time(a)));
 }
 
-const Row: React.FC<{ demand: Demand; onQuote: () => void }> = ({ demand, onQuote }) => (
+const Row: React.FC<{ demand: Demand; onQuote: () => void; busy: string | null; onAdvance: (demand: Demand) => Promise<boolean> }> = ({ demand, onQuote, busy, onAdvance }) => {
+    const step = demandStep(demand.status);
+    const [confirming, setConfirming] = useState(false);
+    const key = `advance:${demand.id}`;
+    return (
     <li className="gx-hair-b flex flex-wrap items-center gap-x-5 gap-y-3 px-5 py-4 last:border-b-0">
         <div className="min-w-0 flex-1 basis-64">
             <p className="truncate font-semibold">{demandClientName(demand)}</p>
@@ -53,13 +60,53 @@ const Row: React.FC<{ demand: Demand; onQuote: () => void }> = ({ demand, onQuot
                 Cotar
             </Button>
         ) : null}
+        {step ? (
+            <div className="flex flex-none flex-wrap items-center gap-2">
+                {confirming ? (
+                    <>
+                        <span className="gx-soft text-[13px]">Isto gera o pedido da coleta.</span>
+                        <Button size="sm" variant="primary" loading={busy === key} disabled={busy != null && busy !== key} onClick={() => void onAdvance(demand).then((ok) => ok && setConfirming(false))}>
+                            Confirmar
+                        </Button>
+                        <Button size="sm" disabled={busy != null} onClick={() => setConfirming(false)}>
+                            Voltar
+                        </Button>
+                    </>
+                ) : (
+                    <Button
+                        size="sm"
+                        variant="soft"
+                        loading={busy === key}
+                        disabled={busy != null && busy !== key}
+                        aria-label={`${step.action}: demanda de ${demandClientName(demand)}`}
+                        onClick={() => (step.needsConfirm ? setConfirming(true) : void onAdvance(demand))}
+                    >
+                        {step.action}
+                    </Button>
+                )}
+            </div>
+        ) : null}
     </li>
-);
+    );
+};
 
 export const QuotePanel: React.FC = () => {
     const [view, setView] = useState<QuoteView>('PENDING');
     const [limit, setLimit] = useState(PAGE);
     const [quoting, setQuoting] = useState<Demand | null>(null);
+    const { busy, run } = useAction();
+
+    const advance = async (demand: Demand) => {
+        const step = demandStep(demand.status);
+        if (!step) return false;
+        const ok = await run(`advance:${demand.id}`, () => demandsApi.updateStatus(demand.id, { status: step.next, description: step.description }), {
+            success: `${step.action}: registrado.`,
+            error: 'O status não foi atualizado.',
+        });
+        // Mesmo com erro o servidor pode ter criado o pedido: renova para a lista dizer a verdade.
+        invalidate('demands:', KEYS.summary);
+        return ok;
+    };
 
     const state = useResource(
         `demands:${view}:${limit}`,
@@ -110,7 +157,7 @@ export const QuotePanel: React.FC = () => {
                     <>
                         <ul>
                             {ordered(data.rows, view).map((demand) => (
-                                <Row key={demand.id} demand={demand} onQuote={() => setQuoting(demand)} />
+                                <Row key={demand.id} demand={demand} onQuote={() => setQuoting(demand)} busy={busy} onAdvance={advance} />
                             ))}
                         </ul>
                         {data.total > data.rows.length ? (

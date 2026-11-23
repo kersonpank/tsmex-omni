@@ -1,10 +1,9 @@
 import React from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useOperationsSummary } from '../lib/data';
 import { num } from '../lib/format';
 import { LinkButton } from '../ui/form';
-import { Glass, Loadable, PageHeader, Panel, Skeleton, Stat, Tabs } from '../ui/kit';
-import { IconArrowUpRight } from '../ui/icons';
+import { Glass, Loadable, PageHeader, Skeleton, Stat, Tabs } from '../ui/kit';
 import { FunnelPanel } from './comercial/FunnelPanel';
 import { OportunidadesTab } from './comercial/OportunidadesTab';
 import { QuotePanel } from './comercial/QuotePanel';
@@ -58,19 +57,6 @@ const ComercialPage: React.FC = () => {
                     </div>
                     <div className="flex min-w-0 flex-col gap-6 lg:col-span-4">
                         <FunnelPanel />
-                        <Panel title="Atalhos" hint="Cadastro de clientes ainda mora na gestão clássica.">
-                            <ul className="flex flex-col gap-1">
-                                <li>
-                                    <Link to="/gestao?cat=commercial&sub=clientes" className="gx-row flex items-center justify-between gap-3">
-                                        <span>
-                                            <span className="block font-semibold">Clientes</span>
-                                            <span className="gx-muted block text-[13px]">Cadastro e contas de quem embarca.</span>
-                                        </span>
-                                        <IconArrowUpRight className="gx-muted flex-none" />
-                                    </Link>
-                                </li>
-                            </ul>
-                        </Panel>
                     </div>
                 </div>
             ) : null}

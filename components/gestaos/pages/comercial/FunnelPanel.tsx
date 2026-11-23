@@ -1,11 +1,12 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { opportunitiesApi } from '../../../../lib/api';
 import type { Opportunity } from '../../../../types/index';
 import { groupOpportunities } from '../../lib/comercial';
 import { money, num } from '../../lib/format';
 import { useResource } from '../../lib/resource';
-import { Loadable, Panel, Progress } from '../../ui/kit';
+import { Button, Loadable, Panel, Progress } from '../../ui/kit';
+import { ColumnsDrawer } from './ColumnsDrawer';
 
 /** Funil lido da API; o estágio muda pela gaveta da oportunidade. */
 export const FunnelPanel: React.FC = () => {
@@ -13,6 +14,7 @@ export const FunnelPanel: React.FC = () => {
         refreshMs: 120_000,
     });
     const stages = useMemo(() => groupOpportunities(state.data ?? []), [state.data]);
+    const [managing, setManaging] = useState(false);
     const max = Math.max(1, ...stages.map((s) => s.count));
 
     return (
@@ -20,9 +22,14 @@ export const FunnelPanel: React.FC = () => {
             title="Funil de oportunidades"
             hint="Cotações em andamento, por estágio."
             actions={
-                <Link to="/gestaos/comercial?aba=oportunidades" className="gx-btn gx-btn-soft gx-btn-sm">
-                    Ver oportunidades
-                </Link>
+                <>
+                    <Button size="sm" onClick={() => setManaging(true)}>
+                        Gerir colunas
+                    </Button>
+                    <Link to="/gestaos/comercial?aba=oportunidades" className="gx-btn gx-btn-soft gx-btn-sm">
+                        Ver oportunidades
+                    </Link>
+                </>
             }
         >
             <Loadable state={state}>
@@ -44,6 +51,7 @@ export const FunnelPanel: React.FC = () => {
                     </>
                 )}
             </Loadable>
+            <ColumnsDrawer open={managing} onClose={() => setManaging(false)} />
         </Panel>
     );
 };

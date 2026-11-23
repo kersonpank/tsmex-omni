@@ -8,6 +8,7 @@ import { certificateView } from '../../lib/sistema';
 import { FormSection, onlyDigits } from '../../ui/form';
 import { Button, Chip, Field, Kv, Loadable, Pill, TextInput } from '../../ui/kit';
 import { useAction } from '../../ui/overlay';
+import { CertificateDownload } from './CertificateDownload';
 
 const yes = (ok: boolean | undefined, known = true) => (!known ? 'Não verificado' : ok ? 'Sim' : 'Não');
 
@@ -63,6 +64,7 @@ export const CertificateSection: React.FC<{
                 <Kv label="Situação" value={view ? <Pill tone={view.tone} dot>{view.label}</Pill> : 'Sem certificado'} />
                 <Kv label="Validade" value={emitter?.certificateExpiresAt ? dateFull(emitter.certificateExpiresAt) : '—'} />
             </div>
+            {emitter && emitter.certificateFileName && emitter.certificateStatus !== 'MISSING' ? <CertificateDownload emitterId={emitter.id} /> : null}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Novo certificado (.pfx ou .p12)" error={problem}>
                     <input type="file" accept=".pfx,.p12" className="gx-input" aria-label="Arquivo do certificado" onChange={(event) => onFile(event.target.files?.[0] ?? null)} />

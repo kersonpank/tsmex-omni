@@ -8,6 +8,8 @@ export const ConfigTab: React.FC = () => (
         <OrderNumberPanel />
         <OperationRules />
         <SpeciesPanel />
-        <LlmPanel />
+        <div className="lg:col-span-2">
+            <LlmPanel />
+        </div>
     </div>
 );

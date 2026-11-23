@@ -19,8 +19,8 @@ export const NfeHealth: React.FC = () => {
             hint="Notas destinadas à sua empresa, por situação."
             mode="auto"
             actions={
-                <Link to="/gestao?cat=transport&sub=nfe" className={linkClass}>
-                    Abrir NF-e
+                <Link to="/gestaos/sistema?aba=nfe" className={linkClass}>
+                    Ver todas as NF-e
                 </Link>
             }
         >
@@ -75,8 +75,8 @@ export const EmitterHealth: React.FC = () => {
             title="Emitentes fiscais"
             hint="Quem emite CT-e e MDF-e, em qual ambiente e até quando vale o certificado."
             actions={
-                <Link to="/gestao?cat=general&sub=identidade" className={linkClass}>
-                    Abrir emitentes
+                <Link to="/gestaos/sistema?aba=fiscal" className={linkClass}>
+                    Gerir emitentes
                 </Link>
             }
         >
