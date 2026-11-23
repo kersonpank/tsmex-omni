@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Button, Field, Kv, TextInput } from '../../ui/kit';
 import { dateFull, money } from '../../lib/format';
+import { evidenceError } from './evidence';
 import { fromCents, isValidReason, MIN_REASON, parseAmountInput, toCents, validateSettlementAmount } from '../../lib/financeiro';
 
 /**
@@ -27,7 +28,7 @@ export interface LedgerProps {
     balance: number;
     entries: LedgerEntry[];
     busy: string | null;
-    onAdd: (amount: number, reference: string | undefined, idempotencyKey: string) => Promise<boolean>;
+    onAdd: (amount: number, reference: string | undefined, idempotencyKey: string, evidence?: File) => Promise<boolean>;
     onReverse: (entryId: string, reason: string) => Promise<boolean>;
 }
 
@@ -41,6 +42,8 @@ export const Ledger: React.FC<LedgerProps> = ({ kind, targetId, total, settled, 
     const [amount, setAmount] = useState('');
     const [reference, setReference] = useState('');
     const [touched, setTouched] = useState(false);
+    const [file, setFile] = useState<File | null>(null);
+    const [fileInput, setFileInput] = useState(0);
     const [reversing, setReversing] = useState<string | null>(null);
     const [reason, setReason] = useState('');
     const key = useRef<string | null>(null);
@@ -51,26 +54,31 @@ export const Ledger: React.FC<LedgerProps> = ({ kind, targetId, total, settled, 
         setAmount('');
         setReference('');
         setTouched(false);
+        setFile(null);
+        setFileInput((n) => n + 1);
         setReversing(null);
         setReason('');
     }, [targetId]);
 
     const balanceCents = toCents(balance);
     const error = validateSettlementAmount(amount, balanceCents);
+    const fileError = evidenceError(file);
     const sending = busy === `${kind}:add`;
 
     const submit = async (event: React.FormEvent) => {
         event.preventDefault();
         setTouched(true);
         const cents = parseAmountInput(amount);
-        if (error || cents == null) return;
+        if (error || cents == null || fileError) return;
         key.current ??= crypto.randomUUID();
-        const ok = await onAdd(fromCents(cents), reference.trim() || undefined, key.current);
+        const ok = await onAdd(fromCents(cents), reference.trim() || undefined, key.current, file ?? undefined);
         if (ok) {
             key.current = null;
             setAmount('');
             setReference('');
             setTouched(false);
+            setFile(null);
+            setFileInput((n) => n + 1);
         }
     };
 
@@ -112,6 +120,18 @@ export const Ledger: React.FC<LedgerProps> = ({ kind, targetId, total, settled, 
                             value={reference}
                             onChange={(event) => {
                                 setReference(event.target.value);
+                                key.current = null;
+                            }}
+                        />
+                    </Field>
+                    <Field label="Comprovante (opcional)" error={fileError} hint="PDF ou imagem, até 8 MB.">
+                        <input
+                            key={fileInput}
+                            type="file"
+                            accept="application/pdf,image/*"
+                            className="gx-input"
+                            onChange={(event) => {
+                                setFile(event.target.files?.[0] ?? null);
                                 key.current = null;
                             }}
                         />

@@ -113,7 +113,7 @@ const BlockedRow: React.FC<{ order: BlockedOrder; dueDate: string; busy: string 
                     Criar conta e faturar
                 </Button>
             ) : (
-                <Link to={`/orders/${order.id}`} className="gx-btn gx-btn-ghost gx-btn-sm">
+                <Link to={`/gestaos/pedidos/${order.id}/editar`} className="gx-btn gx-btn-ghost gx-btn-sm">
                     Definir o pagador no pedido
                 </Link>
             )}

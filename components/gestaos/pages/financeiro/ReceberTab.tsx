@@ -6,7 +6,9 @@ import { EmptyState, Loadable, Panel, Pill } from '../../ui/kit';
 import { dateFull, money, plural } from '../../lib/format';
 import { INVOICE_STATE_LABEL, invoiceState, type InvoiceState } from '../../lib/financeiro';
 import { invalidate, useResource } from '../../lib/resource';
+import { InvoiceActions } from './InvoiceActions';
 import { Ledger } from './Ledger';
+import { uploadEvidence } from './evidence';
 import { useReceivable, type InvoiceRow } from './useFinanceiro';
 
 const STATE_TONE: Record<InvoiceState, 'neutral' | 'red' | 'royal'> = { PAID: 'neutral', CANCELLED: 'neutral', OVERDUE: 'red', OPEN: 'royal' };
@@ -53,6 +55,8 @@ const InvoiceDrawer: React.FC<{ invoice: InvoiceRow | null; invoiceId: string; o
                         state === 'CANCELLED' ? (
                             <p className="gx-muted text-[14px]">Recebimentos registrados: {data.receipts.length}.</p>
                         ) : (
+                            <div className="flex flex-col gap-6">
+                            {invoice ? <InvoiceActions invoice={invoice} activeReceipts={data.receipts.filter((receipt) => !receipt.reversedAt).length} busy={busy} run={run} /> : null}
                             <Ledger
                                 kind="receipt"
                                 targetId={invoiceId}
@@ -61,13 +65,18 @@ const InvoiceDrawer: React.FC<{ invoice: InvoiceRow | null; invoiceId: string; o
                                 balance={data.balance}
                                 busy={busy}
                                 entries={data.receipts.map((receipt) => ({ id: receipt.id, amount: receipt.amount, date: receipt.receivedAt, reference: receipt.reference, reversedAt: receipt.reversedAt, reversalReason: receipt.reversalReason }))}
-                                onAdd={(amount, reference, idempotencyKey) =>
-                                    run('receipt:add', () => invoicesApi.addReceipt(invoiceId, { amount, reference, idempotencyKey }).then(refresh), { success: 'Recebimento registrado.', error: 'O recebimento não foi registrado.' })
+                                onAdd={(amount, reference, idempotencyKey, evidence) =>
+                                    run('receipt:add', async () => {
+                                    const evidenceStorageKey = await uploadEvidence(evidence);
+                                    await invoicesApi.addReceipt(invoiceId, { amount, reference, evidenceStorageKey, idempotencyKey });
+                                    await refresh();
+                                }, { success: 'Recebimento registrado.', error: 'O recebimento não foi registrado.' })
                                 }
                                 onReverse={(receiptId, reason) =>
                                     run('receipt:reverse', () => invoicesApi.reverseReceipt(invoiceId, receiptId, reason).then(refresh), { success: 'Recebimento estornado.', error: 'O estorno não foi feito.' })
                                 }
                             />
+                            </div>
                         )
                     }
                 </Loadable>

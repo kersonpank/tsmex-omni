@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { costAgreementsApi, type HubCommissionAgreementRow, type LinkCostAgreementRow } from '../../../../lib/api';
 import { useAction } from '../../ui/overlay';
 import { Button, Chip, EmptyState, Loadable, Panel, Pill } from '../../ui/kit';
@@ -56,7 +55,6 @@ export const AcordosTab: React.FC = () => {
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
                     <Chip active={showClosed} onClick={() => setShowClosed((value) => !value)}>Mostrar encerrados</Chip>
-                    <Link to="/gestao?cat=finance" className="gx-btn gx-btn-ghost gx-btn-sm">Gerir acordos na gestão clássica</Link>
                 </div>
             </div>
 

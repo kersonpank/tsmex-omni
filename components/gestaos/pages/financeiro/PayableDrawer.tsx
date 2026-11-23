@@ -7,6 +7,7 @@ import { PAYABLE_STATE_LABEL, payableState } from '../../lib/financeiro';
 import { KEYS, type PayableFull } from '../../lib/data';
 import { invalidate, useResource } from '../../lib/resource';
 import { Ledger } from './Ledger';
+import { uploadEvidence } from './evidence';
 
 export const PAYABLE_TONE = { PAID: 'neutral', CANCELLED: 'neutral', OVERDUE: 'red', DUE_SOON: 'yellow', OPEN: 'royal' } as const;
 
@@ -42,8 +43,12 @@ export const PayableDrawer: React.FC<{ payableId: string; row: PayableFull | nul
                         balance={data.balance}
                         busy={busy}
                         entries={data.payable.payments.map((payment) => ({ id: payment.id, amount: payment.amount, date: payment.paidAt, reference: payment.reference, reversedAt: payment.reversedAt, reversalReason: payment.reversalReason }))}
-                        onAdd={(amount, reference, idempotencyKey) =>
-                            run('payment:add', () => payablesApi.addPayment(payableId, { amount, reference, idempotencyKey }).then(refresh), { success: 'Pagamento registrado.', error: 'O pagamento não foi registrado.' })
+                        onAdd={(amount, reference, idempotencyKey, evidence) =>
+                            run('payment:add', async () => {
+                                    const evidenceStorageKey = await uploadEvidence(evidence);
+                                    await payablesApi.addPayment(payableId, { amount, reference, evidenceStorageKey, idempotencyKey });
+                                    await refresh();
+                                }, { success: 'Pagamento registrado.', error: 'O pagamento não foi registrado.' })
                         }
                         onReverse={(paymentId, reason) =>
                             run('payment:reverse', () => payablesApi.reversePayment(payableId, paymentId, reason).then(refresh), { success: 'Pagamento estornado.', error: 'O estorno não foi feito.' })
