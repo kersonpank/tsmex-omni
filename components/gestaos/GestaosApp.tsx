@@ -12,6 +12,7 @@ import {
     IconArrowUpRight,
     IconBox,
     IconChat,
+    IconCompass,
     IconCoin,
     IconGear,
     IconLogout,
@@ -32,6 +33,7 @@ import FinanceiroPage from './pages/FinanceiroPage';
 import RedePage from './pages/RedePage';
 import ComercialPage from './pages/ComercialPage';
 import SistemaPage from './pages/SistemaPage';
+import DesempenhoPage from './pages/DesempenhoPage';
 import OrderFormPage from './pages/pedidos/OrderFormPage';
 import TripWorkPage from './pages/viagens/TripWorkPage';
 
@@ -46,6 +48,7 @@ const NAV: Array<{ to: string; label: string; end?: boolean; Icon: React.FC<Icon
     { to: '/gestaos/viagens', label: 'Viagens', Icon: IconTruck },
     { to: '/gestaos/pedidos', label: 'Pedidos', Icon: IconBox },
     { to: '/gestaos/financeiro', label: 'Financeiro', Icon: IconCoin },
+    { to: '/gestaos/desempenho', label: 'Desempenho', Icon: IconCompass },
     { to: '/gestaos/rede', label: 'Rede', Icon: IconNetwork },
     { to: '/gestaos/comercial', label: 'Comercial', Icon: IconChat },
     { to: '/gestaos/sistema', label: 'Sistema', Icon: IconGear },
@@ -180,6 +183,7 @@ const Shell: React.FC = () => {
                     <Route path="pedidos/novo" element={<OrderFormPage />} />
                     <Route path="pedidos/:orderId/editar" element={<OrderFormPage />} />
                     <Route path="financeiro" element={<FinanceiroPage />} />
+                    <Route path="desempenho" element={<DesempenhoPage />} />
                     <Route path="rede" element={<RedePage />} />
                     <Route path="comercial" element={<ComercialPage />} />
                     <Route path="sistema" element={<SistemaPage />} />

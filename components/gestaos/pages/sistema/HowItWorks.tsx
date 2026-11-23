@@ -1,6 +1,7 @@
 import React from 'react';
 import { MODE_HINT, routinesByMode, type Mode } from '../../lib/modes';
 import { ModeBadge, Panel, Pill } from '../../ui/kit';
+import { AutonomyRuler } from '../desempenho/AutonomyRuler';
 
 const COLUMNS: Array<{ mode: Mode; lead: string }> = [
     { mode: 'auto', lead: 'Roda sozinho, o tempo todo. Seu trabalho é auditar o resultado.' },
@@ -16,6 +17,9 @@ export const HowItWorks: React.FC = () => (
                 Como a torre trabalha
             </h2>
             <p className="gx-muted text-[13px]">Mapa do que existe hoje. Subir uma rotina de modo é decisão medida e não acontece nesta tela.</p>
+        </div>
+        <div className="mb-5">
+            <AutonomyRuler />
         </div>
         <div className="gx-stagger grid grid-cols-1 gap-5 lg:grid-cols-3">
             {COLUMNS.map(({ mode, lead }) => {

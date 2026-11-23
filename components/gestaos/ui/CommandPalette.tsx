@@ -25,6 +25,7 @@ const COMMANDS: Command[] = [
     { id: 'faturar', label: 'Financeiro · A faturar', hint: 'Fretes emitidos sem fatura', to: '/gestaos/financeiro?aba=faturar', keywords: 'fatura cobranca receber' },
     { id: 'receber', label: 'Financeiro · A receber', hint: 'Faturas e recebimentos', to: '/gestaos/financeiro?aba=receber', keywords: 'fatura baixa recebimento' },
     { id: 'pagar', label: 'Financeiro · A pagar', hint: 'Títulos de transportadores', to: '/gestaos/financeiro?aba=pagar', keywords: 'titulo pagamento carta frete acerto' },
+    { id: 'desempenho', label: 'Desempenho', hint: 'Margem, ocupação, prazo, caixa, exceções e autonomia', to: '/gestaos/desempenho', keywords: 'indicador metrica relatorio margem ocupacao pontualidade inadimplencia regua autonomia aprendizado' },
     { id: 'hubs', label: 'Rede · Hubs', hint: 'Estoque e situação de cada hub', to: '/gestaos/rede?aba=hubs', keywords: 'filial cd deposito cobertura' },
     { id: 'carriers', label: 'Rede · Transportadores', hint: 'Aprovar e acompanhar transportadores', to: '/gestaos/rede?aba=transportadores', keywords: 'link motorista aprovacao' },
     { id: 'comercial', label: 'Comercial', hint: 'Demandas e cotações', to: '/gestaos/comercial', keywords: 'cotacao demanda cliente oportunidade' },

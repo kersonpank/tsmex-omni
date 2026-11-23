@@ -67,6 +67,8 @@ const ROUTES: Array<[RegExp, (params: Record<string, unknown>) => unknown]> = [
     [/^\/system-alerts$/, (params) => ok(params.status === 'RESOLVED' ? [{ id: 'al-1', category: 'OPERATIONAL_STOCK_AGING', severity: 'WARNING', title: 'Pedido 104.377 parado no estoque', message: '', createdAt: iso(-50 * HOUR), resolvedAt: iso(-20 * HOUR), resolvedByUserId: null }] : [])],
     [/^\/system-alerts\/cte-queue-status$/, () => ok({ paused: false, counts: { waiting: 2, active: 1, delayed: 0, failed: 0 } })],
     [/^\/dashboard\/operations-summary$/, () => ok({ generatedAt: iso(0), scope: 'ADMIN', cenario: { aguardandoCotacao: 1, emTransito: 34, noHub: 31, riscoA: 0, aConsolidar: 4 }, coletas: { fila: 2, emRota: 1, oportunidadesColetaCrm: 0 }, estoque: { pedidosNoCd: 31, pedidosEmTransito: 34, agingMais7d: 1, porHub: [{ hubId: HUB.id, name: HUB.name, code: HUB.code, count: 31 }] }, clientes: { total: 48, novos7d: 2, novos30d: 5 } })],
+    // Relatórios de gestão (faixa Controle do Hoje): sem dado, a faixa mostra traço.
+    [/^\/reports\/(trips|orders|finance|exceptions|autonomy)$/, () => ok({})],
     [/^\/dashboard\/unbilled-freight$/, () => ok({ count: 6, totalAmount: 8412.6, oldestAt: iso(-200 * HOUR), oldestDays: 8 })],
     [/^\/links$/, () => ok([LINK])],
     [/^\/hubs$/, () => ok([HUB])],

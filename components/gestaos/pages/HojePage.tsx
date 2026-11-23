@@ -5,6 +5,7 @@ import { useExceptions, useHubs, useManifests, useOperationsSummary, usePayables
 import { buildPiles } from '../lib/decisions';
 import { greeting, longDate, plural, relative } from '../lib/format';
 import { Glass, ModeBadge } from '../ui/kit';
+import { ControlStrip } from './hoje/ControlStrip';
 import { AutopilotFeed } from './hoje/AutopilotFeed';
 import { DecisionQueue } from './hoje/DecisionQueue';
 import { NetworkPulse } from './hoje/NetworkPulse';
@@ -103,6 +104,8 @@ const HojePage: React.FC = () => {
                     </p>
                 </div>
             </Glass>
+
+            <ControlStrip />
 
             <div className="gx-stagger grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
                 <div className="lg:col-span-7">
