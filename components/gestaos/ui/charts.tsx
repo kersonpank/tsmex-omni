@@ -69,6 +69,8 @@ export interface RankedItem {
     tone?: ChartTone;
     /** Texto de estado ao lado do valor (ex.: "abaixo de zero"); obrigatório quando o tom não é royal. */
     badge?: string;
+    /** Cor só do texto de estado, quando ele fala de uma parte do valor e a barra continua sendo magnitude. */
+    badgeTone?: ChartTone;
 }
 
 const Tip: React.FC<{ title: string; value: string; detail?: string }> = ({ title, value, detail }) => (
@@ -110,7 +112,7 @@ export const RankedBars: React.FC<{ items: RankedItem[]; ariaLabel: string; clas
                         </svg>
                         <span className="text-right">
                             <span className="gx-num text-[13.5px]">{item.display}</span>
-                            {item.badge ? <span className={clsx('ml-2 text-[12px] font-semibold', tone === 'red' ? 'gx-red-text' : tone === 'yellow' ? 'gx-yellow-text' : 'gx-royal-text')}>{item.badge}</span> : null}
+                            {item.badge ? <span className={clsx('ml-2 text-[12px] font-semibold', (item.badgeTone ?? tone) === 'red' ? 'gx-red-text' : (item.badgeTone ?? tone) === 'yellow' ? 'gx-yellow-text' : 'gx-royal-text')}>{item.badge}</span> : null}
                         </span>
                         {on ? <Tip title={item.label} value={item.display} detail={item.detail} /> : null}
                     </li>

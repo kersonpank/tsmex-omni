@@ -92,7 +92,8 @@ const View: React.FC<{ report: FinanceReport }> = ({ report }) => {
                                 display: money(c.invoicedCents / 100),
                                 detail: `Recebido ${money(c.receivedCents / 100)}${c.overdueCents > 0 ? ` · vencido ${money(c.overdueCents / 100)}` : ''}`,
                                 badge: c.overdueCents > 0 ? 'com vencido' : undefined,
-                                tone: c.overdueCents > 0 ? 'red' : 'royal',
+                                // A barra é o faturado inteiro; só o texto marca que parte dele venceu.
+                                badgeTone: 'red',
                             }))}
                         />
                     </ChartCard>
