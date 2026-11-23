@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import type { Manifest } from '../../../../types/index';
 import { dateTime, kg, money, num, pct } from '../../lib/format';
+import { readableFiscalMessage } from '../../lib/viagemFiscal';
 import { linkCostSourceLabel, marginView, STOP_PURPOSE_LABEL, tripMilestones, DOC_STATUS_LABEL, DOC_TYPE_LABEL } from '../../lib/viagens';
 import { orderCount } from '../../lib/trips';
 import { IconAlert } from '../../ui/icons';
@@ -101,7 +102,7 @@ export const TripDocuments: React.FC<{ trip: Manifest }> = ({ trip }) => {
                                 {doc.authorizedAt ? `autorizado ${dateTime(doc.authorizedAt)}` : 'não autorizado'}
                                 {doc.closedAt ? ` · encerrado ${dateTime(doc.closedAt)}` : ''}
                             </p>
-                            {doc.statusReason ? <p className="gx-soft mt-1 text-[13px]">{doc.statusReason}</p> : null}
+                            {doc.statusReason ? <p className="gx-soft mt-1 text-[13px]">{readableFiscalMessage(doc.statusReason, 'O provedor não informou o motivo em texto legível.').message}</p> : null}
                         </li>
                     ))}
                 </ul>

@@ -9,10 +9,11 @@ import { DateTimeInput, FormSection, MoneyInput } from '../../../ui/form';
 import { Button, Field, Kv, ModeBadge, TextInput } from '../../../ui/kit';
 import { useAction } from '../../../ui/overlay';
 import { FiscalEmitterSelect } from '../../../ui/pickers';
+import { AverbacaoPending } from './AverbacaoPending';
 import { Blocked } from './Blocked';
 import { refreshTrip, type StepProps } from './types';
 
-const Cover: React.FC<StepProps> = ({ trip, perms }) => {
+const Cover: React.FC<StepProps> = ({ trip, perms, readiness }) => {
     const { busy, run } = useAction();
     const editable = perms.editCover.allowed;
     const electronic = trip.fiscalEmitter?.averbacaoProvider === 'ATM';
@@ -22,6 +23,7 @@ const Cover: React.FC<StepProps> = ({ trip, perms }) => {
     const [seal, setSeal] = useState(trip.seloLacre ?? '');
     const [averbacao, setAverbacao] = useState(trip.cargoInsuranceAverbacao ?? '');
     const [error, setError] = useState<string | null>(null);
+    const [manual, setManual] = useState(false);
     useEffect(() => {
         setEmitterId(trip.fiscalEmitterId ?? null);
         setDeparture(trip.plannedDepartureAt ?? null);
@@ -61,12 +63,17 @@ const Cover: React.FC<StepProps> = ({ trip, perms }) => {
             <Field label="Chegada prevista (opcional)">
                 <DateTimeInput aria-label="Chegada prevista" disabled={!editable} value={arrival} onChange={setArrival} />
             </Field>
-            {electronic ? (
-                <p className="gx-soft col-span-full text-[13.5px]">A averbação do seguro da carga é eletrônica (AT&M) e acompanha o CT-e de cada pedido.</p>
-            ) : (
-                <Field label="Averbação do seguro da carga" className="col-span-full">
+            {electronic ? <AverbacaoPending trip={trip} readiness={readiness} /> : null}
+            {!electronic || manual || averbacao.trim() ? (
+                <Field label="Averbação do seguro da carga" className="col-span-full" hint={electronic ? 'Contingência: se a AT&M estiver fora, o número informado aqui prevalece e fica registrado no histórico.' : undefined}>
                     <TextInput aria-label="Averbação do seguro" disabled={!editable} value={averbacao} onChange={(event) => setAverbacao(event.target.value)} />
                 </Field>
+            ) : (
+                <div className="col-span-full">
+                    <button type="button" className="gx-muted min-h-10 text-[13px] font-semibold underline" onClick={() => setManual(true)}>
+                        Informar averbação manualmente (contingência)
+                    </button>
+                </div>
             )}
             {editable ? (
                 <div className="col-span-full">

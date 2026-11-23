@@ -2,14 +2,16 @@ import React, { useState } from 'react';
 import { manifestsApi } from '../../../../../lib/api';
 import { dateTime } from '../../../lib/format';
 import { tripMilestones } from '../../../lib/viagens';
-import { ConfirmButton, FormSection, LinkButton, NumberInput } from '../../../ui/form';
+import { ConfirmButton, FormSection, NumberInput } from '../../../ui/form';
 import { Button, Field, ModeBadge } from '../../../ui/kit';
 import { useAction } from '../../../ui/overlay';
 import { Blocked } from './Blocked';
+import { Corrections } from './Corrections';
+import { DeleteDraft } from './DeleteDraft';
 import { refreshTrip, type StepProps } from './types';
 
 /** Etapa 5: oferta e execução. Cada ação só aparece quando o estado permite; bloqueada, mostra o motivo. */
-export const ExecutionStep: React.FC<StepProps> = ({ trip, perms }) => {
+export const ExecutionStep: React.FC<StepProps> = ({ trip, perms, readiness, goto }) => {
     const { busy, run } = useAction();
     const [km, setKm] = useState<number | null>(null);
     const status = trip.status;
@@ -61,15 +63,15 @@ export const ExecutionStep: React.FC<StepProps> = ({ trip, perms }) => {
                 <Blocked reason={perms.start.reason} />
                 {status === 'IN_PROGRESS' ? (
                     <div className="flex flex-col gap-2">
-                        <p className="gx-soft text-[13.5px]">Na estrada{trip.startedAt ? ` desde ${dateTime(trip.startedAt)}` : ''}. A chegada e a conferência dos volumes acontecem no hub.</p>
+                        <p className="gx-soft text-[13.5px]">Na estrada{trip.startedAt ? ` desde ${dateTime(trip.startedAt)}` : ''}. A chegada, a conferência dos volumes e a entrega são registradas na etapa Chegada e entrega.</p>
                         <div>
-                            <LinkButton variant="primary" to={`/hubs/viagens/${trip.id}`}>
-                                Concluir no hub
-                            </LinkButton>
+                            <Button variant="primary" onClick={() => goto('doca')}>
+                                Ir para Chegada e entrega
+                            </Button>
                         </div>
                     </div>
                 ) : null}
-                {status === 'COMPLETED' ? <p className="gx-soft text-[13.5px]">Viagem concluída{trip.completedAt ? ` em ${dateTime(trip.completedAt)}` : ''}. Veja os documentos na etapa Documentos.</p> : null}
+                {status === 'COMPLETED' ? <p className="gx-soft text-[13.5px]">Viagem concluída{trip.completedAt ? ` em ${dateTime(trip.completedAt)}` : ''}. Veja os documentos na etapa Documentos e o fechamento na etapa Chegada e entrega.</p> : null}
             </FormSection>
 
             <FormSection title="Reabrir ou cancelar" hint="Fica registrado com o motivo e o seu usuário." cols={1}>
@@ -92,11 +94,14 @@ export const ExecutionStep: React.FC<StepProps> = ({ trip, perms }) => {
                                 onConfirm={(reason) => act('cancel', () => manifestsApi.cancel(trip.id, reason ?? ''), 'Viagem cancelada.', 'Não foi possível cancelar.')}
                             />
                         ) : null}
+                        <DeleteDraft trip={trip} readiness={readiness} />
                     </div>
                     {!perms.reopen.allowed ? <Blocked reason={`Reabrir: ${perms.reopen.reason}`} /> : null}
                     {!perms.cancel.allowed ? <Blocked reason={`Cancelar: ${perms.cancel.reason}`} /> : null}
                 </div>
             </FormSection>
+
+            <Corrections trip={trip} readiness={readiness} />
 
             <FormSection title="Linha da viagem" cols={1}>
                 <ol className="flex flex-col">

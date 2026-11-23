@@ -50,7 +50,7 @@ export const TripDrawer: React.FC<{ trip: Manifest | null; onClose: () => void }
                             <IconAlert size={18} className={attention.level === 2 ? 'gx-red-text mt-0.5 flex-none' : 'gx-yellow-text mt-0.5 flex-none'} />
                             <div>
                                 <p className={attention.level === 2 ? 'gx-red-text font-semibold' : 'gx-yellow-text font-semibold'}>{attention.level === 2 ? 'Travada' : 'Precisa de atenção'}</p>
-                                <p className="gx-soft mt-0.5 text-[14px]">{attention.reason}. Resolva no hub ou na viagem completa.</p>
+                                <p className="gx-soft mt-0.5 text-[14px]">{attention.reason}. Abra a viagem para resolver.</p>
                             </div>
                         </div>
                     ) : null}

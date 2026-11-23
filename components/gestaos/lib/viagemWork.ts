@@ -104,7 +104,7 @@ export function commonDestination(orders: Array<{ fimPrestacao?: string | null; 
 
 /* ---------- Etapas ---------- */
 
-export type TripStep = 'rota' | 'carga' | 'transportador' | 'capa' | 'oferta' | 'documentos';
+export type TripStep = 'rota' | 'carga' | 'transportador' | 'capa' | 'oferta' | 'documentos' | 'doca';
 
 export const TRIP_STEPS: Array<{ id: TripStep; label: string }> = [
     { id: 'rota', label: 'Rota e paradas' },
@@ -113,7 +113,13 @@ export const TRIP_STEPS: Array<{ id: TripStep; label: string }> = [
     { id: 'capa', label: 'Capa e Carta Frete' },
     { id: 'oferta', label: 'Oferta e saída' },
     { id: 'documentos', label: 'Documentos' },
+    { id: 'doca', label: 'Chegada e entrega' },
 ];
+
+/** A etapa Chegada e entrega só existe com a viagem na estrada ou concluída. */
+export const dockStepVisible = (status: ManifestStatus): boolean => status === 'IN_PROGRESS' || status === 'COMPLETED';
+
+export const visibleSteps = (status: ManifestStatus) => TRIP_STEPS.filter((step) => step.id !== 'doca' || dockStepVisible(status));
 
 export function parseStep(value: string | null): TripStep {
     return TRIP_STEPS.some((step) => step.id === value) ? (value as TripStep) : 'rota';
@@ -150,7 +156,7 @@ export function missingItems(issues: ManifestReadinessIssue[]): MissingItem[] {
 }
 
 export function pendingByStep(issues: ManifestReadinessIssue[]): Record<TripStep, number> {
-    const counts: Record<TripStep, number> = { rota: 0, carga: 0, transportador: 0, capa: 0, oferta: 0, documentos: 0 };
+    const counts: Record<TripStep, number> = { rota: 0, carga: 0, transportador: 0, capa: 0, oferta: 0, documentos: 0, doca: 0 };
     for (const item of missingItems(issues)) if (item.blocking) counts[item.step] += 1;
     return counts;
 }

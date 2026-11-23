@@ -6,8 +6,9 @@ import type { ManifestWithLegs } from '../../../os/lib/arrival';
 import { useResource } from '../../lib/resource';
 import { kg, money } from '../../lib/format';
 import { carrierLabel, platesLabel, tripCode, tripStage } from '../../lib/trips';
-import { occupancyPct, parseStep, pendingByStep, tripPermissions, tripTitle, TRIP_STEPS, type TripStep } from '../../lib/viagemWork';
+import { dockStepVisible, occupancyPct, parseStep, pendingByStep, tripPermissions, tripTitle, visibleSteps, type TripStep } from '../../lib/viagemWork';
 import { Loadable, PageHeader, Panel, Pill, Progress, Skeleton, Tabs } from '../../ui/kit';
+import { DocaStep } from './doca/DocaStep';
 import { CargoStep } from './work/CargoStep';
 import { CarrierStep } from './work/CarrierStep';
 import { CoverStep } from './work/CoverStep';
@@ -16,11 +17,12 @@ import { ExecutionStep } from './work/ExecutionStep';
 import { MissingPanel } from './work/MissingPanel';
 import { RouteStep } from './work/RouteStep';
 import type { StepProps } from './work/types';
+import { refreshTrip } from './work/types';
 import { TripCreateForm } from './TripCreateForm';
 
 const Workspace: React.FC<{ manifestId: string }> = ({ manifestId }) => {
     const [params, setParams] = useSearchParams();
-    const step = parseStep(params.get('etapa'));
+    const requestedStep = parseStep(params.get('etapa'));
     const tripState = useResource<ManifestWithLegs>(`manifest:${manifestId}`, async () => (await manifestsApi.getById(manifestId)).data as ManifestWithLegs, { staleMs: 5_000 });
     const readinessState = useResource<ManifestReadiness | null>(`manifest:readiness:${manifestId}`, async () => (await manifestsApi.readiness(manifestId)).data ?? null, { staleMs: 5_000 });
     const trip = tripState.data;
@@ -42,6 +44,8 @@ const Workspace: React.FC<{ manifestId: string }> = ({ manifestId }) => {
             {(data: Manifest) => {
                 const t = data as ManifestWithLegs;
                 const stage = tripStage(t);
+                // Chegada e entrega só existe com a viagem na estrada ou concluída; antes disso o link cai na primeira etapa.
+                const step: TripStep = requestedStep === 'doca' && !dockStepVisible(t.status) ? 'rota' : requestedStep;
                 const props: StepProps = { trip: t, readiness, perms: perms!, goto };
                 const weight = occupancyPct(t.totalWeight, t.vehicleType?.maxWeight);
                 const volume = occupancyPct(t.totalVolume, t.vehicleType?.maxVolume);
@@ -76,7 +80,7 @@ const Workspace: React.FC<{ manifestId: string }> = ({ manifestId }) => {
                                     label="Etapas da viagem"
                                     value={step}
                                     onChange={(id) => goto(id as TripStep)}
-                                    tabs={TRIP_STEPS.map((item) => ({ id: item.id, label: item.label, count: counts[item.id] || null }))}
+                                    tabs={visibleSteps(t.status).map((item) => ({ id: item.id, label: item.label, count: counts[item.id] || null }))}
                                 />
                                 <Panel>
                                     {step === 'rota' ? <RouteStep {...props} /> : null}
@@ -85,6 +89,7 @@ const Workspace: React.FC<{ manifestId: string }> = ({ manifestId }) => {
                                     {step === 'capa' ? <CoverStep {...props} /> : null}
                                     {step === 'oferta' ? <ExecutionStep {...props} /> : null}
                                     {step === 'documentos' ? <DocumentsStep {...props} /> : null}
+                                    {step === 'doca' ? <DocaStep trip={t} onChanged={refreshTrip} /> : null}
                                 </Panel>
                             </div>
                         </div>
