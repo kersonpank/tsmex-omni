@@ -148,6 +148,28 @@ O `SystemAlert` só aparece no painel. Para alguém ser acordado, configure o we
 - quem emitiu é quem averba na AT&M;
 - o CIOT tem um único dono por viagem.
 
+## 6.1 Cadastros do legado (pessoas, veículos, motoristas)
+
+As listagens do legado exportam CSV. O importador lê `;` ou `,`, UTF-8 ou ISO-8859-1, e reconhece os
+nomes de coluna mais comuns ("Razão Social", "CNPJ/CPF", "Placa", "RENAVAM", "Eixos", "Tara", "CNH"…).
+
+```bash
+docker exec -it <api> node dist/scripts/importLegacyMasterData.js persons /dados/pessoas.csv --dry-run
+docker exec -it <api> node dist/scripts/importLegacyMasterData.js persons /dados/pessoas.csv
+docker exec -it <api> node dist/scripts/importLegacyMasterData.js vehicles /dados/veiculos.csv
+docker exec -it <api> node dist/scripts/importLegacyMasterData.js drivers /dados/motoristas.csv
+```
+
+- Ordem: **pessoas → veículos → motoristas**. O proprietário do veículo é ligado pela pessoa já
+  importada.
+- Identidade pela chave natural: CPF/CNPJ (com DV conferido) e placa.
+- O que já existe no TSM **só tem lacunas preenchidas**: nunca sobrescreve um campo já preenchido. Pode
+  rodar de novo sem medo.
+- Cada carga gera um CSV de conferência (linha, resultado, motivo). A TSM confere as contagens contra o
+  legado e assina.
+- Tabelas de frete, títulos em aberto e contas de cliente **não** entram por aqui: são poucas e com
+  regra comercial. Lançar pela torre, conferindo uma a uma.
+
 ## 7. Contingência: o TSM caiu
 
 1. Confirmar a queda: `/api/health` fora, ou alerta de processo caído.
@@ -175,6 +197,8 @@ O `SystemAlert` só aparece no painel. Para alguém ser acordado, configure o we
 - [ ] `FISCAL_SECRET_KEY` e a chave privada do backup no cofre, com 2 pessoas sabendo onde estão
 - [ ] GitHub Environment `production` com Required reviewers e os secrets de produção
 - [ ] Arquivo fiscal do legado importado e conferido (contagem do CSV = export)
+- [ ] Pessoas, veículos e motoristas importados (dry-run conferido e assinado)
+- [ ] Tabelas de frete e títulos em aberto lançados e conferidos
 - [ ] Série exclusiva do TSM por emitente, aprovada pela contabilidade, e **Série livre** na torre
 - [ ] Emitente virado para produção (CT-e/MDF-e) e e-Frete/AT&M de produção configurados
 - [ ] Certificado A1 válido (vence em set/2027 — alerta da torre)
