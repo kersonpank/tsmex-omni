@@ -37,3 +37,23 @@ export function createRedisConnection(customUrl: string = REDIS_URL): IORedis {
 export function isRedisConfigured(): boolean {
     return Boolean(process.env.REDIS_URL?.trim()) || true;
 }
+
+/**
+ * Conexão curta para o rate limit: sem fila offline e com 1 tentativa, para que uma queda do
+ * Redis libere a requisição na hora (`passOnStoreError`) em vez de segurar o login.
+ * Retorna `undefined` sem `REDIS_URL` (dev local sem Redis conta em memória).
+ */
+export function createRateLimitRedis(url: string | undefined = process.env.REDIS_URL?.trim()): IORedis | undefined {
+    if (!url) return undefined;
+    const client = new IORedis(url, {
+        enableOfflineQueue: false,
+        maxRetriesPerRequest: 1,
+        keepAlive: 10000,
+        lazyConnect: false,
+        retryStrategy: (times) => Math.min(times * 200, 2000),
+    });
+    client.on('error', (err) => {
+        console.error('[redis:rate-limit] connection error:', err instanceof Error ? err.message : err);
+    });
+    return client;
+}

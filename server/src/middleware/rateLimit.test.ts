@@ -41,3 +41,51 @@ test('desligado em NODE_ENV=test e com RATE_LIMIT_DISABLED=true', async () => {
         }
     }
 });
+
+test('com Redis, duas réplicas compartilham o mesmo limite', { skip: !process.env.REDIS_URL }, async () => {
+    const { default: IORedis } = await import('ioredis');
+    const redis = new IORedis(process.env.REDIS_URL!);
+    const env = { NODE_ENV: 'production', RATE_LIMIT_AUTH_PER_MIN: '3' };
+    const mk = async () => {
+        const app = express();
+        app.set('trust proxy', 1);
+        applyRateLimits(app, env, { redis });
+        app.post('/api/auth/login', (_req, res) => res.json({ ok: true }));
+        const server = app.listen(0);
+        await new Promise<void>((r) => server.once('listening', () => r()));
+        return { base: `http://127.0.0.1:${(server.address() as { port: number }).port}`, server };
+    };
+    const a = await mk();
+    const b = await mk();
+    try {
+        const keys = await redis.keys('rl:auth:*');
+        if (keys.length) await redis.del(...keys);
+        const codes: number[] = [];
+        for (const base of [a.base, b.base, a.base, b.base]) codes.push((await fetch(`${base}/api/auth/login`, { method: 'POST' })).status);
+        assert.deepEqual(codes, [200, 200, 200, 429]);
+    } finally {
+        a.server.close();
+        b.server.close();
+        const keys = await redis.keys('rl:*');
+        if (keys.length) await redis.del(...keys);
+        redis.disconnect();
+    }
+});
+
+test('Redis fora do ar não bloqueia a requisição (passa e loga)', async () => {
+    const broken = {
+        eval: async () => { throw new Error('ECONNREFUSED'); },
+        del: async () => 0,
+    };
+    const app = express();
+    applyRateLimits(app, { NODE_ENV: 'production', RATE_LIMIT_AUTH_PER_MIN: '1' }, { redis: broken });
+    app.post('/api/auth/login', (_req, res) => res.json({ ok: true }));
+    const server = app.listen(0);
+    await new Promise<void>((r) => server.once('listening', () => r()));
+    const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+    try {
+        for (let i = 0; i < 3; i++) assert.equal((await fetch(`${base}/api/auth/login`, { method: 'POST' })).status, 200);
+    } finally {
+        server.close();
+    }
+});

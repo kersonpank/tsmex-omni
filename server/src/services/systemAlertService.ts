@@ -1,5 +1,6 @@
 import prisma from '../lib/prisma.js';
 import type { Prisma, SystemAlertCategory, SystemAlertSeverity } from '@prisma/client';
+import { notifyOps } from '../lib/opsAlert.js';
 
 export async function createSystemAlert(params: {
     category: SystemAlertCategory;
@@ -22,6 +23,18 @@ export async function createSystemAlert(params: {
             context: params.context as Prisma.InputJsonValue | undefined,
         },
     });
+    // CRITICAL de sistema (fiscal/infra) exige gente agora: empurra para fora da tela (webhook).
+    // OPERATIONAL_* fica na fila de exceções do hub, que tem dono e prazo — não vira mensagem.
+    if (params.severity === 'CRITICAL' && !params.category.startsWith('OPERATIONAL_')) {
+        void notifyOps({
+            severity: 'CRITICAL',
+            source: 'system-alert',
+            title: params.title,
+            detail: params.message,
+            key: `system-alert:${params.category}:${params.title}`,
+            context: { category: params.category, hubId: params.hubId ?? null },
+        });
+    }
 }
 
 const DEFAULT_DEDUP_WINDOW_MS = 15 * 60 * 1000;

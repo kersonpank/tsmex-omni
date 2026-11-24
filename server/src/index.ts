@@ -44,6 +44,8 @@ import { assertProductionEnv } from './lib/envValidation.js';
 import { installProcessErrorHandlers } from './lib/processHandlers.js';
 import { createJsonBodyParser } from './middleware/bodyLimits.js';
 import { applyRateLimits } from './middleware/rateLimit.js';
+import { requestLogger } from './middleware/requestLogger.js';
+import { createRateLimitRedis } from './lib/redis.js';
 import { fiscalSecretsGuard } from './lib/fiscalSecrets.js';
 import { manifestAverbacaoRouter } from './routes/manifestAverbacao.js';
 
@@ -90,7 +92,8 @@ app.use(cors({
 }));
 app.use(createJsonBodyParser());
 app.use(fiscalSecretsGuard); // nenhuma resposta leva senha de AT&M/certificado
-app.use(morgan('dev'));
+// Produção: log JSON por requisição (sem query/corpo). Dev: morgan colorido.
+app.use(process.env.NODE_ENV === 'production' ? requestLogger() : morgan('dev'));
 
 // Health check
 app.get('/health', (req, res) => {
@@ -102,7 +105,8 @@ app.get('/api/health', async (_req, res) => {
 });
 
 // Routes
-applyRateLimits(app);
+// Rate limit contado no Redis: as réplicas da API compartilham o mesmo limite (senão cada réplica conta sozinha).
+applyRateLimits(app, process.env, { redis: createRateLimitRedis() });
 app.use('/api/auth', authRouter);
 app.use('/api/vehicle-types', vehicleTypesRouter);
 app.use('/api/vehicle-units', vehicleUnitsRouter);

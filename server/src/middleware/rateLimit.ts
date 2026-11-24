@@ -1,5 +1,6 @@
 import type { Express, Request, RequestHandler } from 'express';
-import { rateLimit } from 'express-rate-limit';
+import { rateLimit, type Store } from 'express-rate-limit';
+import { RedisRateLimitStore, type RateLimitRedisClient } from './redisRateLimitStore.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -14,7 +15,16 @@ export function isRateLimitDisabled(env: Env): boolean {
     return env.NODE_ENV === 'test' || env.RATE_LIMIT_DISABLED === 'true';
 }
 
-function make(limit: number, message: string, skip?: (req: Request) => boolean): RequestHandler {
+type StoreFactory = (name: string) => Store | undefined;
+
+function make(
+    name: string,
+    storeFor: StoreFactory,
+    limit: number,
+    message: string,
+    skip?: (req: Request) => boolean,
+): RequestHandler {
+    const store = storeFor(name);
     return rateLimit({
         windowMs: 60_000,
         limit,
@@ -22,7 +32,13 @@ function make(limit: number, message: string, skip?: (req: Request) => boolean):
         legacyHeaders: false,
         message: { success: false, error: message },
         skip,
+        ...(store ? { store, passOnStoreError: true } : {}),
     });
+}
+
+export interface RateLimitOptions {
+    /** Cliente Redis para contar entre réplicas. Sem ele, conta em memória (1 processo). */
+    redis?: RateLimitRedisClient;
 }
 
 /**
@@ -33,13 +49,16 @@ function make(limit: number, message: string, skip?: (req: Request) => boolean):
  * - proxies de localização (CEP/cidades, usados em autocomplete): RATE_LIMIT_LOCATIONS_PER_MIN (120)
  * Desligado com NODE_ENV=test ou RATE_LIMIT_DISABLED=true. /health e /api/health ficam fora.
  */
-export function applyRateLimits(app: Express, env: Env = process.env): void {
+export function applyRateLimits(app: Express, env: Env = process.env, options: RateLimitOptions = {}): void {
     if (isRateLimitDisabled(env)) return;
+    const storeFor: StoreFactory = (name) => (options.redis ? new RedisRateLimitStore(options.redis, name) : undefined);
 
-    const auth = make(intFromEnv(env, 'RATE_LIMIT_AUTH_PER_MIN', 10), 'Muitas tentativas. Aguarde um minuto e tente novamente.');
-    const lookup = make(intFromEnv(env, 'RATE_LIMIT_LOOKUP_PER_MIN', 30), 'Muitas consultas. Aguarde um minuto e tente novamente.');
-    const locations = make(intFromEnv(env, 'RATE_LIMIT_LOCATIONS_PER_MIN', 120), 'Muitas consultas de localização. Aguarde um minuto.');
+    const auth = make('auth', storeFor, intFromEnv(env, 'RATE_LIMIT_AUTH_PER_MIN', 10), 'Muitas tentativas. Aguarde um minuto e tente novamente.');
+    const lookup = make('lookup', storeFor, intFromEnv(env, 'RATE_LIMIT_LOOKUP_PER_MIN', 30), 'Muitas consultas. Aguarde um minuto e tente novamente.');
+    const locations = make('locations', storeFor, intFromEnv(env, 'RATE_LIMIT_LOCATIONS_PER_MIN', 120), 'Muitas consultas de localização. Aguarde um minuto.');
     const general = make(
+        'general',
+        storeFor,
         intFromEnv(env, 'RATE_LIMIT_GENERAL_PER_MIN', 600),
         'Limite de requisições excedido. Aguarde um minuto.',
         (req) => HEALTH_PATHS.has(req.path),
