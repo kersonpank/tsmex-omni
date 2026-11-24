@@ -34,12 +34,13 @@ describe('redeCadastro', () => {
     });
 
     it('cobertura: repetida, prioridade e prazo fora da faixa', () => {
-        const row = { cityIbgeCode: '2105302', cityName: 'Imperatriz', state: 'MA', leadTimeDays: 2, priority: 100, active: true };
+        const row = { cityIbgeCode: '2105302', cityName: 'Imperatriz', state: 'MA', leadTimeDays: 2, priority: 100, active: true, pricingTableId: null };
         expect(validateCoverage([row])).toBeNull();
         expect(validateCoverage([row, row])).toMatch(/repetida/);
         expect(validateCoverage([{ ...row, priority: 0 }])).toMatch(/Prioridade/);
         expect(validateCoverage([{ ...row, leadTimeDays: 61 }])).toMatch(/Prazo/);
-        expect(coveragePayload([{ ...row, leadTimeDays: null, active: false }])).toEqual([{ cityIbgeCode: '2105302', priority: 100, active: false }]);
+        expect(coveragePayload([{ ...row, leadTimeDays: null, active: false }])).toEqual([{ cityIbgeCode: '2105302', priority: 100, active: false, pricingTableId: null }]);
+        expect(coveragePayload([{ ...row, pricingTableId: 'tbl-123' }])).toEqual([{ cityIbgeCode: '2105302', priority: 100, active: true, leadTimeDays: 2, pricingTableId: 'tbl-123' }]);
     });
 
     it('pessoa: documento, cidade confirmada, IE de emissor e RNTRC', () => {

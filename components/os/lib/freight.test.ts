@@ -65,6 +65,14 @@ describe('pendências e prontidão', () => {
         expect(readyToEmit({ blockers: [], preview: null })).toBe(false);
         expect(pricingSourceLabel(null)).toMatch(/informe/);
     });
+
+    it('pricingSourceLabel descreve a origem da tarifa', () => {
+        expect(pricingSourceLabel({ source: 'payer_special', tableLabel: 'Especial SP' })).toBe('Tabela especial do cliente · Especial SP');
+        expect(pricingSourceLabel({ source: 'coverage_dest', tableLabel: 'Tarifa Maranhão' })).toBe('Tarifa da cidade de destino · Tarifa Maranhão');
+        expect(pricingSourceLabel({ source: 'coverage_origin', tableLabel: 'Tarifa Origem' })).toBe('Tarifa da cidade de origem · Tarifa Origem');
+        expect(pricingSourceLabel({ source: 'general_route', tableLabel: 'Rota Norte' })).toBe('Tarifa geral da rota · Rota Norte');
+        expect(pricingSourceLabel({ source: 'general', tableLabel: 'Geral Padrão' })).toBe('Tabela geral · Geral Padrão');
+    });
 });
 
 describe('tabelas do frete', () => {

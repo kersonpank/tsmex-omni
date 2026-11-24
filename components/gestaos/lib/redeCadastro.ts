@@ -105,6 +105,7 @@ export interface CoverageRow {
     leadTimeDays: number | null;
     priority: number | null;
     active: boolean;
+    pricingTableId: string | null;
 }
 
 export function validateCoverage(rows: CoverageRow[]): string | null {
@@ -126,6 +127,7 @@ export function coveragePayload(rows: CoverageRow[]) {
         priority: row.priority ?? 100,
         active: row.active,
         ...(row.leadTimeDays != null ? { leadTimeDays: row.leadTimeDays } : {}),
+        pricingTableId: row.pricingTableId ?? null,
     }));
 }
 

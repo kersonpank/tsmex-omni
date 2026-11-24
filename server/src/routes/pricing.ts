@@ -26,6 +26,7 @@ const pricingTableSchema = z.object({
     description: z.string().min(1, 'Description is required'),
     code: z.string().optional(),
     type: z.enum(['SPECIAL', 'GENERAL']),
+    coverageOnly: z.boolean().default(false),
     clientId: z.string().uuid().nullable().optional(),
     accountId: z.string().uuid().nullable().optional(),
     routeId: z.string().uuid().nullable().optional(),
@@ -170,7 +171,7 @@ router.delete('/routes/:id', authenticate, authorize('ADMIN'), async (req: AuthR
 // GET /api/pricing/tables - List pricing tables
 router.get('/tables', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const { type, clientId, routeId, active } = req.query;
+        const { type, clientId, routeId, active, coverageOnly } = req.query;
         const visibility = await pricingVisibilityWhere(req.user!);
 
         const tables = await prisma.pricingTable.findMany({
@@ -180,6 +181,7 @@ router.get('/tables', authenticate, async (req: AuthRequest, res: Response, next
                 ...(clientId ? { clientId: clientId as string } : {}),
                 ...(routeId ? { routeId: routeId as string } : {}),
                 ...(active !== undefined ? { active: active === 'true' } : {}),
+                ...(coverageOnly !== undefined ? { coverageOnly: coverageOnly === 'true' } : {}),
             },
             include: {
                 client: {
@@ -238,6 +240,7 @@ router.get('/tables/:id', authenticate, async (req: AuthRequest, res: Response, 
 router.post('/tables', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const { minFreightRanges, ...data } = pricingTableSchema.parse(req.body);
+        if (data.type !== 'GENERAL') data.coverageOnly = false;
 
         const table = await prisma.pricingTable.create({
             data: {
@@ -268,6 +271,7 @@ router.patch('/tables/:id', authenticate, authorize('ADMIN'), async (req: AuthRe
     try {
         const id = req.params.id as string;
         const { minFreightRanges, ...data } = pricingTableSchema.partial().parse(req.body);
+        if (data.type === 'SPECIAL') data.coverageOnly = false;
 
         // If ranges provided, delete existing and create new
         if (minFreightRanges) {
@@ -426,6 +430,7 @@ router.post('/calculate', authenticate, async (req: AuthRequest, res: Response, 
                         AND: [visibility],
                         routeId: route.id,
                         type: 'GENERAL',
+                        coverageOnly: false,
                         clientId: null,
                         active: true,
                     },
@@ -442,6 +447,7 @@ router.post('/calculate', authenticate, async (req: AuthRequest, res: Response, 
                     AND: [visibility],
                     routeId: null,
                     type: 'GENERAL',
+                    coverageOnly: false,
                     clientId: null,
                     active: true,
                 },

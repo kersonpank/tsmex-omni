@@ -23,7 +23,7 @@ export function applyTeiaSelection(
         if (seatIbge && ibgeCode === seatIbge) { skippedSeat++; continue; }
         if (present.has(ibgeCode)) { alreadyPresent++; continue; }
         if (next.length >= MAX_COVERAGE) { truncated++; continue; }
-        next.push({ cityIbgeCode: ibgeCode, cityName: name, state, leadTimeDays: null, priority: 100, active: true });
+        next.push({ cityIbgeCode: ibgeCode, cityName: name, state, leadTimeDays: null, priority: 100, active: true, pricingTableId: null });
         added++;
     }
 

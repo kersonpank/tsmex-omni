@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { buildCoverageIndex } from '../hubCargo/consolidationQueue.js';
-import type { FreightContext, FreightOrder } from './freightContext.js';
+import { buildFreightCoverage, type FreightContext, type FreightOrder } from './freightContext.js';
 import { computeFreightFromTable } from './freightPricing.js';
 import { suggestFreight } from './freightSuggestion.js';
 
@@ -57,7 +57,7 @@ function fixture(): { order: FreightOrder; ctx: FreightContext } {
     const ctx: FreightContext = {
         hub: { ...hubs[0], personId: 'hub-person' } as FreightContext['hub'],
         emitter: null,
-        coverage: buildCoverageIndex(hubs, []),
+        ...buildFreightCoverage(hubs, []),
         hubs: [...hubs],
         citiesByIbge: new Map([
             ['2112803', { name: 'Viana', state: 'MA' }],
@@ -71,6 +71,115 @@ function fixture(): { order: FreightOrder; ctx: FreightContext } {
     };
     return { order, ctx };
 }
+
+function coverageRow(over: Partial<Parameters<typeof buildFreightCoverage>[1][number]> = {}) {
+    return {
+        hubId: 'imp',
+        cityIbgeCode: '2112803',
+        cityName: 'Viana',
+        state: 'MA',
+        priority: 1,
+        leadTimeDays: null,
+        active: true,
+        pricingTableId: 'viana',
+        ...over,
+    };
+}
+
+describe('suggestFreight: tarifa por cidade de cobertura', () => {
+    it('recomenda a tabela da cobertura vencedora no destino e calcula com suas faixas', () => {
+        const { order, ctx } = fixture();
+        Object.assign(ctx, buildFreightCoverage(hubs, [
+            coverageRow({ hubId: 'for', priority: 2, pricingTableId: 'outra' }),
+            coverageRow(),
+        ]));
+        ctx.tables.push(
+            table('viana', { routeId: 'gru-for', coverageOnly: true, minFreightRanges: [{ minWeight: 0, maxWeight: 200, value: 250 }] }),
+            table('outra', { routeId: null, coverageOnly: true }),
+        );
+
+        const suggestion = suggestFreight(order, ctx);
+
+        assert.equal(suggestion.route?.id, 'gru-imp');
+        assert.equal(suggestion.pricing?.source, 'coverage_dest');
+        assert.equal(suggestion.preview?.total, 250);
+        assert.deepEqual(suggestion.tableOptions[0], {
+            tableId: 'viana',
+            label: 'Tabela viana · cidade de cobertura Viana/MA',
+            method: 'TARIFA_GERAL',
+            source: 'coverage_dest',
+            routeId: null,
+            routeLabel: null,
+            total: 250,
+        });
+        assert.deepEqual(suggestion.tableOptions.map((option) => option.tableId), ['viana', 'geral-imp']);
+    });
+
+    it('mantém o especial do pagador como recomendação e a cobertura do destino como opção', () => {
+        const { order, ctx } = fixture();
+        Object.assign(ctx, buildFreightCoverage(hubs, [coverageRow()]));
+        ctx.tables.push(
+            table('viana', { routeId: null, coverageOnly: true }),
+            table('especial', { type: 'SPECIAL', clientId: 'payer', routeId: null }),
+        );
+
+        const suggestion = suggestFreight(order, ctx);
+
+        assert.equal(suggestion.pricing?.source, 'payer_special');
+        assert.deepEqual(suggestion.tableOptions.map((option) => option.source), ['payer_special', 'coverage_dest', 'general_route']);
+    });
+
+    it('usa a cidade do remetente quando o início da prestação não tem IBGE', () => {
+        const { order, ctx } = fixture();
+        order.origemIbgeCode = null;
+        order.remetentePerson!.cityIbgeCode = '3518800';
+        Object.assign(ctx, buildFreightCoverage(hubs, [
+            coverageRow({ hubId: 'gru', cityIbgeCode: '3518800', cityName: 'Guarulhos', state: 'SP', pricingTableId: 'guarulhos' }),
+        ]));
+        ctx.tables.push(table('guarulhos', { routeId: null, coverageOnly: true }));
+
+        const suggestion = suggestFreight(order, ctx);
+
+        assert.equal(suggestion.pricing?.source, 'coverage_origin');
+        assert.equal(suggestion.tableOptions[0].label, 'Tabela guarulhos · cidade de cobertura Guarulhos/SP');
+        order.origemIbgeCode = '3550308';
+        assert.equal(suggestFreight(order, ctx).tableOptions.some((option) => option.source === 'coverage_origin'), false);
+    });
+
+    it('mantém uma opção por tabela quando a mesma geral serve por origem, destino e rota', () => {
+        const { order, ctx } = fixture();
+        order.origemIbgeCode = '3518800';
+        Object.assign(ctx, buildFreightCoverage(hubs, [
+            coverageRow({ pricingTableId: 'geral-imp' }),
+            coverageRow({ hubId: 'gru', cityIbgeCode: '3518800', cityName: 'Guarulhos', state: 'SP', pricingTableId: 'geral-imp' }),
+        ]));
+
+        const suggestion = suggestFreight(order, ctx);
+
+        assert.deepEqual(suggestion.tableOptions.map((option) => [option.tableId, option.source]), [['geral-imp', 'coverage_dest']]);
+        assert.equal(suggestion.pricing?.tableId, 'geral-imp');
+    });
+
+    it('omite tabelas exclusivas de cobertura em pedidos de outra cidade, com ou sem rota', () => {
+        const { order, ctx } = fixture();
+        order.fimIbgeCode = '2109604';
+        Object.assign(ctx, buildFreightCoverage(hubs, [coverageRow()]));
+        ctx.tables.push(table('viana', { coverageOnly: true }), table('exclusiva-sem-rota', { routeId: null, coverageOnly: true }));
+
+        const suggestion = suggestFreight(order, ctx);
+
+        assert.equal(suggestion.pricing?.tableId, 'geral-imp');
+        assert.deepEqual(suggestion.tableOptions.map((option) => option.tableId), ['geral-imp']);
+    });
+
+    it('ignora o vínculo de tabela em uma linha de cobertura inativa', () => {
+        const { order, ctx } = fixture();
+        Object.assign(ctx, buildFreightCoverage(hubs, [coverageRow({ active: false })]));
+        ctx.tables.push(table('viana', { coverageOnly: true }));
+
+        assert.deepEqual(suggestFreight(order, ctx).tableOptions.map((option) => option.tableId), ['geral-imp']);
+    });
+});
 
 describe('suggestFreight: rotas e opções de tabela', () => {
     it('sem cobertura, uma rota do hub para a UF do IBGE do destino é sugerida com todas as gerais', () => {

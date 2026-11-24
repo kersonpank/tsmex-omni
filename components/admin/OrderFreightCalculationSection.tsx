@@ -1045,7 +1045,7 @@ function OrderFreightForm({
       setPreview(null);
       return;
     }
-    pricingApi.listTables({ routeId: form.routeId, type: 'GENERAL', active: true })
+    pricingApi.listTables({ routeId: form.routeId, type: 'GENERAL', active: true, coverageOnly: false })
       .then((r: any) => {
         const tables = (r?.data ?? r) ?? [];
         const list = Array.isArray(tables) ? tables : [];

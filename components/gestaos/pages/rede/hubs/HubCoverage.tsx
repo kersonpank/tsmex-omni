@@ -1,12 +1,12 @@
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { hubCoverageApi, locationsApi, type GeoCity } from '../../../../../lib/api';
-import type { Hub } from '../../../../../types/index';
+import { hubCoverageApi, locationsApi, pricingApi, type GeoCity } from '../../../../../lib/api';
+import type { Hub, PricingTable } from '../../../../../types/index';
 import { applyTeiaSelection, coverageCounts, MAX_COVERAGE, setServed } from '../../../lib/coverageTeia';
 import { coveragePayload, validateCoverage, type CoverageRow } from '../../../lib/redeCadastro';
 import { invalidate, useResource } from '../../../lib/resource';
 import { Checkbox, FormFooter, NumberInput } from '../../../ui/form';
 import { IconAlert, IconClose, IconRefresh } from '../../../ui/icons';
-import { Button, EmptyState, ErrorState, Loadable, Skeleton, Tabs } from '../../../ui/kit';
+import { Button, EmptyState, ErrorState, Loadable, Pill, SelectInput, Skeleton, Tabs } from '../../../ui/kit';
 import { useAction, useToast } from '../../../ui/overlay';
 import { CityPicker } from '../../../ui/pickers';
 import type { CoverageViewport } from './CoverageMap';
@@ -76,9 +76,18 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
         key,
         async () =>
             ((await hubCoverageApi.list(hub.id)).data ?? []).map((e) => ({
-                cityIbgeCode: e.cityIbgeCode, cityName: e.cityName, state: e.state, leadTimeDays: e.leadTimeDays, priority: e.priority, active: e.active,
+                cityIbgeCode: e.cityIbgeCode, cityName: e.cityName, state: e.state, leadTimeDays: e.leadTimeDays, priority: e.priority, active: e.active, pricingTableId: e.pricingTableId ?? null,
             })),
         { staleMs: 10_000 },
+    );
+    const pricingTables = useResource<PricingTable[]>(
+        'pricing:tables:general:active',
+        async () => (await pricingApi.listTables({ type: 'GENERAL', active: true })).data ?? [],
+        { staleMs: 60_000 },
+    );
+    const generalTables = useMemo(
+        () => (pricingTables.data ?? []).filter((t) => (t.type === 'GENERAL' || !t.type) && t.active !== false),
+        [pricingTables.data],
     );
     const [rows, setRows] = useState<CoverageRow[] | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -88,6 +97,10 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
     const [viewport, setViewport] = useState<MapViewport | null>(null);
     const [polygon, setPolygon] = useState<Polygon>([]);
     const [previewCities, setPreviewCities] = useState<GeoCity[] | null>(null);
+    const [batchTarget, setBatchTarget] = useState<'all' | 'served'>('all');
+    const [batchTableId, setBatchTableId] = useState<string>('');
+    const [recentTeiaCodes, setRecentTeiaCodes] = useState<string[]>([]);
+    const [teiaTableId, setTeiaTableId] = useState<string>('');
     const [teiaBusy, setTeiaBusy] = useState(false);
     const { busy, run } = useAction();
     const toast = useToast();
@@ -218,6 +231,7 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
         setPolygon([]);
         setPreviewCities(null);
         setTeiaBusy(false);
+        setRecentTeiaCodes([]);
     };
 
     const handleTeia = async (points: Polygon) => {
@@ -248,11 +262,36 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
     const applyPreview = () => {
         if (!preview) return;
         setError(null);
-        if (preview.added > 0) setRows(preview.rows);
+        if (preview.added > 0) {
+            const existingCodes = new Set((rows ?? []).map((r) => r.cityIbgeCode));
+            const newlyAdded = preview.rows.filter((r) => !existingCodes.has(r.cityIbgeCode)).map((r) => r.cityIbgeCode);
+            setRows(preview.rows);
+            setRecentTeiaCodes(newlyAdded);
+            setTeiaTableId('');
+        }
         setPreviewCities(null);
         const { added, alreadyPresent, truncated } = preview;
         toast.success(`Teia capturou ${added} ${added === 1 ? 'cidade nova' : 'cidades novas'} (${alreadyPresent} já ${alreadyPresent === 1 ? 'estava' : 'estavam'})`);
         if (truncated > 0) toast.error(`Limite de ${MAX_COVERAGE} cidades: ${truncated} ficaram de fora`);
+    };
+
+    const handleApplyBatch = () => {
+        if (!rows || rows.length === 0) return;
+        const targetId = batchTableId || null;
+        let count = 0;
+        const next = rows.map((row) => {
+            const match = batchTarget === 'all' || (batchTarget === 'served' && row.active);
+            if (match) {
+                count++;
+                return { ...row, pricingTableId: targetId };
+            }
+            return row;
+        });
+        if (count > 0) {
+            setError(null);
+            setRows(next);
+            toast.success(`Tarifa aplicada a ${count} ${count === 1 ? 'cidade' : 'cidades'}`);
+        }
     };
 
     const handleAdd = (code: string) => {
@@ -344,6 +383,46 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
                             </div>
                         </div>
                     ) : null}
+                    {recentTeiaCodes.length > 0 ? (
+                        <div className="gx-map-preview flex flex-wrap items-center justify-between gap-3 p-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-[13px] font-semibold">
+                                    Aplicar uma tarifa às {recentTeiaCodes.length} {recentTeiaCodes.length === 1 ? 'cidade' : 'cidades'} da teia?
+                                </span>
+                                <SelectInput
+                                    className="w-auto text-[13px]"
+                                    value={teiaTableId}
+                                    onChange={(e) => setTeiaTableId(e.target.value)}
+                                    aria-label="Tarifa para cidades da teia"
+                                >
+                                    <option value="">Sem tarifa própria</option>
+                                    {generalTables.map((t) => (
+                                        <option key={t.id} value={t.id}>
+                                            {t.description}{t.coverageOnly ? ' (só cobertura)' : ''}
+                                        </option>
+                                    ))}
+                                </SelectInput>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    size="sm"
+                                    variant="primary"
+                                    onClick={() => {
+                                        const targetId = teiaTableId || null;
+                                        const teiaSet = new Set(recentTeiaCodes);
+                                        setRows((current) => (current ?? []).map((row) => (teiaSet.has(row.cityIbgeCode) ? { ...row, pricingTableId: targetId } : row)));
+                                        toast.success(`Tarifa aplicada a ${recentTeiaCodes.length} ${recentTeiaCodes.length === 1 ? 'cidade' : 'cidades'}`);
+                                        setRecentTeiaCodes([]);
+                                    }}
+                                >
+                                    Aplicar
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={() => setRecentTeiaCodes([])}>
+                                    Agora não
+                                </Button>
+                            </div>
+                        </div>
+                    ) : null}
                     <Loadable state={entries} skeleton={mapSkeleton}>
                         {() => initialViewReady ? (
                             <MapErrorBoundary onRetry={(failure) => {
@@ -381,11 +460,46 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
                                 setRows((current) => {
                                     const list = current ?? [];
                                     if (list.some((row) => row.cityIbgeCode === city.ibgeCode)) return list;
-                                    return [...list, { cityIbgeCode: city.ibgeCode, cityName: city.city, state: city.state, leadTimeDays: null, priority: 100, active: true }];
+                                    return [...list, { cityIbgeCode: city.ibgeCode, cityName: city.city, state: city.state, leadTimeDays: null, priority: 100, active: true, pricingTableId: null }];
                                 });
                             }}
                         />
                     </div>
+                    {rows && rows.length > 0 ? (
+                        <div className="flex flex-wrap items-center justify-between gap-3 py-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="gx-muted text-[13px]">Aplicar tarifa a:</span>
+                                <SelectInput
+                                    className="w-auto text-[13px]"
+                                    value={batchTarget}
+                                    onChange={(e) => setBatchTarget(e.target.value as 'all' | 'served')}
+                                    aria-label="Escopo da tarifa em lote"
+                                >
+                                    <option value="all">todas as cidades</option>
+                                    <option value="served">só as que atendem</option>
+                                </SelectInput>
+                                <SelectInput
+                                    className="w-auto max-w-[220px] text-[13px]"
+                                    value={batchTableId}
+                                    onChange={(e) => setBatchTableId(e.target.value)}
+                                    aria-label="Tarifa em lote"
+                                >
+                                    <option value="">Sem tarifa própria</option>
+                                    {generalTables.map((t) => (
+                                        <option key={t.id} value={t.id}>
+                                            {t.description}{t.coverageOnly ? ' (só cobertura)' : ''}
+                                        </option>
+                                    ))}
+                                </SelectInput>
+                                <Button size="sm" variant="soft" onClick={handleApplyBatch}>
+                                    Aplicar
+                                </Button>
+                            </div>
+                            <a href="#/gestaos/comercial?aba=tarifas" className="gx-muted hover:gx-soft text-[12.5px] underline">
+                                Gerenciar tabelas
+                            </a>
+                        </div>
+                    ) : null}
                     <Loadable state={entries} skeleton={<Skeleton rows={3} />}>
                         {() =>
                             !rows || rows.length === 0 ? (
@@ -398,33 +512,61 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
                                                 <th>Cidade</th>
                                                 <th>Prazo (dias)</th>
                                                 <th>Prioridade</th>
+                                                <th>Tarifa</th>
                                                 <th>Situação</th>
                                                 <th />
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {rows.map((row) => (
-                                                <tr key={row.cityIbgeCode} className={!row.active ? 'gx-map-row-unserved' : undefined}>
-                                                    <td>
-                                                        <span className="font-semibold">{row.cityName}/{row.state}</span>
-                                                        <span className="gx-mono gx-soft block text-[12px]">{row.cityIbgeCode}</span>
-                                                    </td>
-                                                    <td className="w-[110px]">
-                                                        <NumberInput aria-label={`Prazo de ${row.cityName}`} value={row.leadTimeDays} min={0} max={60} onChange={(value) => patch(row.cityIbgeCode, { leadTimeDays: value })} />
-                                                    </td>
-                                                    <td className="w-[110px]">
-                                                        <NumberInput aria-label={`Prioridade de ${row.cityName}`} value={row.priority} min={1} max={9999} onChange={(value) => patch(row.cityIbgeCode, { priority: value })} />
-                                                    </td>
-                                                    <td>
-                                                        <Checkbox label="Atende" checked={row.active} onChange={(checked) => patch(row.cityIbgeCode, { active: checked })} />
-                                                    </td>
-                                                    <td className="text-right">
-                                                        <button type="button" className="gx-icon-btn" aria-label={`Remover ${row.cityName}`} onClick={() => { setError(null); setRows((current) => (current ?? []).filter((r) => r.cityIbgeCode !== row.cityIbgeCode)); }}>
-                                                            <IconClose size={16} />
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            ))}
+                                            {rows.map((row) => {
+                                                const selectedTable = generalTables.find((t) => t.id === row.pricingTableId);
+                                                return (
+                                                    <tr key={row.cityIbgeCode} className={!row.active ? 'gx-map-row-unserved' : undefined}>
+                                                        <td>
+                                                            <span className="font-semibold">{row.cityName}/{row.state}</span>
+                                                            <span className="gx-mono gx-soft block text-[12px]">{row.cityIbgeCode}</span>
+                                                        </td>
+                                                        <td className="w-[110px]">
+                                                            <NumberInput aria-label={`Prazo de ${row.cityName}`} value={row.leadTimeDays} min={0} max={60} onChange={(value) => patch(row.cityIbgeCode, { leadTimeDays: value })} />
+                                                        </td>
+                                                        <td className="w-[110px]">
+                                                            <NumberInput aria-label={`Prioridade de ${row.cityName}`} value={row.priority} min={1} max={9999} onChange={(value) => patch(row.cityIbgeCode, { priority: value })} />
+                                                        </td>
+                                                        <td className="min-w-[180px]">
+                                                            <div className="flex flex-col gap-1">
+                                                                <SelectInput
+                                                                    aria-label={`Tarifa de ${row.cityName}`}
+                                                                    value={row.pricingTableId ?? ''}
+                                                                    onChange={(e) => patch(row.cityIbgeCode, { pricingTableId: e.target.value || null })}
+                                                                >
+                                                                    <option value="">Sem tarifa própria</option>
+                                                                    {generalTables.map((t) => (
+                                                                        <option key={t.id} value={t.id}>
+                                                                            {t.description}
+                                                                        </option>
+                                                                    ))}
+                                                                    {row.pricingTableId && pricingTables.data && !selectedTable ? (
+                                                                        <option value={row.pricingTableId}>Tabela indisponível (escolha outra)</option>
+                                                                    ) : null}
+                                                                </SelectInput>
+                                                                {selectedTable?.coverageOnly ? (
+                                                                    <Pill tone="neutral" className="self-start text-[11px]">
+                                                                        Só cobertura
+                                                                    </Pill>
+                                                                ) : null}
+                                                            </div>
+                                                        </td>
+                                                        <td>
+                                                            <Checkbox label="Atende" checked={row.active} onChange={(checked) => patch(row.cityIbgeCode, { active: checked })} />
+                                                        </td>
+                                                        <td className="text-right">
+                                                            <button type="button" className="gx-icon-btn" aria-label={`Remover ${row.cityName}`} onClick={() => { setError(null); setRows((current) => (current ?? []).filter((r) => r.cityIbgeCode !== row.cityIbgeCode)); }}>
+                                                                <IconClose size={16} />
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
                                         </tbody>
                                     </table>
                                 </div>

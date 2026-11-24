@@ -1186,7 +1186,7 @@ export interface FreightPricingChoice {
     tableId: string;
     tableLabel: string;
     routeId: string | null;
-    source: 'payer_special_route' | 'payer_special' | 'general_route' | 'general';
+    source: 'payer_special_route' | 'payer_special' | 'coverage_dest' | 'coverage_origin' | 'general_route' | 'general';
 }
 
 export interface FreightTableOption {
@@ -1281,6 +1281,8 @@ export interface HubCoverageEntry {
     leadTimeDays: number | null;
     priority: number;
     active: boolean;
+    pricingTableId?: string | null;
+    pricingTableName?: string | null;
 }
 
 // Fila de exceções do hub (TSM O.S. — GET /api/hub/exceptions)
@@ -1491,6 +1493,7 @@ export interface PricingTable {
     description: string;
     code?: string;
     type: PricingTableType;
+    coverageOnly?: boolean;
     clientId?: string;
     accountId?: string;
     routeId?: string;

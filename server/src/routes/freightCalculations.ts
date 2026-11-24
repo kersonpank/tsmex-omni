@@ -141,16 +141,32 @@ export async function persistAutoFreightCalculation(orderId: string, calcId: str
     const { volumes, weight, cubage, nfValue } = getOrderParams(order);
 
     let table = calc.pricingTable;
+    let selectedForCoverage = false;
 
     if (calc.calculationMethod === 'ESPECIAL') {
         if (!calc.pricingTableId || !table) {
             throw new AppError('Método Especial exige seleção de uma tabela de preço', 400);
         }
+        if (table.type === 'GENERAL' && table.coverageOnly) {
+            throw new AppError('Use o método Tarifa Geral para tabelas exclusivas de cidades de cobertura.', 400);
+        }
     } else {
+        if (table?.type === 'GENERAL' && table.active && order.currentHubId
+            && (table.coverageOnly || (!calc.routeId && table.routeId))) {
+            const { tableOptions } = await getFreightSuggestion(orderId);
+            selectedForCoverage = tableOptions.some((option) => option.tableId === calc.pricingTableId
+                && (option.source === 'coverage_dest' || option.source === 'coverage_origin'));
+        }
+        if (table?.coverageOnly && !selectedForCoverage) {
+            throw new AppError('Esta tabela de preço é exclusiva para cidades de cobertura e não está disponível para a origem ou o destino deste pedido.', 400);
+        }
+    }
+
+    if (calc.calculationMethod === 'TARIFA_GERAL' && !selectedForCoverage) {
         // Tarifa geral sem rota (padrão da casa), escolhida explicitamente — último degrau antes do informado.
         const routeless = !calc.routeId && calc.pricingTableId
             ? await prisma.pricingTable.findFirst({
-                  where: { id: calc.pricingTableId, type: 'GENERAL', routeId: null, active: true },
+                  where: { id: calc.pricingTableId, type: 'GENERAL', routeId: null, active: true, coverageOnly: false },
                   include: { minFreightRanges: { orderBy: { minWeight: 'asc' } } },
               })
             : null;
@@ -176,6 +192,7 @@ export async function persistAutoFreightCalculation(orderId: string, calcId: str
                         routeId: route.id,
                         type: 'GENERAL',
                         active: true,
+                        coverageOnly: false,
                     },
                     include: { minFreightRanges: { orderBy: { minWeight: 'asc' } } },
                 });
@@ -186,6 +203,7 @@ export async function persistAutoFreightCalculation(orderId: string, calcId: str
                         routeId: route.id,
                         type: 'GENERAL',
                         active: true,
+                        coverageOnly: false,
                     },
                     include: { minFreightRanges: { orderBy: { minWeight: 'asc' } } },
                     orderBy: { priority: 'desc' },
@@ -213,7 +231,7 @@ export async function persistAutoFreightCalculation(orderId: string, calcId: str
             icmsValue: icms || null,
             status: 'CALCULATED',
             pricingTableId: calc.calculationMethod === 'TARIFA_GERAL' ? table!.id : calc.pricingTableId,
-            routeId: calc.calculationMethod === 'TARIFA_GERAL' ? table!.routeId : calc.routeId,
+            routeId: selectedForCoverage ? null : calc.calculationMethod === 'TARIFA_GERAL' ? table!.routeId : calc.routeId,
         },
     });
 }

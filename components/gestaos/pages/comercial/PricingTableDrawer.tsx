@@ -30,6 +30,7 @@ const options = (labels: Record<string, string>) =>
 export const PricingTableDrawer: React.FC<{ open: boolean; table: PricingTable | null; onClose: () => void }> = ({ open, table, onClose }) => {
     const { busy, run } = useAction();
     const form = useForm<PricingTableForm>(emptyTableForm());
+    const [coverageOnly, setCoverageOnly] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
     const routes = useResource<PricingRoute[]>('pricing:routes:active', async () => (await pricingApi.listRoutes({ includeInactive: false })).data ?? [], { staleMs: 60_000 });
     const { reset } = form;
@@ -40,15 +41,23 @@ export const PricingTableDrawer: React.FC<{ open: boolean; table: PricingTable |
         if (!open) return;
         setErrors({});
         reset(emptyTableForm());
+        setCoverageOnly(false);
         if (!table) return;
+        setCoverageOnly(Boolean(table.coverageOnly));
         let cancelled = false;
         // a lista não traz as faixas de frete mínimo: busca a tabela inteira, como a clássica
         pricingApi.getTableById(table.id).then(
             (res) => {
-                if (!cancelled && res.data) reset(tableToForm(res.data));
+                if (!cancelled && res.data) {
+                    reset(tableToForm(res.data));
+                    setCoverageOnly(Boolean(res.data.coverageOnly));
+                }
             },
             () => {
-                if (!cancelled) reset(tableToForm(table));
+                if (!cancelled) {
+                    reset(tableToForm(table));
+                    setCoverageOnly(Boolean(table.coverageOnly));
+                }
             },
         );
         return () => {
@@ -61,7 +70,10 @@ export const PricingTableDrawer: React.FC<{ open: boolean; table: PricingTable |
         const found = validateTableForm(v);
         setErrors(found);
         if (Object.keys(found).length > 0) return;
-        const payload = buildTablePayload(v);
+        const payload = {
+            ...buildTablePayload(v),
+            coverageOnly: v.type === 'GENERAL' ? coverageOnly : false,
+        };
         const ok = await run('save', () => (table ? pricingApi.updateTable(table.id, payload as Partial<PricingTable>) : pricingApi.createTable(payload as Partial<PricingTable>)), {
             success: table ? 'Tabela atualizada.' : 'Tabela criada.',
             error: 'Não foi possível salvar a tabela.',
@@ -128,7 +140,16 @@ export const PricingTableDrawer: React.FC<{ open: boolean; table: PricingTable |
                         <Field label="Cliente" className="col-span-full" hint="A tabela especial só vale para este cliente.">
                             <ClientSelect value={v.clientId} onChange={(id) => set('clientId', id)} emptyOption="Nenhum" />
                         </Field>
-                    ) : null}
+                    ) : (
+                        <div className="col-span-full">
+                            <Checkbox
+                                checked={coverageOnly}
+                                onChange={setCoverageOnly}
+                                label="Só para cidades de cobertura"
+                                hint="Não entra como tabela geral para todos os pedidos; vale só nas cidades de cobertura onde for vinculada."
+                            />
+                        </div>
+                    )}
                 </FormSection>
 
                 <FormSection title="Frete">

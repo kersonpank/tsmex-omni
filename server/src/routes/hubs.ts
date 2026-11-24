@@ -411,13 +411,27 @@ router.post('/:id/users', authenticate, authorize('ADMIN'), async (req: AuthRequ
 // Cobertura rica (tabela de roteamento da teia — G1)
 // ========================================
 
+const invalidCoveragePricingTable = 'Tabela de preço inválida para cobertura';
 const coverageEntrySchema = z.object({
     cityIbgeCode: z.string().regex(/^\d{7}$/, 'Código IBGE deve ter 7 dígitos'),
     leadTimeDays: z.number().int().min(0).max(60).optional(),
     priority: z.number().int().min(1).max(9999).default(100),
     active: z.boolean().default(true),
+    pricingTableId: z.string().uuid(invalidCoveragePricingTable).nullable().optional(),
 });
 const coverageBodySchema = z.object({ entries: z.array(coverageEntrySchema).max(500) });
+
+async function listHubCoverage(db: Pick<typeof prisma, 'hubCoverage'>, hubId: string) {
+    const entries = await db.hubCoverage.findMany({
+        where: { hubId },
+        orderBy: [{ priority: 'asc' }, { cityName: 'asc' }],
+        include: { pricingTable: { select: { id: true, description: true } } },
+    });
+    return entries.map(({ pricingTable, ...entry }) => ({
+        ...entry,
+        pricingTableName: pricingTable?.description ?? null,
+    }));
+}
 
 // GET /api/hubs/:id/coverage — ADMIN ou o próprio hub
 router.get('/:id/coverage', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -426,10 +440,7 @@ router.get('/:id/coverage', authenticate, authorize('ADMIN', 'HUB'), async (req:
         if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && req.user!.hubId !== id) {
             throw new AppError('Not authorized to access this hub', 403);
         }
-        const entries = await prisma.hubCoverage.findMany({
-            where: { hubId: id },
-            orderBy: [{ priority: 'asc' }, { cityName: 'asc' }],
-        });
+        const entries = await listHubCoverage(prisma, id);
         res.json({ success: true, data: entries });
     } catch (error) {
         next(error);
@@ -455,7 +466,17 @@ router.put('/:id/coverage', authenticate, authorize('ADMIN'), async (req: AuthRe
         const missing = codes.filter((c) => !byCode.has(c));
         if (missing.length > 0) throw new AppError(`Código IBGE desconhecido: ${missing.join(', ')}`, 400);
 
+        const pricingTableIds = [...new Set(entries.map((entry) => entry.pricingTableId).filter((id) => id != null))];
         const saved = await prisma.$transaction(async (tx) => {
+            if (pricingTableIds.length > 0) {
+                const validTables = await tx.pricingTable.findMany({
+                    where: { id: { in: pricingTableIds }, type: 'GENERAL', active: true },
+                    select: { id: true },
+                });
+                if (validTables.length !== pricingTableIds.length) {
+                    throw new AppError(invalidCoveragePricingTable, 400);
+                }
+            }
             await tx.hubCoverage.deleteMany({ where: { hubId: id } });
             if (entries.length > 0) {
                 await tx.hubCoverage.createMany({
@@ -467,10 +488,11 @@ router.put('/:id/coverage', authenticate, authorize('ADMIN'), async (req: AuthRe
                         leadTimeDays: e.leadTimeDays ?? null,
                         priority: e.priority,
                         active: e.active,
+                        pricingTableId: e.pricingTableId ?? null,
                     })),
                 });
             }
-            return tx.hubCoverage.findMany({ where: { hubId: id }, orderBy: [{ priority: 'asc' }, { cityName: 'asc' }] });
+            return listHubCoverage(tx, id);
         });
         res.json({ success: true, data: saved });
     } catch (error) {

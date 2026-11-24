@@ -3,7 +3,7 @@ import { applyTeiaSelection, coverageCounts, MAX_COVERAGE, setServed } from './c
 import type { CoverageRow } from './redeCadastro';
 
 const row = (code: string, over: Partial<CoverageRow> = {}): CoverageRow => ({
-    cityIbgeCode: code, cityName: `C${code}`, state: 'MA', leadTimeDays: 2, priority: 5, active: true, ...over,
+    cityIbgeCode: code, cityName: `C${code}`, state: 'MA', leadTimeDays: 2, priority: 5, active: true, pricingTableId: null, ...over,
 });
 const city = (code: string) => ({ ibgeCode: code, name: `N${code}`, state: 'PA' });
 
@@ -13,7 +13,7 @@ describe('coverageTeia', () => {
         const r = applyTeiaSelection(base, [city('3'), city('2')], null);
         expect(r.added).toBe(2);
         expect(r.rows.map((x) => x.cityIbgeCode)).toEqual(['1', '3', '2']);
-        expect(r.rows[1]).toEqual({ cityIbgeCode: '3', cityName: 'N3', state: 'PA', leadTimeDays: null, priority: 100, active: true });
+        expect(r.rows[1]).toEqual({ cityIbgeCode: '3', cityName: 'N3', state: 'PA', leadTimeDays: null, priority: 100, active: true, pricingTableId: null });
         expect(base).toHaveLength(1);
     });
 

@@ -1401,7 +1401,7 @@ export const clientsApi = {
 // ========== PRICING API ==========
 
 export const pricingApi = {
-    listTables: async (params?: { clientId?: string; routeId?: string; type?: string; active?: boolean }) => {
+    listTables: async (params?: { clientId?: string; routeId?: string; type?: string; active?: boolean; coverageOnly?: boolean }) => {
         const response = await api.get<ApiResponse<PricingTable[]>>('/pricing/tables', { params });
         return response.data;
     },
@@ -2131,7 +2131,7 @@ export const hubCoverageApi = {
     },
     replace: async (
         hubId: string,
-        entries: Array<{ cityIbgeCode: string; leadTimeDays?: number; priority?: number; active?: boolean }>,
+        entries: Array<{ cityIbgeCode: string; leadTimeDays?: number; priority?: number; active?: boolean; pricingTableId?: string | null }>,
     ) => {
         const response = await api.put<ApiResponse<HubCoverageEntry[]>>(`/hubs/${hubId}/coverage`, { entries });
         return response.data;

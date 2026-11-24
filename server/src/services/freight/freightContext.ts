@@ -1,8 +1,8 @@
 import type { Prisma } from '@prisma/client';
 import prisma from '../../lib/prisma.js';
-import { buildCoverageIndex, type CoverageIndex } from '../hubCargo/consolidationQueue.js';
+import { buildCoverageIndex, resolveFinalHub, type CoverageIndex } from '../hubCargo/consolidationQueue.js';
 import type { PricingTableLike } from './freightPricing.js';
-import type { TableCandidate } from './freightDocRules.js';
+import type { CoveragePricing, TableCandidate } from './freightDocRules.js';
 
 /**
  * O que o hub precisa saber uma vez para sugerir o documento do frete de vários pedidos:
@@ -13,10 +13,22 @@ import type { TableCandidate } from './freightDocRules.js';
 const emitterInclude = { person: true, hub: true } satisfies Prisma.FiscalEmitterInclude;
 export type ContextEmitter = Prisma.FiscalEmitterGetPayload<{ include: typeof emitterInclude }>;
 
+const coverageSelect = {
+    hubId: true,
+    cityIbgeCode: true,
+    cityName: true,
+    state: true,
+    priority: true,
+    leadTimeDays: true,
+    active: true,
+    pricingTableId: true,
+} satisfies Prisma.HubCoverageSelect;
+
 export interface FreightContext {
     hub: Prisma.HubGetPayload<{ include: { person: true } }>;
     emitter: ContextEmitter | null;
     coverage: CoverageIndex;
+    coveragePricingByCity: Map<string, CoveragePricing>;
     hubs: { code: string; state: string; active: boolean }[];
     citiesByIbge: Map<string, { name: string; state: string }>;
     routes: { id: string; name: string; originCode: string; destCode: string }[];
@@ -34,6 +46,21 @@ export function pickEmitter<T extends { hubId: string | null; defaultForHub: boo
     );
 }
 
+export function buildFreightCoverage(
+    hubs: Parameters<typeof buildCoverageIndex>[0],
+    rows: Prisma.HubCoverageGetPayload<{ select: typeof coverageSelect }>[],
+): Pick<FreightContext, 'coverage' | 'coveragePricingByCity'> {
+    const activeRows = rows.filter((row) => row.active);
+    const coverage = buildCoverageIndex(hubs, activeRows);
+    const coveragePricingByCity = new Map<string, CoveragePricing>();
+    for (const row of activeRows) {
+        if (row.pricingTableId && resolveFinalHub(coverage, row.cityIbgeCode)?.hubId === row.hubId) {
+            coveragePricingByCity.set(row.cityIbgeCode, { tableId: row.pricingTableId, cityName: row.cityName, state: row.state });
+        }
+    }
+    return { coverage, coveragePricingByCity };
+}
+
 export async function loadFreightContext(hubId: string): Promise<FreightContext> {
     const [hub, emitters, hubs, coverage, routes, tables, cities] = await Promise.all([
         prisma.hub.findUniqueOrThrow({ where: { id: hubId }, include: { person: true } }),
@@ -45,7 +72,7 @@ export async function loadFreightContext(hubId: string): Promise<FreightContext>
         prisma.hub.findMany({ select: { id: true, name: true, code: true, state: true, cityIbgeCode: true, active: true, gatewayHubId: true } }),
         prisma.hubCoverage.findMany({
             where: { active: true },
-            select: { hubId: true, cityIbgeCode: true, priority: true, leadTimeDays: true },
+            select: coverageSelect,
         }),
         prisma.pricingRoute.findMany({
             where: { active: true },
@@ -60,7 +87,7 @@ export async function loadFreightContext(hubId: string): Promise<FreightContext>
     return {
         hub,
         emitter: pickEmitter(emitters, hubId),
-        coverage: buildCoverageIndex(hubs, coverage),
+        ...buildFreightCoverage(hubs, coverage),
         hubs,
         citiesByIbge: new Map(cities.map((city) => [city.ibgeCode, { name: city.name, state: city.state.code }])),
         routes,

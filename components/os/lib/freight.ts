@@ -38,6 +38,10 @@ export function pricingSourceLabel(pricing: Pick<FreightPricingChoice, 'source' 
         case 'payer_special_route':
         case 'payer_special':
             return `Tabela especial do cliente · ${pricing.tableLabel}`;
+        case 'coverage_dest':
+            return `Tarifa da cidade de destino · ${pricing.tableLabel}`;
+        case 'coverage_origin':
+            return `Tarifa da cidade de origem · ${pricing.tableLabel}`;
         case 'general_route':
             return `Tarifa geral da rota · ${pricing.tableLabel}`;
         default:

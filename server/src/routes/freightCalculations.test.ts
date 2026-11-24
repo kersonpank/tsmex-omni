@@ -591,13 +591,14 @@ describe('freightCalculations routes (preflight + emit-cte)', () => {
     });
 });
 
-describe('freightCalculations /prepare: seleção de tabela aplicável', () => {
+describe('freightCalculations /prepare e /calculate: seleção de tabela aplicável', () => {
     const hubId = 'gru';
     const orderId = 'order-pricing';
     let baseUrl = '';
     let token = '';
     let server: ReturnType<express.Express['listen']> | null = null;
     let ambiguousRoutes = false;
+    let coverageTableId: string | null = null;
     let transactions = 0;
     const calcs = new Map<string, any>();
     const restores: (() => void)[] = [];
@@ -620,12 +621,13 @@ describe('freightCalculations /prepare: seleção de tabela aplicável', () => {
         collectionData: { volumes: 1, weight: 10 },
     };
     const makeTable = (id: string, type: 'SPECIAL' | 'GENERAL', routeId: string | null, freightValue: number, priority = 0) => ({
-        id, type, routeId, freightValue, priority, description: id, active: true,
+        id, type, routeId, freightValue, priority, description: id, active: true, coverageOnly: false,
         clientId: type === 'SPECIAL' ? 'client-payer' : null, accountId: null,
         freightUnit: 'RS_KG', minFreightValue: 0, minFreightRanges: [], adValoremPercent: 0, grisPercent: 0,
         tollValue: 0, tollUnit: 'RS_KG', dispatchFee: 0, otherFees: 0, icmsIncluded: false, icmsPercent: 0, cubeFactor: 300,
     });
     const allTables = [
+        { ...makeTable('coverage-exclusive', 'GENERAL', 'route-slz', 5, 50), coverageOnly: true },
         makeTable('special-payer', 'SPECIAL', null, 1),
         makeTable('general-imp', 'GENERAL', 'route-imp', 2, 10),
         makeTable('general-slz', 'GENERAL', 'route-slz', 3),
@@ -656,7 +658,10 @@ describe('freightCalculations /prepare: seleção de tabela aplicável', () => {
         ]);
         replace(prisma.city, 'findMany', async () => [{ ibgeCode: '2112803', name: 'Viana', state: { code: 'MA' } }]);
         replace(prisma.fiscalEmitter, 'findMany', async () => []);
-        replace(prisma.hubCoverage, 'findMany', async () => []);
+        replace(prisma.hubCoverage, 'findMany', async () => coverageTableId ? [{
+            hubId: 'imp', cityIbgeCode: '2112803', cityName: 'Viana', state: 'MA', active: true,
+            pricingTableId: coverageTableId, priority: 0, leadTimeDays: null,
+        }] : []);
         replace(prisma.pricingRoute, 'findMany', async () => availableRoutes());
         replace(prisma.pricingRoute, 'findUnique', async (args) => routes.find((r) => r.id === args.where.id) ?? null);
         replace(prisma.pricingTable, 'findMany', async () => tables());
@@ -700,6 +705,7 @@ describe('freightCalculations /prepare: seleção de tabela aplicável', () => {
 
     beforeEach(() => {
         ambiguousRoutes = false;
+        coverageTableId = null;
         transactions = 0;
         calcs.clear();
     });
@@ -715,6 +721,14 @@ describe('freightCalculations /prepare: seleção de tabela aplicável', () => {
         baseUrl, `/api/orders/${orderId}/freight-calculations/prepare`, token,
         { method: 'POST', body: JSON.stringify({ documentType: 'MINUTA', ...body }) },
     );
+
+    function calculate(pricingTableId: string | null, routeId: string | null = null) {
+        const id = 'calc-existing';
+        calcs.set(id, { id, orderId, calculationMethod: 'TARIFA_GERAL', pricingTableId, routeId, status: 'DRAFT' });
+        return httpJson<{ error?: string; data: { pricingTableId: string; routeId: string | null; freightTotal: number } }>(
+            baseUrl, `/api/orders/${orderId}/freight-calculations/${id}/calculate`, token, { method: 'POST' },
+        );
+    }
 
     it('mantém a recomendação quando nenhuma tabela é escolhida', async () => {
         const response = await prepare({});
@@ -739,6 +753,39 @@ describe('freightCalculations /prepare: seleção de tabela aplicável', () => {
         assert.equal(response.body.data.calc.pricingTableId, 'general-routeless');
         assert.equal(response.body.data.calc.routeId, null);
         assert.equal(response.body.data.calc.freightTotal, 40);
+    });
+
+    it('prepara a opção de cobertura com tabela geral vinculada a outra rota', async () => {
+        coverageTableId = 'general-slz';
+        const response = await prepare({ pricingTableId: coverageTableId });
+        assert.equal(response.status, 201);
+        assert.equal(response.body.data.calc.pricingTableId, 'general-slz');
+        assert.equal(response.body.data.calc.calculationMethod, 'TARIFA_GERAL');
+        assert.equal(response.body.data.calc.routeId, null);
+        assert.equal(response.body.data.calc.freightTotal, 30);
+    });
+
+    it('calcula com tabela exclusiva vinculada à cidade de destino', async () => {
+        coverageTableId = 'coverage-exclusive';
+        const response = await calculate(coverageTableId);
+        assert.equal(response.status, 200);
+        assert.equal(response.body.data.pricingTableId, 'coverage-exclusive');
+        assert.equal(response.body.data.routeId, null);
+        assert.equal(response.body.data.freightTotal, 50);
+    });
+
+    it('rejeita tabela exclusiva fora da cobertura mesmo com a rota da tabela', async () => {
+        const response = await calculate('coverage-exclusive', 'route-slz');
+        assert.equal(response.status, 400);
+        assert.match(response.body.error ?? '', /exclusiva para cidades de cobertura/);
+        assert.equal(calcs.get('calc-existing').status, 'DRAFT');
+    });
+
+    it('exclui tabela exclusiva da seleção automática pela rota', async () => {
+        const response = await calculate(null, 'route-slz');
+        assert.equal(response.status, 200);
+        assert.equal(response.body.data.pricingTableId, 'general-slz');
+        assert.equal(response.body.data.freightTotal, 30);
     });
 
     it('permite escolher tabela quando várias rotas por UF deixam a recomendação vazia', async () => {

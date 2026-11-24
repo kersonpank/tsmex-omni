@@ -168,6 +168,7 @@ export function suggestFreight(order: FreightOrder, ctx: FreightContext): Freigh
 
     // Rota de preço = hub atual → hub que cobre o destino final (tabela de roteamento da teia).
     const destIbge = order.fimIbgeCode ?? order.destinatarioPerson?.cityIbgeCode ?? null;
+    const originIbge = order.origemIbgeCode ?? order.remetentePerson?.cityIbgeCode ?? null;
     // O cliente paga a jornada inteira: usa o hub FINAL, nunca o próximo salto (gateways não alteram preço).
     const finalHub = resolveFinalHub(ctx.coverage, destIbge);
     const destCode = finalHub ? (finalHub.hubId === ctx.hub.id ? ctx.hub.code : finalHub.hubCode) : null;
@@ -190,24 +191,25 @@ export function suggestFreight(order: FreightOrder, ctx: FreightContext): Freigh
         payerClientId: payerClient?.id ?? null,
         payerAccountId: payerClient?.accountId ?? null,
         routeId: route?.id ?? null,
+        coverageDest: destIbge ? ctx.coveragePricingByCity.get(destIbge) : undefined,
+        coverageOrigin: originIbge ? ctx.coveragePricingByCity.get(originIbge) : undefined,
     };
     const pricing = choosePricingTable(ctx.tables, pricingContext);
     const params = orderFreightParams(order);
-    const sourceOrder = { payer_special_route: 0, payer_special: 1, general_route: 2, general: 3 };
+    const sourceOrder = { payer_special_route: 0, payer_special: 1, coverage_dest: 2, coverage_origin: 3, general_route: 4, general: 5 };
     const tableOptions = ctx.tables
         .map((table) => {
             const tableRoute = table.routeId ? candidateRoutes.find((candidate) => candidate.id === table.routeId) : undefined;
-            if (table.routeId && !tableRoute) return null;
             const choice = choosePricingTable([table], { ...pricingContext, routeId: tableRoute?.id ?? null });
             if (!choice) return null;
             return {
                 option: {
                     tableId: table.id,
-                    label: table.description,
+                    label: choice.tableLabel,
                     method: choice.method,
                     source: choice.source,
                     routeId: choice.routeId,
-                    routeLabel: tableRoute?.name ?? null,
+                    routeLabel: choice.routeId ? tableRoute?.name ?? null : null,
                     total: computeFreightFromTable(table, params).total,
                 } satisfies FreightTableOption,
                 priority: table.priority,

@@ -189,6 +189,7 @@ function fixture(over: { freightTerm?: 'CIF' | 'FOB'; payerClient?: boolean } = 
             ],
             [],
         ),
+        coveragePricingByCity: new Map(),
         routes: [{ id: 'r1', name: 'GRU > IMP', originCode: 'SP-GRU', destCode: 'IMP-MA' }],
         tables: [
             { ...baseTable, ...t({ id: 'geral-rota', description: 'Tarifa GRU-IMP', routeId: 'r1' }) },

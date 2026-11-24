@@ -373,21 +373,24 @@ model Hub {
 // substituirá) o legado Hub.coverageCities; cidade do próprio hub vale como cobertura
 // implícita quando não há linha explícita (ver consolidationQueue.ts).
 model HubCoverage {
-  id           String  @id @default(uuid())
-  hubId        String
-  hub          Hub     @relation(fields: [hubId], references: [id], onDelete: Cascade)
-  cityIbgeCode String
-  cityName     String
-  state        String
-  leadTimeDays Int?
-  priority     Int     @default(100)
-  active       Boolean @default(true)
+  id             String        @id @default(uuid())
+  hubId          String
+  hub            Hub           @relation(fields: [hubId], references: [id], onDelete: Cascade)
+  cityIbgeCode   String
+  cityName       String
+  state          String
+  leadTimeDays   Int?
+  priority       Int           @default(100)
+  active         Boolean       @default(true)
+  pricingTableId String?
+  pricingTable   PricingTable? @relation(fields: [pricingTableId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([hubId, cityIbgeCode])
   @@index([cityIbgeCode, active])
+  @@index([pricingTableId])
 }
 
 // Onboarding do Hub (dados do depósito, responsável, documentos, bancários; simétrico ao Link)
@@ -690,6 +693,9 @@ model PricingTable {
   // Route (optional - can be "None")
   routeId String?
   route   PricingRoute? @relation(fields: [routeId], references: [id], onDelete: SetNull)
+
+  coverageOnly Boolean       @default(false)
+  coverages    HubCoverage[]
 
   // Freight configuration
   freightValue Float? // Numeric value

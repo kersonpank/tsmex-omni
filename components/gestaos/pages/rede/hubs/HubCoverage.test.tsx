@@ -1,8 +1,8 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { hubCoverageApi, locationsApi, type GeoCity } from '../../../../../lib/api';
-import type { Hub, HubCoverageEntry } from '../../../../../types/index';
+import { hubCoverageApi, locationsApi, pricingApi, type GeoCity } from '../../../../../lib/api';
+import type { Hub, HubCoverageEntry, PricingTable } from '../../../../../types/index';
 import { clearResources } from '../../../lib/resource';
 import { LAYER_ID, ToastProvider } from '../../../ui/overlay';
 import CoverageMap, { type CoverageMapProps } from './CoverageMap';
@@ -13,6 +13,7 @@ vi.mock('../../../../../lib/api', async (importOriginal) => {
     return {
         ...actual,
         hubCoverageApi: { list: vi.fn(), replace: vi.fn() },
+        pricingApi: { ...actual.pricingApi, listTables: vi.fn() },
         locationsApi: { ...actual.locationsApi, citiesWithin: vi.fn(), cityCoords: vi.fn() },
     };
 });
@@ -30,12 +31,17 @@ const HUB: Hub = {
 };
 const COVERAGE: HubCoverageEntry = {
     id: 'coverage-1', hubId: HUB.id, cityIbgeCode: COVERED.ibgeCode, cityName: COVERED.name, state: COVERED.state,
-    leadTimeDays: 2, priority: 10, active: false,
+    leadTimeDays: 2, priority: 10, active: false, pricingTableId: null,
 };
+const TABLES: PricingTable[] = [
+    { id: 'tbl-geral', description: 'Geral Padrão', type: 'GENERAL', active: true, coverageOnly: false } as PricingTable,
+    { id: 'tbl-cobertura', description: 'Geral Só Cobertura', type: 'GENERAL', active: true, coverageOnly: true } as PricingTable,
+];
 const TEIA: Array<[number, number]> = [[-5, -45], [-5, -44], [-4, -44]];
 
 const list = vi.mocked(hubCoverageApi.list);
 const replace = vi.mocked(hubCoverageApi.replace);
+const listTables = vi.mocked(pricingApi.listTables);
 const cityCoords = vi.mocked(locationsApi.cityCoords);
 const citiesWithin = vi.mocked(locationsApi.citiesWithin);
 const map = vi.mocked(CoverageMap);
@@ -66,6 +72,7 @@ describe('HubCoverage', () => {
         vi.clearAllMocks();
         list.mockResolvedValue({ success: true, data: [COVERAGE] });
         replace.mockResolvedValue({ success: true, data: [] });
+        listTables.mockResolvedValue({ success: true, data: TABLES });
         cityCoords.mockResolvedValue([SEAT, COVERED]);
         citiesWithin.mockResolvedValue([]);
     });
@@ -163,10 +170,40 @@ describe('HubCoverage', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Salvar cobertura (2 cidades)' }));
         await waitFor(() => expect(replace).toHaveBeenCalledWith(HUB.id, [
-            { cityIbgeCode: COVERED.ibgeCode, leadTimeDays: 2, priority: 10, active: false },
-            { cityIbgeCode: NEIGHBOR.ibgeCode, priority: 100, active: true },
+            { cityIbgeCode: COVERED.ibgeCode, leadTimeDays: 2, priority: 10, active: false, pricingTableId: null },
+            { cityIbgeCode: NEIGHBOR.ibgeCode, priority: 100, active: true, pricingTableId: null },
         ]));
         act(() => mapProps().onClearTeia());
         expect(mapProps().polygon).toEqual([]);
+    });
+
+    it('exibe coluna Tarifa com select, selo Só cobertura e link para gerenciar tabelas', async () => {
+        mountCoverage();
+        expect(await screen.findByRole('combobox', { name: `Tarifa de ${COVERED.name}` })).toBeInTheDocument();
+        const link = screen.getByRole('link', { name: 'Gerenciar tabelas' });
+        expect(link).toHaveAttribute('href', '#/gestaos/comercial?aba=tarifas');
+
+        // Selecionar tabela só cobertura deve exibir o selo
+        fireEvent.change(screen.getByRole('combobox', { name: `Tarifa de ${COVERED.name}` }), { target: { value: 'tbl-cobertura' } });
+        expect(await screen.findByText('Só cobertura')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Salvar cobertura/ })).toBeEnabled();
+    });
+
+    it('aplica tarifa em lote para as cidades, altera rascunho e habilita salvar com toast', async () => {
+        mountCoverage();
+        expect(await screen.findByRole('combobox', { name: 'Tarifa em lote' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Salvar cobertura (1 cidade)' })).toBeDisabled();
+
+        // Aplica tbl-geral para todas as cidades
+        fireEvent.change(screen.getByRole('combobox', { name: 'Tarifa em lote' }), { target: { value: 'tbl-geral' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }));
+
+        expect(await screen.findByText(/Tarifa aplicada a 1 cidade/)).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Salvar cobertura (1 cidade)' })).toBeEnabled();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Salvar cobertura (1 cidade)' }));
+        await waitFor(() => expect(replace).toHaveBeenCalledWith(HUB.id, [
+            { cityIbgeCode: COVERED.ibgeCode, leadTimeDays: 2, priority: 10, active: false, pricingTableId: 'tbl-geral' },
+        ]));
     });
 });

@@ -91,6 +91,7 @@ const TablesPanel: React.FC = () => {
                                     </div>
                                     <div className="flex flex-none flex-wrap items-center gap-2">
                                         <Pill tone={table.type === 'SPECIAL' ? 'royal' : 'neutral'}>{TABLE_TYPE_LABEL[table.type]}</Pill>
+                                        {table.coverageOnly ? <Pill tone="neutral">Cobertura</Pill> : null}
                                         <Pill tone={table.active ? 'neutral' : 'yellow'}>{table.active ? 'Ativa' : 'Inativa'}</Pill>
                                         <Button size="sm" variant="soft" onClick={() => setEditing(table)} aria-label={`Editar ${table.description}`}>
                                             Editar
