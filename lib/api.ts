@@ -2138,6 +2138,40 @@ export const hubCoverageApi = {
     },
 };
 
+export type HubRouteStop = {
+    sequence: number;
+    cityIbgeCode: string;
+    cityName: string;
+    state: string;
+};
+
+export type HubRoute = {
+    id: string;
+    name: string;
+    notes: string | null;
+    active: boolean;
+    stops: HubRouteStop[];
+};
+
+export const hubRoutesApi = {
+    list: async (hubId: string) => {
+        const response = await api.get<ApiResponse<HubRoute[]>>(`/hubs/${hubId}/routes`);
+        return response.data;
+    },
+    replace: async (hubId: string, payload: {
+        routes: Array<{
+            id?: string;
+            name: string;
+            notes?: string;
+            active?: boolean;
+            stops: Array<{ cityIbgeCode: string }>;
+        }>;
+    }) => {
+        const response = await api.put<ApiResponse<HubRoute[]>>(`/hubs/${hubId}/routes`, payload);
+        return response.data;
+    },
+};
+
 // ========== INVOICES API ==========
 
 export type InvoiceableOrder =

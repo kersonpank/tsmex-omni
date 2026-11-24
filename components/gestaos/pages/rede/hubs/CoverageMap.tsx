@@ -21,6 +21,7 @@ export interface CoverageMapProps {
     onAdd: (ibgeCode: string) => void;
     onViewport: (bounds: CoverageViewport, zoom: number) => void;
     busy?: boolean;
+    path?: Array<{ lat: number; lng: number }>;
 }
 
 const MIN_NEARBY_ZOOM = 8;
@@ -37,7 +38,7 @@ function cityMarker(city: GeoCity, status: string, options: L.CircleMarkerOption
 }
 
 export const CoverageMap: React.FC<CoverageMapProps> = ({
-    seat, cities, nearby, polygon, onTeia, onClearTeia, onToggle, onAdd, onViewport, busy = false,
+    seat, cities, nearby, polygon, onTeia, onClearTeia, onToggle, onAdd, onViewport, busy = false, path,
 }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<L.Map | null>(null);
@@ -47,6 +48,7 @@ export const CoverageMap: React.FC<CoverageMapProps> = ({
         nearby: L.LayerGroup;
         polygon: L.LayerGroup;
         sketch: L.LayerGroup;
+        path: L.LayerGroup;
     } | null>(null);
     const initialView = useRef({ seat, cities });
     const handlers = useRef({ onTeia, onToggle, onAdd, onViewport, busy });
@@ -92,12 +94,15 @@ export const CoverageMap: React.FC<CoverageMapProps> = ({
         }).addTo(map);
 
         map.createPane('gx-map-nearby-pane').style.zIndex = '410';
+        map.createPane('gx-map-path-pane').style.zIndex = '415';
         map.createPane('gx-map-covered-pane').style.zIndex = '420';
+        map.createPane('gx-map-badge-pane').style.zIndex = '425';
         map.createPane('gx-map-seat-pane').style.zIndex = '430';
         layersRef.current = {
             polygon: L.layerGroup().addTo(map),
             sketch: L.layerGroup().addTo(map),
             nearby: L.layerGroup().addTo(map),
+            path: L.layerGroup().addTo(map),
             covered: L.layerGroup().addTo(map),
             seat: L.layerGroup().addTo(map),
         };
@@ -203,6 +208,43 @@ export const CoverageMap: React.FC<CoverageMapProps> = ({
             pane: 'gx-map-seat-pane', radius: 7, fillColor: '#ffc400', fillOpacity: 1, color: '#0c1535', weight: 2.5,
         }).bindTooltip('Sede do hub', { direction: 'top', offset: [0, -8] }).addTo(layer);
     }, [seat]);
+
+    useEffect(() => {
+        const layer = layersRef.current?.path;
+        if (!layer) return;
+        layer.clearLayers();
+        if (!path || path.length === 0) return;
+
+        if (path.length >= 2) {
+            L.polyline(path.map((p) => [p.lat, p.lng]), {
+                pane: 'gx-map-path-pane',
+                color: BLUE,
+                weight: 3.5,
+                opacity: 0.85,
+                interactive: false,
+            }).addTo(layer);
+        }
+
+        const hasSeatAtStart = seat != null && path.length > 0 &&
+            Math.abs(path[0].lat - seat.lat) < 0.0001 && Math.abs(path[0].lng - seat.lng) < 0.0001;
+        const stopsStartIdx = hasSeatAtStart ? 1 : 0;
+
+        for (let i = stopsStartIdx; i < path.length; i++) {
+            const point = path[i];
+            const stopNum = i - stopsStartIdx + 1;
+            const icon = L.divIcon({
+                className: 'gx-route-stop-badge',
+                html: `<span>${stopNum}</span>`,
+                iconSize: [20, 20],
+                iconAnchor: [10, 10],
+            });
+            L.marker([point.lat, point.lng], {
+                pane: 'gx-map-badge-pane',
+                icon,
+                interactive: false,
+            }).addTo(layer);
+        }
+    }, [path, seat]);
 
     useEffect(() => {
         const layer = layersRef.current?.covered;

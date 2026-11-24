@@ -351,6 +351,7 @@ model Hub {
   fiscalEmitters       FiscalEmitter[]
   commissionAgreements HubCommissionAgreement[]
   coverage             HubCoverage[]
+  routes               HubRoute[]
 
   // Topologia hub-and-spoke: "esta unidade é abastecida por" o hub tronco indicado.
   // O próximo salto de qualquer hub até este sobe/desce essa cadeia (ver consolidationQueue.ts).
@@ -391,6 +392,35 @@ model HubCoverage {
   @@unique([hubId, cityIbgeCode])
   @@index([cityIbgeCode, active])
   @@index([pricingTableId])
+}
+
+model HubRoute {
+  id        String         @id @default(uuid())
+  hubId     String
+  hub       Hub            @relation(fields: [hubId], references: [id], onDelete: Cascade)
+  name      String
+  notes     String?
+  active    Boolean        @default(true)
+  stops     HubRouteStop[]
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@unique([hubId, name])
+  @@index([hubId, active])
+}
+
+model HubRouteStop {
+  id           String   @id @default(uuid())
+  routeId      String
+  route        HubRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  sequence     Int
+  cityIbgeCode String
+  cityName     String
+  state        String
+
+  @@unique([routeId, cityIbgeCode])
+  @@unique([routeId, sequence])
+  @@index([cityIbgeCode])
 }
 
 // Onboarding do Hub (dados do depósito, responsável, documentos, bancários; simétrico ao Link)
