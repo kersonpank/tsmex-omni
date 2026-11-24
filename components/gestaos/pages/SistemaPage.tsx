@@ -7,6 +7,7 @@ import { NfeMonitor } from './sistema/NfeMonitor';
 import { EmitterHealth, NfeHealth } from './sistema/FiscalHealth';
 import { HowItWorks } from './sistema/HowItWorks';
 import { QueueHealth } from './sistema/QueueHealth';
+import { BackupPanel } from './sistema/BackupPanel';
 
 const TABS = [
     { id: 'torre', label: 'Como a torre trabalha' },
@@ -37,6 +38,9 @@ const SistemaPage: React.FC = () => {
                             <NfeHealth />
                             <div className="lg:col-span-2">
                                 <EmitterHealth />
+                            </div>
+                            <div className="lg:col-span-2">
+                                <BackupPanel />
                             </div>
                         </div>
                     </section>

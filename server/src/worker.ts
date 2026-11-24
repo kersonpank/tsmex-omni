@@ -17,6 +17,7 @@ import { runExceptionRules } from './services/exceptions/exceptionRules.js';
 import { sweepPendingCteReconciliation } from './services/queues/cteReconciliationSweep.js';
 import { assertProductionEnv } from './lib/envValidation.js';
 import { installProcessErrorHandlers } from './lib/processHandlers.js';
+import { sweepBackupFreshness } from './services/backup/backupFreshness.js';
 
 dotenv.config();
 
@@ -153,6 +154,10 @@ void Promise.all([worker.waitUntilReady(), distribuicaoNfeWorker.waitUntilReady(
         };
         averbacaoSweep();
         setInterval(averbacaoSweep, 30_000).unref();
+        // Backup que falha calado = não ter backup: alerta quando passa da janela sem sucesso (produção).
+        const backupSweep = () => { void sweepBackupFreshness().catch((error) => console.error('[worker] backup freshness failed', error)); };
+        backupSweep();
+        setInterval(backupSweep, 30 * 60_000).unref();
     })
     .catch((error) => console.error('[worker] startup failed', error));
 

@@ -19,6 +19,26 @@ Use esta matriz no Portainer (Stack variables) para evitar drift e falha no star
 - `S3_PUBLIC_BASE_URL`
 - `S3_SIGNED_URL_PUBLIC_HOST` (recomendado, pode repetir o mesmo valor de `S3_PUBLIC_BASE_URL`)
 
+## Variáveis de produção: backup, alertas e segurança (go-live)
+
+Detalhe e procedimentos em [PRODUCAO_GO_LIVE.md](PRODUCAO_GO_LIVE.md).
+
+| Variável | Serviço | O que é |
+|---|---|---|
+| `BACKUP_OFFSITE_BUCKET` | backup | Bucket no S3 **de outro provedor** (com versionamento/object lock) |
+| `BACKUP_OFFSITE_ENDPOINT` | backup | Endpoint S3 do provedor externo (ex.: `https://s3.us-west-004.backblazeb2.com`) |
+| `BACKUP_OFFSITE_PROVIDER` | backup | Provedor no rclone (`AWS`, `Wasabi`, `Other`…); padrão `Other` |
+| `BACKUP_OFFSITE_REGION` | backup | Região; padrão `us-east-1` |
+| `BACKUP_OFFSITE_ACCESS_KEY` / `BACKUP_OFFSITE_SECRET_KEY` | backup | Chave **só de escrita/leitura nesse bucket** (sem permissão de apagar, se o provedor permitir) |
+| `BACKUP_AGE_RECIPIENT` | backup | Chave **pública** age (`age1…`). A privada fica fora do servidor (cofre) |
+| `BACKUP_OFFSITE_PREFIX` | backup | Pasta dentro do bucket; padrão `tsmex-prod` |
+| `BACKUP_INTERVAL_MINUTES` | backup | Banco; padrão 60 (perda máxima de 1 h) |
+| `BACKUP_OBJECTS_INTERVAL_MINUTES` | backup | Arquivos; padrão 360 |
+| `BACKUP_RESTORE_TEST_INTERVAL_HOURS` | backup | Teste de restauração; padrão 168 (semanal) |
+| `OPS_ALERT_WEBHOOK_URL` / `OPS_ALERT_WEBHOOK_TOKEN` | api, worker, backup | Webhook (n8n → WhatsApp/e-mail) que recebe erro 500, queda de processo, SystemAlert crítico e falha de backup |
+| `BACKUP_MONITOR_ENABLED` | worker | `true` em produção (já no stack): alerta se o backup parar |
+| `AUDIT_LOG_DISABLED` | api | Só `true` para desligar a trilha de auditoria (não usar em produção) |
+
 ## Variáveis para Integração Fiscal (ACBr API)
 
 Estas variáveis habilitam e configuram a comunicação com os endpoints fiscais da ACBr API:
@@ -122,7 +142,9 @@ RUN_MIGRATE_PERSONS=false
 ```env
 GITHUB_REPOSITORY=kersonpank/tsmex-omni
 POSTGRES_PASSWORD=senha_prod_muito_forte
-DATABASE_URL=postgresql://postgres:senha_prod_muito_forte@postgres:5432/tsmex?schema=public
+# Host QUALIFICADO (tsmexomni-prod_postgres): o alias curto "postgres" pode resolver para o Postgres
+# de outro stack na rede compartilhada ProxyGM. O deploy de produção recusa o host curto.
+DATABASE_URL=postgresql://postgres:senha_prod_muito_forte@tsmexomni-prod_postgres:5432/tsmex?schema=public
 JWT_SECRET=jwt_producao_bem_longo_diferente_do_staging
 JWT_EXPIRES_IN=7d
 

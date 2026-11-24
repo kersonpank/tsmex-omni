@@ -4,6 +4,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { getCteEmissionQueue } from '../services/queues/cteEmissionQueue.js';
 import { getDistribuicaoNfeQueue } from '../services/queues/distribuicaoNfeQueue.js';
+import { getBackupStatus } from '../services/backup/backupFreshness.js';
 
 const router = Router();
 
@@ -28,6 +29,15 @@ router.post('/:id/acknowledge', authenticate, authorize('ADMIN'), async (req: Au
             data: { status: 'ACKNOWLEDGED', acknowledgedAt: new Date(), acknowledgedByUserId: req.user!.id },
         });
         res.json({ success: true, data: alert });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// GET .../backup-status — último sucesso de cada tipo de backup (banco, arquivos, teste de restauração).
+router.get('/backup-status', authenticate, authorize('ADMIN'), async (_req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        res.json({ success: true, data: { monitored: process.env.BACKUP_MONITOR_ENABLED === 'true', kinds: await getBackupStatus() } });
     } catch (error) {
         next(error);
     }

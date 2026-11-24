@@ -2573,6 +2573,8 @@ enum SystemAlertCategory {
   OPERATIONAL_UNROUTED
   /// Número de CT-e/MDF-e que o TSM ia usar já existe no arquivo do legado (mesma série): foi pulado.
   FISCAL_NUMBERING_CONFLICT
+  /// Backup do banco/arquivos sem sucesso recente, ou teste de restauração falhou.
+  BACKUP_STALE
   GENERIC
 }
 
@@ -2881,5 +2883,30 @@ model ExternalFiscalDocument {
 
   @@index([emitterCnpj, model, series, number])
   @@index([issuedAt])
+}
+
+enum BackupKind {
+  /// pg_dump cifrado enviado para fora do servidor
+  DATABASE
+  /// espelho do bucket de arquivos (XML, comprovantes, certificados) para fora do servidor
+  OBJECTS
+  /// restauração do último dump num banco temporário, com contagem de tabelas-chave
+  RESTORE_TEST
+}
+
+/// Cada execução do serviço de backup (gravado pelo próprio script via psql). O worker alerta quando
+/// não há sucesso recente: backup que falha calado é o mesmo que não ter backup.
+model BackupRun {
+  id         String     @id @default(uuid())
+  kind       BackupKind
+  ok         Boolean
+  startedAt  DateTime
+  finishedAt DateTime   @default(now())
+  sizeBytes  BigInt?
+  /// Onde ficou (caminho no destino externo); nunca credencial.
+  location   String?
+  detail     String?    @db.Text
+
+  @@index([kind, finishedAt])
 }
 

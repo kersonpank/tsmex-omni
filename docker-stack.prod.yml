@@ -1,5 +1,12 @@
 version: "3.8"
 
+# Log de cada container limitado (sem isto o json-file cresce até encher o disco do servidor).
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 # =============================================================
 # TSM EX OMNI — Docker Swarm Stack: PRODUÇÃO
 # Domínio: tsmex.com.br
@@ -9,6 +16,8 @@ version: "3.8"
 services:
   postgres:
     image: postgres:16-alpine
+    logging: *default-logging
+    stop_grace_period: 60s
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -31,6 +40,10 @@ services:
 
   redis:
     image: redis:7-alpine
+    logging: *default-logging
+    # As filas fiscais (CT-e, CIOT, NF-e) vivem aqui: AOF para não perder job num restart e
+    # noeviction (exigência do BullMQ) para o Redis nunca apagar job por falta de memória.
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory-policy", "noeviction"]
     volumes:
       - redis_prod_data:/data
     healthcheck:
@@ -53,7 +66,10 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
       - minio_prod_data:/data
+    logging: *default-logging
     networks:
+      # Interna: o serviço de backup espelha o bucket sem sair pela internet.
+      - tsmex-prod-internal
       - ProxyGM
     deploy:
       replicas: 1
@@ -71,6 +87,7 @@ services:
 
   migrate:
     image: ghcr.io/${GITHUB_REPOSITORY}/tsmex-migrate:latest
+    logging: *default-logging
     environment:
       DATABASE_URL: ${DATABASE_URL}
       MIGRATE_MODE: deploy
@@ -131,6 +148,12 @@ services:
       FISCAL_PROVIDER: ${FISCAL_PROVIDER:-}
       FISCAL_SECRET_KEY: ${FISCAL_SECRET_KEY:-}
       SINTEGRA_TOKEN: ${SINTEGRA_TOKEN:-}
+      # Alerta de operação (erro 500, queda de processo, SystemAlert crítico) — webhook do n8n/WhatsApp.
+      OPS_ALERT_WEBHOOK_URL: ${OPS_ALERT_WEBHOOK_URL:-}
+      OPS_ALERT_WEBHOOK_TOKEN: ${OPS_ALERT_WEBHOOK_TOKEN:-}
+      OPS_ALERT_ENVIRONMENT: producao
+    logging: *default-logging
+    stop_grace_period: 30s
     networks:
       - tsmex-prod-internal
       - ProxyGM
@@ -187,6 +210,14 @@ services:
       FISCAL_CTE_PROVIDER: ${FISCAL_CTE_PROVIDER:-}
       FISCAL_PROVIDER: ${FISCAL_PROVIDER:-}
       FISCAL_SECRET_KEY: ${FISCAL_SECRET_KEY:-}
+      OPS_ALERT_WEBHOOK_URL: ${OPS_ALERT_WEBHOOK_URL:-}
+      OPS_ALERT_WEBHOOK_TOKEN: ${OPS_ALERT_WEBHOOK_TOKEN:-}
+      OPS_ALERT_ENVIRONMENT: producao
+      # Worker alerta quando o backup passa da janela sem sucesso (tabela BackupRun).
+      BACKUP_MONITOR_ENABLED: "true"
+    logging: *default-logging
+    # Encerramento limpo: o worker termina o job fiscal em andamento antes de sair.
+    stop_grace_period: 60s
     # Healthcheck ativo valida conectividade TCP com Redis e Postgres a cada 20s.
     # Em caso de congelamento do socket TCP no Swarm, o container e auto-reiniciado.
     healthcheck:
@@ -205,6 +236,7 @@ services:
 
   web:
     image: ghcr.io/${GITHUB_REPOSITORY}/tsmex-web:latest
+    logging: *default-logging
     environment:
       NGINX_API_HOST: tasks.api
     networks:
@@ -228,7 +260,53 @@ services:
         - "traefik.http.routers.tsmex-prod.tls.certresolver=letsencryptresolver"
         - "traefik.http.services.tsmex-prod.loadbalancer.server.port=80"
 
+  # Backup para FORA deste servidor: dump cifrado do banco (age) a cada hora, espelho do bucket com
+  # histórico de apagados, teste de restauração semanal. Cada execução vai para a tabela BackupRun e o
+  # worker alerta se parar. Destino: remote "offsite" do rclone (S3 de outro provedor). Ver
+  # docs/PRODUCAO_GO_LIVE.md.
+  backup:
+    image: ghcr.io/${GITHUB_REPOSITORY}/tsmex-backup:latest
+    logging: *default-logging
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      S3_BUCKET: ${S3_BUCKET}
+      BACKUP_OFFSITE_BUCKET: ${BACKUP_OFFSITE_BUCKET}
+      BACKUP_OFFSITE_PREFIX: ${BACKUP_OFFSITE_PREFIX:-tsmex-prod}
+      BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT}
+      BACKUP_INTERVAL_MINUTES: ${BACKUP_INTERVAL_MINUTES:-60}
+      BACKUP_OBJECTS_INTERVAL_MINUTES: ${BACKUP_OBJECTS_INTERVAL_MINUTES:-360}
+      BACKUP_RESTORE_TEST_INTERVAL_HOURS: ${BACKUP_RESTORE_TEST_INTERVAL_HOURS:-168}
+      # Destino externo (S3 compatível de OUTRO provedor, com versionamento/object lock).
+      RCLONE_CONFIG_OFFSITE_TYPE: s3
+      RCLONE_CONFIG_OFFSITE_PROVIDER: ${BACKUP_OFFSITE_PROVIDER:-Other}
+      RCLONE_CONFIG_OFFSITE_ENDPOINT: ${BACKUP_OFFSITE_ENDPOINT}
+      RCLONE_CONFIG_OFFSITE_REGION: ${BACKUP_OFFSITE_REGION:-us-east-1}
+      RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID: ${BACKUP_OFFSITE_ACCESS_KEY}
+      RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY: ${BACKUP_OFFSITE_SECRET_KEY}
+      # Origem dos arquivos: o MinIO deste stack, pela rede interna.
+      RCLONE_CONFIG_LOCAL_TYPE: s3
+      RCLONE_CONFIG_LOCAL_PROVIDER: Minio
+      RCLONE_CONFIG_LOCAL_ENDPOINT: http://tsmexomni-prod_minio:9000
+      RCLONE_CONFIG_LOCAL_ACCESS_KEY_ID: ${S3_ACCESS_KEY}
+      RCLONE_CONFIG_LOCAL_SECRET_ACCESS_KEY: ${S3_SECRET_KEY}
+      OPS_ALERT_WEBHOOK_URL: ${OPS_ALERT_WEBHOOK_URL:-}
+      OPS_ALERT_WEBHOOK_TOKEN: ${OPS_ALERT_WEBHOOK_TOKEN:-}
+      OPS_ALERT_ENVIRONMENT: producao
+    volumes:
+      - backup_prod_state:/var/lib/tsmex-backup
+    networks:
+      - tsmex-prod-internal
+    stop_grace_period: 120s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 30s
+      placement:
+        constraints: [node.role == manager]
+
 volumes:
+  backup_prod_state:
   postgres_prod_data:
   redis_prod_data:
   minio_prod_data:

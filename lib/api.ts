@@ -1457,6 +1457,29 @@ export const externalFiscalApi = {
     },
 };
 
+export interface BackupKindStatus {
+    kind: 'DATABASE' | 'OBJECTS' | 'RESTORE_TEST';
+    lastOkAt: string | null;
+    lastRunAt: string | null;
+    lastRunOk: boolean | null;
+    lastDetail: string | null;
+    lastSizeBytes: number | null;
+    maxAgeHours: number;
+    stale: boolean;
+}
+
+export const backupApi = {
+    status: async () => {
+        const response = await api.get<ApiResponse<{ monitored: boolean; kinds: BackupKindStatus[] }>>('/system-alerts/backup-status');
+        return response.data;
+    },
+    /** Pacote de contingência (CSV) para reabrir a operação no sistema legado. */
+    contingencyCsv: async (hub?: string) => {
+        const response = await api.get<Blob>('/fiscal/contingency.csv', { params: hub ? { hub } : undefined, responseType: 'blob' });
+        return response.data;
+    },
+};
+
 // ========== CONTA (própria sessão) ==========
 
 export const accountSecurityApi = {

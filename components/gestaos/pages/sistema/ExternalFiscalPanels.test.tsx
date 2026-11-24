@@ -7,6 +7,7 @@ import { api } from '../../../../lib/api';
 import { clearResources } from '../../lib/resource';
 import { ToastProvider } from '../../ui/overlay';
 import { ExternalArchivePanel, NumberingPanel } from './ExternalFiscalPanels';
+import { BackupPanel } from './BackupPanel';
 import { emptyEmitterForm, validateEmitterForm } from '../../lib/sistemaForms';
 
 const ok = (data: unknown, extra: Record<string, unknown> = {}) => ({ success: true, data, ...extra });
@@ -36,6 +37,11 @@ describe('Numeração fiscal e arquivo externo', () => {
             if (url === '/fiscal/numbering') data = ok(NUMBERING);
             else if (url === '/fiscal/external-documents' && method === 'get') data = ok([], { total: 0, page: 1, pageSize: 30 });
             else if (url === '/fiscal/external-documents/import') data = ok({ counts: { created: 1, rejected: 1 }, results: [] });
+            else if (url === '/system-alerts/backup-status') data = ok({ monitored: true, kinds: [
+                { kind: 'DATABASE', lastOkAt: new Date(Date.now() - 30 * 60_000).toISOString(), lastRunAt: null, lastRunOk: true, lastDetail: null, lastSizeBytes: 250_000_000, maxAgeHours: 26, stale: false },
+                { kind: 'OBJECTS', lastOkAt: null, lastRunAt: null, lastRunOk: false, lastDetail: 'rclone: 403', lastSizeBytes: null, maxAgeHours: 26, stale: true },
+                { kind: 'RESTORE_TEST', lastOkAt: null, lastRunAt: null, lastRunOk: null, lastDetail: null, lastSizeBytes: null, maxAgeHours: 168, stale: true },
+            ] });
             return { data, status: 200, statusText: 'OK', headers: {}, config } as never;
         };
     });
@@ -58,6 +64,14 @@ describe('Numeração fiscal e arquivo externo', () => {
         await waitFor(() => expect(calls.find((c) => c.url === '/fiscal/external-documents/import')).toBeTruthy());
         expect(calls.find((c) => c.url === '/fiscal/external-documents/import')?.data.files).toHaveLength(2);
         expect(await screen.findByText('1 novos · 1 recusados')).toBeInTheDocument();
+    });
+
+    it('backup: mostra o que está em dia e o que está atrasado', async () => {
+        mount(<BackupPanel />);
+        expect(await screen.findByText(/Banco de dados/)).toBeInTheDocument();
+        expect(screen.getByText('Em dia')).toBeInTheDocument();
+        expect(screen.getAllByText('Atrasado')).toHaveLength(2);
+        expect(screen.getByRole('button', { name: 'Baixar pacote de contingência' })).toBeInTheDocument();
     });
 
     it('virada para produção exige a confirmação da numeração', () => {

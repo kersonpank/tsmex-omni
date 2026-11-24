@@ -6,6 +6,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { externalNumberingSummary, importExternalFiscalXml, type ImportOutcome } from '../services/fiscal/external/importExternalFiscal.js';
 import { buildNumberingStatus } from '../services/fiscal/external/numberingStatus.js';
+import { CONTINGENCY_COLUMNS, loadContingencyRows, toContingencyCsv } from '../services/contingency/contingencyPackage.js';
 
 /**
  * Arquivo fiscal externo (CT-e/MDF-e emitidos no sistema legado ou em contingência) e conferência
@@ -123,6 +124,21 @@ router.get('/numbering', ...adminOnly, async (_req: AuthRequest, res: Response, 
             externalNumberingSummary(),
         ]);
         res.json({ success: true, data: buildNumberingStatus(emitters, external) });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// GET /api/fiscal/contingency.csv — pacote de contingência (pedidos e viagens em aberto, com os
+// documentos fiscais) para reabrir a operação no sistema legado. `?hub=CODIGO` filtra um hub.
+router.get('/contingency.csv', ...adminOnly, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const hub = typeof req.query.hub === 'string' && req.query.hub.trim() ? req.query.hub.trim().toUpperCase() : undefined;
+        const rows = await loadContingencyRows(hub);
+        const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="contingencia-${hub ?? 'todos'}-${stamp}.csv"`);
+        res.send(toContingencyCsv(rows, CONTINGENCY_COLUMNS));
     } catch (error) {
         next(error);
     }

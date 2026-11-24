@@ -131,6 +131,8 @@ O sistema vende trabalho pronto (tese *service-as-software*), mas chega lá **em
 | 34 | Emissão **no pedido (um toque) e em lote** pela fila "Sem CT-e/minuta"; **nunca duplica** (trava por pedido no preparo + compare-and-swap na emissão) | Dinheiro e fiscal: 2 toques → 1 documento |
 | 35 | **Custódia por volume nos 2 pontos críticos** — carregamento da transferência e descarga no hub destino (esperado 12, conferido 11 não fecha em silêncio e abre exceção); **doca offline-first**; a fila de exceções nasce junto com a custódia | Combinado no início (PLANO-EXECUTAVEL A4/Fase 2) e esquecido no meio — volta aqui |
 | 36 | **Viagem pela volumetria**: o hub monta a carga vendo o estoque em 3D (peso/m³), junta **várias rotas no mesmo veículo** e o sistema mostra quando precisa de **mais um veículo** | A parte da viagem era a mais confusa do legado |
+| 37 | **Convivência com o legado: cada sistema na sua série** (CT-e e MDF-e, por emitente). O TSM guarda o arquivo fiscal do legado (`ExternalFiscalDocument`) e a reserva de número **pula** o que o legado já usou, com alerta crítico | Mesmo CNPJ na SEFAZ: número repetido = rejeição por duplicidade; série separada torna a origem óbvia e elimina a corrida |
+| 38 | **Retaguarda = contingência fria, não espelho diário.** O legado não é alimentado com cada operação (seria digitar duas vezes); recebe cadastros periodicamente e, numa queda, a operação reabre nele a partir do pacote de contingência; o que ele emitir volta ao TSM pelo XML | Dois sistemas de registro = divergência em semanas; o pacote horário fora do servidor cobre a queda sem dupla digitação |
 
 ---
 
@@ -269,9 +271,19 @@ automático, autorização do hub no ciclo da própria viagem. (Detalhe: `docs/s
 - [ ] Sugestões com justificativa (próximo salto, agrupamento, link elegível, risco de prazo); aceitar/alterar vira dado
 
 ### Pré-produção (gate de go-live)
-- [ ] Cifrar `LLMApiKey.apiKey` (AES-256-GCM)
-- [ ] Guard `NODE_ENV` no seed
-- [ ] Revisar JWT, rate limiting, logs estruturados, health checks reais
+> Runbook completo: [docs/PRODUCAO_GO_LIVE.md](docs/PRODUCAO_GO_LIVE.md).
+- [x] Cifrar `LLMApiKey.apiKey` (AES-256-GCM)
+- [x] Guard `NODE_ENV` no seed
+- [x] JWT com algoritmo fixo e **sessão revogável** (`tokenVersion`: troca/reset de senha, sair de todos, desativar); senha nova forte
+- [x] Rate limit no Redis (compartilhado entre réplicas), logs JSON por requisição, `/api/health` com banco + worker
+- [x] Trilha de auditoria (`AuditLog`): toda escrita autenticada, login e leituras sensíveis
+- [x] Alerta de operação por webhook (erro 500, queda de processo, `SystemAlert` crítico, backup)
+- [x] Backup para fora do servidor: banco cifrado a cada hora, arquivos com histórico, teste de restauração semanal, backup antes de toda migração; worker alerta se parar
+- [x] Deploy de produção só da `main`, com aprovação, imagem por SHA, migração que falha para o deploy, saúde conferida
+- [x] Convivência fiscal com o legado: arquivo fiscal externo + reserva de número que nunca colide + virada para produção conferida
+- [x] Pacote de contingência (o que está em aberto) a cada hora para fora do servidor
+- [ ] Servidor dedicado de produção, destino externo do backup e webhook configurados (infra — checklist no runbook)
+- [ ] Restauração completa ensaiada com tempo medido
 
 ### Regras de execução
 - Uma etapa/item por vez; **nada avança porque o software ficou pronto** — avança com uso real e ganho medido.

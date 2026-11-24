@@ -1,7 +1,7 @@
 name: Deploy Production
 
 on:
-  # ⚠️ Deploy de produção é MANUAL — vá em Actions → Deploy Production → Run workflow
+  # ⚠️ Deploy de produção é MANUAL — Actions → Deploy Production → Run workflow (a partir da main)
   workflow_dispatch:
     inputs:
       confirm:
@@ -13,21 +13,31 @@ env:
   IMAGE_PREFIX: ghcr.io/${{ github.repository }}
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
-jobs:
-  quality:
-    uses: ./.github/workflows/quality.yml
+# Um deploy de produção por vez; um segundo espera (nunca cancela um em andamento no meio da migração).
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
 
+jobs:
   validate:
-    name: Validar confirmação
+    name: Validar confirmação e branch
     runs-on: ubuntu-latest
     steps:
-      - name: Checar confirmação
+      - name: Checar confirmação e branch
         run: |
           if [ "${{ github.event.inputs.confirm }}" != "DEPLOY" ]; then
             echo "❌ Confirmação inválida. Digite DEPLOY para prosseguir."
             exit 1
           fi
-          echo "✅ Confirmado. Iniciando build de produção..."
+          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "❌ Produção só sai da main (pedido: ${{ github.ref }})."
+            exit 1
+          fi
+          echo "✅ Confirmado: main @ ${{ github.sha }}"
+
+  quality:
+    needs: validate
+    uses: ./.github/workflows/quality.yml
 
   build-and-push:
     name: Build & Push Production Images
@@ -58,8 +68,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       # API: sem cache-from do registry — evita reutilizar layer antiga de dist quando o contexto
-      # não invalida como esperado (sintoma: API sobe com código compilado antigo, ex.: 403 do HUB
-      # mesmo após o fix). Mesma mitigação aplicada no staging.yml.
+      # não invalida como esperado (sintoma: API sobe com código compilado antigo).
       - name: Build & Push API
         uses: docker/build-push-action@v5
         with:
@@ -95,10 +104,24 @@ jobs:
           cache-from: type=registry,ref=${{ env.IMAGE_PREFIX }}/tsmex-migrate:latest
           cache-to: type=inline
 
+      - name: Build & Push Backup
+        uses: docker/build-push-action@v5
+        with:
+          context: docker/backup
+          file: docker/backup/Dockerfile
+          push: true
+          pull: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/tsmex-backup:latest
+            ${{ env.IMAGE_PREFIX }}/tsmex-backup:${{ steps.vars.outputs.SHA_TAG }}
+
   deploy-production:
     name: Deploy to Production
     needs: build-and-push
     runs-on: ubuntu-latest
+    # Ambiente "production" no GitHub (Settings → Environments): exige aprovação de quem estiver
+    # em Required reviewers e guarda os secrets de produção.
+    environment: production
 
     steps:
       - name: Deploy to Production via SSH
@@ -107,54 +130,115 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 30m
           script: |
             set -euo pipefail
+            TAG="${{ needs.build-and-push.outputs.sha_tag }}"
+            PREFIX="${{ env.IMAGE_PREFIX }}"
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            docker pull ${{ env.IMAGE_PREFIX }}/tsmex-api:latest
-            docker pull ${{ env.IMAGE_PREFIX }}/tsmex-web:latest
-            docker pull ${{ env.IMAGE_PREFIX }}/tsmex-migrate:latest
+            for img in tsmex-api tsmex-web tsmex-migrate tsmex-backup; do docker pull "$PREFIX/$img:$TAG"; done
 
             STACK_PREFIX=tsmexomni-prod
             API_SVC=${STACK_PREFIX}_api
             WEB_SVC=${STACK_PREFIX}_web
             MIGRATE_SVC=${STACK_PREFIX}_migrate
             WORKER_SVC=${STACK_PREFIX}_worker
+            BACKUP_SVC=${STACK_PREFIX}_backup
 
-            for svc in "$API_SVC" "$WEB_SVC" "$MIGRATE_SVC" "$WORKER_SVC"; do
+            for svc in "$API_SVC" "$WEB_SVC" "$MIGRATE_SVC" "$WORKER_SVC" "$BACKUP_SVC"; do
               if ! docker service inspect "$svc" >/dev/null 2>&1; then
                 echo "❌ Serviço não encontrado: $svc"
-                echo "Serviços disponíveis no Swarm:"
                 docker service ls
-                echo "Ação necessária: criar o stack '$STACK_PREFIX' no Portainer com docker-stack.prod.yml e as envs de docs/STACK_ENV_MATRIX.md (ver docs/STACK_ROLLOUT_RUNBOOK.md)."
+                echo "Ação: criar/atualizar o stack '$STACK_PREFIX' no Portainer com docker-stack.prod.yml e as envs de docs/STACK_ENV_MATRIX.md (ver docs/PRODUCAO_GO_LIVE.md)."
                 exit 1
               fi
             done
 
-            docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-migrate:latest --with-registry-auth --force "$MIGRATE_SVC"
+            # Guarda: DATABASE_URL com host curto "postgres" pode resolver para o Postgres de OUTRO
+            # stack na rede compartilhada ProxyGM (já aconteceu com o Redis). Exige o nome qualificado.
+            DB_HOST=$(docker service inspect "$API_SVC" --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' | sed -n 's#^DATABASE_URL=postgres[a-z]*://[^@]*@\([^:/]*\).*#\1#p' | head -1)
+            if [ "$DB_HOST" != "${STACK_PREFIX}_postgres" ]; then
+              echo "❌ DATABASE_URL do api aponta para o host '$DB_HOST'. Use ${STACK_PREFIX}_postgres (ver docs/STACK_ENV_MATRIX.md)."
+              exit 1
+            fi
 
-            echo "Aguardando migração de produção concluir..."
-            sleep 5
-            for i in $(seq 1 60); do
-              LAST_STATE=$(docker service ps "$MIGRATE_SVC" --no-trunc --format '{{.CurrentState}}' 2>/dev/null | head -1)
-              if echo "$LAST_STATE" | grep -qE 'Failed|Rejected|Error'; then
-                echo "❌ Migração de produção falhou. Estado: $LAST_STATE"
-                docker service ps "$MIGRATE_SVC" --no-trunc
-                echo "--- Logs do migrate (últimas 200 linhas) ---"
-                docker service logs "$MIGRATE_SVC" --tail 200 --raw 2>&1 || true
-                exit 1
-              fi
-              if ! echo "$LAST_STATE" | grep -qE 'Running|Preparing|Starting'; then
-                echo "Migração de produção concluída. Estado: $LAST_STATE"
-                break
-              fi
+            # Versão em produção ANTES do deploy (para o rollback exato).
+            PREV_API=$(docker service inspect "$API_SVC" --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}' | sed 's/@.*//')
+            PREV_WEB=$(docker service inspect "$WEB_SVC" --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}' | sed 's/@.*//')
+            echo "Em produção agora: api=$PREV_API web=$PREV_WEB"
+
+            # 1) Imagem nova do backup e backup do banco ANTES de migrar (falhou = não migra).
+            docker service update -q --image "$PREFIX/tsmex-backup:$TAG" --with-registry-auth "$BACKUP_SVC" >/dev/null
+            BACKUP_CID=""
+            for i in $(seq 1 24); do
+              BACKUP_CID=$(docker ps --filter "label=com.docker.swarm.service.name=$BACKUP_SVC" --filter status=running --format '{{.ID}}' | head -1)
+              [ -n "$BACKUP_CID" ] && break
               sleep 5
             done
+            if [ -z "$BACKUP_CID" ]; then echo "❌ Serviço de backup não está rodando — deploy interrompido antes da migração."; exit 1; fi
+            echo "Backup pré-migração..."
+            docker exec "$BACKUP_CID" /usr/local/bin/backup.sh once
 
-            # REDIS_URL com o nome de serviço Swarm qualificado, não o alias curto "redis": esse
-            # alias colide com o de OUTROS stacks deste host na rede compartilhada ProxyGM (já
-            # causou o `api` de staging resolver pro Redis de outro cliente, silenciosamente).
-            # Não é secret — sempre reaplicado, mesmo padrão do fix equivalente em staging.yml.
-            docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-api:latest --env-add "REDIS_URL=redis://${STACK_PREFIX}_redis:6379" --with-registry-auth --force "$API_SVC"
-            docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-api:latest --env-add "REDIS_URL=redis://${STACK_PREFIX}_redis:6379" --with-registry-auth --force "$WORKER_SVC"
-            docker service update -d --image ${{ env.IMAGE_PREFIX }}/tsmex-web:latest --with-registry-auth --force "$WEB_SVC"
-            echo "Produção deploy OK: ${{ needs.build-and-push.outputs.sha_tag }}"
+            # 2) Migração; falha OU tempo esgotado = para aqui (api/web antigos seguem no ar).
+            docker service update -d --image "$PREFIX/tsmex-migrate:$TAG" --with-registry-auth --force "$MIGRATE_SVC"
+            echo "Aguardando a migração..."
+            sleep 10
+            MIGRATED=""
+            for i in $(seq 1 90); do
+              LAST_STATE=$(docker service ps "$MIGRATE_SVC" --filter desired-state=shutdown --filter desired-state=running --no-trunc --format '{{.Image}} {{.CurrentState}}' | grep -F "tsmex-migrate:$TAG" | head -1 || true)
+              if echo "$LAST_STATE" | grep -qE 'Failed|Rejected|Error'; then
+                echo "❌ Migração falhou. Estado: $LAST_STATE"
+                docker service ps "$MIGRATE_SVC" --no-trunc
+                docker service logs "$MIGRATE_SVC" --tail 200 --raw 2>&1 || true
+                echo "Banco: o backup pré-migração está no destino externo (postgres/hourly). Ver docs/PRODUCAO_GO_LIVE.md §Restauração."
+                exit 1
+              fi
+              if echo "$LAST_STATE" | grep -q 'Complete'; then MIGRATED=1; echo "Migração concluída."; break; fi
+              sleep 5
+            done
+            if [ -z "$MIGRATED" ]; then
+              echo "❌ A migração não terminou em 7,5 min. Nada além do migrate foi atualizado."
+              docker service ps "$MIGRATE_SVC" --no-trunc
+              docker service logs "$MIGRATE_SVC" --tail 100 --raw 2>&1 || true
+              exit 1
+            fi
+
+            # 3) Segredos fiscais de produção a partir do GitHub (Environment production): o painel do
+            # Portainer já perdeu variáveis ao recriar stack. Só reaplica o que estiver cadastrado.
+            EXTRA_ENV_ARGS=(--env-add "REDIS_URL=redis://${STACK_PREFIX}_redis:6379")
+            add_env() { [ -n "$2" ] && EXTRA_ENV_ARGS+=(--env-add "$1=$2") || true; }
+            add_env ACBR_CLIENT_ID_PRODUCAO "${{ secrets.ACBR_CLIENT_ID_PRODUCAO }}"
+            add_env ACBR_CLIENT_SECRET_PRODUCAO "${{ secrets.ACBR_CLIENT_SECRET_PRODUCAO }}"
+            add_env EFRETE_PRODUCAO_USUARIO "${{ secrets.EFRETE_PRODUCAO_USUARIO }}"
+            add_env EFRETE_PRODUCAO_SENHA "${{ secrets.EFRETE_PRODUCAO_SENHA }}"
+            add_env EFRETE_PRODUCAO_INTEGRADOR "${{ secrets.EFRETE_PRODUCAO_INTEGRADOR }}"
+            add_env EFRETE_PRODUCAO_INTEGRADOR_CNPJ "${{ secrets.EFRETE_PRODUCAO_INTEGRADOR_CNPJ }}"
+            add_env OPS_ALERT_WEBHOOK_URL "${{ secrets.OPS_ALERT_WEBHOOK_URL }}"
+            add_env OPS_ALERT_WEBHOOK_TOKEN "${{ secrets.OPS_ALERT_WEBHOOK_TOKEN }}"
+
+            # 4) Worker, API e web na imagem exata do commit (tag por SHA = rollback exato).
+            docker service update -d --image "$PREFIX/tsmex-api:$TAG" "${EXTRA_ENV_ARGS[@]}" --with-registry-auth "$WORKER_SVC"
+            docker service update -d --image "$PREFIX/tsmex-api:$TAG" "${EXTRA_ENV_ARGS[@]}" --with-registry-auth "$API_SVC"
+            docker service update -d --image "$PREFIX/tsmex-web:$TAG" --with-registry-auth "$WEB_SVC"
+
+            # 5) Pronto de verdade: /api/health 200 (banco + worker) pela URL pública.
+            echo "Aguardando /api/health..."
+            HEALTHY=""
+            for i in $(seq 1 36); do
+              CODE=$(curl -s -o /tmp/tsmex-health.json -w '%{http_code}' https://tsmex.com.br/api/health || echo 000)
+              RUNNING_API=$(docker service ps "$API_SVC" --filter desired-state=running --format '{{.Image}} {{.CurrentState}}' | grep -F "tsmex-api:$TAG" | grep -c Running || true)
+              if [ "$CODE" = "200" ] && [ "$RUNNING_API" -ge 1 ]; then HEALTHY=1; break; fi
+              sleep 5
+            done
+            if [ -z "$HEALTHY" ]; then
+              echo "❌ A API nova não ficou saudável em 3 min (último HTTP $CODE)."
+              cat /tmp/tsmex-health.json 2>/dev/null || true
+              docker service ps "$API_SVC" --no-trunc | head -n 8
+              echo "Rollback (código; o banco já está migrado — migrações são só para frente):"
+              echo "  docker service update --image $PREV_API --with-registry-auth $API_SVC"
+              echo "  docker service update --image $PREV_API --with-registry-auth $WORKER_SVC"
+              echo "  docker service update --image $PREV_WEB --with-registry-auth $WEB_SVC"
+              exit 1
+            fi
+            cat /tmp/tsmex-health.json; echo
+            echo "✅ Produção deploy OK: $TAG (antes: $PREV_API)"

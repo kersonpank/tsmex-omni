@@ -48,7 +48,10 @@ O servidor estará disponível em `http://localhost:3001`
 
 ## Credenciais de Teste
 
-| Role | Email | Senha |
+Só no banco **local de desenvolvimento** (seed com `NODE_ENV` diferente de `production`). Em staging/produção o seed recusa
+senhas fracas e não cria usuários de demonstração; o admin inicial usa `SEED_ADMIN_PASSWORD`.
+
+| Role | Email | Senha (só dev local) |
 |------|-------|-------|
 | Admin | admin@tsmex.com.br | admin123 |
 | Client | cliente@exemplo.com.br | cliente123 |
