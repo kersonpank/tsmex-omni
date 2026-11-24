@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import { newPasswordSchema } from '../lib/passwordPolicy.js';
 import bcrypt from 'bcryptjs';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -53,7 +54,7 @@ const addHubUserSchema = z.object({
     document: z.string().min(1, 'Documento (CPF/CNPJ) é obrigatório'),
     legalName: z.string().min(1, 'Nome ou razão social é obrigatório'),
     email: z.string().email('Email inválido'),
-    password: z.string().min(6, 'Senha deve ter no mínimo 6 caracteres'),
+    password: newPasswordSchema,
     permissions: z.array(z.string()).optional().default([]),
 });
 

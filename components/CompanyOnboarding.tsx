@@ -903,7 +903,7 @@ const CompanyOnboarding: React.FC = () => {
                                     </label>
                                     <input
                                         type="password"
-                                        placeholder="Mínimo 6 caracteres"
+                                        placeholder="Mínimo 10 caracteres, com letras e números"
                                         className="w-full p-4 bg-tower-50 dark:bg-tower-800 border-2 border-tower-100 dark:border-tower-700 rounded-2xl focus:border-brand-500 focus:bg-white dark:focus:bg-tower-900 outline-none transition-all font-medium text-tower-900 dark:text-tower-100"
                                         value={adminUser.password}
                                         onChange={e => setAdminUser({ ...adminUser, password: e.target.value })}

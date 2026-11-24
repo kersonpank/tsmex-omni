@@ -1,23 +1,17 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import { signSessionToken } from '../lib/sessionToken.js';
+import { newPasswordSchema } from '../lib/passwordPolicy.js';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, AuthRequest } from '../middleware/auth.js';
 import { getParamId } from '../lib/routeUtils.js';
 import { consultCNPJ } from '../services/cnpjService.js';
 import { fetchBrasilApiCnpj } from '../services/intake/publicCnpjParty.js';
-import { JWT_ALGORITHM } from '../lib/jwtConfig.js';
 import { resolveIbgeCode } from '../services/acbr/acbrIbge.js';
 
 // Generate JWT token helper
-function generateToken(userId: string): string {
-    const secret = process.env.JWT_SECRET;
-    if (!secret) throw new AppError('JWT secret not configured', 500);
-    const expiresIn = process.env.JWT_EXPIRES_IN || '7d';
-    return jwt.sign({ userId }, secret, { expiresIn, algorithm: JWT_ALGORITHM } as jwt.SignOptions);
-}
 
 const router = Router();
 
@@ -56,7 +50,7 @@ const onboardingSchema = z.object({
     // Admin user
     adminUser: z.object({
         email: z.string().email('Invalid email'),
-        password: z.string().min(6, 'Password must be at least 6 characters'),
+        password: newPasswordSchema,
         name: z.string().min(1, 'User name is required'),
     }),
     
@@ -85,7 +79,7 @@ const addCompanySchema = z.object({
 
 const addUserSchema = z.object({
     email: z.string().email('Invalid email'),
-    password: z.string().min(6, 'Password must be at least 6 characters'),
+    password: newPasswordSchema,
     name: z.string().min(1, 'User name is required'),
     cpf: z.string().optional().transform(v => v ? normalizeDocument(v) : undefined),
     accountCompanyId: z.string().uuid().optional(),
@@ -336,7 +330,7 @@ router.post('/onboarding', async (req, res: Response, next: NextFunction) => {
         });
         
         // Generate token for immediate login
-        const token = generateToken(result.user.id);
+        const token = signSessionToken(result.user);
         
         res.status(201).json({
             success: true,

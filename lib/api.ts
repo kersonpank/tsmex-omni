@@ -1377,6 +1377,36 @@ export const usersApi = {
         const response = await api.patch<ApiResponse<any>>(`/users/${userId}/permissions`, { permissions });
         return response.data;
     },
+    /** ADMIN define senha provisória; todas as sessões do usuário caem. */
+    resetPassword: async (userId: string, password: string) => {
+        const response = await api.post<ApiResponse<void>>(`/users/${userId}/reset-password`, { password });
+        return response.data;
+    },
+    /** ADMIN encerra todas as sessões do usuário (aparelho perdido, desligamento). */
+    revokeSessions: async (userId: string) => {
+        const response = await api.post<ApiResponse<void>>(`/users/${userId}/revoke-sessions`);
+        return response.data;
+    },
+    /** ADMIN ativa/desativa o acesso (desativar também encerra as sessões). */
+    setActive: async (userId: string, active: boolean) => {
+        const response = await api.patch<ApiResponse<{ id: string; email: string; active: boolean }>>(`/users/${userId}/active`, { active });
+        return response.data;
+    },
+};
+
+// ========== CONTA (própria sessão) ==========
+
+export const accountSecurityApi = {
+    /** Troca a própria senha; as outras sessões caem e volta um token novo para esta. */
+    changePassword: async (currentPassword: string, newPassword: string) => {
+        const response = await api.post<ApiResponse<{ token: string }>>('/auth/change-password', { currentPassword, newPassword });
+        return response.data;
+    },
+    /** Encerra todas as sessões do próprio usuário, inclusive esta. */
+    logoutAll: async () => {
+        const response = await api.post<ApiResponse<void>>('/auth/logout-all');
+        return response.data;
+    },
 };
 
 // ========== CLIENTS API (Admin) ==========

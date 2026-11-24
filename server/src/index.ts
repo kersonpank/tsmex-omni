@@ -45,6 +45,8 @@ import { installProcessErrorHandlers } from './lib/processHandlers.js';
 import { createJsonBodyParser } from './middleware/bodyLimits.js';
 import { applyRateLimits } from './middleware/rateLimit.js';
 import { requestLogger } from './middleware/requestLogger.js';
+import { auditTrail } from './middleware/auditTrail.js';
+import { auditLogRouter } from './routes/auditLog.js';
 import { createRateLimitRedis } from './lib/redis.js';
 import { fiscalSecretsGuard } from './lib/fiscalSecrets.js';
 import { manifestAverbacaoRouter } from './routes/manifestAverbacao.js';
@@ -94,6 +96,8 @@ app.use(createJsonBodyParser());
 app.use(fiscalSecretsGuard); // nenhuma resposta leva senha de AT&M/certificado
 // Produção: log JSON por requisição (sem query/corpo). Dev: morgan colorido.
 app.use(process.env.NODE_ENV === 'production' ? requestLogger() : morgan('dev'));
+// Trilha de auditoria (quem mudou o quê). Desligável só por AUDIT_LOG_DISABLED=true.
+if (process.env.AUDIT_LOG_DISABLED !== 'true') app.use(auditTrail());
 
 // Health check
 app.get('/health', (req, res) => {
@@ -145,6 +149,7 @@ app.use('/api/nf-species', nfSpeciesRouter);
 app.use('/api/nfe', nfeRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/reports', reportsRouter);
+app.use('/api/audit-log', auditLogRouter);
 
 // Error handler
 app.use(errorHandler);

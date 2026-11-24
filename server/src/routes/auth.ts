@@ -1,11 +1,11 @@
 import { Router, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
 import { z } from 'zod';
+import { signSessionToken } from '../lib/sessionToken.js';
+import { newPasswordSchema } from '../lib/passwordPolicy.js';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
-import { JWT_ALGORITHM } from '../lib/jwtConfig.js';
 import { verifyLinkInvite } from '../services/linkInvite.js';
 
 const router = Router();
@@ -13,7 +13,9 @@ const router = Router();
 // Validation schemas
 const registerSchema = z.object({
     email: z.string().trim().toLowerCase().email('Invalid email'),
-    password: z.string().min(6, 'Password must be at least 6 characters'),
+    // Conta existente prova a senha ATUAL (pode ser antiga/fraca) para ganhar papel; a regra de
+    // senha nova vale só quando o usuário é criado (checada logo antes do hash).
+    password: z.string().min(1, 'Password is required'),
     role: z.enum(['ADMIN', 'CLIENT', 'LINK']),
     // Client-specific fields
     companyName: z.string().optional(),
@@ -47,19 +49,6 @@ function inferDocumentType(doc: string): 'CPF' | 'CNPJ' {
 // Hash descartável (mesmo custo do cadastro) usado quando o usuário não existe.
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync('dummy-password-for-timing', 10);
 
-// Generate JWT token
-function generateToken(userId: string): string {
-    const secret = process.env.JWT_SECRET;
-    if (!secret) throw new AppError('JWT secret not configured', 500);
-
-    const expiresIn = process.env.JWT_EXPIRES_IN || '7d';
-
-    return jwt.sign(
-        { userId },
-        secret,
-        { expiresIn, algorithm: JWT_ALGORITHM } as jwt.SignOptions
-    );
-}
 
 // POST /api/auth/register
 const register = async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -123,7 +112,7 @@ const register = async (req: AuthRequest, res: Response, next: NextFunction) => 
             if (provision) {
                 return res.status(201).json({ success: true, data: { id: user.id, email: user.email, roles: user.roles } });
             }
-            const token = generateToken(user.id);
+            const token = signSessionToken(user);
             const payload: { user: { id: string; email: string; roles: string[] }; token: string; linkId?: string } = {
                 user: { id: user.id, email: user.email, roles: user.roles },
                 token,
@@ -133,7 +122,7 @@ const register = async (req: AuthRequest, res: Response, next: NextFunction) => 
             return res.status(201).json({ success: true, data: payload });
         }
 
-        const hashedPassword = await bcrypt.hash(data.password, 10);
+        const hashedPassword = await bcrypt.hash(newPasswordSchema.parse(data.password), 10);
 
         const user = await prisma.$transaction(async (tx) => {
             const newUser = await tx.user.create({
@@ -304,7 +293,7 @@ const register = async (req: AuthRequest, res: Response, next: NextFunction) => 
         if (provision) {
             return res.status(201).json({ success: true, data: { id: user.id, email: user.email, roles: user.roles } });
         }
-        const token = generateToken(user.id);
+        const token = signSessionToken(user);
         const payload: { user: { id: string; email: string; roles: string[] }; token: string; linkId?: string } = {
             user: { id: user.id, email: user.email, roles: user.roles },
             token,
@@ -331,13 +320,14 @@ router.post('/provision', authenticate, authorize('ADMIN'), register);
 
 router.post('/claim-link', async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const data = z.object({ token: z.string().min(1), email: z.string().trim().toLowerCase().email(), password: z.string().min(6) }).parse(req.body);
+        const data = z.object({ token: z.string().min(1), email: z.string().trim().toLowerCase().email(), password: z.string().min(1) }).parse(req.body);
         const linkId = verifyLinkInvite(data.token);
         const existing = await prisma.user.findUnique({ where: { email: data.email }, include: { link: true } });
         if (existing && (!await bcrypt.compare(data.password, existing.password) || existing.link)) {
             throw new AppError('Esta conta já existe. Confirme a senha correta ou use outro email sem perfil Link.', 409);
         }
-        const hashedPassword = existing ? undefined : await bcrypt.hash(data.password, 10);
+        // Conta existente prova a senha atual; conta nova segue a regra de senha.
+        const hashedPassword = existing ? undefined : await bcrypt.hash(newPasswordSchema.parse(data.password), 10);
         const user = await prisma.$transaction(async (tx) => {
             const link = await tx.link.findUnique({ where: { id: linkId }, select: { userId: true, approvalStatus: true, active: true } });
             if (!link || link.userId || link.approvalStatus !== 'APPROVED' || !link.active) throw new AppError('Convite indisponível ou já utilizado.', 409);
@@ -348,7 +338,7 @@ router.post('/claim-link', async (req: AuthRequest, res: Response, next: NextFun
             if (claimed.count !== 1) throw new AppError('Convite já utilizado.', 409);
             return claimedUser;
         });
-        res.status(201).json({ success: true, data: { user: { id: user.id, email: user.email, roles: user.roles }, token: generateToken(user.id), linkId } });
+        res.status(201).json({ success: true, data: { user: { id: user.id, email: user.email, roles: user.roles }, token: signSessionToken(user), linkId } });
     } catch (error) { next(error); }
 });
 
@@ -401,7 +391,7 @@ router.post('/login', async (req, res: Response, next: NextFunction) => {
             throw new AppError('Invalid credentials', 401);
         }
 
-        const token = generateToken(user.id);
+        const token = signSessionToken(user);
 
         // Build profile for each role (multi-conta)
         const profile: Record<string, any> = {};
@@ -504,6 +494,38 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response, next: Ne
                 hubOnboarding: user.hubOnboarding,
             }
         });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// POST /api/auth/change-password — troca a própria senha; derruba as outras sessões e devolve token novo.
+router.post('/change-password', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const data = z.object({ currentPassword: z.string().min(1), newPassword: newPasswordSchema }).parse(req.body);
+        const user = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { id: true, password: true } });
+        if (!user || !(await bcrypt.compare(data.currentPassword, user.password))) {
+            throw new AppError('Senha atual incorreta.', 400);
+        }
+        if (await bcrypt.compare(data.newPassword, user.password)) {
+            throw new AppError('A nova senha precisa ser diferente da atual.', 400);
+        }
+        const updated = await prisma.user.update({
+            where: { id: user.id },
+            data: { password: await bcrypt.hash(data.newPassword, 10), tokenVersion: { increment: 1 } },
+            select: { id: true, tokenVersion: true },
+        });
+        res.json({ success: true, data: { token: signSessionToken(updated) }, message: 'Senha alterada. Outras sessões foram encerradas.' });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// POST /api/auth/logout-all — encerra todas as sessões do próprio usuário (celular perdido, senha vazada).
+router.post('/logout-all', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        await prisma.user.update({ where: { id: req.user!.id }, data: { tokenVersion: { increment: 1 } } });
+        res.json({ success: true, message: 'Todas as sessões foram encerradas.' });
     } catch (error) {
         next(error);
     }

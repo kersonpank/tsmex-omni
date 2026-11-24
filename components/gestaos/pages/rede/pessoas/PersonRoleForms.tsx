@@ -47,7 +47,7 @@ export const ClientAccountForm: React.FC<RoleProps> = ({ person, onDone }) => {
                 <Field label="Nome do contato" error={errors.contactName}><TextInput value={values.contactName} onChange={(e) => set('contactName', e.target.value)} /></Field>
                 <Field label="Telefone" error={errors.phone}><TextInput inputMode="tel" placeholder="(11) 99999-9999" value={formatPhone(values.phone)} onChange={(e) => set('phone', e.target.value.replace(/\D/g, '').slice(0, 11))} /></Field>
                 <Field label="E-mail (login)" error={errors.email}><TextInput type="email" autoComplete="off" value={values.email} onChange={(e) => set('email', e.target.value)} /></Field>
-                <Field label="Senha" error={errors.password} hint="Mínimo de 6 caracteres."><TextInput type="password" autoComplete="new-password" value={values.password} onChange={(e) => set('password', e.target.value)} /></Field>
+                <Field label="Senha" error={errors.password} hint="Mínimo de 10 caracteres, com letras e números."><TextInput type="password" autoComplete="new-password" value={values.password} onChange={(e) => set('password', e.target.value)} /></Field>
             </FormGrid>
             <Actions busyKey="role:client" busy={busy} label="Criar conta de cliente" onCancel={onDone} />
         </form>
@@ -65,7 +65,7 @@ export const LinkRoleForm: React.FC<RoleProps> = ({ person, onDone }) => {
         if (!values.name.trim()) found.name = 'Informe o nome.';
         if (!values.phone.trim()) found.phone = 'Informe o telefone.';
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email.trim())) found.email = 'Informe um e-mail válido.';
-        if (values.password.length < 6) found.password = 'A senha precisa de ao menos 6 caracteres.';
+        if (values.password.length < 10) found.password = 'A senha precisa de ao menos 10 caracteres, com letras e números.';
         if (!values.vehicleTypeId) found.vehicleTypeId = 'Escolha o tipo de veículo.';
         if (!values.vehiclePlate) found.vehiclePlate = 'Informe a placa.';
         if (!values.homeBase.trim()) found.homeBase = 'Informe a cidade base.';
@@ -85,7 +85,7 @@ export const LinkRoleForm: React.FC<RoleProps> = ({ person, onDone }) => {
                 <Field label="Nome" error={errors.name}><TextInput value={values.name} onChange={(e) => set('name', e.target.value)} /></Field>
                 <Field label="Telefone" error={errors.phone}><TextInput inputMode="tel" placeholder="(11) 99999-9999" value={formatPhone(values.phone)} onChange={(e) => set('phone', e.target.value.replace(/\D/g, '').slice(0, 11))} /></Field>
                 <Field label="E-mail (login)" error={errors.email}><TextInput type="email" autoComplete="off" value={values.email} onChange={(e) => set('email', e.target.value)} /></Field>
-                <Field label="Senha" error={errors.password} hint="Mínimo de 6 caracteres."><TextInput type="password" autoComplete="new-password" value={values.password} onChange={(e) => set('password', e.target.value)} /></Field>
+                <Field label="Senha" error={errors.password} hint="Mínimo de 10 caracteres, com letras e números."><TextInput type="password" autoComplete="new-password" value={values.password} onChange={(e) => set('password', e.target.value)} /></Field>
                 <div>
                     <span className="gx-label mb-1.5 block">Tipo de veículo</span>
                     <VehicleTypeSelect value={values.vehicleTypeId || null} invalid={Boolean(errors.vehicleTypeId)} onChange={(id) => set('vehicleTypeId', id ?? '')} />
@@ -111,7 +111,7 @@ export const HubOperatorRoleForm: React.FC<RoleProps> = ({ person, onDone }) => 
         const found: Record<string, string> = {};
         if (!values.hubId) found.hubId = 'Escolha o hub.';
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email.trim())) found.email = 'Informe um e-mail válido.';
-        if (values.password.length < 6) found.password = 'A senha precisa de ao menos 6 caracteres.';
+        if (values.password.length < 10) found.password = 'A senha precisa de ao menos 10 caracteres, com letras e números.';
         form.clearErrors();
         for (const [k, m] of Object.entries(found)) form.setError(k as keyof typeof values, m);
         if (Object.keys(found).length) return;
@@ -140,7 +140,7 @@ export const HubOperatorRoleForm: React.FC<RoleProps> = ({ person, onDone }) => 
                     </SelectInput>
                 </Field>
                 <Field label="E-mail (login)" error={errors.email}><TextInput type="email" autoComplete="off" value={values.email} onChange={(e) => set('email', e.target.value)} /></Field>
-                <Field label="Senha" error={errors.password} hint="Mínimo de 6 caracteres."><TextInput type="password" autoComplete="new-password" value={values.password} onChange={(e) => set('password', e.target.value)} /></Field>
+                <Field label="Senha" error={errors.password} hint="Mínimo de 10 caracteres, com letras e números."><TextInput type="password" autoComplete="new-password" value={values.password} onChange={(e) => set('password', e.target.value)} /></Field>
                 <div className={`${FULL_ROW} flex flex-wrap gap-x-5 gap-y-2`} role="group" aria-label="Permissões">
                     {HUB_PERMISSIONS.map((perm) => (
                         <React.Fragment key={perm.id}><Checkbox label={perm.label} checked={values.permissions.includes(perm.id)} onChange={(c) => set('permissions', c ? [...values.permissions, perm.id] : values.permissions.filter((id) => id !== perm.id))} /></React.Fragment>

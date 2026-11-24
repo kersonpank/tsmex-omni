@@ -1550,7 +1550,7 @@ function AddClientModal({ person, onClose, onSuccess }: { person: Person; onClos
           </div>
           <div>
             <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Senha</label>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100" required minLength={6} />
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-700 text-tower-900 dark:text-tower-100" required minLength={10} />
           </div>
           <div>
             <label className="block text-sm font-medium text-tower-700 dark:text-tower-300 mb-1">Nome do contato</label>

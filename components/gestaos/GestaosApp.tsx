@@ -91,6 +91,10 @@ const UserMenu: React.FC = () => {
                         <span>Gestão clássica</span>
                         <IconArrowUpRight size={15} className="gx-muted" />
                     </Link>
+                    <Link role="menuitem" to="/hubs/conta" className="gx-row flex items-center justify-between gap-3">
+                        <span>Senha e sessões</span>
+                        <IconArrowUpRight size={15} className="gx-muted" />
+                    </Link>
                     <button role="menuitem" type="button" className="gx-row gx-red-text flex items-center justify-between gap-3" onClick={() => logout()}>
                         <span>Sair</span>
                         <IconLogout size={15} />

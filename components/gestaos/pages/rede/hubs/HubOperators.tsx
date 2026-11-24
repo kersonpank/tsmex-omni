@@ -8,6 +8,7 @@ import { Button, EmptyState, Field, Loadable, Pill, Skeleton, TextInput } from '
 import { useAction } from '../../../ui/overlay';
 import { PersonPicker, type PersonSummary } from '../../../ui/pickers';
 import { isEmail } from '../../../lib/redeCadastro';
+import { UserAccessActions } from '../../../ui/UserAccessActions';
 
 interface HubUser {
     id: string;
@@ -59,6 +60,7 @@ const OperatorRow: React.FC<{ user: HubUser }> = ({ user }) => {
                     <Button size="sm" onClick={() => setEditing(true)}>Editar permissões</Button>
                 </div>
             )}
+            {!editing ? <UserAccessActions user={user} resourcePrefix="hubs:operators:" /> : null}
         </li>
     );
 };
@@ -73,7 +75,7 @@ interface OperatorValues {
 const rules: Rules<OperatorValues> = {
     person: { required: 'Escolha a pessoa (busque por nome ou CPF/CNPJ).' },
     email: { required: 'Informe o e-mail de login.', check: (v) => (!isEmail(v) ? 'E-mail inválido.' : null) },
-    password: { required: 'Informe a senha.', minLength: 6, message: 'A senha precisa de ao menos 6 caracteres.' },
+    password: { required: 'Informe a senha.', minLength: 10, message: 'A senha precisa de ao menos 10 caracteres, com letras e números.' },
 };
 
 const AddOperator: React.FC<{ hub: Hub; onDone: () => void }> = ({ hub, onDone }) => {
@@ -107,7 +109,7 @@ const AddOperator: React.FC<{ hub: Hub; onDone: () => void }> = ({ hub, onDone }
                 <Field label="E-mail (login)" error={errors.email}>
                     <TextInput type="email" autoComplete="off" value={values.email} onChange={(e) => set('email', e.target.value)} />
                 </Field>
-                <Field label="Senha" error={errors.password} hint="Mínimo de 6 caracteres.">
+                <Field label="Senha" error={errors.password} hint="Mínimo de 10 caracteres, com letras e números.">
                     <TextInput type="password" autoComplete="new-password" value={values.password} onChange={(e) => set('password', e.target.value)} />
                 </Field>
                 <div className={FULL_ROW}>

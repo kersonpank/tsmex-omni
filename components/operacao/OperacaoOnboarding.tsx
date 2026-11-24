@@ -122,7 +122,7 @@ const OperacaoOnboarding: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-tower-700 mb-1">Senha</label>
-                <input type="password" value={registerForm.password} onChange={(e) => setRegisterForm((f) => ({ ...f, password: e.target.value }))} className="w-full px-4 py-2 border border-tower-200 dark:border-tower-700 rounded-xl" minLength={6} placeholder="Mínimo 6 caracteres" required />
+                <input type="password" value={registerForm.password} onChange={(e) => setRegisterForm((f) => ({ ...f, password: e.target.value }))} className="w-full px-4 py-2 border border-tower-200 dark:border-tower-700 rounded-xl" minLength={10} placeholder="Mínimo 10 caracteres, com letras e números" required />
               </div>
               <div>
                 <label className="block text-sm font-medium text-tower-700 mb-1">Número WhatsApp</label>

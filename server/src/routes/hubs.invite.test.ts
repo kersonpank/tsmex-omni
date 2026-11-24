@@ -44,7 +44,7 @@ describe('hubs — cadastro público só com convite assinado', () => {
         await new Promise<void>((resolve) => server?.close(() => resolve()));
     });
 
-    const body = { document: '12345678909', legalName: 'Operador', email: 'o@x.com', password: 'secreta1' };
+    const body = { document: '12345678909', legalName: 'Operador', email: 'o@x.com', password: 'Secreta2026x' };
     const register = (extra: object) =>
         fetch(`${baseUrl}/hubs/${HUB}/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, ...extra }) });
 

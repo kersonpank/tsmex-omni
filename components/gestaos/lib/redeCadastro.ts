@@ -280,7 +280,7 @@ export function clientErrors(values: { contactName: string; phone: string; email
 
 export function accountErrors(values: { email: string; password: string; contactName: string; phone: string }) {
     const errors = clientErrors(values) as Partial<Record<'contactName' | 'phone' | 'email' | 'password', string>>;
-    if (values.password.length < 6) errors.password = 'A senha precisa de ao menos 6 caracteres.';
+    if (values.password.length < 10) errors.password = 'A senha precisa de ao menos 10 caracteres, com letras e números.';
     return errors;
 }
 

@@ -4,6 +4,7 @@ import { AppError } from './errorHandler.js';
 import prisma from '../lib/prisma.js';
 import { UserRole } from '@prisma/client';
 import { JWT_ALGORITHM } from '../lib/jwtConfig.js';
+import { isSessionCurrent } from '../lib/sessionToken.js';
 import { hasOperationalPermission } from '../lib/operationalPermissions.js';
 
 export interface AuthRequest extends Request {
@@ -35,7 +36,7 @@ export const authenticate = async (
             throw new AppError('JWT secret not configured', 500);
         }
 
-        const decoded = jwt.verify(token, secret, { algorithms: [JWT_ALGORITHM] }) as { userId: string };
+        const decoded = jwt.verify(token, secret, { algorithms: [JWT_ALGORITHM] }) as { userId: string; tv?: number };
 
         const user = await prisma.user.findUnique({
             where: { id: decoded.userId },
@@ -44,6 +45,7 @@ export const authenticate = async (
                 email: true,
                 roles: true,
                 active: true,
+                tokenVersion: true,
                 hubId: true,
                 permissions: true,
                 admin: { select: { id: true } },
@@ -54,6 +56,10 @@ export const authenticate = async (
 
         if (!user || !user.active) {
             throw new AppError('User not found or inactive', 401);
+        }
+        // Sessão revogada (troca/reset de senha, "sair de todos", desativação): token antigo morre.
+        if (!isSessionCurrent(decoded, user.tokenVersion ?? 0)) {
+            throw new AppError('Sessão encerrada. Entre novamente.', 401);
         }
 
         let roles = user.roles ?? [];

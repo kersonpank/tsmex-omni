@@ -1,7 +1,8 @@
 import React from 'react';
-import { NavLink, Route, Routes, useNavigate } from 'react-router-dom';
+import { NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import { OsProvider, useOs } from './OsContext';
+import { useAuthStore } from '../../store/authStore';
 import TodayPage from './pages/TodayPage';
 import ReceivePage from './pages/ReceivePage';
 import TripReceivePage from './pages/TripReceivePage';
@@ -15,6 +16,7 @@ import CoveragePage from './pages/CoveragePage';
 import TripPrepPage from './pages/trip/TripPrepPage';
 import CarrierPage from './pages/carrier/CarrierPage';
 import ExceptionsPage from './pages/ExceptionsPage';
+import AccountPage from './pages/AccountPage';
 import { OsEmpty, OsRow, OsSectionTitle } from './ui/kit';
 import { IconAlert, IconDay, IconDeliver, IconReceive, IconTag, IconTower, IconTruck, type OsIconProps } from './ui/icons';
 
@@ -55,7 +57,9 @@ const HubPicker: React.FC = () => {
 
 const OsShell: React.FC = () => {
     const { hubId, hub, isAdmin, selectHub, exceptions } = useOs();
+    const user = useAuthStore((s) => s.user);
     const navigate = useNavigate();
+    const location = useLocation();
 
     return (
         <div className="min-h-screen bg-tower-50 text-tower-900 dark:bg-tower-950 dark:text-white">
@@ -80,6 +84,7 @@ const OsShell: React.FC = () => {
                             </span>
                         </span>
                     </button>
+                    <div className="flex shrink-0 items-center gap-2">
                     {isAdmin ? (
                         <button
                             type="button"
@@ -94,11 +99,22 @@ const OsShell: React.FC = () => {
                             {hubId ? 'trocar hub' : 'torre'}
                         </button>
                     ) : null}
+                    <button
+                        type="button"
+                        onClick={() => navigate('/hubs/conta')}
+                        title="Conta: senha e sessões"
+                        aria-label="Conta"
+                        className="flex h-9 w-9 items-center justify-center rounded-lg text-[15px] font-bold text-tower-500 active:bg-tower-100 dark:text-tower-300 dark:active:bg-tower-800"
+                    >
+                        {(user?.email ?? '?').slice(0, 1).toUpperCase()}
+                    </button>
+                    </div>
                 </div>
             </header>
 
             <main className="mx-auto max-w-xl px-4 pb-28 pt-2">
-                {!hubId && isAdmin ? (
+                {/* Conta é da pessoa, não do hub: abre mesmo antes de a torre escolher o hub. */}
+                {!hubId && isAdmin && !location.pathname.endsWith('/conta') ? (
                     <HubPicker />
                 ) : (
                     <Routes>
@@ -115,6 +131,7 @@ const OsShell: React.FC = () => {
                         <Route path="entregar" element={<DeliverPage />} />
                         <Route path="cobertura" element={<CoveragePage />} />
                         <Route path="excecoes" element={<ExceptionsPage />} />
+                        <Route path="conta" element={<AccountPage />} />
                     </Routes>
                 )}
             </main>

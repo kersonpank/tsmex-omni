@@ -1,5 +1,6 @@
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import { newPasswordSchema } from '../lib/passwordPolicy.js';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { Prisma } from '@prisma/client';
@@ -38,14 +39,14 @@ const asDriverSchema = z.object({ linkId: z.string().min(1).optional() });
 
 const addClientSchema = z.object({
     email: z.string().email('Email inválido'),
-    password: z.string().min(6, 'Senha deve ter no mínimo 6 caracteres'),
+    password: newPasswordSchema,
     contactName: z.string().min(1, 'Nome do contato é obrigatório'),
     phone: z.string().min(1, 'Telefone é obrigatório'),
 });
 
 const addLinkSchema = z.object({
     email: z.string().email('Email inválido'),
-    password: z.string().min(6, 'Senha deve ter no mínimo 6 caracteres'),
+    password: newPasswordSchema,
     name: z.string().min(1, 'Nome é obrigatório'),
     phone: z.string().min(1, 'Telefone é obrigatório'),
     vehicleTypeId: z.string().uuid(),
@@ -56,7 +57,7 @@ const addLinkSchema = z.object({
 const addHubUserSchema = z.object({
     hubId: z.string().uuid('Hub é obrigatório'),
     email: z.string().email('Email inválido'),
-    password: z.string().min(6, 'Senha deve ter no mínimo 6 caracteres'),
+    password: newPasswordSchema,
     permissions: z.array(z.string()).optional().default([]),
 });
 

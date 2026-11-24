@@ -50,8 +50,8 @@ const HubCadastro: React.FC = () => {
       setError('As senhas não coincidem.');
       return;
     }
-    if (form.password.length < 6) {
-      setError('A senha deve ter no mínimo 6 caracteres.');
+    if (form.password.length < 10) {
+      setError('A senha deve ter no mínimo 10 caracteres, com letras e números.');
       return;
     }
     setFormSaving(true);
@@ -166,8 +166,8 @@ const HubCadastro: React.FC = () => {
               value={form.password}
               onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
               className="w-full px-4 py-2 border border-tower-200 dark:border-tower-700 rounded-xl"
-              minLength={6}
-              placeholder="Mínimo 6 caracteres"
+              minLength={10}
+              placeholder="Mínimo 10 caracteres, com letras e números"
               required
             />
           </div>
@@ -178,7 +178,7 @@ const HubCadastro: React.FC = () => {
               value={form.confirmPassword}
               onChange={(e) => setForm((f) => ({ ...f, confirmPassword: e.target.value }))}
               className="w-full px-4 py-2 border border-tower-200 dark:border-tower-700 rounded-xl"
-              minLength={6}
+              minLength={10}
               required
             />
           </div>

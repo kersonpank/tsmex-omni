@@ -208,7 +208,7 @@ function AddHubOperatorModal({
               onChange={(e) => setPassword(e.target.value)}
               className="w-full border border-tower-300 dark:border-tower-600 rounded-lg px-3 py-2 bg-white dark:bg-tower-800 text-tower-900 dark:text-tower-100"
               required
-              minLength={6}
+              minLength={10}
             />
           </div>
           <div className="flex gap-2 justify-end pt-2">
