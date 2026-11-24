@@ -78,7 +78,9 @@ beforeEach(() => {
             findFirst: async () => null,
             create: async ({ data }: any) => { created.push(data); return { id: `doc-${created.length}` }; },
         },
-        fiscalEmitter: { update: async () => ({ lastMdfeNumber: ++lastNumber, mdfeSeries: 1 }) },
+        fiscalEmitter: { update: async () => ({ lastMdfeNumber: ++lastNumber, mdfeSeries: 1, environment: 'HOMOLOGACAO', person: { document: '12345678000195' } }) },
+        // Nenhum número do legado na série: a reserva não pula nada.
+        externalFiscalDocument: { findFirst: async () => null },
     })) as any;
     globalThis.fetch = (async (url: string) => {
         const body = String(url).includes('oauth') || String(url).includes('token') ? { access_token: 't', expires_in: 3600 } : {};

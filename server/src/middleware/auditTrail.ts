@@ -3,6 +3,8 @@ import prisma from '../lib/prisma.js';
 
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const AUTH_PREFIX = '/api/auth/';
+/** Leituras que também entram na trilha: entregam segredo ou dado em massa. */
+const SENSITIVE_READS = [/\/certificate-download$/, /^\/api\/audit-log/, /^\/api\/reports\//, /^\/api\/fiscal\/contingency/];
 
 export interface AuditEntry {
     actorUserId: string | null;
@@ -23,8 +25,8 @@ const defaultWriter: AuditWriter = (entry) => prisma.auditLog.create({ data: ent
 
 /** Monta a linha de auditoria; `null` quando a requisição não é auditada. Exportado para teste. */
 export function buildAuditEntry(req: Request, res: Response): AuditEntry | null {
-    if (!WRITE_METHODS.has(req.method)) return null;
     const path = (req.originalUrl || req.url || '').split('?')[0];
+    if (!WRITE_METHODS.has(req.method) && !SENSITIVE_READS.some((re) => re.test(path))) return null;
     if (!path.startsWith('/api/')) return null;
     const user = (req as Request & { user?: { id?: string; roles?: string[] } }).user;
     const isAuth = path.startsWith(AUTH_PREFIX);

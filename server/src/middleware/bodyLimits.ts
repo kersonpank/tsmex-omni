@@ -15,6 +15,7 @@ const LARGE_BODY_ROUTES: Array<{ method: string; re: RegExp }> = [
     { method: 'POST', re: new RegExp(`^/api/fiscal-emitters/${ID}/certificate/?$`) },
     { method: 'POST', re: new RegExp(`^/api/links/${ID}/drivers/${ID}/photo/?$`) },
     { method: 'POST', re: new RegExp(`^/api/intake/demands/${ID}/nfe-xml/?$`) },
+    { method: 'POST', re: /^\/api\/fiscal\/external-documents\/import\/?$/ },
 ];
 
 export function isLargeBodyRoute(method: string, path: string): boolean {

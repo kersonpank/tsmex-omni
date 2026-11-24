@@ -215,6 +215,9 @@ export interface FiscalEmitter {
     crt?: string | null;
     cteSeries: number;
     lastCteNumber: number;
+    /** MDF-e (mod. 58): série e último número emitido pelo emitente. */
+    mdfeSeries?: number;
+    lastMdfeNumber?: number;
     lastDceNumber: number;
     lastMinutaNumber: number;
     /** Ambiente ACBr usado por CT-e/MDF-e. */

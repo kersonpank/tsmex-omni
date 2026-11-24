@@ -100,6 +100,8 @@ const fiscalEmitterShape = z.object({
     lastMinutaNumber: z.number().int().min(0).optional(),
     /** Ambiente ACBr para CT-e/MDF-e. */
     environment: z.enum(['HOMOLOGACAO', 'PRODUCAO']).optional(),
+    /** Virada para PRODUCAO: a torre confirma que conferiu série e último número (não é gravado). */
+    confirmProductionNumbering: z.boolean().optional(),
     /** Ambiente e-Frete para CIOT, independente do ACBr. */
     efreteEnvironment: z.enum(['HOMOLOGACAO', 'PRODUCAO']).optional(),
     provider: z.enum(['SIMULATED', 'ACBR', 'NUVEM_FISCAL', 'FOCUS_NFE', 'TECNOSPEED', 'PLUGNOTAS', 'OTHER']).optional(),
@@ -128,6 +130,32 @@ const fiscalEmitterShape = z.object({
     /** Peso e valor da carga no MDF-e (e peso no encerramento do CIOT): totais da viagem ou soma dos pedidos. */
     mdfeCargoTotalsSource: z.enum(['TRIP_COUNTER', 'ORDER_REAL_WEIGHT']).optional(),
 });
+
+/**
+ * Numeração em produção (convivência com o legado, mesmo CNPJ na SEFAZ):
+ * - virar para PRODUCAO exige `confirmProductionNumbering` — o contador vem da homologação e a
+ *   série precisa ser exclusiva do TSM;
+ * - em PRODUCAO o último número só anda para frente (voltar reusaria número já autorizado).
+ */
+export function assertProductionNumberingChange(
+    current: { environment: string; lastCteNumber: number; lastMdfeNumber: number; cteSeries: number; mdfeSeries: number },
+    data: { environment?: string; confirmProductionNumbering?: boolean; lastCteNumber?: number; lastMdfeNumber?: number; cteSeries?: number; mdfeSeries?: number },
+): void {
+    const turningOn = data.environment === 'PRODUCAO' && current.environment !== 'PRODUCAO';
+    if (turningOn && data.confirmProductionNumbering !== true) {
+        throw new AppError('Para passar para produção, confira a série e o último número de CT-e e MDF-e e marque a confirmação.', 400);
+    }
+    const inProduction = (data.environment ?? current.environment) === 'PRODUCAO' && !turningOn;
+    if (!inProduction) return;
+    const sameCteSeries = (data.cteSeries ?? current.cteSeries) === current.cteSeries;
+    const sameMdfeSeries = (data.mdfeSeries ?? current.mdfeSeries) === current.mdfeSeries;
+    if (sameCteSeries && data.lastCteNumber !== undefined && data.lastCteNumber < current.lastCteNumber) {
+        throw new AppError(`Em produção o último CT-e não pode voltar (atual ${current.lastCteNumber}).`, 400);
+    }
+    if (sameMdfeSeries && data.lastMdfeNumber !== undefined && data.lastMdfeNumber < current.lastMdfeNumber) {
+        throw new AppError(`Em produção o último MDF-e não pode voltar (atual ${current.lastMdfeNumber}).`, 400);
+    }
+}
 
 /** Separa a senha AT&M (cifrada com sealSecret) do restante; vazia não altera o valor gravado. */
 function splitAtmPassword<T extends { atmPassword?: string }>(data: T): { rest: Omit<T, 'atmPassword'>; atmPasswordEncrypted?: string } {
@@ -351,8 +379,10 @@ router.post('/', authenticate, authorize('ADMIN'), async (req: AuthRequest, res:
     try {
         const data = fiscalEmitterSchema.parse(req.body);
         await assertPersonAndHub(data);
+        // Criar já em produção passa pela mesma conferência de numeração da virada.
+        assertProductionNumberingChange({ environment: 'HOMOLOGACAO', lastCteNumber: 0, lastMdfeNumber: 0, cteSeries: 1, mdfeSeries: 1 }, data);
 
-        const { provider, providerEmitterId, providerStatus, ...restCreateRaw } = data;
+        const { provider, providerEmitterId, providerStatus, confirmProductionNumbering: _confirm, ...restCreateRaw } = data;
         const { rest: restCreate, atmPasswordEncrypted } = splitAtmPassword(restCreateRaw);
         const emitter = await prisma.fiscalEmitter.create({
             data: {
@@ -399,8 +429,10 @@ router.patch('/:id', authenticate, authorize('ADMIN'), async (req: AuthRequest, 
         if (data.personId || data.hubId !== undefined) {
             await assertPersonAndHub({ personId: data.personId ?? current.personId, hubId: data.hubId ?? null });
         }
+        assertProductionNumberingChange(current, data);
 
-        const { rest: patchData, atmPasswordEncrypted } = splitAtmPassword(data);
+        const { confirmProductionNumbering: _confirm, ...withoutConfirm } = data;
+        const { rest: patchData, atmPasswordEncrypted } = splitAtmPassword(withoutConfirm);
         const emitter = await prisma.fiscalEmitter.update({
             where: { id },
             data: { ...patchData, ...(atmPasswordEncrypted ? { atmPasswordEncrypted } : {}) },

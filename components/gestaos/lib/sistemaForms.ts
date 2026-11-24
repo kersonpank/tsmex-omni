@@ -17,6 +17,10 @@ export interface EmitterForm {
     crt: string;
     cteSeries: number;
     lastCteNumber: number;
+    mdfeSeries: number;
+    lastMdfeNumber: number;
+    /** Virada para produção: a torre confirma que conferiu série e último número com o legado. */
+    confirmProductionNumbering: boolean;
     lastDceNumber: number;
     lastMinutaNumber: number;
     environment: FiscalEnvironment;
@@ -57,6 +61,9 @@ export const emptyEmitterForm = (): EmitterForm => ({
     crt: '1',
     cteSeries: 1,
     lastCteNumber: 0,
+    mdfeSeries: 1,
+    lastMdfeNumber: 0,
+    confirmProductionNumbering: false,
     lastDceNumber: 0,
     lastMinutaNumber: 0,
     environment: 'HOMOLOGACAO',
@@ -98,6 +105,9 @@ export function emitterToForm(e: FiscalEmitter): EmitterForm {
         crt: e.crt ?? '',
         cteSeries: e.cteSeries ?? 1,
         lastCteNumber: e.lastCteNumber ?? 0,
+        mdfeSeries: e.mdfeSeries ?? 1,
+        lastMdfeNumber: e.lastMdfeNumber ?? 0,
+        confirmProductionNumbering: false,
         lastDceNumber: e.lastDceNumber ?? 0,
         lastMinutaNumber: e.lastMinutaNumber ?? 0,
         environment: e.environment,
@@ -142,6 +152,9 @@ export function buildEmitterPayload(form: EmitterForm, person?: Pick<Person, 'tr
         crt: form.crt || null,
         cteSeries: Number(form.cteSeries) || 1,
         lastCteNumber: nonNegative(form.lastCteNumber),
+        mdfeSeries: Number(form.mdfeSeries) || 1,
+        lastMdfeNumber: nonNegative(form.lastMdfeNumber),
+        ...(form.confirmProductionNumbering ? { confirmProductionNumbering: true } : {}),
         lastDceNumber: nonNegative(form.lastDceNumber),
         lastMinutaNumber: nonNegative(form.lastMinutaNumber),
         environment: form.environment,
@@ -168,8 +181,15 @@ export function buildEmitterPayload(form: EmitterForm, person?: Pick<Person, 'tr
     };
 }
 
-export function validateEmitterForm(form: EmitterForm): Record<string, string> {
+/**
+ * `previousEnvironment`: ambiente gravado hoje (emitente existente). Virar para produção exige a
+ * confirmação da numeração: o contador é o mesmo da homologação e a série precisa ser só do TSM.
+ */
+export function validateEmitterForm(form: EmitterForm, previousEnvironment?: FiscalEnvironment): Record<string, string> {
     const errors: Record<string, string> = {};
+    if (form.environment === 'PRODUCAO' && previousEnvironment !== 'PRODUCAO' && !form.confirmProductionNumbering) {
+        errors.confirmProductionNumbering = 'Confira a série e o último número de CT-e e MDF-e antes de passar para produção.';
+    }
     if (!form.personId) errors.personId = 'Escolha o CNPJ do emitente.';
     const insurer = onlyDigits(form.cargoInsurerCnpj);
     if (insurer && insurer.length !== 14) errors.cargoInsurerCnpj = 'O CNPJ da seguradora precisa ter 14 dígitos.';

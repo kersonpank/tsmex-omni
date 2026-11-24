@@ -12,6 +12,7 @@ test('grava escrita autenticada com rota-padrão e id; ignora GET e escrita anô
     const manifests = Router();
     manifests.patch('/:id/complete', fakeAuth, (_req, res) => res.json({ ok: true }));
     manifests.get('/:id', fakeAuth, (_req, res) => res.json({ ok: true }));
+    app.get('/api/fiscal-emitters/:id/certificate-download', fakeAuth, (_req, res) => res.json({ ok: true }));
     app.use('/api/manifests', manifests);
     app.post('/api/accounts/onboarding', (_req, res) => res.status(201).json({ ok: true }));
     app.post('/api/auth/login', (_req, res) => res.status(401).json({ ok: false }));
@@ -21,10 +22,14 @@ test('grava escrita autenticada com rota-padrão e id; ignora GET e escrita anô
     try {
         await fetch(`${base}/api/manifests/m-1/complete?x=1`, { method: 'PATCH' });
         await fetch(`${base}/api/manifests/m-1`);
+        await fetch(`${base}/api/fiscal-emitters/e-1/certificate-download`);
         await fetch(`${base}/api/accounts/onboarding`, { method: 'POST' });
         await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: ' Fulano@T.io ', password: 'nao-vai-pro-log' }) });
         await new Promise((r) => setTimeout(r, 30));
-        assert.equal(entries.length, 2);
+        assert.equal(entries.length, 3);
+        const cert = entries.find((e) => e.path.endsWith('/certificate-download'));
+        assert.equal(cert?.entityId, 'e-1');
+        entries.splice(entries.indexOf(cert!), 1);
         assert.deepEqual(
             { route: entries[0].route, path: entries[0].path, entityId: entries[0].entityId, actor: entries[0].actorUserId, status: entries[0].status },
             { route: '/api/manifests/:id/complete', path: '/api/manifests/m-1/complete', entityId: 'm-1', actor: 'u-9', status: 200 },

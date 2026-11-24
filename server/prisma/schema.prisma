@@ -2571,6 +2571,8 @@ enum SystemAlertCategory {
   OPERATIONAL_STOCK_AGING
   OPERATIONAL_TRIP_LATE
   OPERATIONAL_UNROUTED
+  /// Número de CT-e/MDF-e que o TSM ia usar já existe no arquivo do legado (mesma série): foi pulado.
+  FISCAL_NUMBERING_CONFLICT
   GENERIC
 }
 
@@ -2830,3 +2832,54 @@ model AuditLog {
   @@index([actorUserId, createdAt])
   @@index([entityId])
 }
+
+enum ExternalFiscalModel {
+  CTE
+  MDFE
+}
+
+enum ExternalFiscalStatus {
+  AUTHORIZED
+  CANCELLED
+  /// MDF-e encerrado
+  CLOSED
+}
+
+/// Documento fiscal emitido FORA do TSM com os nossos CNPJs (histórico do sistema legado e o que for
+/// emitido nele durante uma contingência). Só leitura: serve de arquivo (XML autorizado guardado no
+/// banco, coberto pelo backup) e de trava de numeração — o TSM nunca reusa número/série que já
+/// existe aqui. A verdade fiscal é o XML; os campos são extraídos dele.
+model ExternalFiscalDocument {
+  id                String               @id @default(uuid())
+  model             ExternalFiscalModel
+  /// Chave de 44 dígitos (DV conferido na importação).
+  accessKey         String               @unique
+  emitterCnpj       String
+  series            Int
+  number            Int
+  issuedAt          DateTime
+  environment       FiscalEnvironment
+  status            ExternalFiscalStatus @default(AUTHORIZED)
+  authorizationCStat Int?
+  protocol          String?
+  authorizedAt      DateTime?
+  /// vTPrest do CT-e (valor da prestação); nulo no MDF-e.
+  totalValue        Decimal?             @db.Decimal(14, 2)
+  senderDocument    String?
+  recipientDocument String?
+  takerDocument     String?
+  /// XML autorizado (cteProc/mdfeProc) exatamente como recebido.
+  xml               String               @db.Text
+  xmlSha256         String
+  /// Eventos aplicados (cancelamento, encerramento, CC-e): [{ tpEvento, nSeqEvento, cStat, protocol, at, xmlSha256 }].
+  events            Json                 @default("[]")
+  sourceSystem      String               @default("LEGADO")
+  sourceNote        String?
+  importedByUserId  String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@index([emitterCnpj, model, series, number])
+  @@index([issuedAt])
+}
+

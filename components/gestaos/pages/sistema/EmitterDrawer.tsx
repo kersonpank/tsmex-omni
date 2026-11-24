@@ -85,7 +85,7 @@ export const EmitterDrawer: React.FC<{ open: boolean; emitter: FiscalEmitter | n
     };
 
     const save = async () => {
-        const found = validateEmitterForm(v);
+        const found = validateEmitterForm(v, emitter?.environment);
         const certIssue = certificateProblem(certFile, certPassword);
         setCertProblem(certIssue);
         setErrors(found);
@@ -212,8 +212,21 @@ export const EmitterDrawer: React.FC<{ open: boolean; emitter: FiscalEmitter | n
                 <FormSection title="Numerações" hint="Último número emitido; o próximo sai com o seguinte." cols={2}>
                     <Field label="Série do CT-e"><NumberInput value={v.cteSeries} onChange={(n) => set('cteSeries', n ?? 1)} min={1} aria-label="Série do CT-e" /></Field>
                     <Field label="Último CT-e"><NumberInput value={v.lastCteNumber} onChange={(n) => set('lastCteNumber', n ?? 0)} min={0} aria-label="Último CT-e" /></Field>
+                    <Field label="Série do MDF-e"><NumberInput value={v.mdfeSeries} onChange={(n) => set('mdfeSeries', n ?? 1)} min={1} aria-label="Série do MDF-e" /></Field>
+                    <Field label="Último MDF-e"><NumberInput value={v.lastMdfeNumber} onChange={(n) => set('lastMdfeNumber', n ?? 0)} min={0} aria-label="Último MDF-e" /></Field>
                     <Field label="Último DC-e"><NumberInput value={v.lastDceNumber} onChange={(n) => set('lastDceNumber', n ?? 0)} min={0} aria-label="Último DC-e" /></Field>
                     <Field label="Última minuta"><NumberInput value={v.lastMinutaNumber} onChange={(n) => set('lastMinutaNumber', n ?? 0)} min={0} aria-label="Última minuta" /></Field>
+                    {v.environment === 'PRODUCAO' && emitter?.environment !== 'PRODUCAO' ? (
+                        <div className="col-span-full">
+                            <Checkbox
+                                checked={v.confirmProductionNumbering}
+                                onChange={(c) => set('confirmProductionNumbering', c)}
+                                label="Conferi a série e o último número de CT-e e MDF-e para produção"
+                                hint="O contador vem da homologação. Use uma série só do TSM (o legado fica na dele) e confira o último número em Sistema → Numeração fiscal."
+                            />
+                            {errors.confirmProductionNumbering ? <p className="gx-red-text mt-1 text-[13px]">{errors.confirmProductionNumbering}</p> : null}
+                        </div>
+                    ) : null}
                 </FormSection>
 
                 <FormSection title="Identidade e impressão" hint="Aparece no DACTE e nos impressos.">

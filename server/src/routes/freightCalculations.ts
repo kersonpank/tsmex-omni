@@ -1,6 +1,7 @@
 import { persistDerivedCteCfop } from '../services/fiscal/cteCfopPersistence.js';
 import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import { reserveSkippingExternal } from '../services/fiscal/external/externalNumbering.js';
 import type { FreightCalcStatus, Prisma } from '@prisma/client';
 import prisma from '../lib/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -1173,9 +1174,15 @@ const emitCteHandler = (correctRejected: boolean) => async (req: AuthRequest, re
 
         let numero: number;
         try {
-            numero = calc.fiscalEmitterId
-                ? await getNextFiscalEmitterCteNumber(calc.fiscalEmitterId)
-                : await getNextCteNumber(hub.id);
+            // Pula número que o legado já usou na mesma série/CNPJ (convivência): reusar = duplicidade na SEFAZ.
+            const fiscalEmitterId = calc.fiscalEmitterId;
+            const reserveNumber = fiscalEmitterId
+                ? () => getNextFiscalEmitterCteNumber(fiscalEmitterId)
+                : () => getNextCteNumber(hub.id);
+            numero = (await reserveSkippingExternal(
+                { cnpj: cteBaseInput.person.document, model: 'CTE', series: serie, environment: ambiente },
+                reserveNumber,
+            )).number;
         } catch (error) {
             // Não houve submissão nem criação de job; devolve a reserva para uma nova tentativa.
             await prisma.orderFreightCalculation.updateMany({

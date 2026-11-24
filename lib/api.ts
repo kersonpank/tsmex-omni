@@ -1394,6 +1394,69 @@ export const usersApi = {
     },
 };
 
+// ========== ARQUIVO FISCAL EXTERNO (legado/contingência) e NUMERAÇÃO ==========
+
+export type ExternalImportResult =
+    | 'created' | 'duplicate' | 'own-document' | 'event-applied' | 'event-duplicate' | 'event-orphan' | 'rejected';
+
+export interface ExternalFiscalDocumentRow {
+    id: string;
+    model: 'CTE' | 'MDFE';
+    accessKey: string;
+    emitterCnpj: string;
+    series: number;
+    number: number;
+    issuedAt: string;
+    environment: 'PRODUCAO' | 'HOMOLOGACAO';
+    status: 'AUTHORIZED' | 'CANCELLED' | 'CLOSED';
+    protocol: string | null;
+    totalValue: string | null;
+    takerDocument: string | null;
+    sourceSystem: string;
+}
+
+export interface NumberingSeriesRow {
+    model: 'CTE' | 'MDFE';
+    series: number;
+    tsmLastNumber: number;
+    legacyLastNumber: number | null;
+    legacyLastIssuedAt: string | null;
+    legacyCount: number;
+    warnings: Array<'SAME_SERIES_AS_LEGACY' | 'LEGACY_AHEAD' | 'LEGACY_ACTIVE_RECENTLY'>;
+}
+
+export interface EmitterNumberingStatus {
+    emitterId: string;
+    name: string;
+    cnpj: string;
+    environment: 'PRODUCAO' | 'HOMOLOGACAO';
+    cte: NumberingSeriesRow;
+    mdfe: NumberingSeriesRow;
+    legacySeries: Array<{ model: 'CTE' | 'MDFE'; series: number; lastNumber: number; lastIssuedAt: string | null; count: number }>;
+}
+
+export const externalFiscalApi = {
+    importXml: async (files: Array<{ name: string; xml: string }>, sourceNote?: string) => {
+        const response = await api.post<ApiResponse<{ counts: Partial<Record<ExternalImportResult, number>>; results: Array<{ result: ExternalImportResult; name?: string; accessKey?: string; reason?: string }> }>>(
+            '/fiscal/external-documents/import',
+            { files, ...(sourceNote ? { sourceNote } : {}) },
+        );
+        return response.data;
+    },
+    list: async (params: { q?: string; model?: 'CTE' | 'MDFE'; page?: number; pageSize?: number }) => {
+        const response = await api.get<ApiResponse<ExternalFiscalDocumentRow[]> & { total: number; page: number; pageSize: number }>('/fiscal/external-documents', { params });
+        return response.data;
+    },
+    downloadXml: async (accessKey: string) => {
+        const response = await api.get<Blob>(`/fiscal/external-documents/${accessKey}/xml`, { responseType: 'blob' });
+        return response.data;
+    },
+    numbering: async () => {
+        const response = await api.get<ApiResponse<EmitterNumberingStatus[]>>('/fiscal/numbering');
+        return response.data;
+    },
+};
+
 // ========== CONTA (própria sessão) ==========
 
 export const accountSecurityApi = {

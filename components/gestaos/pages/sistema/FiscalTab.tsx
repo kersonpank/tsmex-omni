@@ -10,6 +10,7 @@ import { Button, EmptyState, Loadable, Panel, Pill, Skeleton } from '../../ui/ki
 import { useAction } from '../../ui/overlay';
 import { EmitterDrawer } from './EmitterDrawer';
 import { QueueHealth } from './QueueHealth';
+import { ExternalArchivePanel, NumberingPanel } from './ExternalFiscalPanels';
 
 const emitterName = (e: FiscalEmitter) => e.displayName || e.tradeName || e.person?.tradeName || e.person?.legalName || 'Emitente sem nome';
 
@@ -124,7 +125,9 @@ export const FiscalTab: React.FC = () => {
                     setOpen(true);
                 }}
             />
+            <NumberingPanel />
             <NfeTriagePanel emitters={emitters.data ?? []} />
+            <ExternalArchivePanel />
             <QueueHealth />
             <EmitterDrawer open={open} emitter={editing} onClose={() => setOpen(false)} />
         </div>

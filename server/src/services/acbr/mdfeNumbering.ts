@@ -2,6 +2,7 @@ import { randomInt } from 'node:crypto';
 import prisma from '../../lib/prisma.js';
 import { AcbrHttpError } from './acbrHttp.js';
 import type { Prisma } from '@prisma/client';
+import { reserveSkippingExternal } from '../fiscal/external/externalNumbering.js';
 
 /** cMDF: código numérico de 8 dígitos do leiaute 3.00, gerado uma vez por MDF-e e persistido junto do documento. */
 export function generateCMdf(): string {
@@ -32,10 +33,28 @@ export function isDefinitiveMdfeRejection(error: unknown): boolean {
 
 /** Reserva (incrementa atomicamente) o próximo nº de MDF-e do emitente. */
 export async function reserveNextMdfeNumber(fiscalEmitterId: string, tx: Prisma.TransactionClient = prisma): Promise<{ nMDF: number; serie: number }> {
-    const emitter = await tx.fiscalEmitter.update({
+    const increment = () => tx.fiscalEmitter.update({
         where: { id: fiscalEmitterId },
         data: { lastMdfeNumber: { increment: 1 } },
-        select: { lastMdfeNumber: true, mdfeSeries: true },
+        select: { lastMdfeNumber: true, mdfeSeries: true, environment: true, person: { select: { document: true } } },
     });
-    return { nMDF: emitter.lastMdfeNumber, serie: emitter.mdfeSeries };
+    const first = await increment();
+    let serie = first.mdfeSeries;
+    let pending: number | null = first.lastMdfeNumber;
+    // Pula número que o legado já usou na mesma série/CNPJ (convivência): reusar = duplicidade na SEFAZ.
+    const { number } = await reserveSkippingExternal(
+        { cnpj: first.person.document, model: 'MDFE', series: first.mdfeSeries, environment: first.environment === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO' },
+        async () => {
+            if (pending !== null) {
+                const n = pending;
+                pending = null;
+                return n;
+            }
+            const next = await increment();
+            serie = next.mdfeSeries;
+            return next.lastMdfeNumber;
+        },
+        tx,
+    );
+    return { nMDF: number, serie };
 }
