@@ -43,11 +43,11 @@ const A = {
     chassi: ['chassi', 'chassis'],
     axles: ['eixos', 'qtd_eixos', 'numero_eixos'],
     tare: ['tara', 'tara_kg'],
-    capacity: ['capacidade', 'capacidade_kg', 'lotacao', 'capacidade_carga'],
+    capacity: ['capacidade', 'capacidade_kg', 'capacidade_kgs', 'lotacao', 'capacidade_carga'],
     brand: ['marca'],
     model: ['modelo'],
     year: ['ano', 'ano_fabricacao', 'ano_modelo'],
-    licensedState: ['uf_licenciamento', 'uf_placa', 'licenciamento'],
+    licensedState: ['uf_licenciamento', 'uf_placa', 'licenciamento', 'uf_reg'],
     ownerDocument: ['proprietario_cpf_cnpj', 'cpf_cnpj_proprietario', 'documento_proprietario', 'proprietario_documento'],
     ownerName: ['proprietario', 'nome_proprietario', 'proprietario_nome'],
     phone: ['telefone', 'celular', 'fone', 'whatsapp'],
@@ -72,12 +72,19 @@ function fillGaps<T extends Record<string, unknown>>(current: T, incoming: Parti
     return out;
 }
 
+/** Municípios por UF, lidos uma vez por processo (a carga em massa consulta isso a cada pessoa). */
+const ibgeByState = new Map<string, Map<string, string>>();
+const plain = (v: string) => v.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().trim();
+
 async function cityIbge(city: string, state: string): Promise<string | null> {
     if (!city || !state) return null;
-    const norm = city.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().trim();
-    const candidates = await prisma.city.findMany({ where: { state: { code: state } }, select: { name: true, ibgeCode: true } });
-    const hit = candidates.find((c) => c.name.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().trim() === norm);
-    return hit?.ibgeCode ?? null;
+    let cities = ibgeByState.get(state);
+    if (!cities) {
+        const rows = await prisma.city.findMany({ where: { state: { code: state } }, select: { name: true, ibgeCode: true } });
+        cities = new Map(rows.map((c) => [plain(c.name), c.ibgeCode]));
+        ibgeByState.set(state, cities);
+    }
+    return cities.get(plain(city)) ?? null;
 }
 
 async function importPerson(row: Record<string, string>, line: number, dryRun: boolean): Promise<RowOutcome> {
@@ -120,7 +127,7 @@ async function importPerson(row: Record<string, string>, line: number, dryRun: b
 
 function vehicleRole(value: string): VehicleUnitRole {
     const v = value.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-    return /reboque|carreta|semi|implemento|trailer|dolly/.test(v) ? 'TRAILER' : 'TRACTION';
+    return /reboque|rebq|carreta|semi|implemento|trailer|dolly|bitrem|rodotrem|prancha/.test(v) ? 'TRAILER' : 'TRACTION';
 }
 
 async function importVehicle(row: Record<string, string>, line: number, dryRun: boolean): Promise<RowOutcome> {

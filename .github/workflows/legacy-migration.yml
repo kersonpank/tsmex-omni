@@ -3,7 +3,9 @@ name: Migração do legado
 # Tira o histórico do sistema legado e carrega no TSM, rodando DENTRO do container da API do alvo
 # (staging ou produção): os dados não passam pelo runner do GitHub nem pelo computador de ninguém.
 # Extração é longa (horas): "iniciar" dispara em segundo plano e sai; "andamento" mostra o progresso;
-# "carregar" importa no banco do alvo o que foi baixado. Tudo idempotente e retomável.
+# "carregar" importa no banco do alvo o que foi baixado (só arquiva); "promover" transforma o arquivo em
+# cadastros reais do TSM (pessoas, clientes, veículos, tabelas de preço…), e simula por padrão (`simular`).
+# Tudo idempotente e retomável.
 #
 # Segredos necessários (Settings → Environments → staging / production):
 #   LEGADO_USUARIO, LEGADO_SENHA   login da empresa no legado (só leitura é usada)
@@ -21,11 +23,16 @@ on:
         description: 'O que fazer'
         required: true
         type: choice
-        options: [iniciar, andamento, carregar]
+        options: [iniciar, andamento, carregar, promover]
       jobs:
-        description: 'Só estes jobs (vírgula). Vazio = todos'
+        description: 'Só estes jobs/etapas (vírgula). Vazio = todos'
         required: false
         default: ''
+      simular:
+        description: 'Só para "promover": simular (relatório sem gravar). Desmarque para promover de verdade'
+        required: false
+        type: boolean
+        default: true
 
 concurrency:
   group: legacy-migration-${{ github.event.inputs.alvo }}
@@ -45,11 +52,12 @@ jobs:
           ALVO: ${{ github.event.inputs.alvo }}
           ACAO: ${{ github.event.inputs.acao }}
           SO_JOBS: ${{ github.event.inputs.jobs }}
+          SIMULAR: ${{ github.event.inputs.simular }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: LEGADO_USUARIO,LEGADO_SENHA,LEGADO_CONFIG_B64,ALVO,ACAO,SO_JOBS
+          envs: LEGADO_USUARIO,LEGADO_SENHA,LEGADO_CONFIG_B64,ALVO,ACAO,SO_JOBS,SIMULAR
           command_timeout: 60m
           script: |
             set -euo pipefail
@@ -84,6 +92,15 @@ jobs:
                 docker exec "$CID" sh -c "tail -n 15 $DATA/run.log 2>/dev/null || echo 'sem log ainda'"
                 ;;
               carregar)
-                docker exec $OUT "$CID" node /app/tools/legacy-extract/load.mjs --config "$CONF" --scripts /app/dist/scripts $ONLY
+                # Só arquiva: promover para cadastros é uma ação à parte (com simulação antes).
+                docker exec $OUT "$CID" node /app/tools/legacy-extract/load.mjs --config "$CONF" --scripts /app/dist/scripts --no-promote $ONLY
+                ;;
+              promover)
+                # Relatório linha a linha fica no volume do container (tem CPF/CNPJ: não sai da VPS).
+                REPORT=$DATA/promocao-$(date +%Y%m%d-%H%M%S).csv
+                if [ "$SIMULAR" = "false" ]; then MODE="--only-promote"; else MODE="--dry-run"; fi
+                docker exec $OUT "$CID" node /app/tools/legacy-extract/load.mjs --config "$CONF" --scripts /app/dist/scripts $MODE --report "$REPORT" $ONLY
+                echo "Relatório: $REPORT (dentro do container do worker de $STACK)"
+                if [ "$MODE" = "--dry-run" ]; then echo "Foi SIMULAÇÃO: nada foi gravado. Rode de novo com 'simular' desmarcado para promover."; fi
                 ;;
             esac
