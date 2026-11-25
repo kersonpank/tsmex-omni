@@ -38,6 +38,20 @@ node tools/legacy-extract/extract.mjs status --config tools/legacy-extract/legad
 
 ## Depois de baixar: carregar no TSM
 
+Um comando carrega todos os jobs, com a chave de cada um (`archiveKey`, pode ser composta) e sem a
+linha de totais (`metaKey`):
+
+```bash
+DATABASE_URL=... node tools/legacy-extract/load.mjs --config tools/legacy-extract/legado.config.json
+```
+
+Se num mesmo arquivo a chave se repetir com conteúdo diferente, o importador **recusa** em vez de
+perder linha. Exemplo real: um cliente com várias unidades usa `codigo+documento`, e uma viagem com
+vários MDF-e usa `numero+manifesto`. As respostas do legado vêm em ISO-8859-1. O extrator guarda os
+bytes originais (o sha256 vale como evidência) e o importador converte.
+
+Ou job a job:
+
 ```bash
 node server/dist/scripts/importLegacyArchive.js pedidos  research/legado/extract/pedidos
 node server/dist/scripts/importLegacyArchive.js cotacoes research/legado/extract/cotacoes

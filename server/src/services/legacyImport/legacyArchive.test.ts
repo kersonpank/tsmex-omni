@@ -38,6 +38,22 @@ describe('arquivo do legado', () => {
         assert.deepEqual(t1.data, { numero: 'T-1', situacao: 'pago' });
     });
 
+    it('pula a linha de totais e aceita chave composta', async () => {
+        const rows = [{ totregs: 2, frete: 10 }, { divisao: '9', rota: 'GRU-SLZ', tarifa: 1 }, { divisao: '9', rota: 'GRU-IMP', tarifa: 2 }];
+        const r = await archiveLegacyRows('titulos_teste', rows, { keyColumn: 'divisao+rota', metaKey: 'totregs' });
+        assert.deepEqual([r.total, r.created, r.keyColumn], [2, 2, 'divisao+rota']);
+        assert.ok(await prisma.legacyRecord.findUnique({ where: { entity_legacyKey: { entity: 'titulos_teste', legacyKey: '9|GRU-SLZ' } } }));
+        await prisma.legacyRecord.deleteMany({ where: { entity: 'titulos_teste', legacyKey: { contains: '|' } } });
+    });
+
+    it('recusa chave que não é única (mesma chave, linhas diferentes) em vez de perder linha', async () => {
+        const rows = [{ codigo: '7', documento: '111' }, { codigo: '7', documento: '222' }];
+        await assert.rejects(() => archiveLegacyRows('titulos_teste', rows, { keyColumn: 'codigo' }), /não é única/);
+        const ok = await archiveLegacyRows('titulos_teste', rows, { keyColumn: 'codigo+documento' });
+        assert.equal(ok.created, 2);
+        await prisma.legacyRecord.deleteMany({ where: { entity: 'titulos_teste', legacyKey: { startsWith: '7|' } } });
+    });
+
     it('busca por nome sem acento, por CNPJ com ou sem máscara, e resumo por tipo', async () => {
         assert.equal((await searchLegacyArchive({ q: 'sao joao' })).total, 1);
         assert.equal((await searchLegacyArchive({ q: '11222333000181' })).total, 1);

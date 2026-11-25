@@ -22,10 +22,14 @@ function fmt(y, m, d, format) {
   return format === 'iso' ? `${y}-${pad(m)}-${pad(d)}` : `${pad(d)}/${pad(m)}/${y}`;
 }
 
-export function fill(template, vars) {
+/**
+ * Preenche {variáveis}. `encode` só para segmentos de CAMINHO; valores de query vão crus porque o
+ * executor monta a query com URLSearchParams (que já codifica) — codificar aqui dava %252F.
+ */
+export function fill(template, vars, { encode = false } = {}) {
   return String(template).replace(/\{([a-zA-Z_]+)\}/g, (_, k) => {
     if (!(k in vars)) throw new Error(`Variável {${k}} sem valor`);
-    return encodeURIComponent(vars[k]);
+    return encode ? encodeURIComponent(vars[k]) : String(vars[k]);
   });
 }
 
@@ -34,7 +38,7 @@ export function expandJob(job, extraVars = {}) {
   const base = { ...(job.vars ?? {}), ...extraVars };
   const build = (key, vars) => ({
     key,
-    path: fill(job.path, vars),
+    path: fill(job.path, vars, { encode: true }),
     query: Object.fromEntries(Object.entries(job.query ?? {}).map(([k, v]) => [k, fill(v, vars)])),
   });
   if (job.split?.type === 'months') {

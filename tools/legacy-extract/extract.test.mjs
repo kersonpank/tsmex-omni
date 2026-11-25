@@ -27,7 +27,7 @@ test('guarda: lista fechada, só GET, palavras de ação no caminho, no nome e n
 test('plano: um pedido por mês com datas BR ou ISO', () => {
   assert.equal(monthsBetween('2025-11', '2026-02').length, 4);
   const units = expandJob({ name: 'ctes', path: '/api/cte', query: { de: '{inicio}', ate: '{fim}' }, split: { type: 'months', from: '2024-02', to: '2024-02' } });
-  assert.deepEqual(units, [{ key: '2024-02', path: '/api/cte', query: { de: '01%2F02%2F2024', ate: '29%2F02%2F2024' } }]);
+  assert.deepEqual(units, [{ key: '2024-02', path: '/api/cte', query: { de: '01/02/2024', ate: '29/02/2024' } }]);
 });
 
 test('executor: pagina até vazio, mês a mês, detalhe por id, retoma sem rebaixar e para quando a sessão vence', async () => {
@@ -44,7 +44,11 @@ test('executor: pagina até vazio, mês a mês, detalhe por id, retoma sem rebai
       return res.end(JSON.stringify({ total: 3, dados: p === 1 ? [{ id: 7 }, { id: 8 }] : p === 2 ? [{ id: 9 }] : [] }));
     }
     if (u.pathname.startsWith('/api/viagens/')) return res.end(JSON.stringify({ id: u.pathname.split('/').pop(), itens: [] }));
-    if (u.pathname === '/api/cte') return res.end(JSON.stringify({ lista: [{ chave: u.searchParams.get('de') }] }));
+    if (u.pathname === '/api/cte') {
+      // O servidor tem de receber a data e o filtro JSON exatamente como o legado espera (sem dupla codificação).
+      if (!/^2026-0[1-3]-01$/.test(u.searchParams.get('de') ?? '') || u.searchParams.get('rota') !== '{"codigo":"*"}') { res.writeHead(400); return res.end('parametro'); }
+      return res.end(JSON.stringify({ lista: [{ chave: u.searchParams.get('de') }] }));
+    }
     res.writeHead(404); res.end();
   });
   await new Promise((r) => server.listen(0, r));
@@ -60,7 +64,7 @@ test('executor: pagina até vazio, mês a mês, detalhe por id, retoma sem rebai
     jobs: [
       { name: 'viagens', path: '/api/viagens', format: 'json', listPath: 'dados', paginate: { param: 'pagina', start: 1 } },
       { name: 'viagem_detalhe', path: '/api/viagens/{id}', format: 'json', split: { type: 'ids', fromJob: 'viagens', listPath: 'dados', idField: 'id' } },
-      { name: 'ctes', path: '/api/cte', format: 'json', listPath: 'lista', query: { de: '{inicio}', ate: '{fim}' }, split: { type: 'months', from: '2026-01', to: '2026-03', dateFormat: 'iso' } },
+      { name: 'ctes', path: '/api/cte', format: 'json', listPath: 'lista', query: { de: '{inicio}', ate: '{fim}', rota: '{"codigo":"*"}' }, split: { type: 'months', from: '2026-01', to: '2026-03', dateFormat: 'iso' } },
     ],
   };
   try {

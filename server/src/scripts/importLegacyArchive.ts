@@ -1,7 +1,7 @@
 /**
  * Carga do ARQUIVO do sistema legado (histórico completo, como veio) a partir dos exports dele.
  *
- *   node dist/scripts/importLegacyArchive.js <tipo> <arquivo-ou-pasta> [--key coluna] [--collection caminho.no.json] [--format csv|json]
+ *   node dist/scripts/importLegacyArchive.js <tipo> <arquivo-ou-pasta> [--key coluna|a+b] [--meta-key totregs] [--collection caminho.no.json] [--format csv|json]
  *
  * Exemplos:
  *   importLegacyArchive.js pedidos  ./export/pedidos/          (todos os .csv/.json da pasta)
@@ -42,7 +42,7 @@ async function main() {
         if (text.includes('�')) text = (await readFile(file)).toString('latin1');
         const rows = parseLegacyExport(text, { format, collection: arg('--collection') ?? null });
         if (rows.length === 0) { console.log(`  ${path.basename(file)}: vazio`); continue; }
-        const r = await archiveLegacyRows(entity, rows, { keyColumn: arg('--key') ?? null, sourceFile: path.basename(file) });
+        const r = await archiveLegacyRows(entity, rows, { keyColumn: arg('--key') ?? null, sourceFile: path.basename(file), metaKey: arg('--meta-key') ?? null });
         console.log(`  ${path.basename(file)}: ${r.total} linhas → ${r.created} novas, ${r.updated} alteradas, ${r.unchanged} iguais (chave: ${r.keyColumn ?? 'hash da linha'})`);
         for (const k of Object.keys(totals) as Array<keyof typeof totals>) totals[k] += r[k];
     }

@@ -55,7 +55,7 @@ router.post('/import', async (req: AuthRequest, res: Response, next: NextFunctio
         try {
             res.json({ success: true, data: await archiveLegacyRows(body.entity, rows, { keyColumn: body.keyColumn || null, sourceFile: body.fileName ?? null }) });
         } catch (err) {
-            if (err instanceof Error && /coluna-chave|tipo da listagem/.test(err.message)) throw new AppError(err.message, 400);
+            if (err instanceof Error && /coluna-chave|tipo da listagem|não é única/.test(err.message)) throw new AppError(err.message, 400);
             throw err;
         }
     } catch (error) {

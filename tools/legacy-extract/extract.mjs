@@ -95,7 +95,8 @@ async function fetchUnit(ctx, guard, config, job, unit, done, log, out) {
     if (job.format === 'json') {
       const parsed = JSON.parse(body.toString('utf8'));
       const list = getPath(parsed, job.listPath);
-      items = Array.isArray(list) ? list.length : null;
+      // `metaKey`: linha de totais que o legado mistura aos registros (ex.: { totregs }). Não conta como item.
+      items = Array.isArray(list) ? list.filter((x) => !(job.metaKey && x && typeof x === 'object' && job.metaKey in x)).length : null;
     }
     const hash = sha256(body);
     // Página repetida = o legado ignorou o parâmetro de página: para de paginar.

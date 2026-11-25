@@ -32,7 +32,9 @@
       "paginate": {
         "param": "paginaAtual",
         "start": 1
-      }
+      },
+      "archiveKey": "codigo",
+      "metaKey": "totregs"
     }
   ]
 }

@@ -58,9 +58,12 @@ function flattenText(value: unknown, out: string[] = []): string[] {
 
 export function detectKeyColumn(rows: LegacyRow[], requested?: string | null): string | null {
     if (requested) {
-        const k = normalizeHeader(requested);
-        if (!rows.some((r) => r[k] !== undefined)) throw new Error(`A coluna-chave "${requested}" não existe no arquivo.`);
-        return k;
+        // Chave composta: "divisao+rota".
+        const parts = requested.split('+').map((p) => normalizeHeader(p)).filter(Boolean);
+        for (const k of parts) {
+            if (!rows.some((r) => r[k] !== undefined)) throw new Error(`A coluna-chave "${k}" não existe no arquivo.`);
+        }
+        return parts.join('+');
     }
     const first = rows[0] ?? {};
     for (const c of KEY_CANDIDATES) {
@@ -75,20 +78,33 @@ export function detectKeyColumn(rows: LegacyRow[], requested?: string | null): s
 export async function archiveLegacyRows(
     entityRaw: string,
     rawRows: LegacyRow[],
-    options: { keyColumn?: string | null; sourceFile?: string | null } = {},
+    options: { keyColumn?: string | null; sourceFile?: string | null; metaKey?: string | null } = {},
 ): Promise<ArchiveResult> {
     const entity = normalizeEntity(entityRaw);
-    const rows = rawRows.map(normalizeKeys);
+    // Linha de totais/metadados que o legado mistura aos registros (ex.: { totregs }): não é histórico.
+    const meta = options.metaKey ? normalizeHeader(options.metaKey) : null;
+    const rows = rawRows.map(normalizeKeys).filter((r) => !(meta && meta in r));
     const keyColumn = detectKeyColumn(rows, options.keyColumn);
     const result: ArchiveResult = { entity, keyColumn, created: 0, updated: 0, unchanged: 0, total: rows.length };
 
     // Linhas idênticas repetidas no mesmo arquivo (comum em export paginado) contam uma vez.
     const prepared = new Map<string, { legacyKey: string; data: LegacyRow; rowHash: string; searchText: string }>();
+    const collisions: string[] = [];
     for (const data of rows) {
         const canonical = stableStringify(data);
         const rowHash = createHash('sha256').update(canonical).digest('hex');
-        const legacyKey = keyColumn ? String(data[keyColumn]).trim().slice(0, 200) : `h:${rowHash.slice(0, 40)}`;
+        const legacyKey = keyColumn
+            ? keyColumn.split('+').map((k) => String(data[k] ?? '').trim()).join('|').slice(0, 200)
+            : `h:${rowHash.slice(0, 40)}`;
+        const prev = prepared.get(legacyKey);
+        if (prev && prev.rowHash !== rowHash) collisions.push(legacyKey);
         prepared.set(legacyKey, { legacyKey, data, rowHash, searchText: flattenText(data).join(' ').slice(0, 20000) });
+    }
+    // Mesma chave com conteúdo diferente no mesmo arquivo = a chave não identifica a linha. Guardar só a
+    // última perderia histórico em silêncio: recusa e pede chave composta (ex.: codigo+documento).
+    if (collisions.length > 0) {
+        const sample = [...new Set(collisions)].slice(0, 5).join(', ');
+        throw new Error(`A chave "${keyColumn}" não é única em ${entity}: ${new Set(collisions).size} chave(s) com linhas diferentes (ex.: ${sample}). Use uma chave composta, ex.: --key ${keyColumn}+documento.`);
     }
     result.unchanged += rows.length - prepared.size;
 
