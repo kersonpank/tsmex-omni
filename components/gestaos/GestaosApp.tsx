@@ -88,9 +88,18 @@ const UserMenu: React.FC = () => {
                         <IconArrowUpRight size={15} className="gx-muted" />
                     </Link>
                     <Link role="menuitem" to="/gestao" className="gx-row flex items-center justify-between gap-3">
-                        <span>Gestão clássica</span>
+                        <span className="leading-tight">
+                            <span className="block">Painel anterior</span>
+                            <span className="gx-muted block text-[11.5px]">Gestão clássica</span>
+                        </span>
                         <IconArrowUpRight size={15} className="gx-muted" />
                     </Link>
+                    {(user?.roles?.length ?? 0) > 1 ? (
+                        <Link role="menuitem" to="/escolher-painel" className="gx-row flex items-center justify-between gap-3">
+                            <span>Trocar painel</span>
+                            <IconArrowUpRight size={15} className="gx-muted" />
+                        </Link>
+                    ) : null}
                     <Link role="menuitem" to="/hubs/conta" className="gx-row flex items-center justify-between gap-3">
                         <span>Senha e sessões</span>
                         <IconArrowUpRight size={15} className="gx-muted" />
@@ -177,7 +186,7 @@ const Shell: React.FC = () => {
                 </Glass>
             </div>
 
-            <main className="mx-auto max-w-[1480px] px-3 pb-24 pt-7 sm:px-5">
+            <main className="mx-auto max-w-[1480px] px-3 pb-10 pt-7 sm:px-5">
                 <Routes>
                     <Route index element={<HojePage />} />
                     <Route path="viagens" element={<ViagensPage />} />
@@ -194,6 +203,14 @@ const Shell: React.FC = () => {
                     <Route path="*" element={<Navigate to="/gestaos" replace />} />
                 </Routes>
             </main>
+
+            {/* Saída discreta: quem quiser o painel anterior acha aqui no canto, sem disputar atenção. */}
+            <footer className="mx-auto flex max-w-[1480px] justify-end px-3 pb-14 sm:px-5">
+                <Link to="/gestao" className="gx-muted inline-flex min-h-[40px] items-center gap-1.5 rounded-lg px-2 text-[12px] hover:underline focus-visible:underline">
+                    Usar o painel anterior
+                    <IconArrowUpRight size={13} />
+                </Link>
+            </footer>
 
             <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
         </>

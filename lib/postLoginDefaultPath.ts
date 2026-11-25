@@ -2,11 +2,12 @@ import type { UserRole } from './workspaceRoles';
 
 /**
  * Destino inicial após login ou `/` autenticado.
- * Prioridade: ADMIN → Torre; HUB → operação mobile; LINK; CLIENT.
+ * Prioridade: ADMIN → Gestão V2 (/gestaos); HUB → operação mobile; LINK; CLIENT.
+ * A gestão clássica (/gestao) segue acessível pelo menu Conta e pelo rodapé da V2.
  */
 export function getDefaultHomePath(roles: readonly string[] | null | undefined): string {
     const r = roles ?? [];
-    if (r.includes('ADMIN')) return '/gestao';
+    if (r.includes('ADMIN')) return '/gestaos';
     if (r.includes('HUB')) return '/hub';
     if (r.includes('LINK')) return '/link';
     if (r.includes('CLIENT')) return '/client';

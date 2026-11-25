@@ -24,6 +24,7 @@ describe('getWorkspacePath', () => {
   it('mapeia cada papel ao path correto', () => {
     expect(getWorkspacePath('HUB')).toBe('/hub');
     expect(getWorkspacePath('CLIENT')).toBe('/client');
+    expect(getWorkspacePath('ADMIN')).toBe('/gestaos');
   });
 });
 
@@ -57,5 +58,11 @@ describe('resolveReturnToForRole', () => {
   it('usa home do papel quando returnTo é de outro painel', () => {
     expect(resolveReturnToForRole('/hub', 'CLIENT')).toBe('/client');
     expect(resolveReturnToForRole('/client', 'HUB')).toBe('/hub');
+    expect(resolveReturnToForRole('/hub', 'ADMIN')).toBe('/gestaos');
+  });
+
+  it('preserva o caminho da gestão clássica para ADMIN', () => {
+    expect(resolveReturnToForRole('/gestao', 'ADMIN')).toBe('/gestao');
+    expect(resolveReturnToForRole('/gestaos/viagens', 'ADMIN')).toBe('/gestaos/viagens');
   });
 });

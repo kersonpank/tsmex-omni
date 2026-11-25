@@ -34,7 +34,7 @@ const OperacaoRedirect: React.FC = () => {
   const role = currentRole && user?.roles?.includes(currentRole) ? currentRole : user?.roles?.[0];
   if (role === 'LINK') return <Navigate to="/link" replace />;
   if (role === 'HUB') return <Navigate to="/hub" replace />;
-  return <Navigate to="/gestao" replace />;
+  return <Navigate to="/gestaos" replace />;
 };
 
 /** Redireciona `/` autenticado conforme prioridade de papéis (ADMIN > HUB > LINK > CLIENT). */
@@ -196,6 +196,15 @@ const Navigation: React.FC = () => {
                   Torre de Controle
                 </Link>
               )}
+              {role === 'ADMIN' && (
+                <Link
+                  to="/gestaos"
+                  className="admin-focus rounded-lg px-3 py-2 font-medium text-tower-800 hover:bg-tower-100 dark:text-tower-200 dark:hover:bg-tower-800"
+                  onClick={() => setMobileOpen(false)}
+                >
+                  Gestão V2
+                </Link>
+              )}
               {role === 'HUB' && (
                 <Link
                   to="/hub"
@@ -287,7 +296,7 @@ const AppMain: React.FC = () => {
             <Route path="/login" element={<Login />} />
             <Route path="/claim-link" element={<ClaimLinkInvite />} />
             <Route path="/onboarding" element={<CompanyOnboarding />} />
-            <Route path="/app" element={<Navigate to="/gestao" replace />} />
+            <Route path="/app" element={<Navigate to="/gestaos" replace />} />
             <Route path="/gestao" element={
               <ProtectedRoute allowedRoles={['ADMIN']}>
                 <AdminDashboard />

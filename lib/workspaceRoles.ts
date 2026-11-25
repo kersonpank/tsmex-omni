@@ -13,7 +13,8 @@ const ROLE_ORDER: UserRole[] = ['ADMIN', 'HUB', 'LINK', 'CLIENT'];
 export const WORKSPACE_BY_ROLE: Record<UserRole, WorkspaceOption> = {
   ADMIN: {
     role: 'ADMIN',
-    path: '/gestao',
+    // Gestão V2. A clássica (/gestao) continua válida como returnTo e pelo menu da V2.
+    path: '/gestaos',
     title: 'Torre de Controle',
     description: 'Gestão da rede, manifestos e operação administrativa',
     shortLabel: 'Admin',

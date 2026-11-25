@@ -163,4 +163,21 @@ describe('Gestão V2 (/gestaos)', () => {
         expect(within(drawer).getByText(/Guarulhos → Imperatriz/)).toBeInTheDocument();
         expect(await within(drawer).findByRole('button', { name: /Tentar encerrar de novo/ })).toBeInTheDocument();
     });
+
+    it('deixa o painel anterior à mão, discreto: rodapé e menu Conta', async () => {
+        mountAt('/gestaos');
+        expect(await screen.findByRole('link', { name: /Usar o painel anterior/ })).toHaveAttribute('href', '/gestao');
+
+        await userEvent.click(screen.getByRole('button', { name: 'Conta' }));
+        expect(screen.getByRole('menuitem', { name: /Painel anterior/ })).toHaveAttribute('href', '/gestao');
+        // Só um papel: não há painel para onde trocar.
+        expect(screen.queryByRole('menuitem', { name: 'Trocar painel' })).not.toBeInTheDocument();
+    });
+
+    it('com mais de um papel, o menu Conta oferece trocar de painel', async () => {
+        useAuthStore.setState({ user: { id: 'u1', email: 'torre@tsmex.com', roles: ['ADMIN', 'HUB'], profile: { admin: { name: 'Kerson Mesquita' } } } as never, currentRole: 'ADMIN' });
+        mountAt('/gestaos');
+        await userEvent.click(await screen.findByRole('button', { name: 'Conta' }));
+        expect(screen.getByRole('menuitem', { name: 'Trocar painel' })).toHaveAttribute('href', '/escolher-painel');
+    });
 });
