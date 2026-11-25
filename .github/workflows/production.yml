@@ -139,6 +139,8 @@ jobs:
             for img in tsmex-api tsmex-web tsmex-migrate tsmex-backup; do docker pull "$PREFIX/$img:$TAG"; done
 
             STACK_PREFIX=tsmexomni-prod
+            # Domínio público de produção (GitHub → Environments → production → Variables → PROD_DOMAIN).
+            PROD_DOMAIN="${{ vars.PROD_DOMAIN }}"; PROD_DOMAIN="${PROD_DOMAIN:-tsmex.com.br}"
             API_SVC=${STACK_PREFIX}_api
             WEB_SVC=${STACK_PREFIX}_web
             MIGRATE_SVC=${STACK_PREFIX}_migrate
@@ -225,7 +227,7 @@ jobs:
             echo "Aguardando /api/health..."
             HEALTHY=""
             for i in $(seq 1 36); do
-              CODE=$(curl -s -o /tmp/tsmex-health.json -w '%{http_code}' https://tsmex.com.br/api/health || echo 000)
+              CODE=$(curl -s -o /tmp/tsmex-health.json -w '%{http_code}' https://${PROD_DOMAIN}/api/health || echo 000)
               RUNNING_API=$(docker service ps "$API_SVC" --filter desired-state=running --format '{{.Image}} {{.CurrentState}}' | grep -F "tsmex-api:$TAG" | grep -c Running || true)
               if [ "$CODE" = "200" ] && [ "$RUNNING_API" -ge 1 ]; then HEALTHY=1; break; fi
               sleep 5

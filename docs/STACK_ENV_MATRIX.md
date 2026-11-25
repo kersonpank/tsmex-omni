@@ -19,6 +19,12 @@ Use esta matriz no Portainer (Stack variables) para evitar drift e falha no star
 - `S3_PUBLIC_BASE_URL`
 - `S3_SIGNED_URL_PUBLIC_HOST` (recomendado, pode repetir o mesmo valor de `S3_PUBLIC_BASE_URL`)
 
+## Domínio de produção
+
+- `PROD_DOMAIN` — (Produção) domínio público da aplicação; padrão `tsmex.com.br`. Alimenta o roteador do Traefik e o
+  `CORS_ORIGIN` do `docker-stack.prod.yml`. Também existe como *Variable* do GitHub Environment `production` (usada pelo
+  `Deploy Production` para checar `/api/health`). Runbook: [PRODUCAO_VPS.md](PRODUCAO_VPS.md).
+
 ## Variáveis de produção: backup, alertas e segurança (go-live)
 
 Detalhe e procedimentos em [PRODUCAO_GO_LIVE.md](PRODUCAO_GO_LIVE.md).
