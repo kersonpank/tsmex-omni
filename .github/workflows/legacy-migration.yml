@@ -53,7 +53,13 @@ jobs:
           command_timeout: 60m
           script: |
             set -euo pipefail
-            if [ "$ALVO" = "production" ]; then STACK=tsmexomni-prod; else STACK=staging-tsmex-dev; fi
+            if [ "$ALVO" = "production" ]; then STACK=tsmexomni-prod; VOL=tsmexomni-prod_legacy_prod_data; else STACK=staging-tsmex-dev; VOL=staging-tsmex-dev_legacy_staging_data; fi
+            # Volume dos dados baixados no worker (mesmo nome que o stack declara). Se o stack no Portainer
+            # ainda não tem o volume, monta aqui: sem isso um redeploy do worker apagaria a extração.
+            if ! docker service inspect "${STACK}_worker" --format '{{json .Spec.TaskTemplate.ContainerSpec.Mounts}}' | grep -q '/app/legacy-data'; then
+              echo "▶ Montando o volume $VOL no worker (uma vez só)…"
+              docker service update --quiet --mount-add "type=volume,source=$VOL,target=/app/legacy-data" "${STACK}_worker"
+            fi
             # Worker: um só por stack (a API tem 2 réplicas) e sobrevive a deploy de API no meio da extração.
             CID=$(docker ps --filter "label=com.docker.swarm.service.name=${STACK}_worker" --filter status=running --format '{{.ID}}' | head -1)
             if [ -z "$CID" ]; then echo "❌ Container do worker de $STACK não encontrado."; docker service ls; exit 1; fi
