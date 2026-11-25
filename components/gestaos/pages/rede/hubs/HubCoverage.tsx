@@ -1,6 +1,7 @@
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { hubCoverageApi, locationsApi, pricingApi, type GeoCity } from '../../../../../lib/api';
 import type { Hub, PricingTable } from '../../../../../types/index';
+import type { TableForm } from '../../../lib/comercialForms';
 import { applyTeiaSelection, coverageCounts, MAX_COVERAGE, setServed } from '../../../lib/coverageTeia';
 import { coveragePayload, validateCoverage, type CoverageRow } from '../../../lib/redeCadastro';
 import { invalidate, useResource } from '../../../lib/resource';
@@ -9,6 +10,7 @@ import { IconAlert, IconClose, IconRefresh } from '../../../ui/icons';
 import { Button, EmptyState, ErrorState, Loadable, Pill, SelectInput, Skeleton, Tabs } from '../../../ui/kit';
 import { useAction, useToast } from '../../../ui/overlay';
 import { CityPicker } from '../../../ui/pickers';
+import { PricingTableDrawer } from '../../comercial/PricingTableDrawer';
 import type { CoverageViewport } from './CoverageMap';
 
 type Polygon = Array<[number, number]>;
@@ -80,8 +82,9 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
             })),
         { staleMs: 10_000 },
     );
+    const PRICING_TABLES_KEY = 'pricing:tables:general:active';
     const pricingTables = useResource<PricingTable[]>(
-        'pricing:tables:general:active',
+        PRICING_TABLES_KEY,
         async () => (await pricingApi.listTables({ type: 'GENERAL', active: true })).data ?? [],
         { staleMs: 60_000 },
     );
@@ -102,6 +105,10 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
     const [recentTeiaCodes, setRecentTeiaCodes] = useState<string[]>([]);
     const [teiaTableId, setTeiaTableId] = useState<string>('');
     const [teiaBusy, setTeiaBusy] = useState(false);
+    const [createDrawer, setCreateDrawer] = useState<{
+        initial: Partial<TableForm>;
+        onSaved: (table: PricingTable) => void;
+    } | null>(null);
     const { busy, run } = useAction();
     const toast = useToast();
 
@@ -294,6 +301,59 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
         }
     };
 
+    const handleCreateBatchTable = () => {
+        if (!rows || rows.length === 0) return;
+        const targetRows = rows.filter((r) => batchTarget === 'all' || (batchTarget === 'served' && r.active));
+        const count = targetRows.length;
+        if (count === 0) return;
+        const targetCodes = new Set(targetRows.map((r) => r.cityIbgeCode));
+        const hubName = hub.name || hub.city;
+        setCreateDrawer({
+            initial: {
+                type: 'GENERAL',
+                coverageOnly: true,
+                routeId: null,
+                description: `Cobertura · ${hubName} (${count} ${count === 1 ? 'cidade' : 'cidades'})`,
+            },
+            onSaved: (table) => {
+                setError(null);
+                setRows((current) =>
+                    (current ?? []).map((row) => (targetCodes.has(row.cityIbgeCode) ? { ...row, pricingTableId: table.id } : row)),
+                );
+                setBatchTableId(table.id);
+                invalidate(PRICING_TABLES_KEY);
+                toast.success(`Tabela criada e aplicada a ${count} ${count === 1 ? 'cidade' : 'cidades'}. Salve a cobertura para gravar.`);
+                setCreateDrawer(null);
+            },
+        });
+    };
+
+    const handleCreateTeiaTable = () => {
+        if (recentTeiaCodes.length === 0) return;
+        const teiaSet = new Set(recentTeiaCodes);
+        const count = recentTeiaCodes.length;
+        const hubName = hub.name || hub.city;
+        setCreateDrawer({
+            initial: {
+                type: 'GENERAL',
+                coverageOnly: true,
+                routeId: null,
+                description: `Cobertura · ${hubName} (${count} ${count === 1 ? 'cidade' : 'cidades'})`,
+            },
+            onSaved: (table) => {
+                setError(null);
+                setRows((current) =>
+                    (current ?? []).map((row) => (teiaSet.has(row.cityIbgeCode) ? { ...row, pricingTableId: table.id } : row)),
+                );
+                invalidate(PRICING_TABLES_KEY);
+                toast.success(`Tabela criada e aplicada a ${count} ${count === 1 ? 'cidade' : 'cidades'}. Salve a cobertura para gravar.`);
+                setRecentTeiaCodes([]);
+                setTeiaTableId('');
+                setCreateDrawer(null);
+            },
+        });
+    };
+
     const handleAdd = (code: string) => {
         const city = coordsCache.current.get(code);
         if (!city || !rows) return;
@@ -392,7 +452,14 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
                                 <SelectInput
                                     className="w-auto text-[13px]"
                                     value={teiaTableId}
-                                    onChange={(e) => setTeiaTableId(e.target.value)}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (val === '__NEW__') {
+                                            handleCreateTeiaTable();
+                                            return;
+                                        }
+                                        setTeiaTableId(val);
+                                    }}
                                     aria-label="Tarifa para cidades da teia"
                                 >
                                     <option value="">Sem tarifa própria</option>
@@ -401,6 +468,7 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
                                             {t.description}{t.coverageOnly ? ' (só cobertura)' : ''}
                                         </option>
                                     ))}
+                                    <option value="__NEW__">+ Nova tabela para estas cidades…</option>
                                 </SelectInput>
                             </div>
                             <div className="flex items-center gap-2">
@@ -416,6 +484,9 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
                                     }}
                                 >
                                     Aplicar
+                                </Button>
+                                <Button size="sm" variant="soft" onClick={handleCreateTeiaTable}>
+                                    Nova tabela
                                 </Button>
                                 <Button size="sm" variant="ghost" onClick={() => setRecentTeiaCodes([])}>
                                     Agora não
@@ -481,7 +552,14 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
                                 <SelectInput
                                     className="w-auto max-w-[220px] text-[13px]"
                                     value={batchTableId}
-                                    onChange={(e) => setBatchTableId(e.target.value)}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (val === '__NEW__') {
+                                            handleCreateBatchTable();
+                                            return;
+                                        }
+                                        setBatchTableId(val);
+                                    }}
                                     aria-label="Tarifa em lote"
                                 >
                                     <option value="">Sem tarifa própria</option>
@@ -490,9 +568,13 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
                                             {t.description}{t.coverageOnly ? ' (só cobertura)' : ''}
                                         </option>
                                     ))}
+                                    <option value="__NEW__">+ Nova tabela para estas cidades…</option>
                                 </SelectInput>
                                 <Button size="sm" variant="soft" onClick={handleApplyBatch}>
                                     Aplicar
+                                </Button>
+                                <Button size="sm" variant="soft" onClick={handleCreateBatchTable}>
+                                    Nova tabela para estas cidades
                                 </Button>
                             </div>
                             <a href="#/gestaos/comercial?aba=tarifas" className="gx-muted hover:gx-soft text-[12.5px] underline">
@@ -537,7 +619,27 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
                                                                 <SelectInput
                                                                     aria-label={`Tarifa de ${row.cityName}`}
                                                                     value={row.pricingTableId ?? ''}
-                                                                    onChange={(e) => patch(row.cityIbgeCode, { pricingTableId: e.target.value || null })}
+                                                                    onChange={(e) => {
+                                                                        const val = e.target.value;
+                                                                        if (val === '__NEW__') {
+                                                                            setCreateDrawer({
+                                                                                initial: {
+                                                                                    type: 'GENERAL',
+                                                                                    coverageOnly: true,
+                                                                                    routeId: null,
+                                                                                    description: `Cobertura · ${row.cityName}/${row.state}`,
+                                                                                },
+                                                                                onSaved: (table) => {
+                                                                                    patch(row.cityIbgeCode, { pricingTableId: table.id });
+                                                                                    invalidate(PRICING_TABLES_KEY);
+                                                                                    toast.success(`Tabela criada e vinculada a ${row.cityName}/${row.state}. Salve a cobertura para gravar.`);
+                                                                                    setCreateDrawer(null);
+                                                                                },
+                                                                            });
+                                                                            return;
+                                                                        }
+                                                                        patch(row.cityIbgeCode, { pricingTableId: val || null });
+                                                                    }}
                                                                 >
                                                                     <option value="">Sem tarifa própria</option>
                                                                     {generalTables.map((t) => (
@@ -548,6 +650,7 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
                                                                     {row.pricingTableId && pricingTables.data && !selectedTable ? (
                                                                         <option value={row.pricingTableId}>Tabela indisponível (escolha outra)</option>
                                                                     ) : null}
+                                                                    <option value="__NEW__">+ Nova tabela para esta cidade…</option>
                                                                 </SelectInput>
                                                                 {selectedTable?.coverageOnly ? (
                                                                     <Pill tone="neutral" className="self-start text-[11px]">
@@ -584,6 +687,14 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
                         Salvar cobertura{rows ? ` (${rows.length} cidade${rows.length === 1 ? '' : 's'})` : ''}
                     </Button>
                 }
+            />
+
+            <PricingTableDrawer
+                open={createDrawer != null}
+                table={null}
+                initial={createDrawer?.initial}
+                onSaved={createDrawer?.onSaved}
+                onClose={() => setCreateDrawer(null)}
             />
         </div>
     );

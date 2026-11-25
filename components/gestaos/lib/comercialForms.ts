@@ -1,4 +1,4 @@
-import type { Client, FreightUnit, MinFreightUnit, Opportunity, PricingRoute, PricingTable, PricingTableType, TollUnit } from '../../../types/index';
+import type { Client, FreightUnit, IcmsUnit, MinFreightUnit, Opportunity, PricingRoute, PricingTable, PricingTableType, TollUnit } from '../../../types/index';
 import { onlyDigits } from '../ui/form';
 
 /** Regras puras de formulário e filtro do Comercial: oportunidades, tabelas de preço e rotas de preço. */
@@ -161,6 +161,7 @@ export const FREIGHT_UNIT_LABEL: Record<FreightUnit, string> = { RS_KG: 'R$ por 
 export const MIN_FREIGHT_UNIT_LABEL: Record<MinFreightUnit, string> = { RS: 'R$', KG: 'kg' };
 export const TOLL_UNIT_LABEL: Record<TollUnit, string> = { RS_KG: 'R$ por kg', FIXED: 'R$ fixo' };
 export const TABLE_TYPE_LABEL: Record<PricingTableType, string> = { GENERAL: 'Geral', SPECIAL: 'Especial por cliente' };
+export const ICMS_UNIT_LABEL: Record<IcmsUnit, string> = { PERCENT: '% sobre o total', DIVISOR: 'Dividir o total por', FIXED: 'R$ fixo' };
 
 export interface RangeForm {
     minWeight: number | null;
@@ -171,6 +172,7 @@ export interface RangeForm {
 export interface PricingTableForm {
     description: string;
     type: PricingTableType;
+    coverageOnly: boolean;
     clientId: string | null;
     routeId: string | null;
     freightValue: number | null;
@@ -187,15 +189,19 @@ export interface PricingTableForm {
     cubeEnabled: boolean;
     cubeFactor: number | null;
     icmsIncluded: boolean;
+    icmsUnit: IcmsUnit;
     icmsPercent: number | null;
     ranges: RangeForm[];
     active: boolean;
     priority: number;
 }
 
+export type TableForm = PricingTableForm;
+
 export const emptyTableForm = (): PricingTableForm => ({
     description: '',
     type: 'GENERAL',
+    coverageOnly: false,
     clientId: null,
     routeId: null,
     freightValue: null,
@@ -212,6 +218,7 @@ export const emptyTableForm = (): PricingTableForm => ({
     cubeEnabled: false,
     cubeFactor: null,
     icmsIncluded: true,
+    icmsUnit: 'PERCENT',
     icmsPercent: null,
     ranges: [],
     active: true,
@@ -222,6 +229,7 @@ export function tableToForm(t: PricingTable): PricingTableForm {
     return {
         description: t.description,
         type: t.type,
+        coverageOnly: t.coverageOnly ?? false,
         clientId: t.clientId ?? null,
         routeId: t.routeId ?? null,
         freightValue: t.freightValue ?? null,
@@ -238,6 +246,7 @@ export function tableToForm(t: PricingTable): PricingTableForm {
         cubeEnabled: t.cubeEnabled ?? false,
         cubeFactor: t.cubeFactor ?? null,
         icmsIncluded: t.icmsIncluded ?? false,
+        icmsUnit: t.icmsUnit ?? 'PERCENT',
         icmsPercent: t.icmsPercent ?? null,
         ranges: (t.minFreightRanges ?? []).map((r) => ({ minWeight: r.minWeight, maxWeight: r.maxWeight ?? null, value: r.value })),
         active: t.active ?? true,
@@ -245,10 +254,38 @@ export function tableToForm(t: PricingTable): PricingTableForm {
     };
 }
 
+type TableIcms = Pick<PricingTableForm, 'icmsIncluded' | 'icmsUnit' | 'icmsPercent'>;
+
+function tableIcmsError({ icmsUnit, icmsPercent }: TableIcms): string | null {
+    if (icmsUnit === 'DIVISOR' && !(icmsPercent != null && icmsPercent > 0 && icmsPercent < 1)) {
+        return 'Divisor do ICMS deve ficar entre 0 e 1 (ex.: 0,88 para 12% por dentro).';
+    }
+    if (icmsPercent != null && (!Number.isFinite(icmsPercent) || icmsPercent < 0)) {
+        return 'O valor do ICMS deve ser um número maior ou igual a zero.';
+    }
+    return null;
+}
+
+export function previewTableIcms(form: TableIcms): { subtotal: number; icms: number; total: number } | null {
+    if (form.icmsIncluded || tableIcmsError(form)) return null;
+
+    const subtotal = 1000;
+    const value = form.icmsPercent ?? 0;
+    if (form.icmsUnit === 'DIVISOR') {
+        const total = subtotal / value;
+        return Number.isFinite(total) ? { subtotal, icms: total - subtotal, total } : null;
+    }
+    const icms = form.icmsUnit === 'FIXED' ? value : subtotal * (value / 100);
+    const total = subtotal + icms;
+    return Number.isFinite(total) ? { subtotal, icms, total } : null;
+}
+
 /** Mesma regra da clássica: a descrição é obrigatória. As faixas precisam de valor maior que zero (o servidor exige). */
 export function validateTableForm(form: PricingTableForm): Record<string, string> {
     const errors: Record<string, string> = {};
     if (!form.description.trim()) errors.description = 'Descrição é obrigatória.';
+    const icmsError = !form.icmsIncluded && tableIcmsError(form);
+    if (icmsError) errors.icmsPercent = icmsError;
     for (const [index, range] of form.ranges.entries()) {
         if (range.value == null || range.value <= 0) {
             errors.ranges = `Faixa ${index + 1}: informe um valor maior que zero.`;
@@ -266,18 +303,23 @@ const put = (out: Record<string, unknown>, key: string, value: number | null) =>
     if (value != null) out[key] = value;
 };
 
-/** Corpo igual ao da clássica; campos numéricos vazios são omitidos porque o servidor não aceita `null` neles. */
+/** Campos numéricos vazios são omitidos, salvo o ICMS, que pode ser limpo. */
 export function buildTablePayload(form: PricingTableForm): Record<string, unknown> {
+    // Um valor inválido nos campos ocultos não deve impedir salvar com o ICMS incluso.
+    const resetIcms = form.icmsIncluded && tableIcmsError(form);
     const out: Record<string, unknown> = {
         description: form.description.trim(),
         routeId: form.routeId || null,
         type: form.type,
+        coverageOnly: form.type === 'GENERAL' && form.coverageOnly,
         clientId: form.type === 'SPECIAL' ? form.clientId || null : null,
         freightUnit: form.freightUnit,
         minFreightUnit: form.minFreightUnit,
         tollUnit: form.tollUnit,
         cubeEnabled: form.cubeEnabled,
         icmsIncluded: form.icmsIncluded,
+        icmsUnit: resetIcms ? 'PERCENT' : form.icmsUnit,
+        icmsPercent: resetIcms ? null : form.icmsPercent,
         active: form.active,
         priority: Math.round(form.priority || 0),
         minFreightRanges: form.ranges
@@ -293,7 +335,6 @@ export function buildTablePayload(form: PricingTableForm): Record<string, unknow
     put(out, 'dispatchFee', form.dispatchFee);
     put(out, 'otherFees', form.otherFees);
     if (form.cubeEnabled) put(out, 'cubeFactor', form.cubeFactor);
-    put(out, 'icmsPercent', form.icmsPercent);
     return out;
 }
 

@@ -1,6 +1,8 @@
 import { Router, Response, NextFunction } from 'express';
+import { IcmsUnit, type Prisma } from '@prisma/client';
 import { z } from 'zod';
 import prisma from '../lib/prisma.js';
+import { applyIcms, ICMS_DIVISOR_MESSAGE, isValidIcmsDivisor } from '../services/freight/freightPricing.js';
 import { assertClientPricingAccess, pricingVisibilityWhere } from '../services/pricingVisibility.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
@@ -22,14 +24,32 @@ const minFreightRangeSchema = z.object({
     value: z.number().positive(),
 });
 
+const pricingIcmsFields = z.object({
+    icmsUnit: z.nativeEnum(IcmsUnit).default(IcmsUnit.PERCENT),
+    icmsPercent: z.number().nullable().optional(),
+});
+
+const pricingIcmsSchema = pricingIcmsFields.superRefine(({ icmsUnit, icmsPercent }, ctx) => {
+    let message: string | undefined;
+    if (icmsUnit === IcmsUnit.DIVISOR && !isValidIcmsDivisor(icmsPercent)) {
+        message = ICMS_DIVISOR_MESSAGE;
+    } else if (icmsPercent != null && !Number.isFinite(icmsPercent)) {
+        message = 'O valor do ICMS deve ser finito.';
+    } else if (icmsPercent != null && icmsPercent < 0) {
+        message = 'O valor do ICMS não pode ser negativo.';
+    }
+    if (message) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['icmsPercent'], message });
+});
+
 const pricingTableSchema = z.object({
     description: z.string().min(1, 'Description is required'),
     code: z.string().optional(),
     type: z.enum(['SPECIAL', 'GENERAL']),
     coverageOnly: z.boolean().default(false),
-    clientId: z.string().uuid().nullable().optional(),
-    accountId: z.string().uuid().nullable().optional(),
-    routeId: z.string().uuid().nullable().optional(),
+    // IDs legados do seed não são UUID (ex.: "route-sp-ma"); a existência é garantida pela FK.
+    clientId: z.string().min(1).nullable().optional(),
+    accountId: z.string().min(1).nullable().optional(),
+    routeId: z.string().min(1).nullable().optional(),
 
     // Freight
     freightValue: z.number().optional(),
@@ -53,7 +73,6 @@ const pricingTableSchema = z.object({
 
     // ICMS
     icmsIncluded: z.boolean().default(false),
-    icmsPercent: z.number().optional(),
 
     // Threshold
     adValoremThreshold: z.number().optional(),
@@ -63,7 +82,7 @@ const pricingTableSchema = z.object({
 
     priority: z.number().int().default(0),
     active: z.boolean().default(true),
-});
+}).merge(pricingIcmsFields);
 
 // ==================== ROUTES ====================
 
@@ -240,6 +259,7 @@ router.get('/tables/:id', authenticate, async (req: AuthRequest, res: Response, 
 router.post('/tables', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const { minFreightRanges, ...data } = pricingTableSchema.parse(req.body);
+        pricingIcmsSchema.parse(data);
         if (data.type !== 'GENERAL') data.coverageOnly = false;
 
         const table = await prisma.pricingTable.create({
@@ -273,25 +293,41 @@ router.patch('/tables/:id', authenticate, authorize('ADMIN'), async (req: AuthRe
         const { minFreightRanges, ...data } = pricingTableSchema.partial().parse(req.body);
         if (data.type === 'SPECIAL') data.coverageOnly = false;
 
-        // If ranges provided, delete existing and create new
-        if (minFreightRanges) {
-            await prisma.minFreightRange.deleteMany({
-                where: { pricingTableId: id }
-            });
-        }
-
-        const table = await prisma.pricingTable.update({
-            where: { id: id },
-            data: {
-                ...data,
-                minFreightRanges: minFreightRanges ? {
-                    create: minFreightRanges,
-                } : undefined,
-            },
-            include: {
-                minFreightRanges: true,
+        const hasIcmsUnit = data.icmsUnit !== undefined;
+        const hasIcmsValue = data.icmsPercent !== undefined;
+        const needsCurrentIcms = hasIcmsUnit !== hasIcmsValue;
+        const update = async (db: Prisma.TransactionClient) => {
+            if (needsCurrentIcms) {
+                const current = await db.pricingTable.findUnique({
+                    where: { id },
+                    select: { icmsUnit: true, icmsPercent: true },
+                });
+                if (!current) throw new AppError('Tabela de preços não encontrada.', 404);
+                pricingIcmsSchema.parse({
+                    icmsUnit: data.icmsUnit ?? current.icmsUnit,
+                    icmsPercent: data.icmsPercent === undefined ? current.icmsPercent : data.icmsPercent,
+                });
+            } else if (hasIcmsUnit) {
+                pricingIcmsSchema.parse(data);
             }
-        });
+
+            if (minFreightRanges) {
+                await db.minFreightRange.deleteMany({ where: { pricingTableId: id } });
+            }
+
+            return db.pricingTable.update({
+                where: { id },
+                data: {
+                    ...data,
+                    minFreightRanges: minFreightRanges ? { create: minFreightRanges } : undefined,
+                },
+                include: { minFreightRanges: true },
+            });
+        };
+
+        const table = needsCurrentIcms || minFreightRanges
+            ? await prisma.$transaction(update, { isolationLevel: 'Serializable' })
+            : await update(prisma);
 
         res.json({
             success: true,
@@ -300,6 +336,9 @@ router.patch('/tables/:id', authenticate, authorize('ADMIN'), async (req: AuthRe
     } catch (error) {
         if (error instanceof z.ZodError) {
             return next(new AppError(error.errors[0].message, 400));
+        }
+        if ((error as { code?: string })?.code === 'P2034') {
+            return next(new AppError('A tabela de preços foi alterada durante o salvamento. Tente novamente.', 409));
         }
         next(error);
     }
@@ -523,12 +562,7 @@ router.post('/calculate', authenticate, async (req: AuthRequest, res: Response, 
         const subtotal = baseFreight + adValorem + gris + toll + dispatch + others;
 
         // ICMS
-        let icms = 0;
-        if (!table.icmsIncluded && table.icmsPercent) {
-            icms = subtotal * (table.icmsPercent / 100);
-        }
-
-        const total = subtotal + icms;
+        const { icms, total } = applyIcms(subtotal, table);
 
         const result: PricingOutput = {
             baseFreight,

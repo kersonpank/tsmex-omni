@@ -667,6 +667,7 @@ export const HubRoutes: React.FC<HubRoutesProps> = ({ hub, onGoCoverage }) => {
                                                                                 onViewport={() => undefined}
                                                                                 busy={teiaBusy}
                                                                                 path={editingRoutePath}
+                                                                                routeMode
                                                                             />
                                                                         </Suspense>
                                                                     </MapErrorBoundary>

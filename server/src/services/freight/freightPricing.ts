@@ -1,3 +1,6 @@
+import type { IcmsUnit } from '@prisma/client';
+import { AppError } from '../../middleware/errorHandler.js';
+
 /**
  * Cálculo do frete a partir de uma tabela de preço — função pura, a mesma usada pela emissão
  * (POST .../calculate e criação do cálculo) e pela prévia do O.S. Mesma regra de sempre:
@@ -18,6 +21,7 @@ export interface PricingTableLike {
     dispatchFee: number | null;
     otherFees: number | null;
     icmsIncluded: boolean;
+    icmsUnit?: IcmsUnit;
     icmsPercent: number | null;
     cubeFactor: number | null;
 }
@@ -51,6 +55,42 @@ export interface FreightResult {
 export const BREAKDOWN_KEYS: (keyof FreightBreakdown)[] = ['freightBase', 'adValorem', 'gris', 'toll', 'dispatch', 'others', 'icms'];
 
 const n = (value: number | null | undefined) => value || 0;
+
+export const ICMS_DIVISOR_MESSAGE = 'Divisor do ICMS deve ficar entre 0 e 1 (ex.: 0,88 para 12% por dentro).';
+
+export function isValidIcmsDivisor(value: number | null | undefined): value is number {
+    return typeof value === 'number' && value > 0 && value < 1;
+}
+
+type IcmsSettings = Pick<PricingTableLike, 'icmsIncluded' | 'icmsUnit' | 'icmsPercent'>;
+
+export function computeIcms(subtotal: number, table: IcmsSettings): number {
+    if (table.icmsIncluded) return 0;
+
+    const value = table.icmsPercent;
+    switch (table.icmsUnit) {
+        case 'DIVISOR': {
+            if (!isValidIcmsDivisor(value)) throw new AppError(ICMS_DIVISOR_MESSAGE, 400);
+            const icms = subtotal / value - subtotal;
+            if (!Number.isFinite(icms)) throw new AppError('O divisor do ICMS gera um total fora do limite do cálculo.', 400);
+            return icms;
+        }
+        case 'FIXED':
+            return n(value);
+        default:
+            return value ? subtotal * (value / 100) : 0;
+    }
+}
+
+export function applyIcms(subtotal: number, table: IcmsSettings): { icms: number; total: number } {
+    const icms = computeIcms(subtotal, table);
+    const { icmsIncluded, icmsUnit, icmsPercent } = table;
+    // Preserva o quociente para que a recomposição não altere o arredondamento do total.
+    const total = !icmsIncluded && icmsUnit === 'DIVISOR' && icmsPercent != null
+        ? subtotal / icmsPercent
+        : subtotal + icms;
+    return { icms, total };
+}
 
 export function computeFreightFromTable(table: PricingTableLike, params: FreightParams): FreightResult {
     const cubeFactor = table.cubeFactor || 300;
@@ -90,10 +130,10 @@ export function computeFreightFromTable(table: PricingTableLike, params: Freight
     const dispatch = n(table.dispatchFee);
     const others = n(table.otherFees);
     const subtotal = freightBase + adValorem + gris + toll + dispatch + others;
-    const icms = !table.icmsIncluded && table.icmsPercent ? subtotal * (table.icmsPercent / 100) : 0;
+    const { icms, total } = applyIcms(subtotal, table);
 
     return {
-        total: subtotal + icms,
+        total,
         breakdown: { freightBase, adValorem, gris, toll, dispatch, others, icms },
         cubedWeight,
         effectiveWeight,

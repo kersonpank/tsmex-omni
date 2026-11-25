@@ -154,20 +154,22 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
 /* ---------- Ação com retorno ---------- */
 
+type ActionMessages = { success: string; error?: string; onError?: (message: string) => void };
+
 /**
  * Roda uma ação de escrita: trava o botão enquanto roda (nada de envio duplo), avisa o
  * resultado e devolve `true` em caso de sucesso. `busy` guarda a chave da ação em andamento.
  */
 export function useAction(): {
     busy: string | null;
-    run: (key: string, action: () => Promise<unknown>, messages: { success: string; error?: string }) => Promise<boolean>;
+    run: (key: string, action: () => Promise<unknown>, messages: ActionMessages) => Promise<boolean>;
 } {
     const toast = useToast();
     const [busy, setBusy] = useState<string | null>(null);
     const running = useRef(false);
 
     const run = useCallback(
-        async (key: string, action: () => Promise<unknown>, messages: { success: string; error?: string }) => {
+        async (key: string, action: () => Promise<unknown>, messages: ActionMessages) => {
             if (running.current) return false;
             running.current = true;
             setBusy(key);
@@ -176,7 +178,9 @@ export function useAction(): {
                 toast.success(messages.success);
                 return true;
             } catch (error) {
-                toast.error(`${messages.error ?? 'A ação não foi concluída.'} ${formatApiError(error)}`);
+                const message = formatApiError(error);
+                if (messages.onError) messages.onError(message);
+                else toast.error(`${messages.error ?? 'A ação não foi concluída.'} ${message}`);
                 return false;
             } finally {
                 running.current = false;

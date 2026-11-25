@@ -418,7 +418,7 @@ const coverageEntrySchema = z.object({
     leadTimeDays: z.number().int().min(0).max(60).optional(),
     priority: z.number().int().min(1).max(9999).default(100),
     active: z.boolean().default(true),
-    pricingTableId: z.string().uuid(invalidCoveragePricingTable).nullable().optional(),
+    pricingTableId: z.string().min(1, invalidCoveragePricingTable).nullable().optional(), // tabelas do seed têm id não-UUID
 });
 const coverageBodySchema = z.object({ entries: z.array(coverageEntrySchema).max(500) });
 

@@ -22,6 +22,8 @@ export interface CoverageMapProps {
     onViewport: (bounds: CoverageViewport, zoom: number) => void;
     busy?: boolean;
     path?: Array<{ lat: number; lng: number }>;
+    /** Modo rota: cidades fora da rota ficam em cinza neutro (sem o vermelho de "Não atende"). */
+    routeMode?: boolean;
 }
 
 const MIN_NEARBY_ZOOM = 8;
@@ -38,7 +40,7 @@ function cityMarker(city: GeoCity, status: string, options: L.CircleMarkerOption
 }
 
 export const CoverageMap: React.FC<CoverageMapProps> = ({
-    seat, cities, nearby, polygon, onTeia, onClearTeia, onToggle, onAdd, onViewport, busy = false, path,
+    seat, cities, nearby, polygon, onTeia, onClearTeia, onToggle, onAdd, onViewport, busy = false, path, routeMode = false,
 }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<L.Map | null>(null);
@@ -252,20 +254,24 @@ export const CoverageMap: React.FC<CoverageMapProps> = ({
         layer.clearLayers();
 
         for (const city of cities) {
-            cityMarker(city, city.served ? 'Atende · Alterar para Não atende' : 'Não atende · Alterar para Atende', {
+            const status = routeMode
+                ? (city.served ? 'Na rota · Remover da rota' : 'Fora da rota · Adicionar à rota')
+                : (city.served ? 'Atende · Alterar para Não atende' : 'Não atende · Alterar para Atende');
+            const neutral = routeMode && !city.served;
+            cityMarker(city, status, {
                 pane: 'gx-map-covered-pane',
                 radius: city.served ? 6 : 5,
-                fillColor: city.served ? BLUE : LIGHT,
-                fillOpacity: city.served ? 0.95 : 0.15,
-                color: city.served ? LIGHT : '#cf1a2a',
-                weight: city.served ? 1.5 : 2,
+                fillColor: city.served ? BLUE : neutral ? GRAY : LIGHT,
+                fillOpacity: city.served ? 0.95 : neutral ? 0.9 : 0.15,
+                color: city.served ? LIGHT : neutral ? LIGHT : '#cf1a2a',
+                weight: city.served ? 1.5 : neutral ? 1 : 2,
             }).on('click', (e: L.LeafletMouseEvent) => {
                 L.DomEvent.stopPropagation(e);
                 if (draftRef.current) addPoint([city.lat, city.lng]);
                 else if (!handlers.current.busy) handlers.current.onToggle(city.ibgeCode);
             }).addTo(layer);
         }
-    }, [cities, addPoint]);
+    }, [cities, addPoint, routeMode]);
 
     const showNearby = zoom >= MIN_NEARBY_ZOOM;
     useEffect(() => {
@@ -339,9 +345,15 @@ export const CoverageMap: React.FC<CoverageMapProps> = ({
             </div>
 
             <div className="gx-map-legend" role="group" aria-label="Legenda do mapa">
-                <span><i className="gx-map-dot-served" aria-hidden="true" />Atende</span>
-                <span><i className="gx-map-dot-unserved" aria-hidden="true" />Não atende</span>
-                <span><i className="gx-map-dot-nearby" aria-hidden="true" />Fora da cobertura</span>
+                <span><i className="gx-map-dot-served" aria-hidden="true" />{routeMode ? 'Na rota' : 'Atende'}</span>
+                {routeMode ? (
+                    <span><i className="gx-map-dot-nearby" aria-hidden="true" />Fora da rota</span>
+                ) : (
+                    <>
+                        <span><i className="gx-map-dot-unserved" aria-hidden="true" />Não atende</span>
+                        <span><i className="gx-map-dot-nearby" aria-hidden="true" />Fora da cobertura</span>
+                    </>
+                )}
                 <span><i className="gx-map-dot-seat" aria-hidden="true" />Sede</span>
             </div>
             {!showNearby ? <p className="gx-map-hint">Aproxime para ver as cidades da região</p> : null}

@@ -61,6 +61,7 @@ export type LinkCarrierType = 'TAC' | 'ETC' | 'CTC' | 'FROTA';
 export type CiotTipoViagem = 'PADRAO' | 'FRACIONADO' | 'TAC_AGREGADO';
 
 export type FreightUnit = 'RS_KG' | 'PERCENT' | 'RS_M3' | 'RS_UNIT';
+export type IcmsUnit = 'PERCENT' | 'DIVISOR' | 'FIXED';
 
 export type MinFreightUnit = 'RS' | 'KG';
 
@@ -1511,7 +1512,8 @@ export interface PricingTable {
     cubeEnabled: boolean;
     cubeFactor?: number;
     icmsIncluded: boolean;
-    icmsPercent?: number;
+    icmsUnit?: IcmsUnit;
+    icmsPercent?: number | null;
     adValoremThreshold?: number;
     minFreightRanges?: MinFreightRange[];
     active: boolean;

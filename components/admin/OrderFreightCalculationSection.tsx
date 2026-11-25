@@ -15,6 +15,21 @@ import { CTE_CFOP_SELECT_OPTIONS, CTE_CST_SELECT_OPTIONS, cfopOptionSelectText }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function computeIcms(subtotal: number, table: PricingTable): { icms: number; total: number } | null {
+  if (table.icmsIncluded) return { icms: 0, total: subtotal };
+
+  const value = table.icmsPercent ?? 0;
+  if (table.icmsUnit === 'DIVISOR') {
+    if (!(value > 0 && value < 1)) return null;
+    const total = subtotal / value;
+    const icms = total - subtotal;
+    return Number.isFinite(icms) ? { icms, total } : null;
+  }
+
+  const icms = table.icmsUnit === 'FIXED' ? value : subtotal * (value / 100);
+  return { icms, total: subtotal + icms };
+}
+
 function looksLikeUuid(value: string): boolean {
   return UUID_RE.test(value.trim());
 }
@@ -1104,10 +1119,12 @@ function OrderFreightForm({
     const dispatch  = table.dispatchFee ?? 0;
     const others    = table.otherFees ?? 0;
     const subtotal  = baseFreight + adValorem + gris + toll + dispatch + others;
-    const icms      = !table.icmsIncluded && (table.icmsPercent ?? 0) > 0
-      ? subtotal * ((table.icmsPercent ?? 0) / 100)
-      : 0;
-    const total = subtotal + icms;
+    const withIcms  = computeIcms(subtotal, table);
+    if (!withIcms) {
+      setPreview(null);
+      return;
+    }
+    const { icms, total } = withIcms;
 
     setPreview({
       total,

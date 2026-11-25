@@ -22,6 +22,40 @@ vi.mock('./CoverageMap', () => ({
     default: vi.fn((_props: CoverageMapProps) => <div aria-label="Mapa da cobertura" />),
 }));
 
+vi.mock('../../comercial/PricingTableDrawer', () => ({
+    PricingTableDrawer: vi.fn((props: {
+        open: boolean;
+        table: PricingTable | null;
+        initial?: { type?: string; coverageOnly?: boolean; routeId?: string | null; description?: string };
+        onSaved?: (table: PricingTable) => void;
+        onClose: () => void;
+    }) => {
+        if (!props.open) return null;
+        return (
+            <div data-testid="mock-pricing-drawer">
+                <span data-testid="drawer-description">{props.initial?.description}</span>
+                <button
+                    type="button"
+                    onClick={() =>
+                        props.onSaved?.({
+                            id: 'novo',
+                            description: 'X',
+                            type: 'GENERAL',
+                            coverageOnly: true,
+                            active: true,
+                        } as PricingTable)
+                    }
+                >
+                    Salvar nova tabela fake
+                </button>
+                <button type="button" onClick={props.onClose}>
+                    Fechar drawer fake
+                </button>
+            </div>
+        );
+    }),
+}));
+
 const SEAT: GeoCity = { ibgeCode: '2111508', name: 'São Mateus do Maranhão', state: 'MA', lat: -4.04, lng: -44.47 };
 const COVERED: GeoCity = { ibgeCode: '2101608', name: 'Barra do Corda', state: 'MA', lat: -5.5, lng: -45.24 };
 const NEIGHBOR: GeoCity = { ibgeCode: '2102002', name: 'Bom Jardim', state: 'MA', lat: -4.74, lng: -44.35 };
@@ -204,6 +238,88 @@ describe('HubCoverage', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Salvar cobertura (1 cidade)' }));
         await waitFor(() => expect(replace).toHaveBeenCalledWith(HUB.id, [
             { cityIbgeCode: COVERED.ibgeCode, leadTimeDays: 2, priority: 10, active: false, pricingTableId: 'tbl-geral' },
+        ]));
+    });
+
+    it('permite criar nova tabela para a cidade via drawer, vincula linha e habilita salvar', async () => {
+        mountCoverage();
+        const select = await screen.findByRole('combobox', { name: `Tarifa de ${COVERED.name}` });
+        expect(screen.getByRole('option', { name: '+ Nova tabela para esta cidade…' })).toBeInTheDocument();
+
+        // Ao fechar sem salvar, não deve deixar o select com sentinela nem habilitar salvar
+        fireEvent.change(select, { target: { value: '__NEW__' } });
+        expect(await screen.findByTestId('mock-pricing-drawer')).toBeInTheDocument();
+        expect(screen.getByTestId('drawer-description')).toHaveTextContent(`Cobertura · ${COVERED.name}/${COVERED.state}`);
+        fireEvent.click(screen.getByRole('button', { name: 'Fechar drawer fake' }));
+        expect(screen.queryByTestId('mock-pricing-drawer')).not.toBeInTheDocument();
+        expect(select).not.toHaveValue('__NEW__');
+        expect(screen.getByRole('button', { name: 'Salvar cobertura (1 cidade)' })).toBeDisabled();
+
+        // Abrir novamente e salvar via drawer fake
+        fireEvent.change(select, { target: { value: '__NEW__' } });
+        expect(await screen.findByTestId('mock-pricing-drawer')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Salvar nova tabela fake' }));
+
+        expect(await screen.findByText(`Tabela criada e vinculada a ${COVERED.name}/${COVERED.state}. Salve a cobertura para gravar.`)).toBeInTheDocument();
+        expect(select).not.toHaveValue('__NEW__');
+        const saveBtn = screen.getByRole('button', { name: 'Salvar cobertura (1 cidade)' });
+        expect(saveBtn).toBeEnabled();
+
+        fireEvent.click(saveBtn);
+        await waitFor(() => expect(replace).toHaveBeenCalledWith(HUB.id, [
+            { cityIbgeCode: COVERED.ibgeCode, leadTimeDays: 2, priority: 10, active: false, pricingTableId: 'novo' },
+        ]));
+    });
+
+    it('cria nova tabela em lote e aplica a N cidades do alvo', async () => {
+        const COVERAGE_2: HubCoverageEntry = {
+            id: 'coverage-2', hubId: HUB.id, cityIbgeCode: NEIGHBOR.ibgeCode, cityName: NEIGHBOR.name, state: NEIGHBOR.state,
+            leadTimeDays: 1, priority: 50, active: true, pricingTableId: null,
+        };
+        list.mockResolvedValueOnce({ success: true, data: [COVERAGE, COVERAGE_2] });
+        mountCoverage();
+
+        const batchBtn = await screen.findByRole('button', { name: 'Nova tabela para estas cidades' });
+        expect(batchBtn).toBeInTheDocument();
+
+        fireEvent.click(batchBtn);
+        expect(await screen.findByTestId('mock-pricing-drawer')).toBeInTheDocument();
+        expect(screen.getByTestId('drawer-description')).toHaveTextContent(`Cobertura · ${HUB.name} (2 cidades)`);
+
+        fireEvent.click(screen.getByRole('button', { name: 'Salvar nova tabela fake' }));
+        expect(await screen.findByText(/Tabela criada e aplicada a 2 cidades. Salve a cobertura para gravar./)).toBeInTheDocument();
+
+        const saveBtn = screen.getByRole('button', { name: 'Salvar cobertura (2 cidades)' });
+        expect(saveBtn).toBeEnabled();
+
+        fireEvent.click(saveBtn);
+        await waitFor(() => expect(replace).toHaveBeenCalledWith(HUB.id, [
+            expect.objectContaining({ cityIbgeCode: COVERED.ibgeCode, pricingTableId: 'novo' }),
+            expect.objectContaining({ cityIbgeCode: NEIGHBOR.ibgeCode, pricingTableId: 'novo' }),
+        ]));
+    });
+
+    it('permite criar nova tabela a partir do banner da teia aplicando só às cidades da teia', async () => {
+        citiesWithin.mockResolvedValue([SEAT, COVERED, NEIGHBOR]);
+        mountCoverage();
+        await openMap();
+
+        await act(async () => mapProps().onTeia(TEIA));
+        fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }));
+        expect(await screen.findByText(/Aplicar uma tarifa às 1 cidade da teia\?/)).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Nova tabela' }));
+        expect(await screen.findByTestId('mock-pricing-drawer')).toBeInTheDocument();
+        expect(screen.getByTestId('drawer-description')).toHaveTextContent(`Cobertura · ${HUB.name} (1 cidade)`);
+
+        fireEvent.click(screen.getByRole('button', { name: 'Salvar nova tabela fake' }));
+        expect(await screen.findByText(/Tabela criada e aplicada a 1 cidade. Salve a cobertura para gravar./)).toBeInTheDocument();
+        expect(screen.queryByText(/Aplicar uma tarifa às 1 cidade da teia\?/)).not.toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Salvar cobertura (2 cidades)' }));
+        await waitFor(() => expect(replace).toHaveBeenCalledWith(HUB.id, [
+            expect.objectContaining({ cityIbgeCode: COVERED.ibgeCode, pricingTableId: null }),
+            expect.objectContaining({ cityIbgeCode: NEIGHBOR.ibgeCode, pricingTableId: 'novo' }),
         ]));
     });
 });

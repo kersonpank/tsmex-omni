@@ -748,8 +748,9 @@ model PricingTable {
   cubeFactor  Float? // Ex: 300 kg/m³
 
   // ICMS
-  icmsIncluded Boolean @default(false)
-  icmsPercent  Float? // If not included, how much to add
+  icmsIncluded Boolean  @default(false)
+  icmsUnit     IcmsUnit @default(PERCENT)
+  icmsPercent  Float? // valor conforme icmsUnit
 
   // Ad Valorem Threshold
   adValoremThreshold Float? // "If value > X, charge advalorem separately"
@@ -787,6 +788,12 @@ enum MinFreightUnit {
 enum TollUnit {
   RS_KG // R$/Kg
   FIXED // Fixed value
+}
+
+enum IcmsUnit {
+  PERCENT
+  DIVISOR
+  FIXED
 }
 
 model MinFreightRange {

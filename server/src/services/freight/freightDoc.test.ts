@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { computeFreightFromTable, informedFreight, orderFreightParams, type PricingTableLike } from './freightPricing.js';
+import { computeFreightFromTable, computeIcms, informedFreight, orderFreightParams, type PricingTableLike } from './freightPricing.js';
 import { ACTIVE_DOC_STATUSES, EMITTED_STATUSES, REUSABLE_STATUSES, allowedDocTypes, choosePricingTable, freightDocState, isPendingReconciliationWithoutSubmission, payerChangeBlock, payerRole, type TableCandidate } from './freightDocRules.js';
 import { pickEmitter, type FreightContext, type FreightOrder } from './freightContext.js';
 import { suggestFreight, summarizeDocuments } from './freightSuggestion.js';
@@ -22,6 +22,36 @@ const baseTable: PricingTableLike = {
     cubeFactor: 300,
 };
 
+describe('computeIcms', () => {
+    it('calcula o percentual sobre o subtotal, inclusive em tabelas sem unidade', () => {
+        assert.equal(computeIcms(1000, { icmsIncluded: false, icmsUnit: 'PERCENT', icmsPercent: 12 }), 120);
+        assert.equal(computeIcms(1000, { icmsIncluded: false, icmsPercent: 12 }), 120);
+    });
+
+    it('calcula o ICMS por dentro com um divisor', () => {
+        assert.equal(computeIcms(880, { icmsIncluded: false, icmsUnit: 'DIVISOR', icmsPercent: 0.88 }), 120);
+    });
+
+    it('usa o valor fixo independentemente do subtotal', () => {
+        assert.equal(computeIcms(0, { icmsIncluded: false, icmsUnit: 'FIXED', icmsPercent: 18.5 }), 18.5);
+        assert.equal(computeIcms(1000, { icmsIncluded: false, icmsUnit: 'FIXED', icmsPercent: 18.5 }), 18.5);
+    });
+
+    it('não acrescenta ICMS quando já está incluso para qualquer unidade', () => {
+        for (const icmsUnit of ['PERCENT', 'DIVISOR', 'FIXED'] as const) {
+            assert.equal(computeIcms(1000, { icmsIncluded: true, icmsUnit, icmsPercent: 0.88 }), 0);
+        }
+    });
+
+    it('interrompe o cálculo quando o divisor é inválido ou estoura o limite numérico', () => {
+        const calc = (icmsPercent: number | null) => computeIcms(1000, { icmsIncluded: false, icmsUnit: 'DIVISOR', icmsPercent });
+        for (const value of [null, 0, -0.88, 1, 1.12]) {
+            assert.throws(() => calc(value), /Divisor do ICMS deve ficar entre 0 e 1/);
+        }
+        assert.throws(() => calc(Number.MIN_VALUE), /fora do limite do cálculo/);
+    });
+});
+
 describe('computeFreightFromTable', () => {
     it('peso efetivo = maior entre real e cubado; ad valorem/GRIS por R$ 1.000; ICMS por fora', () => {
         // 0,5 m³ × 300 = 150 kg cubado > 100 kg real
@@ -33,6 +63,34 @@ describe('computeFreightFromTable', () => {
         assert.equal(r.breakdown.toll, 15);
         const subtotal = 300 + 30 + 10 + 15 + 10 + 5;
         assert.equal(Math.round(r.total * 100) / 100, Math.round(subtotal * 1.12 * 100) / 100);
+    });
+
+    it('aplica o divisor depois de somar todas as parcelas do frete', () => {
+        const table: PricingTableLike = { ...baseTable, freightValue: 5.4, icmsUnit: 'DIVISOR', icmsPercent: 0.88 };
+        const result = computeFreightFromTable(table, { volumes: 2, weight: 100, cubage: 0.5, nfValue: 10_000 });
+
+        assert.deepEqual(result.breakdown, { freightBase: 810, adValorem: 30, gris: 10, toll: 15, dispatch: 10, others: 5, icms: 120 });
+        assert.equal(result.total, 1000);
+    });
+
+    it('preserva o quociente do divisor antes do arredondamento monetário', () => {
+        const table: PricingTableLike = {
+            ...baseTable,
+            freightUnit: 'RS_UNIT',
+            freightValue: 0.03,
+            minFreightValue: null,
+            adValoremPercent: null,
+            grisPercent: null,
+            tollValue: null,
+            dispatchFee: null,
+            otherFees: null,
+            icmsUnit: 'DIVISOR',
+            icmsPercent: 0.10526315789473685,
+        };
+
+        const result = computeFreightFromTable(table, { volumes: 1, weight: 1, nfValue: 100 });
+
+        assert.equal(result.total, 0.285);
     });
 
     it('frete mínimo por faixa de peso vence o frete-peso pequeno', () => {
