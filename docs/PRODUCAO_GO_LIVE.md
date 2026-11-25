@@ -167,8 +167,9 @@ docker exec -it <api> node dist/scripts/importLegacyMasterData.js drivers /dados
   rodar de novo sem medo.
 - Cada carga gera um CSV de conferência (linha, resultado, motivo). A TSM confere as contagens contra o
   legado e assina.
-- Tabelas de frete, títulos em aberto e contas de cliente **não** entram por aqui: são poucas e com
-  regra comercial. Lançar pela torre, conferindo uma a uma.
+- Este caminho (CSV) é para cadastros avulsos. Quem vem do arquivo do extrator (pessoas, clientes e
+  contas, veículos, motoristas, tabelas de frete e contatos) entra pela **promoção** (§9.2).
+- Títulos em aberto **não** entram por aqui: lançar pela torre, conferindo um a um.
 
 ## 7. Contingência: o TSM caiu
 
@@ -214,7 +215,7 @@ Não há API nem export oficial: o histórico sai **pelo nosso próprio acesso**
 |---|---|---|
 | Pedidos, cotações, financeiro (receitas e despesas) e as demais listagens | `tools/legacy-extract` (lista fechada, só GET, retomável), mês a mês, desde 2016 | **Histórico do legado** (`importLegacyArchive.js`): tudo como veio, pesquisável |
 | XML de CT-e e MDF-e | download em lote do próprio legado (já feito em out/2026) + novos meses | Arquivo fiscal externo (`importExternalFiscal.js`) |
-| Pessoas, veículos, motoristas | listagens → CSV/JSON | Cadastros vivos (`importLegacyMasterData.js`) + histórico |
+| Pessoas, clientes, motoristas, veículos, rotas, tabelas de preço | listagens do extrator | Histórico **e** cadastros vivos, pela **promoção** (`promoteLegacyArchive.js`, §9.2) |
 | Títulos em aberto | listagem financeira (`recdes=R`, abertos) | Conferência na torre e lançamento um a um |
 
 **Os 6 meses de convivência:**
@@ -255,10 +256,33 @@ Rodar:
    - movimento mês a mês (cotações, pedidos, CT-e, notas, viagens, receitas e despesas);
    - detalhe de cada viagem (MDF-e, itens, financeiro);
    - XML de CT-e por emitente.
-4. Conferir na torre (**Histórico do legado**, **Arquivo fiscal externo** e **Numeração fiscal**) e nos
+4. `promover` (§9.2): transforma o arquivo em cadastros reais.
+5. Conferir na torre (**Histórico do legado**, **Arquivo fiscal externo** e **Numeração fiscal**) e nos
    CSVs de conferência.
 
 Validado em 25/11/2026 contra o legado real. Os totais batem com o `totregs` de cada listagem, os
 cadastros vêm completos (37.676 pessoas, 25.018 clientes, 1.333 veículos, 921 motoristas, 696 linhas de
 tabela de cliente) e o XML de out/2026 tem 146 CT-e e 1 cancelamento.
 
+### 9.2 Promover o arquivo para cadastros reais (pessoas, clientes, veículos, tabelas)
+
+`carregar` só **arquiva** (cada linha como veio). A ação **`promover`** do mesmo workflow lê esse arquivo e
+cria/preenche os cadastros que a operação usa: `Person`, `Account` + `AccountCompany` (clientes e seus
+CNPJs), `Driver`, `VehicleUnit`, `PricingRoute`, `PricingTable` (geral e por cliente) e contatos.
+Mapeamento completo e regras: `tools/legacy-extract/README.md`.
+
+1. **Simular primeiro:** `promover` com `simular` marcado (padrão). Não grava nada e deixa o relatório
+   linha a linha no volume do worker (`/app/legacy-data/promocao-<data>.csv`; tem CPF/CNPJ, não sai da VPS).
+   Ler o resumo no log do job: criados / preenchidos / iguais / **recusados, com o motivo mais comum**.
+2. **Conferir** as recusas (CPF/CNPJ com DV inválido, placa inválida, sem nome) e as tabelas criadas
+   **inativas para revisão** (faixas de peso, limite de valor da NF etc.: o legado tem regra que o TSM não
+   modela; o Comercial revisa uma a uma antes de ativar).
+3. **Promover de verdade:** `promover` com `simular` desmarcado, primeiro em `staging`, depois em
+   `production`. Idempotente: pode rodar de novo (por exemplo, depois da rodada semanal do extrator) e só
+   preenche lacuna; **nunca sobrescreve** o que já foi editado no TSM.
+4. Para repetir só parte, usar o campo `jobs` com as etapas: `pessoas,clientes,motoristas,veiculos,rotas,
+   tarifas,tabelas_clientes,contatos,vendedores`. A ordem fixa é respeitada (pessoas antes de clientes e
+   veículos; clientes antes das tabelas por cliente).
+
+Antes de promover em produção: tabela de cidades (IBGE) carregada, para o município das pessoas ganhar o
+código IBGE; e conferir que o CNPJ de cada emitente fiscal do grupo não virou "cliente" por engano.

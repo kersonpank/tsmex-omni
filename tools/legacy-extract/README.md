@@ -65,6 +65,47 @@ job de empresas) baixa um `.zip` por emitente/mês. Extraia os zips e carregue c
 `importExternalFiscal.js` (documentos e eventos de cancelamento). Emitente sem movimento no mês volta
 com zip vazio.
 
+### Promover o arquivo para cadastros reais
+
+Arquivar guarda cada linha como veio. A **promoção** lê o arquivo (`LegacyRecord`) e cria/preenche os
+cadastros reais do TSM, para a produção já nascer organizada. Roda por padrão no fim do `load.mjs`
+(`--no-promote` pula; `--only-promote` roda só ela; `--dry-run` simula e não grava nada).
+
+```bash
+node tools/legacy-extract/load.mjs --config legado.config.json --only-promote --dry-run --report promocao.csv
+node tools/legacy-extract/load.mjs --config legado.config.json --only-promote --report promocao.csv
+# ou direto, por etapa:
+node server/dist/scripts/promoteLegacyArchive.js [--dry-run] [--only clientes,tarifas] [--report arquivo.csv]
+```
+
+| Etapa | Lê | Vira no TSM |
+|---|---|---|
+| `pessoas` | pessoas | `Person` (CPF/CNPJ com os zeros restaurados e DV conferido, nome, fantasia, cidade, UF, bairro) |
+| `clientes` | clientes | `Account` + `AccountCompany` (um código de cliente = uma conta; cada CNPJ/CPF = uma empresa da conta; tags `legado`, `legado:cliente:<código>` e a situação de crédito) |
+| `motoristas` | motoristas | `Driver` (CPF; sem telefone/CNH: o legado não os lista) |
+| `veiculos` | veiculos | `VehicleUnit` (placa, cavalo/reboque pelo texto do tipo, proprietário pelo documento) |
+| `rotas` | rotas | `PricingRoute` |
+| `tarifas` | tarifas | `PricingTable` GENERAL |
+| `tabelas_clientes` | tabelas_clientes | `PricingTable` SPECIAL ligada à `Account` |
+| `contatos` | cotacoes | `PersonContact` e `AccountContact` (e-mail e telefone do contato das cotações) |
+| `vendedores` | vendedores | `PersonContact` com o e-mail do vendedor |
+
+Regras: identidade pela chave natural (CPF/CNPJ, placa, `legado:<tipo>:<chave>` no `code` das tabelas);
+**só preenche lacuna, nunca sobrescreve** o que já está no TSM; rodar de novo não muda nada. O relatório
+(`--report`) tem uma linha por item com o motivo de cada recusa e **contém CPF/CNPJ: não versionar**.
+`agentes` (contas de cobrança da empresa) e `empresas` (emitentes fiscais) não são promovidos.
+
+Tabela de preço: o que tem campo no TSM é mapeado (unidade e valor do frete, frete mínimo, ad valorem e
+GRIS por R$ 1.000, pedágio, despacho, outros, cubagem, ICMS incluso). O que **não** tem equivalente (faixas
+de peso com valor fixo, ademe, devolução, reentrega, limite de valor da NF, "somar faixas com as taxas",
+prazo) aparece no relatório em "sem equivalente"; se mudaria o preço calculado, a tabela é criada
+**inativa** para revisão, nunca com preço adivinhado. A alíquota de ICMS do legado vem da UF na emissão e
+não é migrada: tabela sem ICMS incluso fica com `icmsPercent` vazio.
+
+As listagens de pessoas e clientes do legado **não trazem telefone nem e-mail**. Os contatos vêm das
+cotações (contato que pediu a cotação, ligado ao cliente da cotação) e do e-mail do vendedor. Para ter o
+cadastro completo (CEP, rua, IE, telefones), é preciso incluir no extrator o detalhe de cada pessoa.
+
 O histórico fica em **Gestão → Sistema → Histórico do legado**, pesquisável depois que a assinatura
 acabar.
 
