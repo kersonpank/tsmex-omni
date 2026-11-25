@@ -237,7 +237,7 @@ Não há API nem export oficial: o histórico sai **pelo nosso próprio acesso**
    listagens.
 2. **Rodada semanal** do extrator nos últimos 60 dias, idempotente. Pega o que o legado ainda tiver
    recebido (contingência, ajustes, baixas) e atualiza o histórico, contando revisões.
-3. **Retaguarda:** o legado continua assinado e é usado só em contingência, na série dele, a partir do
+3. **Retaguarda:** o legado continua assinado e é usado só em contingência, continuando a numeração do TSM (§7), a partir do
    pacote de contingência (§7). Não é alimentado com a operação do dia a dia: numa queda, o pedido
    nasce lá da NF-e, como sempre nasceu, e os cadastros históricos já estão lá.
 4. **Antes de cancelar:** última rodada completa, XMLs do último mês importados e conferência final.
@@ -256,8 +256,8 @@ Preparar uma vez por ambiente:
 1. GitHub → Settings → Environments → `staging` (e `production`). Cadastrar os segredos `LEGADO_USUARIO`,
    `LEGADO_SENHA` e `LEGADO_CONFIG_B64` (o base64 do `legado.config.json`, que tem os caminhos do legado e
    não fica no git). Os segredos `VPS_HOST`, `VPS_USER` e `VPS_SSH_KEY` valem como já estão.
-2. Portainer: atualizar o stack com o arquivo atual (`docker-stack.staging.yml` / `docker-stack.prod.yml`).
-   Ele traz o volume `legacy_*_data` do worker, onde ficam os arquivos baixados (sobrevivem a redeploy).
+2. Volume dos arquivos baixados (`legacy_*_data` no worker): o próprio workflow monta na primeira
+   execução se o stack ainda não tiver. Não precisa mexer no Portainer.
 3. O deploy precisa estar com a imagem que já traz o extrator (`/app/tools/legacy-extract`).
 
 Rodar:

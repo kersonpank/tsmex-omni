@@ -25,8 +25,12 @@ Conferir: `https://tsm.mesquitagrupo.com.br/api/health` responde 200 e a torre a
 1. `iniciar` — login e extração em segundo plano (algumas horas). Um deploy do worker no meio interrompe:
    rode `iniciar` de novo e ele continua de onde parou.
 2. `andamento` — até todos os jobs mostrarem arquivos e o log terminar com `fim=0`.
-3. `carregar` — histórico, XML fiscal e promoção dos cadastros (clientes, contatos, motoristas, veículos,
-   tabelas de preço). Rode primeiro a promoção em simulação e confira o relatório.
+3. `carregar` — guarda tudo no **Histórico do legado** e o XML no **Arquivo fiscal externo**.
+4. `promover` com **simular** marcado — relatório (no volume do worker, `/app/legacy-data/promocao-*.csv`)
+   do que viraria cadastro: pessoas, clientes/contas, contatos, motoristas, veículos e tabelas de preço,
+   com o motivo de cada recusa. Nada é gravado.
+5. `promover` com **simular** desmarcado — grava. Pode rodar de novo: só cria o que falta e só preenche
+   lacunas, nunca sobrescreve o que já foi editado no TSM.
 
 ## 4. O que conferir pela tela
 
