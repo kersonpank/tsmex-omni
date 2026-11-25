@@ -4,6 +4,9 @@ Runbook da entrada em produção do TSM EX e dos 6 meses em que o sistema legado
 Vale junto com [STACK_ENV_MATRIX.md](STACK_ENV_MATRIX.md) (variáveis) e
 [STACK_ROLLOUT_RUNBOOK.md](STACK_ROLLOUT_RUNBOOK.md) (stack no Swarm).
 
+**Como montar, operar, escalar e reconstruir a VPS de produção** (bootstrap, Traefik, Portainer, segredos, deploy,
+ensaio de restauração, recuperação de desastre): [PRODUCAO_VPS.md](PRODUCAO_VPS.md).
+
 **Regra mestra da convivência:** uma única autoridade emissora por operação e **cada sistema na sua
 série**. O TSM nunca emite na série que o legado usa, e vice-versa.
 
@@ -18,6 +21,8 @@ série**. O TSM nunca emite na série que o legado usa, e vice-versa.
 - `DATABASE_URL` sempre com o host qualificado `tsmexomni-prod_postgres`. O deploy recusa o host curto
   `postgres`.
 - Fuso do servidor: `America/Sao_Paulo`.
+- O servidor é preparado por `infra/prod-vps/bootstrap.sh` (SSH só com chave, UFW 22/80/443, Docker, Swarm) e vigiado por
+  `infra/prod-vps/healthwatch.sh`, que alerta no mesmo webhook (`OPS_ALERT_WEBHOOK_URL`). Ver [PRODUCAO_VPS.md](PRODUCAO_VPS.md).
 
 ## 2. Segredos — quem guarda o quê
 
@@ -189,7 +194,7 @@ docker exec -it <api> node dist/scripts/importLegacyMasterData.js drivers /dados
 
 ## 8. Checklist do corte (rota piloto primeiro)
 
-- [ ] Servidor dedicado no ar e stack com o serviço `backup`
+- [ ] Servidor dedicado no ar (checagens do [PRODUCAO_VPS.md §4.11](PRODUCAO_VPS.md)) e stack com o serviço `backup`
 - [ ] Destino externo configurado e as três linhas **Em dia** na torre
 - [ ] Uma restauração completa ensaiada num servidor separado, com o tempo anotado
 - [ ] Webhook de alerta testado (derrubar o worker de propósito chega no WhatsApp?)
