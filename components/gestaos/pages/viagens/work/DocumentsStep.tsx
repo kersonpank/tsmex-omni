@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { manifestsApi } from '../../../../../lib/api';
+import { manifestsApi, type MdfeOpenCheck } from '../../../../../lib/api';
 import { mdfeUfRows } from '../../../../os/lib/mdfe';
 import { docBadge, isDocumented, orderLabel } from '../../../../os/lib/readiness';
 import { FormSection } from '../../../ui/form';
@@ -10,6 +10,7 @@ import { FiscalCopilot } from '../FiscalCopilot';
 import { TripDocuments } from '../TripSections';
 import { Blocked } from './Blocked';
 import { CiotBlock } from './CiotBlock';
+import { MdfeDocActions, MdfeOpenNotice } from './MdfeEvents';
 import { PdfButton } from './PdfButton';
 import { refreshTrip, type StepProps } from './types';
 
@@ -31,6 +32,17 @@ export const DocumentsStep: React.FC<StepProps> = (props) => {
     const processing = !mdfeDone && (sent || mdfeSending || (multiUf && ufRows.some((row) => row.state === 'processing')));
     const accepted = trip.status === 'ACCEPTED';
     const canEmit = cteDone && ciotDone && accepted && !mdfeDone && !processing;
+    // Placa com MDF-e aberto (outra viagem do TSM ou legado): avisa antes de emitir.
+    const [openCheck, setOpenCheck] = useState<MdfeOpenCheck | null>(null);
+    const [legacyClosedConfirmed, setLegacyClosedConfirmed] = useState(false);
+    const authorizedMdfes = trip.fiscalDocuments?.filter((doc) => doc.documentType === 'MDFE' && doc.status === 'AUTHORIZED') ?? [];
+    useEffect(() => {
+        if (!cteDone || !ciotDone || !accepted || mdfeDone) return;
+        let alive = true;
+        manifestsApi.mdfeOpenCheck(trip.id).then((body) => { if (alive) setOpenCheck(body.data ?? null); }).catch(() => { if (alive) setOpenCheck(null); });
+        return () => { alive = false; };
+    }, [trip.id, cteDone, ciotDone, accepted, mdfeDone]);
+    const openBlocks = Boolean(openCheck && (openCheck.blockedByTsm || (openCheck.needsExternalConfirmation && !legacyClosedConfirmed)));
     useEffect(() => {
         if (mdfeDone || (!mdfeSending && trip.fiscalDocuments?.some((doc) => doc.documentType === 'MDFE' && doc.status === 'REJECTED'))) setSent(false);
     }, [mdfeDone, mdfeSending, trip.fiscalDocuments]);
@@ -42,7 +54,7 @@ export const DocumentsStep: React.FC<StepProps> = (props) => {
         const ok = await run(
             'mdfe',
             async () => {
-                const body = await manifestsApi.emitMdfe(trip.id);
+                const body = await manifestsApi.emitMdfe(trip.id, { confirmarMdfeLegadoEncerrado: legacyClosedConfirmed });
                 setSent(Boolean(body.pending));
             },
             { success: 'MDF-e enviado. Acompanhe a situação abaixo.', error: 'Não foi possível emitir o MDF-e.' },
@@ -112,15 +124,27 @@ export const DocumentsStep: React.FC<StepProps> = (props) => {
                 ) : null}
                 {!mdfeDone && !processing ? (
                     <div className="flex flex-col gap-2">
+                        <MdfeOpenNotice check={openCheck} confirmed={legacyClosedConfirmed} onConfirm={setLegacyClosedConfirmed} />
                         <Blocked reason={emitReason ?? (trip.status !== 'ACCEPTED' ? 'O MDF-e é emitido com a viagem confirmada, antes da saída.' : null)} />
                         <div>
-                            <Button variant="primary" disabled={!canEmit} loading={busy === 'mdfe'} onClick={() => void emit()}>
+                            <Button variant="primary" disabled={!canEmit || openBlocks} loading={busy === 'mdfe'} onClick={() => void emit()}>
                                 {multiUf ? 'Emitir os MDF-e que faltam' : 'Emitir MDF-e'}
                             </Button>
                         </div>
                     </div>
                 ) : null}
             </FormSection>
+
+            {authorizedMdfes.length ? (
+                <FormSection title="Ajustes do MDF-e" hint="Carga mudou depois da emissão? Cancele (até 24 h) e emita de novo. Trocou o motorista? Inclua o condutor." cols={1} mode="manual">
+                    {authorizedMdfes.map((doc) => (
+                        <div key={doc.id} className="gx-hair-b flex flex-col gap-2 py-2.5 last:border-b-0">
+                            <p className="text-[14px] font-medium">MDF-e{doc.number ? ` nº ${doc.number}` : ''}{doc.unloadUf ? ` · ${doc.unloadUf}` : ''}</p>
+                            <MdfeDocActions trip={trip} doc={doc} />
+                        </div>
+                    ))}
+                </FormSection>
+            ) : null}
 
             <TripDocuments trip={trip} />
         </div>

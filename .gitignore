@@ -40,3 +40,4 @@ __pycache__/
 # Extrator do sistema legado: configuração com os endereços reais, sessão e dados baixados (dado pessoal)
 tools/legacy-extract/legado.config.json
 research/
+.claude/worktrees/

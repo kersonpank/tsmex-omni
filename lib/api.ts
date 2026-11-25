@@ -627,6 +627,10 @@ export const nfeManualInvoicesApi = {
  */
 const MDFE_EMIT_TIMEOUT_MS = 150_000;
 
+export interface MdfeUfEmitRow { uf: string; status: 'AUTHORIZED' | 'PENDING' | 'REJECTED'; number: string | null; message: string | null; docId: string | null }
+export interface MdfeOpenItem { source: 'TSM' | 'FISCAL_EXTERNO' | 'HISTORICO_LEGADO'; plate: string; accessKey: string | null; number: string | null; reference: string; authorizedAt: string | null }
+export interface MdfeOpenCheck { plate: string | null; open: MdfeOpenItem[]; blockedByTsm: boolean; needsExternalConfirmation: boolean }
+
 export const manifestsApi = {
     list: async (params?: { status?: string; linkId?: string; includeArchived?: boolean }) => {
         const response = await api.get<PaginatedResponse<Manifest>>('/manifests', { params });
@@ -807,8 +811,27 @@ export const manifestsApi = {
         return response.data;
     },
 
-    emitMdfe: async (id: string) => {
-        const response = await api.post<ApiResponse<unknown> & { pending?: boolean; message?: string; mdfes?: Array<{ uf: string; status: 'AUTHORIZED' | 'PENDING' | 'REJECTED'; number: string | null; message: string | null; docId: string | null }> }>(`/manifests/${id}/emit-mdfe`, {}, { timeout: MDFE_EMIT_TIMEOUT_MS });
+    /** `confirmarMdfeLegadoEncerrado`: o operador confirma que o MDF-e aberto que o legado emitiu para a placa já foi encerrado. */
+    emitMdfe: async (id: string, options: { confirmarMdfeLegadoEncerrado?: boolean } = {}) => {
+        const response = await api.post<ApiResponse<unknown> & { pending?: boolean; message?: string; mdfes?: MdfeUfEmitRow[] }>(`/manifests/${id}/emit-mdfe`, options, { timeout: MDFE_EMIT_TIMEOUT_MS });
+        return response.data;
+    },
+
+    /** Placa de tração com MDF-e aberto em outra viagem do TSM ou no legado. */
+    mdfeOpenCheck: async (id: string) => {
+        const response = await api.get<ApiResponse<MdfeOpenCheck>>(`/manifests/${id}/mdfe-open-check`);
+        return response.data;
+    },
+
+    /** Cancela o MDF-e na SEFAZ (até 24 h da autorização); `reemitir` emite de novo com os CT-e atuais. */
+    cancelMdfe: async (id: string, documentId: string, body: { justificativa: string; reemitir?: boolean }) => {
+        const response = await api.post<ApiResponse<unknown> & { pending?: boolean; message?: string; mdfes?: MdfeUfEmitRow[] }>(`/manifests/${id}/fiscal-documents/${documentId}/cancel-mdfe`, body, { timeout: MDFE_EMIT_TIMEOUT_MS });
+        return response.data;
+    },
+
+    /** Evento de inclusão de condutor no MDF-e autorizado. */
+    includeMdfeDriver: async (id: string, documentId: string, driverId: string) => {
+        const response = await api.post<ApiResponse<unknown> & { pending?: boolean; message?: string }>(`/manifests/${id}/fiscal-documents/${documentId}/include-driver`, { driverId });
         return response.data;
     },
 

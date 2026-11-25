@@ -52,6 +52,7 @@ import { legacyArchiveRouter } from './routes/legacyArchive.js';
 import { createRateLimitRedis } from './lib/redis.js';
 import { fiscalSecretsGuard } from './lib/fiscalSecrets.js';
 import { manifestAverbacaoRouter } from './routes/manifestAverbacao.js';
+import { manifestMdfeEventsRouter } from './routes/manifestMdfeEvents.js';
 
 dotenv.config();
 
@@ -121,6 +122,7 @@ app.use('/api/clients', clientsRouter);
 app.use('/api/links', linksRouter);
 app.use('/api/demands', demandsRouter);
 app.use('/api/manifests', manifestAverbacaoRouter);
+app.use('/api/manifests', manifestMdfeEventsRouter);
 app.use('/api/manifests', manifestsRouter);
 app.use('/api/pricing', pricingRouter);
 app.use('/api/settings/llm', settingsRouter);

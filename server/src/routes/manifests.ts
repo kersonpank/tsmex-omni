@@ -17,6 +17,7 @@ import { isAcbrCredentialsConfigured } from '../services/acbr/acbrConfig.js';
 import { emitMdfesForManifest } from '../services/acbr/acbrMdfeEmit.js';
 import { archiveMdfePdf } from '../services/acbr/acbrMdfePdf.js';
 import { summarizeMdfeEmission } from '../services/acbr/mdfeUfPlan.js';
+import { describeOpenMdfe, findOpenMdfeForManifest } from '../services/fiscal/mdfeOpenByPlate.js';
 import { getManifestMargin } from '../services/pricingService.js';
 import { upsertFreightAgreement } from '../services/manifestFreightAgreementService.js';
 import { getManifestTripPriceEstimate } from '../services/manifestTripPriceEstimateService.js';
@@ -1504,6 +1505,14 @@ router.post('/:id/emit-mdfe', authenticate, authorize('ADMIN', 'HUB'), async (re
         }
         if (manifest.status !== 'ACCEPTED') throw new AppError('Aceite a oferta antes de emitir o MDF-e desta viagem.', 409);
 
+        // Placa com MDF-e aberto: a SEFAZ rejeitaria. O do TSM sempre bloqueia; o do legado libera só com confirmação.
+        const openCheck = await findOpenMdfeForManifest(id);
+        const confirmedExternal = (req.body as { confirmarMdfeLegadoEncerrado?: unknown } | undefined)?.confirmarMdfeLegadoEncerrado === true;
+        if (openCheck.blockedByTsm || (openCheck.needsExternalConfirmation && !confirmedExternal)) {
+            const message = describeOpenMdfe(openCheck);
+            return res.status(409).json({ success: false, error: message, message, openMdfe: openCheck });
+        }
+
         const mdfes = await emitMdfesForManifest(id);
         const summary = summarizeMdfeEmission(mdfes);
         if (summary.httpStatus === 422) return res.status(422).json({ success: false, pending: summary.pending, error: summary.message, message: summary.message, mdfes });
@@ -1862,10 +1871,8 @@ router.post('/:id/cancel-ciot-trip', authenticate, authorize('ADMIN'), async (re
         });
 
         // Lotação não permite retificação de CIOT — erro força cancelar CIOT + MDF-e + reemitir os
-        // dois. O cancelamento do MDF-e na SEFAZ (via ACBr) ainda não está implementado neste
-        // repo (`acbrMdfeEmit.ts` só emite) — "Verdade Fiscal" proíbe marcar CANCELLED aqui sem
-        // confirmação real do provider, então só sinalizamos a pendência pro operador resolver
-        // pelo canal existente (console ACBr) até essa integração existir.
+        // dois. O MDF-e não é cancelado aqui em cascata: o operador confirma pelo botão "Cancelar MDF-e"
+        // (`POST /:id/fiscal-documents/:documentId/cancel-mdfe`), que só grava CANCELLED com protocolo.
         let mdfeRequiresManualCancellation: { id: string; accessKey: string | null } | null = null;
         if (job?.tipoViagem === 'PADRAO') {
             const mdfeDoc = await prisma.manifestFiscalDocument.findFirst({
@@ -1875,7 +1882,7 @@ router.post('/:id/cancel-ciot-trip', authenticate, authorize('ADMIN'), async (re
             if (mdfeDoc) {
                 await prisma.manifestFiscalDocument.update({
                     where: { id: mdfeDoc.id },
-                    data: { statusReason: `AÇÃO NECESSÁRIA: cancelar este MDF-e na SEFAZ (cascata CIOT Lotação cancelado: ${justificativa}).` },
+                    data: { statusReason: `AÇÃO NECESSÁRIA: cancele este MDF-e (botão Cancelar MDF-e) — CIOT Lotação cancelado: ${justificativa}.` },
                 });
                 mdfeRequiresManualCancellation = { id: mdfeDoc.id, accessKey: mdfeDoc.accessKey };
             }
