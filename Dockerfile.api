@@ -41,6 +41,11 @@ COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 # Copy built application
 COPY --from=builder /app/dist ./dist
 
+# Extrator do sistema legado (só leitura) para a migração de dados rodar dentro da própria infra:
+# .github/workflows/legacy-migration.yml. Sem dependências (usa fetch); unzip para os lotes de XML.
+COPY tools/legacy-extract ./tools/legacy-extract
+RUN apk add --no-cache unzip
+
 # Expose port
 EXPOSE 3002
 

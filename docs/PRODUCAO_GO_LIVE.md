@@ -232,3 +232,33 @@ Não há API nem export oficial: o histórico sai **pelo nosso próprio acesso**
 Mover para a credencial "Acesso login lonngren" do n8n e trocar a senha. No extrator, a senha só entra
 por variável de ambiente.
 
+### 9.1 Rodar a migração pela infraestrutura (staging primeiro, depois produção)
+
+A extração e a carga rodam **dentro do container do worker do alvo**: os dados não passam pelo GitHub
+nem pelo computador de ninguém. Workflow: **Actions → Migração do legado**.
+
+Preparar uma vez por ambiente:
+1. GitHub → Settings → Environments → `staging` (e `production`). Cadastrar os segredos `LEGADO_USUARIO`,
+   `LEGADO_SENHA` e `LEGADO_CONFIG_B64` (o base64 do `legado.config.json`, que tem os caminhos do legado e
+   não fica no git). Os segredos `VPS_HOST`, `VPS_USER` e `VPS_SSH_KEY` valem como já estão.
+2. Portainer: atualizar o stack com o arquivo atual (`docker-stack.staging.yml` / `docker-stack.prod.yml`).
+   Ele traz o volume `legacy_*_data` do worker, onde ficam os arquivos baixados (sobrevivem a redeploy).
+3. O deploy precisa estar com a imagem que já traz o extrator (`/app/tools/legacy-extract`).
+
+Rodar:
+1. `iniciar`: login automático e extração em segundo plano (horas; o legado é consultado sem pressa).
+2. `andamento`: quantos arquivos e itens por job, e as últimas linhas do log. Se caiu, `iniciar` de novo
+   continua de onde parou.
+3. `carregar`: importa no banco do alvo. São 22 jobs:
+   - cadastros (pessoas, clientes, motoristas, veículos, rotas, tarifas geral e por cliente, empresas,
+     vendedores, agentes);
+   - movimento mês a mês (cotações, pedidos, CT-e, notas, viagens, receitas e despesas);
+   - detalhe de cada viagem (MDF-e, itens, financeiro);
+   - XML de CT-e por emitente.
+4. Conferir na torre (**Histórico do legado**, **Arquivo fiscal externo** e **Numeração fiscal**) e nos
+   CSVs de conferência.
+
+Validado em 25/11/2026 contra o legado real. Os totais batem com o `totregs` de cada listagem, os
+cadastros vêm completos (37.676 pessoas, 25.018 clientes, 1.333 veículos, 921 motoristas, 696 linhas de
+tabela de cliente) e o XML de out/2026 tem 146 CT-e e 1 cancelamento.
+

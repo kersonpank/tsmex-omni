@@ -13,6 +13,9 @@ describe('arquivo do legado', () => {
         assert.deepEqual(parseLegacyExport('{"total":2,"dados":{"itens":[{"a":1},{"a":2}]}}', { collection: 'dados.itens' }), [{ a: 1 }, { a: 2 }]);
         assert.equal(parseLegacyExport('{"totais":{"x":1},"lista":[{"a":1},{"a":2},{"a":3}]}').length, 3);
         assert.equal(parseLegacyExport('{"a":1}\n{"a":2}\n').length, 2);
+        // JSON do legado com aspas sem escape e quebra de linha crua dentro do valor
+        const broken = parseLegacyExport('[{"codigo": "1", "nome": "ACME "MATRIZ"", "obs": "a\nb"}, {"totregs": 1}]');
+        assert.equal((broken[0] as { nome: string }).nome, 'ACME "MATRIZ"');
     });
 
     it('chave automática só quando preenchida e única', () => {

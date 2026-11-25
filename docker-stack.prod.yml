@@ -178,6 +178,9 @@ services:
   worker:
     image: ghcr.io/${GITHUB_REPOSITORY}/tsmex-api:latest
     command: ["node", "dist/worker.js"]
+    # Migração do legado (.github/workflows/legacy-migration.yml): dados baixados sobrevivem a redeploy.
+    volumes:
+      - legacy_prod_data:/app/legacy-data
     environment:
       DATABASE_URL: ${DATABASE_URL}
       NODE_ENV: production
@@ -306,6 +309,7 @@ services:
         constraints: [node.role == manager]
 
 volumes:
+  legacy_prod_data:
   backup_prod_state:
   postgres_prod_data:
   redis_prod_data:

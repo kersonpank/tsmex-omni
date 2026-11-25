@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 /**
- * Carrega no TSM (Histórico do legado) tudo que o extrator baixou, job a job, com a chave de cada um
- * (`archiveKey`, pode ser composta: "codigo+documento") e a linha de totais ignorada (`metaKey`).
+ * Carrega no TSM tudo que o extrator baixou:
+ * - listagens e detalhes → Histórico do legado (`importLegacyArchive`), com a chave de cada job
+ *   (`archiveKey`, pode ser composta), sem a linha de totais (`metaKey`) e, nos detalhes baixados por id,
+ *   com o id de origem gravado em cada linha (`archiveIdField`, ex.: viagem_numero);
+ * - ZIPs de XML (job com `ext: "zip"`) → extraídos e enviados ao arquivo fiscal externo (`importExternalFiscal`).
  *
- *   node tools/legacy-extract/load.mjs --config legado.config.json [--only pedidos,ctes] [--script server/dist/scripts/importLegacyArchive.js]
+ *   node tools/legacy-extract/load.mjs --config legado.config.json [--only pedidos,ctes] [--scripts server/dist/scripts]
  *
- * Usa DATABASE_URL do ambiente (o mesmo do TSM). Idempotente: rodar de novo só atualiza o que mudou.
- * Se uma chave não for única num arquivo, o importador recusa — ajuste `archiveKey` e rode de novo.
+ * Usa DATABASE_URL do ambiente. Idempotente. Chave que não é única num arquivo → o importador recusa.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { loadConfig } from './extract.mjs';
 
@@ -18,16 +20,37 @@ const opt = (n, d) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] :
 
 const config = await loadConfig(opt('--config', 'legado.config.json'));
 const only = opt('--only')?.split(',');
-const script = path.resolve(opt('--script', 'server/dist/scripts/importLegacyArchive.js'));
-const runner = script.endsWith('.ts') ? ['npx', ['tsx', script]] : ['node', [script]];
+const scripts = path.resolve(opt('--scripts', 'server/dist/scripts'));
+const runScript = (name, argv) => {
+  const js = path.join(scripts, `${name}.js`);
+  const ts = path.join(scripts, `${name}.ts`);
+  const [cmd, pre] = existsSync(js) ? ['node', [js]] : ['npx', ['tsx', ts]];
+  return spawnSync(cmd, [...pre, ...argv], { stdio: 'inherit' }).status;
+};
+
 let failed = 0;
 for (const job of config.jobs) {
   if (only && !only.includes(job.name)) continue;
   const dir = path.join(config.outDir, job.name);
   if (!existsSync(dir)) { console.log(`- ${job.name}: nada baixado`); continue; }
-  const extra = [...(job.archiveKey ? ['--key', job.archiveKey] : []), ...(job.metaKey ? ['--meta-key', job.metaKey] : [])];
   console.log(`▶ ${job.name}`);
-  const r = spawnSync(runner[0], [...runner[1], job.name, dir, ...extra], { stdio: 'inherit' });
-  if (r.status !== 0) failed++;
+  if (job.ext === 'zip') {
+    const xmlDir = path.join(dir, '_xml');
+    mkdirSync(xmlDir, { recursive: true });
+    for (const zip of readdirSync(dir).filter((f) => f.endsWith('.zip'))) {
+      const full = path.join(dir, zip);
+      if (statSync(full).size === 0) continue; // emitente sem movimento no mês
+      const r = spawnSync('unzip', ['-q', '-o', full, '-d', path.join(xmlDir, zip.replace(/\.zip$/, ''))], { stdio: 'inherit' });
+      if (r.status !== 0) { console.error(`  zip ilegível: ${zip}`); failed++; }
+    }
+    if (runScript('importExternalFiscal', [xmlDir, '--note', `legado ${job.name}`, '--report', path.join(dir, 'conferencia-fiscal.csv')]) !== 0) failed++;
+    continue;
+  }
+  const extra = [
+    ...(job.archiveKey ? ['--key', job.archiveKey] : []),
+    ...(job.metaKey ? ['--meta-key', job.metaKey] : []),
+    ...(job.archiveIdField ? ['--id-from-filename', job.archiveIdField] : []),
+  ];
+  if (runScript('importLegacyArchive', [job.name, dir, ...extra]) !== 0) failed++;
 }
-if (failed) { console.error(`${failed} job(s) não carregaram — veja as mensagens acima.`); process.exitCode = 1; }
+if (failed) { console.error(`${failed} etapa(s) não carregaram — veja as mensagens acima.`); process.exitCode = 1; }

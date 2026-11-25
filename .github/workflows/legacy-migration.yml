@@ -1,0 +1,83 @@
+name: Migração do legado
+
+# Tira o histórico do sistema legado e carrega no TSM, rodando DENTRO do container da API do alvo
+# (staging ou produção): os dados não passam pelo runner do GitHub nem pelo computador de ninguém.
+# Extração é longa (horas): "iniciar" dispara em segundo plano e sai; "andamento" mostra o progresso;
+# "carregar" importa no banco do alvo o que foi baixado. Tudo idempotente e retomável.
+#
+# Segredos necessários (Settings → Environments → staging / production):
+#   LEGADO_USUARIO, LEGADO_SENHA   login da empresa no legado (só leitura é usada)
+#   LEGADO_CONFIG_B64              base64 da configuração do extrator (caminhos do legado; fora do git)
+#   VPS_HOST, VPS_USER, VPS_SSH_KEY
+on:
+  workflow_dispatch:
+    inputs:
+      alvo:
+        description: 'Onde carregar'
+        required: true
+        type: choice
+        options: [staging, production]
+      acao:
+        description: 'O que fazer'
+        required: true
+        type: choice
+        options: [iniciar, andamento, carregar]
+      jobs:
+        description: 'Só estes jobs (vírgula). Vazio = todos'
+        required: false
+        default: ''
+
+concurrency:
+  group: legacy-migration-${{ github.event.inputs.alvo }}
+  cancel-in-progress: false
+
+jobs:
+  migrar:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.alvo }}
+    steps:
+      - name: Executar na VPS
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          LEGADO_USUARIO: ${{ secrets.LEGADO_USUARIO }}
+          LEGADO_SENHA: ${{ secrets.LEGADO_SENHA }}
+          LEGADO_CONFIG_B64: ${{ secrets.LEGADO_CONFIG_B64 }}
+          ALVO: ${{ github.event.inputs.alvo }}
+          ACAO: ${{ github.event.inputs.acao }}
+          SO_JOBS: ${{ github.event.inputs.jobs }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: LEGADO_USUARIO,LEGADO_SENHA,LEGADO_CONFIG_B64,ALVO,ACAO,SO_JOBS
+          command_timeout: 60m
+          script: |
+            set -euo pipefail
+            if [ "$ALVO" = "production" ]; then STACK=tsmexomni-prod; else STACK=staging-tsmex-dev; fi
+            # Worker: um só por stack (a API tem 2 réplicas) e sobrevive a deploy de API no meio da extração.
+            CID=$(docker ps --filter "label=com.docker.swarm.service.name=${STACK}_worker" --filter status=running --format '{{.ID}}' | head -1)
+            if [ -z "$CID" ]; then echo "❌ Container do worker de $STACK não encontrado."; docker service ls; exit 1; fi
+            DATA=/app/legacy-data
+            CONF=$DATA/legado.config.json
+            ONLY=""; [ -n "$SO_JOBS" ] && ONLY="--only $SO_JOBS"
+            docker exec "$CID" test -f /app/tools/legacy-extract/extract.mjs || { echo "❌ A imagem ainda não tem o extrator (deploy pendente)."; exit 1; }
+            # Configuração vinda do segredo; saída fica no volume do container (dado pessoal: não sai da VPS).
+            docker exec "$CID" mkdir -p "$DATA"
+            echo "$LEGADO_CONFIG_B64" | base64 -d | docker exec -i "$CID" sh -c "cat > $CONF"
+            OUT="-e LEGADO_OUT_DIR=$DATA/extract"
+            case "$ACAO" in
+              iniciar)
+                docker exec $OUT -e LEGADO_USUARIO -e LEGADO_SENHA "$CID" node /app/tools/legacy-extract/extract.mjs login-auto --config "$CONF"
+                # Em segundo plano dentro do container; o log fica em $DATA/run.log.
+                docker exec -d $OUT -e LEGADO_USUARIO -e LEGADO_SENHA "$CID" sh -c "node /app/tools/legacy-extract/extract.mjs run --config $CONF $ONLY >> $DATA/run.log 2>&1; echo fim=\$? >> $DATA/run.log"
+                echo "✅ Extração iniciada em $STACK. Rode 'andamento' para acompanhar."
+                ;;
+              andamento)
+                docker exec $OUT "$CID" node /app/tools/legacy-extract/extract.mjs status --config "$CONF"
+                echo "--- últimas linhas do log ---"
+                docker exec "$CID" sh -c "tail -n 15 $DATA/run.log 2>/dev/null || echo 'sem log ainda'"
+                ;;
+              carregar)
+                docker exec $OUT "$CID" node /app/tools/legacy-extract/load.mjs --config "$CONF" --scripts /app/dist/scripts $ONLY
+                ;;
+            esac

@@ -151,6 +151,9 @@ services:
   worker:
     image: ghcr.io/${GITHUB_REPOSITORY}/tsmex-api:staging
     command: ["node", "dist/worker.js"]
+    # Migração do legado (.github/workflows/legacy-migration.yml): dados baixados sobrevivem a redeploy.
+    volumes:
+      - legacy_staging_data:/app/legacy-data
     environment:
       DATABASE_URL: ${DATABASE_URL}
       NODE_ENV: production
@@ -223,6 +226,7 @@ services:
         - "traefik.http.services.tsmex-staging.loadbalancer.server.port=80"
 
 volumes:
+  legacy_staging_data:
   postgres_staging_data:
   redis_staging_data:
   minio_staging_data:

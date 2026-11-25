@@ -168,3 +168,16 @@ test('login automático pelo formulário e reentrada quando o legado responde "s
     await rm(outDir, { recursive: true, force: true });
   }
 });
+
+test('reparo do JSON do legado: aspas sem escape, controle cru e latin1', async () => {
+  const { repairLegacyJson } = await import('./repair.mjs');
+  const broken = '[{"codigo": "1", "nome": "A.B. ACME "MATRIZ"", "obs": "linha1\nlinha2\tx"}, {"codigo": "2", "nome": "SAO "JOAO", LTDA", "uf": "MA"}, {"totregs": 2}]';
+  const parsed = JSON.parse(repairLegacyJson(broken));
+  assert.equal(parsed[0].nome, 'A.B. ACME "MATRIZ"');
+  assert.equal(parsed[0].obs, 'linha1\nlinha2\tx');
+  assert.equal(parsed[1].nome, 'SAO "JOAO", LTDA');
+  assert.equal(parsed[2].totregs, 2);
+  const latin = Buffer.from('[{"nome": "S\xc3O JO\xc3O"}]', 'latin1');
+  assert.equal(JSON.parse(repairLegacyJson(latin))[0].nome, 'SÃO JOÃO');
+  assert.equal(repairLegacyJson('{"a": 1, "b": [1, 2]}'), '{"a": 1, "b": [1, 2]}');
+});

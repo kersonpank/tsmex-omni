@@ -1,7 +1,7 @@
 /**
  * Carga do ARQUIVO do sistema legado (histórico completo, como veio) a partir dos exports dele.
  *
- *   node dist/scripts/importLegacyArchive.js <tipo> <arquivo-ou-pasta> [--key coluna|a+b] [--meta-key totregs] [--collection caminho.no.json] [--format csv|json]
+ *   node dist/scripts/importLegacyArchive.js <tipo> <arquivo-ou-pasta> [--key coluna|a+b] [--meta-key totregs] [--id-from-filename campo] [--collection caminho.no.json] [--format csv|json]
  *
  * Exemplos:
  *   importLegacyArchive.js pedidos  ./export/pedidos/          (todos os .csv/.json da pasta)
@@ -40,7 +40,12 @@ async function main() {
     for (const file of await filesOf(target)) {
         let text = await readFile(file, 'utf8');
         if (text.includes('�')) text = (await readFile(file)).toString('latin1');
-        const rows = parseLegacyExport(text, { format, collection: arg('--collection') ?? null });
+        let rows = parseLegacyExport(text, { format, collection: arg('--collection') ?? null });
+        // Detalhe baixado por id (ex.: MDF-e da viagem 14622 → id-14622.json): grava o id de origem em
+        // cada linha, senão a linha perde a ligação com a viagem/pedido a que pertence.
+        const idField = arg('--id-from-filename');
+        const idMatch = /(?:^|[-_])id-(.+)\.[a-z]+$/i.exec(path.basename(file)) ?? /^id-(.+)\.[a-z]+$/i.exec(path.basename(file));
+        if (idField && idMatch) rows = rows.map((r) => ({ [idField]: idMatch[1], ...r }));
         if (rows.length === 0) { console.log(`  ${path.basename(file)}: vazio`); continue; }
         const r = await archiveLegacyRows(entity, rows, { keyColumn: arg('--key') ?? null, sourceFile: path.basename(file), metaKey: arg('--meta-key') ?? null });
         console.log(`  ${path.basename(file)}: ${r.total} linhas → ${r.created} novas, ${r.updated} alteradas, ${r.unchanged} iguais (chave: ${r.keyColumn ?? 'hash da linha'})`);

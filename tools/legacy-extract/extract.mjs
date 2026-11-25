@@ -20,6 +20,7 @@ import readline from 'node:readline/promises';
 import { createGuard, GuardError } from './guard.mjs';
 import { expandJob } from './plan.mjs';
 import { cookieContext, loginWithForm } from './session.mjs';
+import { repairLegacyJson } from './repair.mjs';
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -29,7 +30,8 @@ export async function loadConfig(file) {
   const config = JSON.parse(await readFile(file, 'utf8'));
   if (!config.baseUrl || !Array.isArray(config.jobs) || config.jobs.length === 0) throw new Error('Configuração precisa de baseUrl e jobs.');
   const dir = path.dirname(path.resolve(file));
-  config.outDir = path.resolve(dir, config.outDir ?? '../research/legado/extract');
+  // LEGADO_OUT_DIR (ambiente) manda: na migração pela infra a saída vai para o volume do container.
+  config.outDir = path.resolve(dir, process.env.LEGADO_OUT_DIR || config.outDir || '../research/legado/extract');
   config.sessionFile = path.resolve(dir, config.sessionFile ?? path.join(config.outDir, '.session.json'));
   config.delayMs = config.delayMs ?? 1500;
   config.maxPages = config.maxPages ?? 5000;
@@ -92,9 +94,13 @@ async function fetchUnit(ctx, guard, config, job, unit, done, log, out) {
     }
 
     let items = null;
+    let parseError = null;
     if (job.format === 'json') {
-      const parsed = JSON.parse(body.toString('utf8'));
-      const list = getPath(parsed, job.listPath);
+      // O legado às vezes devolve JSON malformado (caractere de controle/aspas de um cadastro). O arquivo
+      // é guardado como veio mesmo assim; o importador repara a leitura. A paginação continua.
+      let parsed = null;
+      try { parsed = JSON.parse(repairLegacyJson(body)); } catch (err) { parseError = err.message.slice(0, 160); }
+      const list = parsed == null ? null : getPath(parsed, job.listPath);
       // `metaKey`: linha de totais que o legado mistura aos registros (ex.: { totregs }). Não conta como item.
       items = Array.isArray(list) ? list.filter((x) => !(job.metaKey && x && typeof x === 'object' && job.metaKey in x)).length : null;
     }
@@ -108,8 +114,8 @@ async function fetchUnit(ctx, guard, config, job, unit, done, log, out) {
     const file = path.join(config.outDir, job.name, `${id}.${ext}`);
     await mkdir(path.dirname(file), { recursive: true });
     await writeFile(file, body);
-    await log({ job: job.name, id, status, ok: true, bytes: body.length, sha256: hash, items, file: path.relative(config.outDir, file), path: url.pathname });
-    out.log(`  ✓ ${job.name}/${id} (${body.length} bytes${items != null ? `, ${items} itens` : ''})`);
+    await log({ job: job.name, id, status, ok: true, bytes: body.length, sha256: hash, items, ...(parseError ? { parseError } : {}), file: path.relative(config.outDir, file), path: url.pathname });
+    out.log(`  ${parseError ? '⚠️' : '✓'} ${job.name}/${id} (${body.length} bytes${items != null ? `, ${items} itens` : ''}${parseError ? `, JSON inválido: ${parseError}` : ''})`);
     await sleep(config.delayMs);
     if (!paged) break;
   }

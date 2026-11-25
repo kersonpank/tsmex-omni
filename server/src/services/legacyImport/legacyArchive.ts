@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
 import prisma from '../../lib/prisma.js';
 import { normalizeHeader, parseCsv } from './csv.js';
+import { parseLegacyJson } from './repairJson.js';
 
 /**
  * Arquivo do sistema legado (LegacyRecord): guarda cada linha exportada de lá como veio.
@@ -149,9 +150,9 @@ export function parseLegacyExport(content: string, options: { format?: 'csv' | '
     if (options.format === 'csv' || (!options.format && !looksJson)) return parseCsv(text);
     let parsed: unknown;
     try {
-        parsed = JSON.parse(text);
+        parsed = parseLegacyJson(text);
     } catch {
-        parsed = text.split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l));
+        parsed = text.split(/\r?\n/).filter(Boolean).map((l) => parseLegacyJson(l));
     }
     let node: unknown = parsed;
     if (options.collection) {
