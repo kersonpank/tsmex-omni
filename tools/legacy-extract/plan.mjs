@@ -3,7 +3,8 @@
  * - `months`: um pedido por mês entre `from` e `to` (AAAA-MM), preenchendo {inicio}/{fim} (dd/mm/aaaa
  *   ou aaaa-mm-dd conforme `dateFormat`) — exports grandes (pedidos, CT-e, financeiro) saem por mês;
  * - `page`: pagina {page} a partir de `start` até a lista vir vazia (o executor decide quando parar);
- * - `ids`: um pedido por id vindo de outro job já baixado (ex.: detalhe de cada viagem).
+ * - `ids`: um pedido por id vindo de outro job já baixado (ex.: detalhe de cada viagem);
+ * - `months` + `forEachId`: mês × id de outro job (ex.: XML de CT-e de cada emitente, mês a mês).
  */
 const pad = (n) => String(n).padStart(2, '0');
 
@@ -42,8 +43,11 @@ export function expandJob(job, extraVars = {}) {
     query: Object.fromEntries(Object.entries(job.query ?? {}).map(([k, v]) => [k, fill(v, vars)])),
   });
   if (job.split?.type === 'months') {
-    return monthsBetween(job.split.from, job.split.to).map(({ key, y, m, last }) =>
-      build(key, { ...base, inicio: fmt(y, m, 1, job.split.dateFormat), fim: fmt(y, m, last, job.split.dateFormat) }));
+    const months = monthsBetween(job.split.from, job.split.to);
+    // `forEachId`: mês × id vindo de outro job (ex.: XML de CT-e por emitente e por mês) → {id}.
+    const ids = job.split.forEachId ? (extraVars.__ids ?? []) : [null];
+    return ids.flatMap((id) => months.map(({ key, y, m, last }) =>
+      build(id == null ? key : `${id}-${key}`, { ...base, ...(id == null ? {} : { id }), inicio: fmt(y, m, 1, job.split.dateFormat), fim: fmt(y, m, last, job.split.dateFormat) })));
   }
   if (job.split?.type === 'ids') {
     return (extraVars.__ids ?? []).map((id) => build(`id-${id}`, { ...base, id }));

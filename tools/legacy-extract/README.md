@@ -60,6 +60,11 @@ node server/dist/scripts/importExternalFiscal.js research/legado/xml            
 node server/dist/scripts/importLegacyMasterData.js persons pessoas.csv --dry-run    # cadastros vivos
 ```
 
+**XML de CT-e:** o job de download em lote por emitente e mês (`split.months` + `forEachId` vindo do
+job de empresas) baixa um `.zip` por emitente/mês. Extraia os zips e carregue com
+`importExternalFiscal.js` (documentos e eventos de cancelamento). Emitente sem movimento no mês volta
+com zip vazio.
+
 O histórico fica em **Gestão → Sistema → Histórico do legado**, pesquisável depois que a assinatura
 acabar.
 

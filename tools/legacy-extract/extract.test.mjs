@@ -30,6 +30,11 @@ test('plano: um pedido por mês com datas BR ou ISO', () => {
   assert.deepEqual(units, [{ key: '2024-02', path: '/api/cte', query: { de: '01/02/2024', ate: '29/02/2024' } }]);
 });
 
+test('plano: mês × id de outro job (XML por emitente e por mês)', () => {
+  const units = expandJob({ name: 'xml', path: '/api/xmls.php', query: { empresa: '{id}', de: '{inicio}' }, split: { type: 'months', from: '2026-01', to: '2026-02', forEachId: { fromJob: 'empresas', idField: 'codigo' } } }, { __ids: ['1', '7'] });
+  assert.deepEqual(units.map((u) => [u.key, u.query.empresa, u.query.de]), [['1-2026-01', '1', '01/01/2026'], ['1-2026-02', '1', '01/02/2026'], ['7-2026-01', '7', '01/01/2026'], ['7-2026-02', '7', '01/02/2026']]);
+});
+
 test('executor: pagina até vazio, mês a mês, detalhe por id, retoma sem rebaixar e para quando a sessão vence', async () => {
   let calls = [];
   let sessionValid = true;

@@ -138,7 +138,8 @@ export async function run(config, { only, contextFactory, out = console, relogin
     for (const job of config.jobs) {
       if (only && !only.includes(job.name)) continue;
       out.log(`▶ ${job.name}`);
-      const extra = job.split?.type === 'ids' ? { __ids: await idsFrom(config, job.split) } : {};
+      const idSource = job.split?.type === 'ids' ? job.split : job.split?.forEachId;
+      const extra = idSource ? { __ids: await idsFrom(config, idSource) } : {};
       for (const unit of expandJob(job, extra)) {
         try {
           await fetchUnit(ctx, guard, config, job, unit, done, log, out);
