@@ -15,8 +15,8 @@ const calls: Array<{ method: string; url: string; data: any }> = [];
 
 const NUMBERING = [{
     emitterId: 'em-1', name: 'TransMesquita SP', cnpj: '11222333000181', environment: 'PRODUCAO',
-    cte: { model: 'CTE', series: 1, tsmLastNumber: 0, legacyLastNumber: 22393, legacyLastIssuedAt: '2026-11-20T10:00:00Z', legacyCount: 22246, warnings: ['SAME_SERIES_AS_LEGACY', 'LEGACY_AHEAD', 'LEGACY_ACTIVE_RECENTLY'] },
-    mdfe: { model: 'MDFE', series: 2, tsmLastNumber: 0, legacyLastNumber: null, legacyLastIssuedAt: null, legacyCount: 0, warnings: [] },
+    cte: { model: 'CTE', series: 1, tsmLastNumber: 0, legacyLastNumber: 22393, legacyLastIssuedAt: '2026-11-20T10:00:00Z', legacyCount: 22246, continueFrom: 22393, warnings: ['LEGACY_AHEAD', 'LEGACY_ACTIVE_RECENTLY'] },
+    mdfe: { model: 'MDFE', series: 1, tsmLastNumber: 0, legacyLastNumber: null, legacyLastIssuedAt: null, legacyCount: 0, continueFrom: 0, warnings: [] },
     legacySeries: [{ model: 'CTE', series: 1, lastNumber: 22393, lastIssuedAt: '2026-11-20T10:00:00Z', count: 22246 }],
 }];
 
@@ -35,6 +35,7 @@ describe('Numeração fiscal e arquivo externo', () => {
             calls.push({ method, url, data: config.data ? JSON.parse(String(config.data)) : undefined });
             let data: unknown = ok([]);
             if (url === '/fiscal/numbering') data = ok(NUMBERING);
+            else if (url === '/fiscal/numbering/em-1/continue') data = ok({ model: 'CTE', series: 1, lastNumber: 22400, nextNumber: 22401 });
             else if (url === '/fiscal/external-documents' && method === 'get') data = ok([], { total: 0, page: 1, pageSize: 30 });
             else if (url === '/fiscal/external-documents/import') data = ok({ counts: { created: 1, rejected: 1 }, results: [] });
             else if (url === '/system-alerts/backup-status') data = ok({ monitored: true, kinds: [
@@ -47,12 +48,19 @@ describe('Numeração fiscal e arquivo externo', () => {
     });
     afterEach(() => { api.defaults.adapter = originalAdapter; });
 
-    it('mostra o conflito de série com o legado e a série livre', async () => {
+    it('legado à frente: sugere continuar do último número dele e grava o informado', async () => {
         mount(<NumberingPanel />);
         expect(await screen.findByText('CT-e série 1')).toBeInTheDocument();
-        expect(screen.getByText('Conflito com o legado')).toBeInTheDocument();
-        expect(screen.getByText('Série livre')).toBeInTheDocument();
-        expect(screen.getByText(/o TSM vai pular números/)).toBeInTheDocument();
+        expect(screen.getByText('Atualize a numeração')).toBeInTheDocument();
+        expect(screen.getByText('Em sequência')).toBeInTheDocument();
+        const input = screen.getByDisplayValue('22393');
+        await userEvent.clear(input);
+        await userEvent.type(input, '22390');
+        expect(screen.getByRole('button', { name: 'Continuar a numeração' })).toBeDisabled();
+        await userEvent.clear(input);
+        await userEvent.type(input, '22400');
+        await userEvent.click(screen.getByRole('button', { name: 'Continuar a numeração' }));
+        await waitFor(() => expect(calls.find((c) => c.url === '/fiscal/numbering/em-1/continue')?.data).toEqual({ model: 'CTE', lastNumber: 22400 }));
     });
 
     it('importa XMLs escolhidos e mostra o resumo', async () => {

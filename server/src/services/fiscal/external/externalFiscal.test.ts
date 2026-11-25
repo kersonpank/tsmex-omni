@@ -78,7 +78,7 @@ describe('documentos fiscais externos (legado)', () => {
         const r1 = await reserveSkippingExternal(scope, async () => ++counter);
         assert.deepEqual(r1, { number: 103, skipped: [100, 101, 102] });
         const alert = await prisma.systemAlert.findFirst({ where: { category: 'FISCAL_NUMBERING_CONFLICT', status: 'OPEN' } });
-        assert.equal(alert?.severity, 'CRITICAL');
+        assert.equal(alert?.severity, 'WARNING');
 
         let other = 99;
         assert.deepEqual(await reserveSkippingExternal({ ...scope, series: 2 }, async () => ++other), { number: 100, skipped: [] });

@@ -130,17 +130,20 @@ O `SystemAlert` só aparece no painel. Para alguém ser acordado, configure o we
    Copie a pasta para dentro do container antes, com `docker cp`. O script é idempotente e gera um CSV de
    conferência; ele recusa chave com DV inválido e documento sem protocolo. Importe também os eventos
    (cancelamento, encerramento): eles entram depois dos documentos.
-2. **Escolher a série do TSM** (CT-e e MDF-e, por emitente) **diferente** da série do legado. Exemplo: o
-   legado segue na série 1 e o TSM usa a série 2, começando do número 1. Confirmar com a contabilidade.
-   Não usar as séries 890 a 999, que são reservadas.
-3. Em **Gestão → Sistema → Fiscal → Numeração fiscal**, conferir que a série do TSM aparece como
-   **Série livre** em cada emitente.
+2. **O TSM continua a série do legado** (decisão de 25/11/2026): mesma série (1), próximo número. O
+   legado guarda a série no cadastro da empresa e não tem tela para mudá-la; o que ele deixa editar é o
+   "Último CT-e" e o "Último MDF-e" (tela Empresas). Por isso a convivência é **por sequência, não por
+   série**: só um sistema emite por vez.
+3. **No dia do corte, parar de emitir no legado** e, em **Gestão → Sistema → Fiscal → Numeração
+   fiscal**, gravar em cada emitente o último número que o legado usou (botão **Continuar a
+   numeração**). A tela sugere o maior número conhecido (XML importado e histórico); confira com a tela
+   de Empresas do legado, que é o contador dele, e use o maior dos dois. Os números só andam para frente.
 4. Virar o emitente para **Produção** no cadastro. O sistema exige marcar "Conferi a série e o último
    número", e em produção o último número **só anda para frente**.
 5. Rede de segurança: se mesmo assim o TSM for usar um número que o legado já emitiu na mesma série,
-   CNPJ e ambiente, a reserva **pula** esse número e abre alerta CRÍTICO. O número do legado é um número
-   usado de verdade, então pular não cria lacuna. Mas o alerta significa que os dois estão na mesma
-   série: corrigir na hora.
+   CNPJ e ambiente, a reserva **pula** esse número e abre alerta. O número do legado é um número usado
+   de verdade, então pular não cria lacuna. O alerta significa que o legado emitiu depois do corte:
+   importar os XMLs dele e conferir se ninguém continua usando o legado.
 
 **Regras de convivência por documento:**
 - quem emitiu o CT-e é quem cancela e quem corrige;
@@ -182,10 +185,15 @@ docker exec -it <api> node dist/scripts/importLegacyMasterData.js drivers /dados
 
    O pacote lista pedido, situação, hub, partes, NF-e, CT-e/minuta, viagem, placas e MDF-e/CIOT de tudo
    que está em aberto. Com o TSM no ar, o mesmo pacote sai em Gestão → Sistema → Backup e contingência.
-3. Continuar no legado **na série dele** (nunca na série do TSM).
+3. No legado, tela **Empresas**, gravar em cada emitente o **Último CT-e** e o **Último MDF-e** com o
+   último número que o TSM usou (está no pacote e no último DACTE/DAMDFE). Só então emitir no legado.
+   Se a SEFAZ recusar por duplicidade, o número já foi usado: avance um e tente de novo.
 4. Ao voltar: importar no TSM os XMLs que o legado emitiu durante a queda (Gestão → Sistema → Fiscal →
-   Arquivo fiscal externo → Importar XMLs). Assim o TSM conhece esses números e não colide. Depois,
-   registrar nos pedidos o que mudou fisicamente.
+   Arquivo fiscal externo → Importar XMLs, ou `acao: carregar` do workflow de migração). O TSM pula os
+   números que o legado usou e segue do próximo livre. Parar de emitir no legado de novo e registrar
+   nos pedidos o que mudou fisicamente.
+5. MDF-e aberto pelo legado na contingência é encerrado **no legado** (quem abriu é quem encerra). O
+   TSM avisa e pede confirmação antes de emitir outro MDF-e para a mesma placa.
 
 ## 8. Checklist do corte (rota piloto primeiro)
 
@@ -199,7 +207,8 @@ docker exec -it <api> node dist/scripts/importLegacyMasterData.js drivers /dados
 - [ ] Arquivo fiscal do legado importado e conferido (contagem do CSV = export)
 - [ ] Pessoas, veículos e motoristas importados (dry-run conferido e assinado)
 - [ ] Tabelas de frete e títulos em aberto lançados e conferidos
-- [ ] Série exclusiva do TSM por emitente, aprovada pela contabilidade, e **Série livre** na torre
+- [ ] Legado parado de emitir e **Continuar a numeração** gravado em cada emitente (CT-e e MDF-e), conferido com a tela Empresas do legado
+- [ ] MDF-e que o legado deixou abertos encerrados no legado (a torre mostra a placa ao emitir)
 - [ ] Emitente virado para produção (CT-e/MDF-e) e e-Frete/AT&M de produção configurados
 - [ ] Certificado A1 válido (vence em set/2027 — alerta da torre)
 - [ ] Usuários reais criados com senha forte; contas de teste e seed desativadas

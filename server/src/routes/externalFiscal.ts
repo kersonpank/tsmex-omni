@@ -6,6 +6,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth.js';
 import { externalNumberingSummary, importExternalFiscalXml, type ImportOutcome } from '../services/fiscal/external/importExternalFiscal.js';
 import { buildNumberingStatus } from '../services/fiscal/external/numberingStatus.js';
+import { legacyArchiveNumberingSummary, mergeSeriesSummaries } from '../services/fiscal/external/legacyArchiveNumbering.js';
 import { CONTINGENCY_COLUMNS, loadContingencyRows, toContingencyCsv } from '../services/contingency/contingencyPackage.js';
 
 /**
@@ -121,10 +122,55 @@ router.get('/numbering', ...adminOnly, async (_req: AuthRequest, res: Response, 
                     person: { select: { document: true, legalName: true } },
                 },
             }),
-            externalNumberingSummary(),
+            numberingSources(),
         ]);
         res.json({ success: true, data: buildNumberingStatus(emitters, external) });
     } catch (error) {
+        next(error);
+    }
+});
+
+/** XML importado + histórico do legado (o que estiver mais à frente). */
+async function numberingSources() {
+    const [xml, archive] = await Promise.all([externalNumberingSummary(), legacyArchiveNumberingSummary()]);
+    return mergeSeriesSummaries(xml, archive);
+}
+
+const continueSchema = z.object({
+    model: z.enum(['CTE', 'MDFE']),
+    /** Último número já usado na série (o TSM emite o seguinte). Confira na tela de Empresas do legado. */
+    lastNumber: z.number().int().min(0).max(999_999_999),
+});
+
+// POST /api/fiscal/numbering/:emitterId/continue — o TSM continua a série do legado: grava o último
+// número usado. Nunca volta (nem abaixo do TSM, nem abaixo do que o legado já usou na série).
+router.post('/numbering/:emitterId/continue', ...adminOnly, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const emitterId = z.string().uuid().parse(req.params.emitterId);
+        const { model, lastNumber } = continueSchema.parse(req.body ?? {});
+        const emitter = await prisma.fiscalEmitter.findUnique({
+            where: { id: emitterId },
+            select: { id: true, environment: true, cteSeries: true, lastCteNumber: true, mdfeSeries: true, lastMdfeNumber: true, person: { select: { document: true } } },
+        });
+        if (!emitter) throw new AppError('Emitente não encontrado.', 404);
+        const cnpj = (emitter.person?.document ?? '').replace(/\D/g, '');
+        const series = model === 'CTE' ? emitter.cteSeries : emitter.mdfeSeries;
+        const tsmLast = model === 'CTE' ? emitter.lastCteNumber : emitter.lastMdfeNumber;
+        const legacy = (await numberingSources()).find((x) => x.emitterCnpj === cnpj && x.model === model && x.series === series && x.environment === emitter.environment);
+        const floor = Math.max(tsmLast, legacy?.lastNumber ?? 0);
+        if (lastNumber < floor) {
+            throw new AppError(`O último número não pode ficar abaixo de ${floor} (maior entre o TSM e o que o legado já usou na série ${series}).`, 400);
+        }
+        // Condição no where: se outra emissão reservou número no meio, não sobrescreve para trás.
+        const field = model === 'CTE' ? 'lastCteNumber' : 'lastMdfeNumber';
+        const updated = await prisma.fiscalEmitter.updateMany({
+            where: { id: emitter.id, [field]: { lte: lastNumber } },
+            data: { [field]: lastNumber },
+        });
+        if (updated.count === 0) throw new AppError('O emitente reservou um número maior enquanto você salvava. Atualize a tela e confira.', 409);
+        res.json({ success: true, data: { model, series, lastNumber, nextNumber: lastNumber + 1 } });
+    } catch (error) {
+        if (error instanceof z.ZodError) return next(new AppError(error.errors[0]?.message ?? 'Dados inválidos.', 400));
         next(error);
     }
 });

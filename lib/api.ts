@@ -1446,7 +1446,9 @@ export interface NumberingSeriesRow {
     legacyLastNumber: number | null;
     legacyLastIssuedAt: string | null;
     legacyCount: number;
-    warnings: Array<'SAME_SERIES_AS_LEGACY' | 'LEGACY_AHEAD' | 'LEGACY_ACTIVE_RECENTLY'>;
+    /** Maior número já usado entre TSM e legado nesta série: o TSM continua do seguinte. */
+    continueFrom: number;
+    warnings: Array<'LEGACY_AHEAD' | 'OTHER_SERIES_THAN_LEGACY' | 'LEGACY_ACTIVE_RECENTLY'>;
 }
 
 export interface EmitterNumberingStatus {
@@ -1477,6 +1479,11 @@ export const externalFiscalApi = {
     },
     numbering: async () => {
         const response = await api.get<ApiResponse<EmitterNumberingStatus[]>>('/fiscal/numbering');
+        return response.data;
+    },
+    /** Grava o último número usado na série (o TSM emite o seguinte). Nunca volta. */
+    continueNumbering: async (emitterId: string, model: 'CTE' | 'MDFE', lastNumber: number) => {
+        const response = await api.post<ApiResponse<{ model: 'CTE' | 'MDFE'; series: number; lastNumber: number; nextNumber: number }>>(`/fiscal/numbering/${emitterId}/continue`, { model, lastNumber });
         return response.data;
     },
 };

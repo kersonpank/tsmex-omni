@@ -8,21 +8,48 @@ import { useAction } from '../../ui/overlay';
 const MODEL_LABEL = { CTE: 'CT-e', MDFE: 'MDF-e' } as const;
 const STATUS_LABEL = { AUTHORIZED: 'Autorizado', CANCELLED: 'Cancelado', CLOSED: 'Encerrado' } as const;
 const WARNING_TEXT: Record<NumberingSeriesRow['warnings'][number], string> = {
-    SAME_SERIES_AS_LEGACY: 'O legado também usou esta série. Use uma série só do TSM.',
-    LEGACY_AHEAD: 'O legado já passou do último número do TSM nesta série: o TSM vai pular números.',
-    LEGACY_ACTIVE_RECENTLY: 'O legado emitiu nesta série nos últimos 30 dias.',
+    LEGACY_AHEAD: 'O legado está à frente nesta série. Grave o último número dele antes de emitir no TSM.',
+    OTHER_SERIES_THAN_LEGACY: 'O legado usou outra série neste modelo. O combinado é o TSM continuar a série do legado.',
+    LEGACY_ACTIVE_RECENTLY: 'O legado emitiu nesta série nos últimos 30 dias. Depois do corte, isso só deve acontecer em contingência.',
 };
 const date = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('pt-BR') : '—');
 
-const SeriesLine: React.FC<{ row: NumberingSeriesRow }> = ({ row }) => (
+/** Grava o último número usado (o TSM emite o seguinte). Sugere o maior entre TSM e legado. */
+const ContinueNumbering: React.FC<{ emitterId: string; row: NumberingSeriesRow }> = ({ emitterId, row }) => {
+    const { busy, run } = useAction();
+    const [value, setValue] = useState(String(row.continueFrom));
+    const parsed = Number(value);
+    const valid = Number.isInteger(parsed) && parsed >= row.continueFrom;
+    const save = async () => {
+        if (!valid) return;
+        const ok = await run(`continue-${row.model}`, () => externalFiscalApi.continueNumbering(emitterId, row.model, parsed), {
+            success: `${MODEL_LABEL[row.model]}: o TSM emite a partir do nº ${parsed + 1}.`,
+            error: 'Não foi possível gravar a numeração.',
+        });
+        if (ok) invalidate('system:fiscal-numbering');
+    };
+    return (
+        <div className="flex flex-wrap items-end gap-2">
+            <Field label={`Último ${MODEL_LABEL[row.model]} usado na série ${row.series}`} hint="Confira na tela de Empresas do legado (Último CT-e / Último MDF-e).">
+                <TextInput inputMode="numeric" value={value} onChange={(event) => setValue(event.target.value.replace(/\D/g, ''))} />
+            </Field>
+            <Button size="sm" variant="primary" disabled={!valid} loading={busy === `continue-${row.model}`} onClick={() => void save()}>
+                Continuar a numeração
+            </Button>
+        </div>
+    );
+};
+
+const SeriesLine: React.FC<{ emitterId: string; row: NumberingSeriesRow }> = ({ emitterId, row }) => (
     <div className="flex flex-col gap-1.5">
         <div className="flex flex-wrap items-center gap-2">
             <span className="font-semibold">{MODEL_LABEL[row.model]} série {row.series}</span>
             <span className="gx-muted text-[13px]">TSM: último {row.tsmLastNumber}</span>
-            <span className="gx-muted text-[13px]">· legado: {row.legacyLastNumber ?? 'nenhum'}{row.legacyLastNumber != null ? ` (${row.legacyCount} docs, último em ${date(row.legacyLastIssuedAt)})` : ''}</span>
-            {row.warnings.length === 0 ? <Pill tone="neutral" dot>Série livre</Pill> : <Pill tone="red" dot>Conflito com o legado</Pill>}
+            <span className="gx-muted text-[13px]">· legado: {row.legacyLastNumber ?? 'nenhum'}{row.legacyLastNumber != null ? ` (${row.legacyCount} docs${row.legacyLastIssuedAt ? `, último em ${date(row.legacyLastIssuedAt)}` : ''})` : ''}</span>
+            {row.warnings.includes('LEGACY_AHEAD') ? <Pill tone="red" dot>Atualize a numeração</Pill> : row.warnings.length ? <Pill tone="yellow" dot>Confira</Pill> : <Pill tone="neutral" dot>Em sequência</Pill>}
         </div>
-        {row.warnings.map((w) => <p key={w} className="gx-red-text text-[13px]">{WARNING_TEXT[w]}</p>)}
+        {row.warnings.map((w) => <p key={w} className={w === 'LEGACY_AHEAD' ? 'gx-red-text text-[13px]' : 'gx-muted text-[13px]'}>{WARNING_TEXT[w]}</p>)}
+        {row.legacyLastNumber != null ? <ContinueNumbering emitterId={emitterId} row={row} /> : null}
     </div>
 );
 
@@ -30,7 +57,7 @@ const SeriesLine: React.FC<{ row: NumberingSeriesRow }> = ({ row }) => (
 export const NumberingPanel: React.FC = () => {
     const state = useResource<EmitterNumberingStatus[]>('system:fiscal-numbering', async () => (await externalFiscalApi.numbering()).data ?? [], { staleMs: 15_000 });
     return (
-        <Panel title="Numeração fiscal" hint="Cada sistema emite na sua série. Confira aqui antes de passar um emitente para produção e no dia do corte." mode="manual">
+        <Panel title="Numeração fiscal" hint="O TSM continua a série do legado. No dia do corte, grave aqui o último número que o legado usou; em contingência, o legado retoma a partir do último número do TSM." mode="manual">
             <Loadable state={state} skeleton={<Skeleton rows={2} />} isEmpty={(d) => d.length === 0} empty={<EmptyState title="Nenhum emitente ativo." />}>
                 {(list) => (
                     <ul className="flex flex-col gap-4">
@@ -41,8 +68,8 @@ export const NumberingPanel: React.FC = () => {
                                     <span className="gx-mono gx-muted text-[12.5px]">{formatCnpjCpf(e.cnpj)}</span>
                                     <Pill tone={e.environment === 'PRODUCAO' ? 'solid' : 'yellow'}>{e.environment === 'PRODUCAO' ? 'Produção' : 'Homologação'}</Pill>
                                 </div>
-                                <SeriesLine row={e.cte} />
-                                <SeriesLine row={e.mdfe} />
+                                <SeriesLine emitterId={e.emitterId} row={e.cte} />
+                                <SeriesLine emitterId={e.emitterId} row={e.mdfe} />
                                 {e.legacySeries.length > 0 ? (
                                     <p className="gx-muted text-[12.5px]">Séries usadas pelo legado neste CNPJ: {e.legacySeries.map((s) => `${MODEL_LABEL[s.model]} ${s.series} (até ${s.lastNumber})`).join(' · ')}</p>
                                 ) : null}
