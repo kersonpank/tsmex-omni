@@ -1050,4 +1050,191 @@
 .gx-map-row-unserved {
     opacity: 0.55;
 }
+
+/* ---------- Rotas do Hub ---------- */
+.gx-route-stop-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--gx-royal, #1a44d9);
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 700;
+    border-radius: 9999px;
+    border: 2px solid #ffffff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+    pointer-events: none;
+}
+
+.gx-route-stop-badge span {
+    line-height: 1;
+}
+
+.gx-route-card {
+    border: 1px solid var(--gx-line);
+    border-radius: 12px;
+    background: var(--gx-panel);
+    padding: 16px;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.gx-route-card:hover {
+    border-color: var(--gx-line-strong);
+}
+
+.gx-route-card-inactive {
+    opacity: 0.7;
+}
+
+.gx-route-editor {
+    border: 1px solid var(--gx-royal-line);
+    border-radius: 12px;
+    background: var(--gx-panel);
+    padding: 16px;
+}
+
+.gx-route-stop-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: var(--gx-field);
+    border: 1px solid var(--gx-line);
+}
+
+.gx-route-stop-seq {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--gx-royal, #1a44d9);
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.gx-route-multi-warn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #b45309;
+    background: #fef3c7;
+    border-radius: 6px;
+    padding: 2px 6px;
+    font-size: 11.5px;
+    font-weight: 500;
+}
+}
+
+/* ---------- Quebra da fila por rota (gx-rb) ---------- */
+
+.gx-rb {
+    display: flex;
+    flex-direction: column;
+    margin: 10px 0 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--gx-hair);
+}
+
+.gx-rb-row {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--gx-hair);
+}
+
+.gx-rb-row:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+}
+
+.gx-rb-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.gx-rb-title {
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 650;
+    overflow-wrap: anywhere;
+}
+
+.gx-rb-weight {
+    flex: none;
+    font-family: var(--gx-mono);
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--gx-royal-text);
+}
+
+.gx-rb-bar {
+    height: 4px;
+    border-radius: 999px;
+    background: var(--gx-hair);
+    overflow: hidden;
+}
+
+.gx-rb-bar > span {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--gx-royal);
+}
+
+.gx-rb-meta,
+.gx-rb-hint {
+    margin: 0;
+    font-size: 12.5px;
+}
+
+.gx-rb-hint {
+    margin-top: 8px;
+}
+
+.gx-rb-cities {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.gx-rb-city {
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--gx-ink-2);
+    background: var(--gx-glass-inset);
+    box-shadow: inset 0 0 0 1px var(--gx-hair);
+}
+
+.gx-rb-more {
+    font-family: var(--gx-mono);
+}
+
+.gx-rb-flag {
+    margin: 0;
+}
+
+.gx-rb-act {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 3px;
+}
+
+.gx-rb-ask {
+    flex: 1 1 100%;
+    font-size: 13px;
+    font-weight: 600;
 }

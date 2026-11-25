@@ -354,6 +354,7 @@ model Hub {
   fiscalEmitters       FiscalEmitter[]
   commissionAgreements HubCommissionAgreement[]
   coverage             HubCoverage[]
+  routes               HubRoute[]
 
   // Topologia hub-and-spoke: "esta unidade é abastecida por" o hub tronco indicado.
   // O próximo salto de qualquer hub até este sobe/desce essa cadeia (ver consolidationQueue.ts).
@@ -376,21 +377,63 @@ model Hub {
 // substituirá) o legado Hub.coverageCities; cidade do próprio hub vale como cobertura
 // implícita quando não há linha explícita (ver consolidationQueue.ts).
 model HubCoverage {
-  id           String  @id @default(uuid())
-  hubId        String
-  hub          Hub     @relation(fields: [hubId], references: [id], onDelete: Cascade)
-  cityIbgeCode String
-  cityName     String
-  state        String
-  leadTimeDays Int?
-  priority     Int     @default(100)
-  active       Boolean @default(true)
+  id             String        @id @default(uuid())
+  hubId          String
+  hub            Hub           @relation(fields: [hubId], references: [id], onDelete: Cascade)
+  cityIbgeCode   String
+  cityName       String
+  state          String
+  leadTimeDays   Int?
+  priority       Int           @default(100)
+  active         Boolean       @default(true)
+  pricingTableId String?
+  pricingTable   PricingTable? @relation(fields: [pricingTableId], references: [id], onDelete: SetNull)
+  tdeValue       Decimal?
+  tdeUnit        CoverageFeeUnit @default(PERCENT_FREIGHT)
+  tdeFixed       Decimal?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([hubId, cityIbgeCode])
   @@index([cityIbgeCode, active])
+  @@index([pricingTableId])
+}
+
+enum CoverageFeeUnit {
+  PERCENT_FREIGHT
+  PERCENT_FREIGHT_BASE
+  PERCENT_NF
+  RS_KG
+}
+
+model HubRoute {
+  id        String         @id @default(uuid())
+  hubId     String
+  hub       Hub            @relation(fields: [hubId], references: [id], onDelete: Cascade)
+  name      String
+  notes     String?
+  active    Boolean        @default(true)
+  stops     HubRouteStop[]
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@unique([hubId, name])
+  @@index([hubId, active])
+}
+
+model HubRouteStop {
+  id           String   @id @default(uuid())
+  routeId      String
+  route        HubRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  sequence     Int
+  cityIbgeCode String
+  cityName     String
+  state        String
+
+  @@unique([routeId, cityIbgeCode])
+  @@unique([routeId, sequence])
+  @@index([cityIbgeCode])
 }
 
 // Onboarding do Hub (dados do depósito, responsável, documentos, bancários; simétrico ao Link)
@@ -694,6 +737,9 @@ model PricingTable {
   routeId String?
   route   PricingRoute? @relation(fields: [routeId], references: [id], onDelete: SetNull)
 
+  coverageOnly Boolean       @default(false)
+  coverages    HubCoverage[]
+
   // Freight configuration
   freightValue Float? // Numeric value
   freightUnit  FreightUnit // RS_KG, PERCENT, RS_M3, RS_UNIT
@@ -715,8 +761,9 @@ model PricingTable {
   cubeFactor  Float? // Ex: 300 kg/m³
 
   // ICMS
-  icmsIncluded Boolean @default(false)
-  icmsPercent  Float? // If not included, how much to add
+  icmsIncluded Boolean  @default(false)
+  icmsUnit     IcmsUnit @default(PERCENT)
+  icmsPercent  Float? // valor conforme icmsUnit
 
   // Ad Valorem Threshold
   adValoremThreshold Float? // "If value > X, charge advalorem separately"
@@ -754,6 +801,12 @@ enum MinFreightUnit {
 enum TollUnit {
   RS_KG // R$/Kg
   FIXED // Fixed value
+}
+
+enum IcmsUnit {
+  PERCENT
+  DIVISOR
+  FIXED
 }
 
 model MinFreightRange {

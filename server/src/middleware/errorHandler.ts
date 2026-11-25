@@ -44,6 +44,11 @@ export const errorHandler = (
         return res.status(400).json({ success: false, error: 'JSON inválido.' });
     }
 
+    // FK inexistente (ex.: rota/cliente apagado entre a tela e o salvar): erro do cliente, não 500.
+    if ((err as { code?: string }).code === 'P2003') {
+        return res.status(400).json({ success: false, error: 'Registro relacionado não encontrado (rota, cliente ou conta).' });
+    }
+
     const requestId = res.locals?.requestId as string | undefined;
     console.error(JSON.stringify({
         level: 'error',

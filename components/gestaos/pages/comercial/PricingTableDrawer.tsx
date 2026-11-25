@@ -1,20 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import { pricingApi } from '../../../../lib/api';
-import type { FreightUnit, MinFreightUnit, PricingRoute, PricingTable, TollUnit } from '../../../../types/index';
+import type { FreightUnit, IcmsUnit, MinFreightUnit, PricingRoute, PricingTable, TollUnit } from '../../../../types/index';
 import {
     buildTablePayload,
     emptyTableForm,
     firstError,
     FREIGHT_UNIT_LABEL,
+    ICMS_UNIT_LABEL,
     MIN_FREIGHT_UNIT_LABEL,
+    previewTableIcms,
     TABLE_TYPE_LABEL,
     tableToForm,
     TOLL_UNIT_LABEL,
     validateTableForm,
-    type PricingTableForm,
+    type TableForm,
 } from '../../lib/comercialForms';
+import { money } from '../../lib/format';
 import { invalidate, useResource } from '../../lib/resource';
-import { Checkbox, FormFooter, FormSection, MoneyInput, NumberInput, useForm } from '../../ui/form';
+import { Checkbox, FormFooter, FormGrid, FormSection, MoneyInput, NumberInput, useForm } from '../../ui/form';
 import { ClientSelect } from '../../ui/pickers';
 import { Button, Field, ModeBadge, SelectInput, TextInput } from '../../ui/kit';
 import { Drawer, useAction } from '../../ui/overlay';
@@ -26,53 +29,84 @@ const options = (labels: Record<string, string>) =>
         </option>
     ));
 
+const ICMS_UNIT_HINT: Record<IcmsUnit, string> = {
+    PERCENT: 'Percentual sobre a soma do frete e das taxas.',
+    DIVISOR: 'Ex.: 0,88 = ICMS de 12% por dentro.',
+    FIXED: 'Valor em reais somado ao frete.',
+};
+
+interface PricingTableDrawerProps {
+    open: boolean;
+    table: PricingTable | null;
+    onClose: () => void;
+    initial?: Partial<TableForm>;
+    onSaved?: (table: PricingTable) => void;
+}
+
 /** Criar ou editar uma tabela de preço. Mesmo corpo e mesma regra da gestão clássica (descrição obrigatória). */
-export const PricingTableDrawer: React.FC<{ open: boolean; table: PricingTable | null; onClose: () => void }> = ({ open, table, onClose }) => {
+export const PricingTableDrawer: React.FC<PricingTableDrawerProps> = ({ open, table, onClose, initial, onSaved }) => {
     const { busy, run } = useAction();
-    const form = useForm<PricingTableForm>(emptyTableForm());
+    const form = useForm<TableForm>(emptyTableForm());
     const [errors, setErrors] = useState<Record<string, string>>({});
+    const [saveError, setSaveError] = useState<string | null>(null);
     const routes = useResource<PricingRoute[]>('pricing:routes:active', async () => (await pricingApi.listRoutes({ includeInactive: false })).data ?? [], { staleMs: 60_000 });
     const { reset } = form;
     const v = form.values;
     const set = form.set;
+    const icmsPreview = previewTableIcms(v);
 
     useEffect(() => {
         if (!open) return;
         setErrors({});
-        reset(emptyTableForm());
-        if (!table) return;
+        setSaveError(null);
+        if (!table) {
+            reset({ ...emptyTableForm(), ...initial });
+            return;
+        }
+        reset(tableToForm(table));
         let cancelled = false;
-        // a lista não traz as faixas de frete mínimo: busca a tabela inteira, como a clássica
+        // Busca a versão atual da tabela, como na gestão clássica.
         pricingApi.getTableById(table.id).then(
             (res) => {
                 if (!cancelled && res.data) reset(tableToForm(res.data));
             },
-            () => {
-                if (!cancelled) reset(tableToForm(table));
-            },
+            () => undefined,
         );
         return () => {
             cancelled = true;
         };
+        // O preenchimento inicial só é reaplicado ao abrir ou trocar de tabela.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open, table?.id, reset]);
 
     const save = async () => {
         const found = validateTableForm(v);
         setErrors(found);
+        setSaveError(null);
         if (Object.keys(found).length > 0) return;
-        const payload = buildTablePayload(v);
-        const ok = await run('save', () => (table ? pricingApi.updateTable(table.id, payload as Partial<PricingTable>) : pricingApi.createTable(payload as Partial<PricingTable>)), {
-            success: table ? 'Tabela atualizada.' : 'Tabela criada.',
-            error: 'Não foi possível salvar a tabela.',
-        });
-        if (ok) {
+        const payload = buildTablePayload(v) as Partial<PricingTable>;
+        let savedTable: PricingTable | undefined;
+        const ok = await run(
+            'save',
+            async () => {
+                const response = await (table ? pricingApi.updateTable(table.id, payload) : pricingApi.createTable(payload));
+                if (!response.success || !response.data) throw new Error(response.error ?? 'Não foi possível salvar a tabela.');
+                savedTable = response.data;
+            },
+            { success: table ? 'Tabela atualizada.' : 'Tabela criada.', onError: setSaveError },
+        );
+        if (ok && savedTable) {
             invalidate('pricing:');
+            onSaved?.(savedTable);
             onClose();
         }
     };
 
-    const setRange = (index: number, patch: Partial<PricingTableForm['ranges'][number]>) => set('ranges', v.ranges.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+    const setRange = (index: number, patch: Partial<TableForm['ranges'][number]>) => set('ranges', v.ranges.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+    const setIcms = (patch: Partial<Pick<TableForm, 'icmsIncluded' | 'icmsUnit' | 'icmsPercent'>>) => {
+        form.setMany(patch);
+        setErrors(({ icmsPercent: _previous, ...otherErrors }) => otherErrors);
+    };
 
     return (
         <Drawer
@@ -84,7 +118,7 @@ export const PricingTableDrawer: React.FC<{ open: boolean; table: PricingTable |
             badge={<ModeBadge mode="manual" />}
             footer={
                 <FormFooter
-                    error={firstError(errors)}
+                    error={firstError(errors) ?? saveError}
                     secondary={
                         <Button variant="ghost" onClick={onClose}>
                             Cancelar
@@ -110,7 +144,7 @@ export const PricingTableDrawer: React.FC<{ open: boolean; table: PricingTable |
                         <TextInput value={v.description} aria-invalid={Boolean(errors.description)} onChange={(event) => set('description', event.target.value)} placeholder="Ex.: peso/cubagem 300, 1,15 por kg + 10 por mil de advalor" />
                     </Field>
                     <Field label="Tipo">
-                        <SelectInput value={v.type} onChange={(event) => set('type', event.target.value as PricingTableForm['type'])} aria-label="Tipo">
+                        <SelectInput value={v.type} onChange={(event) => set('type', event.target.value as TableForm['type'])} aria-label="Tipo">
                             {options(TABLE_TYPE_LABEL)}
                         </SelectInput>
                     </Field>
@@ -128,7 +162,16 @@ export const PricingTableDrawer: React.FC<{ open: boolean; table: PricingTable |
                         <Field label="Cliente" className="col-span-full" hint="A tabela especial só vale para este cliente.">
                             <ClientSelect value={v.clientId} onChange={(id) => set('clientId', id)} emptyOption="Nenhum" />
                         </Field>
-                    ) : null}
+                    ) : (
+                        <div className="col-span-full">
+                            <Checkbox
+                                checked={v.coverageOnly}
+                                onChange={(checked) => set('coverageOnly', checked)}
+                                label="Só para cidades de cobertura"
+                                hint="Não entra como tabela geral para todos os pedidos; vale só nas cidades de cobertura onde for vinculada."
+                            />
+                        </div>
+                    )}
                 </FormSection>
 
                 <FormSection title="Frete">
@@ -204,16 +247,39 @@ export const PricingTableDrawer: React.FC<{ open: boolean; table: PricingTable |
                 <FormSection title="Cubagem e ICMS">
                     <div className="col-span-full flex flex-wrap gap-x-8 gap-y-3">
                         <Checkbox checked={v.cubeEnabled} onChange={(c) => set('cubeEnabled', c)} label="Cobrar pelo peso cubado" hint="Compara o peso real com o cubado e cobra o maior." />
-                        <Checkbox checked={v.icmsIncluded} onChange={(c) => set('icmsIncluded', c)} label="ICMS já incluso no frete" />
+                        <Checkbox checked={v.icmsIncluded} onChange={(icmsIncluded) => setIcms({ icmsIncluded })} label="ICMS já incluso no frete" />
                     </div>
                     {v.cubeEnabled ? (
                         <Field label="Fator de cubagem">
                             <NumberInput decimal suffix="kg/m³" value={v.cubeFactor} onChange={(n) => set('cubeFactor', n)} aria-label="Fator de cubagem" min={0} />
                         </Field>
                     ) : null}
-                    <Field label="ICMS">
-                        <NumberInput decimal suffix="%" value={v.icmsPercent} onChange={(n) => set('icmsPercent', n)} aria-label="ICMS" min={0} />
-                    </Field>
+                    {!v.icmsIncluded ? (
+                        <FormGrid className="col-span-full">
+                            <Field label="Unidade do ICMS">
+                                <SelectInput value={v.icmsUnit} onChange={(event) => setIcms({ icmsUnit: event.target.value as IcmsUnit, icmsPercent: null })} aria-label="Unidade do ICMS">
+                                    {options(ICMS_UNIT_LABEL)}
+                                </SelectInput>
+                            </Field>
+                            <Field label="Valor do ICMS" hint={ICMS_UNIT_HINT[v.icmsUnit]} error={errors.icmsPercent}>
+                                <NumberInput
+                                    decimal
+                                    decimals={6}
+                                    suffix={v.icmsUnit === 'PERCENT' ? '%' : undefined}
+                                    value={v.icmsPercent}
+                                    onChange={(icmsPercent) => setIcms({ icmsPercent })}
+                                    aria-label="Valor do ICMS"
+                                    min={Number.NEGATIVE_INFINITY}
+                                    invalid={Boolean(errors.icmsPercent)}
+                                />
+                            </Field>
+                            {icmsPreview ? (
+                                <p className="gx-muted col-span-full text-[12.5px]" aria-live="polite">
+                                    Sobre {money(icmsPreview.subtotal)} de frete: ICMS {money(icmsPreview.icms)} → total {money(icmsPreview.total)}
+                                </p>
+                            ) : null}
+                        </FormGrid>
+                    ) : null}
                 </FormSection>
 
                 <FormSection title="Situação">

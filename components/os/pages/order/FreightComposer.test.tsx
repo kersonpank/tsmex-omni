@@ -71,6 +71,34 @@ describe('FreightComposer — tabela do frete', () => {
         expect(emitFreightDocument).not.toHaveBeenCalled();
     });
 
+    it('mostra a TDE por cidade da tabela selecionada e a oculta no modo informado', async () => {
+        const user = userEvent.setup();
+        const base = suggestion();
+        const alternative: FreightTableOption = {
+            ...OPTIONS[1],
+            preview: {
+                total: 150, cubedWeight: 10, effectiveWeight: 10,
+                breakdown: {
+                    ...base.preview!.breakdown, freightBase: 130, cityFee: 20,
+                    cityFeeDetails: [
+                        { role: 'destino', cityIbgeCode: '2111300', cityName: 'São Luís', state: 'MA', amount: 15 },
+                        { role: 'origem', cityIbgeCode: '3518800', cityName: 'Guarulhos', state: 'SP', amount: 5 },
+                    ],
+                },
+            },
+        };
+        render(<FreightComposer orderId="order-1" suggestion={{ ...base, tableOptions: [OPTIONS[0], alternative] }} newDocument={false} onEmitted={vi.fn()} />);
+        expect(screen.queryByText(/Taxa da cidade/)).not.toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: 'Trocar tabela' }));
+        await user.click(screen.getByRole('button', { name: /Tarifa alternativa/ }));
+        expect(screen.getByText(/Taxa da cidade \(TDE\)/)).toHaveTextContent('20,00');
+        expect(screen.getByText(/São Luís\/MA \(destino\)/)).toHaveTextContent('15,00');
+        expect(screen.getByText(/Guarulhos\/SP \(origem\)/)).toHaveTextContent('5,00');
+        await user.click(screen.getByRole('button', { name: 'Trocar tabela' }));
+        await user.click(screen.getByRole('button', { name: 'Informar outro valor' }));
+        expect(screen.queryByText(/Taxa da cidade/)).not.toBeInTheDocument();
+    });
+
     it('pede motivo para informar outro valor quando há tabelas, inclusive sem recomendação', async () => {
         const user = userEvent.setup();
         render(<FreightComposer orderId="order-1" suggestion={suggestion({ route: null, routeSource: null, pricing: null, preview: null })} newDocument={false} onEmitted={vi.fn()} />);

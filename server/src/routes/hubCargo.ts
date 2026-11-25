@@ -145,6 +145,7 @@ router.get('/freight-queue', async (req: AuthRequest, res: Response, next: NextF
 
 const consolidateSchema = z.object({
     groupKey: z.string().min(1).max(200),
+    routeKey: z.string().optional(),
     orderIds: z.array(z.string().uuid()).min(1).max(500),
     vehicleTypeId: z.string().uuid(),
     destHubId: z.string().uuid().optional(),
@@ -168,6 +169,7 @@ router.post('/queues/consolidate', async (req: AuthRequest, res: Response, next:
         const data = await consolidateFromQueue({
             hubId,
             groupKey: body.groupKey,
+            routeKey: body.routeKey,
             orderIds: body.orderIds,
             vehicleTypeId: body.vehicleTypeId,
             destHubId: body.destHubId,

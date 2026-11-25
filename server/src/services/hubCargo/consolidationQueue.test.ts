@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import type { Prisma } from '@prisma/client';
+import prisma from '../../lib/prisma.js';
 import {
     buildCoverageIndex,
+    buildRouteIndex,
+    getConsolidationQueues,
     groupOrdersByNextHop,
     resolveNextHop,
     resolveFinalHub,
@@ -101,6 +105,7 @@ describe('groupOrdersByNextHop', () => {
         // Ordenação: TRANSFER por peso desc, UNROUTED por último.
         assert.deepEqual(groups.map((g) => g.kind), ['TRANSFER', 'TRANSFER', 'UNROUTED']);
         assert.equal(groups[0].destHubId, 'imp');
+        assert.deepEqual(groups[2].routeBreakdown, []);
     });
 
     it('pedido para a própria cidade do hub vira grupo LOCAL', () => {
@@ -112,6 +117,143 @@ describe('groupOrdersByNextHop', () => {
         assert.equal(groups[0].kind, 'LOCAL');
         assert.equal(groups[0].destHubId, null);
     });
+});
+
+describe('quebra da fila por rota do hub final', () => {
+    const CODO = '2103307';
+
+    it('separa dois hubs finais e duas rotas no mesmo TRANSFER, mantendo os totais do grupo', () => {
+        const coverage = buildCoverageIndex([GRU, SLZ, { ...IMP, gatewayHubId: SLZ.id }], [
+            { hubId: IMP.id, cityIbgeCode: ACAILANDIA, priority: 1, leadTimeDays: 2 },
+            { hubId: SLZ.id, cityIbgeCode: CODO, priority: 1, leadTimeDays: 4 },
+        ]);
+        const routes = buildRouteIndex([
+            {
+                id: 'oeste', hubId: IMP.id, name: 'Rota Oeste',
+                stops: [{ cityIbgeCode: ACAILANDIA, sequence: 2 }, { cityIbgeCode: IMP.cityIbgeCode, sequence: 1 }],
+            },
+            { id: 'leste', hubId: SLZ.id, name: 'Rota Leste', stops: [{ cityIbgeCode: CODO, sequence: 1 }] },
+        ]);
+        const groups = groupOrdersByNextHop([
+            order({ id: 'codo', fimIbgeCode: CODO, finalCityLabel: 'Codó/MA', weightKg: 50, volumeM3: 1.5 }),
+            order({ id: 'ac1', fimIbgeCode: ACAILANDIA, finalCityLabel: 'Açailândia/MA', weightKg: 20.5, volumeM3: 0.25 }),
+            order({ id: 'imperatriz', fimIbgeCode: IMP.cityIbgeCode, finalCityLabel: 'Imperatriz/MA', weightKg: 75, volumeM3: 0.5 }),
+            order({ id: 'ac2', fimIbgeCode: ACAILANDIA, finalCityLabel: 'Açailândia/MA', weightKg: 19.5, volumeM3: 0.75 }),
+        ], coverage, GRU.id, routes);
+
+        assert.equal(groups.length, 1);
+        const [group] = groups;
+        assert.equal(group.key, 'TRANSFER:slz');
+        assert.deepEqual(group.routeBreakdown, [
+            {
+                key: 'imp:oeste', finalHubId: IMP.id, finalHubName: IMP.name, routeId: 'oeste', routeName: 'Rota Oeste',
+                ambiguous: false, orderIds: ['ac1', 'imperatriz', 'ac2'], orderCount: 3, weightKg: 115, volumeM3: 1.5,
+                cities: ['Imperatriz/MA', 'Açailândia/MA'],
+            },
+            {
+                key: 'slz:leste', finalHubId: SLZ.id, finalHubName: SLZ.name, routeId: 'leste', routeName: 'Rota Leste',
+                ambiguous: false, orderIds: ['codo'], orderCount: 1, weightKg: 50, volumeM3: 1.5, cities: ['Codó/MA'],
+            },
+        ]);
+        assert.equal(group.routeBreakdown.reduce((sum, route) => sum + route.weightKg, 0), group.totalWeightKg);
+        assert.equal(group.routeBreakdown.reduce((sum, route) => sum + route.volumeM3, 0), group.totalVolumeM3);
+    });
+
+    it('usa a primeira rota ativa por nome em LOCAL e reúne cidades sem rota em ordem alfabética', () => {
+        const coverage = buildCoverageIndex([IMP, SLZ], [
+            { hubId: IMP.id, cityIbgeCode: ACAILANDIA, priority: 1, leadTimeDays: null },
+            { hubId: IMP.id, cityIbgeCode: CODO, priority: 1, leadTimeDays: null },
+        ]);
+        const stops = [{ cityIbgeCode: ACAILANDIA, sequence: 1 }];
+        const routes = buildRouteIndex([
+            { id: 'z', hubId: IMP.id, name: 'Rota Z', stops },
+            { id: 'b', hubId: IMP.id, name: 'Rota B', stops },
+            { id: 'inactive', hubId: IMP.id, name: 'Rota A', stops, active: false },
+            { id: 'other-hub', hubId: SLZ.id, name: 'Rota A', stops },
+        ]);
+        const [group] = groupOrdersByNextHop([
+            order({ id: 'imperatriz', fimIbgeCode: IMP.cityIbgeCode, finalCityLabel: 'Imperatriz/MA' }),
+            order({ id: 'ac', fimIbgeCode: ACAILANDIA, finalCityLabel: 'Açailândia/MA' }),
+            order({ id: 'codo', fimIbgeCode: CODO, finalCityLabel: 'Codó/MA' }),
+        ], coverage, IMP.id, routes);
+
+        assert.equal(group.key, 'LOCAL');
+        assert.deepEqual(group.routeBreakdown, [
+            {
+                key: 'imp:none', finalHubId: IMP.id, finalHubName: IMP.name, routeId: null, routeName: null,
+                ambiguous: false, orderIds: ['imperatriz', 'codo'], orderCount: 2, weightKg: 200, volumeM3: 2,
+                cities: ['Codó/MA', 'Imperatriz/MA'],
+            },
+            {
+                key: 'imp:b', finalHubId: IMP.id, finalHubName: IMP.name, routeId: 'b', routeName: 'Rota B',
+                ambiguous: true, orderIds: ['ac'], orderCount: 1, weightKg: 100, volumeM3: 1, cities: ['Açailândia/MA'],
+            },
+        ]);
+        assert.equal(group.routeBreakdown.reduce((sum, route) => sum + route.weightKg, 0), group.totalWeightKg);
+        assert.equal(group.routeBreakdown.reduce((sum, route) => sum + route.volumeM3, 0), group.totalVolumeM3);
+    });
+});
+
+it('carrega as rotas ativas em uma consulta e usa as cidades cadastradas e as medidas da demanda', async (t) => {
+    const originals = {
+        orders: prisma.order.findMany,
+        hubs: prisma.hub.findMany,
+        coverage: prisma.hubCoverage.findMany,
+        routes: prisma.hubRoute.findMany,
+    };
+    t.after(() => {
+        prisma.order.findMany = originals.orders;
+        prisma.hub.findMany = originals.hubs;
+        prisma.hubCoverage.findMany = originals.coverage;
+        prisma.hubRoute.findMany = originals.routes;
+    });
+
+    const storedOrder = (id: string, fimIbgeCode: string, weight: number, volume: number) => ({
+        id,
+        fimIbgeCode,
+        enteredAtHubAt: null,
+        createdAt: new Date('2026-10-01T10:00:00Z'),
+        nfNumber: null,
+        freightCalculations: [],
+        demand: { orderNumber: 1, destination: 'A definir', weight, volume, nfValue: 1000 },
+    });
+    prisma.order.findMany = (async () => [
+        storedOrder('ac', ACAILANDIA, 32.5, 1.25),
+        storedOrder('imp', IMP.cityIbgeCode, 25, 0.5),
+        storedOrder('slz', SLZ.cityIbgeCode, 40, 2),
+    ]) as unknown as typeof originals.orders;
+    prisma.hub.findMany = (async () => [
+        { ...GRU, city: 'Guarulhos', state: 'SP' },
+        { ...SLZ, city: 'São Luís', state: 'MA' },
+        { ...IMP, city: 'Imperatriz', state: 'MA', gatewayHubId: SLZ.id },
+    ]) as unknown as typeof originals.hubs;
+    prisma.hubCoverage.findMany = (async () => [
+        { hubId: IMP.id, cityIbgeCode: ACAILANDIA, cityName: 'Açailândia', state: 'MA', priority: 1, leadTimeDays: 2 },
+    ]) as unknown as typeof originals.coverage;
+    const findRoutes = t.mock.fn(async (args: Prisma.HubRouteFindManyArgs) => {
+        assert.deepEqual(args.where, { active: true });
+        assert.ok(args.select?.stops);
+        return [
+            { id: 'oeste', hubId: IMP.id, name: 'Rota Oeste', stops: [{ cityIbgeCode: ACAILANDIA, sequence: 1 }] },
+            { id: 'leste', hubId: SLZ.id, name: 'Rota Leste', stops: [{ cityIbgeCode: SLZ.cityIbgeCode, sequence: 1 }] },
+        ];
+    });
+    prisma.hubRoute.findMany = findRoutes as unknown as typeof originals.routes;
+
+    const groups = await getConsolidationQueues(GRU.id);
+
+    assert.equal(findRoutes.mock.callCount(), 1);
+    assert.equal(groups.length, 1);
+    const [group] = groups;
+    assert.equal(group.key, 'TRANSFER:slz');
+    assert.equal(group.totalWeightKg, 97.5);
+    assert.equal(group.totalVolumeM3, 3.75);
+    assert.deepEqual(group.routeBreakdown.map(({ key, cities, weightKg, volumeM3 }) => ({ key, cities, weightKg, volumeM3 })), [
+        { key: 'slz:leste', cities: ['São Luís/MA'], weightKg: 40, volumeM3: 2 },
+        { key: 'imp:oeste', cities: ['Açailândia/MA'], weightKg: 32.5, volumeM3: 1.25 },
+        { key: 'imp:none', cities: ['Imperatriz/MA'], weightKg: 25, volumeM3: 0.5 },
+    ]);
+    assert.equal(group.orders[0].destination, 'A definir');
 });
 
 describe('freightDocState na fila', () => {

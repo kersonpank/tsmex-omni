@@ -6,6 +6,7 @@ import type {
   PricingRoute,
   MinFreightRange,
   FreightUnit,
+  IcmsUnit,
   MinFreightUnit,
   TollUnit,
   PricingTableType,
@@ -17,6 +18,12 @@ const FREIGHT_UNIT_LABELS: Record<FreightUnit, string> = {
   PERCENT: '%',
   RS_M3: 'R$/m³',
   RS_UNIT: 'R$/un',
+};
+
+const ICMS_UNIT_LABELS: Record<IcmsUnit, string> = {
+  PERCENT: '% sobre o total',
+  DIVISOR: 'Dividir o total por',
+  FIXED: 'R$ fixo',
 };
 
 const MIN_FREIGHT_UNIT_LABELS: Record<MinFreightUnit, string> = {
@@ -70,6 +77,7 @@ const TarifasTab: React.FC = () => {
     cubeEnabled: false,
     cubeFactor: undefined as number | undefined,
     icmsIncluded: true,
+    icmsUnit: 'PERCENT' as IcmsUnit,
     icmsPercent: undefined as number | undefined,
     adValoremThreshold: undefined as number | undefined,
     minFreightRanges: defaultRanges(),
@@ -140,6 +148,7 @@ const TarifasTab: React.FC = () => {
       cubeEnabled: false,
       cubeFactor: undefined,
       icmsIncluded: true,
+      icmsUnit: 'PERCENT',
       icmsPercent: undefined,
       adValoremThreshold: undefined,
       minFreightRanges: defaultRanges(),
@@ -173,7 +182,8 @@ const TarifasTab: React.FC = () => {
         cubeEnabled: t.cubeEnabled ?? false,
         cubeFactor: t.cubeFactor,
         icmsIncluded: t.icmsIncluded ?? false,
-        icmsPercent: t.icmsPercent,
+        icmsUnit: t.icmsUnit ?? 'PERCENT',
+        icmsPercent: t.icmsPercent ?? undefined,
         adValoremThreshold: t.adValoremThreshold,
         minFreightRanges:
           t.minFreightRanges?.length
@@ -240,7 +250,8 @@ const TarifasTab: React.FC = () => {
       cubeEnabled: form.cubeEnabled,
       cubeFactor: form.cubeFactor ?? null,
       icmsIncluded: form.icmsIncluded,
-      icmsPercent: form.icmsPercent ?? null,
+      icmsUnit: form.icmsIncluded ? 'PERCENT' : form.icmsUnit,
+      icmsPercent: form.icmsIncluded ? null : form.icmsPercent ?? null,
       adValoremThreshold: form.adValoremThreshold ?? null,
       minFreightRanges: form.minFreightRanges
         .filter((r) => r.value > 0)
@@ -662,10 +673,25 @@ const TarifasTab: React.FC = () => {
                 </label>
               </div>
               {!form.icmsIncluded && (
-                <div className="mt-2 w-32">
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <select
+                    aria-label="Unidade do ICMS"
+                    value={form.icmsUnit}
+                    onChange={(e) => {
+                      const unit = e.target.value as IcmsUnit;
+                      setForm((f) => ({ ...f, icmsUnit: unit, icmsPercent: undefined }));
+                    }}
+                    className="px-3 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-tower-900 dark:bg-tower-800 dark:text-tower-100"
+                  >
+                    {Object.entries(ICMS_UNIT_LABELS).map(([unit, label]) => (
+                      <option key={unit} value={unit}>{label}</option>
+                    ))}
+                  </select>
                   <input
                     type="number"
                     step="any"
+                    min={0}
+                    aria-label="Valor do ICMS"
                     value={form.icmsPercent ?? ''}
                     onChange={(e) =>
                       setForm((f) => ({
@@ -673,8 +699,8 @@ const TarifasTab: React.FC = () => {
                         icmsPercent: e.target.value === '' ? undefined : Number(e.target.value),
                       }))
                     }
-                    className="w-full px-3 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-tower-900 dark:bg-tower-800 dark:text-tower-100"
-                    placeholder="%"
+                    className="w-32 px-3 py-2 border border-tower-200 dark:border-tower-600 rounded-lg bg-white text-tower-900 dark:bg-tower-800 dark:text-tower-100"
+                    placeholder={form.icmsUnit === 'DIVISOR' ? '0,88' : form.icmsUnit === 'FIXED' ? 'R$' : '%'}
                   />
                 </div>
               )}

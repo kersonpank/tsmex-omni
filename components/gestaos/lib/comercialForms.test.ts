@@ -11,6 +11,8 @@ import {
     emptyTableForm,
     filterAccountOptions,
     filterOpportunities,
+    previewTableIcms,
+    tableToForm,
     validateRouteForm,
     validateTableForm,
     type ClientWithAccount,
@@ -65,9 +67,33 @@ describe('tabelas de preço', () => {
     });
     it('só manda o preenchido e limpa o cliente de tabela geral', () => {
         const payload = buildTablePayload({ ...emptyTableForm(), description: ' Tabela ', clientId: 'c1', freightValue: 1.15, ranges: [{ minWeight: 0, maxWeight: 50, value: 35 }] });
-        expect(payload).toMatchObject({ description: 'Tabela', type: 'GENERAL', clientId: null, freightValue: 1.15, minFreightRanges: [{ minWeight: 0, maxWeight: 50, value: 35 }] });
+        expect(payload).toMatchObject({ description: 'Tabela', type: 'GENERAL', clientId: null, freightValue: 1.15, icmsUnit: 'PERCENT', minFreightRanges: [{ minWeight: 0, maxWeight: 50, value: 35 }] });
         expect(payload).not.toHaveProperty('grisPercent');
         expect(payload).not.toHaveProperty('cubeFactor');
+    });
+    it('preserva o divisor no formulário e no payload de cobertura', () => {
+        const table = { id: 't1', description: 'Cobertura · Codó/MA', type: 'GENERAL', coverageOnly: true, freightUnit: 'RS_KG', cubeEnabled: false, icmsIncluded: false, icmsPercent: 0.88, active: true, priority: 0 } as const;
+        expect(tableToForm(table).icmsUnit).toBe('PERCENT');
+        const form = tableToForm({ ...table, icmsUnit: 'DIVISOR' });
+        expect(buildTablePayload(form)).toMatchObject({ coverageOnly: true, icmsUnit: 'DIVISOR', icmsPercent: 0.88 });
+    });
+    it('valida o divisor e mantém o valor válido quando o ICMS passa a ser incluso', () => {
+        const form = { ...emptyTableForm(), description: 'Tabela', icmsIncluded: false, icmsUnit: 'DIVISOR' } as const;
+        expect(validateTableForm(form).icmsPercent).toContain('Divisor do ICMS deve ficar entre 0 e 1');
+        expect(validateTableForm({ ...form, icmsPercent: 1 })).toHaveProperty('icmsPercent');
+        expect(validateTableForm({ ...form, icmsPercent: 0.88 })).toEqual({});
+        expect(buildTablePayload({ ...form, icmsIncluded: true, icmsPercent: 0.88 })).toMatchObject({ icmsUnit: 'DIVISOR', icmsPercent: 0.88 });
+        expect(buildTablePayload({ ...form, icmsIncluded: true })).toMatchObject({ icmsUnit: 'PERCENT', icmsPercent: null });
+    });
+    it('calcula a prévia nas três unidades e oculta ICMS incluso ou inválido', () => {
+        expect(previewTableIcms({ icmsIncluded: false, icmsUnit: 'PERCENT', icmsPercent: 12 })).toEqual({ subtotal: 1000, icms: 120, total: 1120 });
+        expect(previewTableIcms({ icmsIncluded: false, icmsUnit: 'FIXED', icmsPercent: 35.5 })).toEqual({ subtotal: 1000, icms: 35.5, total: 1035.5 });
+        const divisor = { icmsIncluded: false, icmsUnit: 'DIVISOR', icmsPercent: 0.88 } as const;
+        const preview = previewTableIcms(divisor);
+        expect(preview?.icms).toBeCloseTo(136.36, 2);
+        expect(preview?.total).toBe(1000 / divisor.icmsPercent);
+        expect(previewTableIcms({ ...divisor, icmsPercent: 0 })).toBeNull();
+        expect(previewTableIcms({ ...divisor, icmsIncluded: true })).toBeNull();
     });
 });
 

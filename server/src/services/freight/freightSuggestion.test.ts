@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { Prisma } from '@prisma/client';
 import { buildCoverageIndex } from '../hubCargo/consolidationQueue.js';
-import type { FreightContext, FreightOrder } from './freightContext.js';
+import { buildFreightCoverage, type FreightContext, type FreightOrder } from './freightContext.js';
 import { computeFreightFromTable } from './freightPricing.js';
 import { suggestFreight } from './freightSuggestion.js';
 
@@ -57,7 +58,7 @@ function fixture(): { order: FreightOrder; ctx: FreightContext } {
     const ctx: FreightContext = {
         hub: { ...hubs[0], personId: 'hub-person' } as FreightContext['hub'],
         emitter: null,
-        coverage: buildCoverageIndex(hubs, []),
+        ...buildFreightCoverage(hubs, []),
         hubs: [...hubs],
         citiesByIbge: new Map([
             ['2112803', { name: 'Viana', state: 'MA' }],
@@ -71,6 +72,200 @@ function fixture(): { order: FreightOrder; ctx: FreightContext } {
     };
     return { order, ctx };
 }
+
+function coverageRow(over: Partial<Parameters<typeof buildFreightCoverage>[1][number]> = {}) {
+    return {
+        hubId: 'imp',
+        cityIbgeCode: '2112803',
+        cityName: 'Viana',
+        state: 'MA',
+        priority: 1,
+        leadTimeDays: null,
+        active: true,
+        pricingTableId: 'viana',
+        tdeValue: null,
+        tdeUnit: 'PERCENT_FREIGHT' as const,
+        tdeFixed: null,
+        ...over,
+    };
+}
+
+describe('suggestFreight: tarifa por cidade de cobertura', () => {
+    it('recomenda a tabela da cobertura vencedora no destino e calcula com suas faixas', () => {
+        const { order, ctx } = fixture();
+        Object.assign(ctx, buildFreightCoverage(hubs, [
+            coverageRow({ hubId: 'for', priority: 2, pricingTableId: 'outra' }),
+            coverageRow(),
+        ]));
+        ctx.tables.push(
+            table('viana', { routeId: 'gru-for', coverageOnly: true, minFreightRanges: [{ minWeight: 0, maxWeight: 200, value: 250 }] }),
+            table('outra', { routeId: null, coverageOnly: true }),
+        );
+
+        const suggestion = suggestFreight(order, ctx);
+
+        assert.equal(suggestion.route?.id, 'gru-imp');
+        assert.equal(suggestion.pricing?.source, 'coverage_dest');
+        assert.equal(suggestion.preview?.total, 250);
+        assert.deepEqual(suggestion.tableOptions[0], {
+            tableId: 'viana',
+            label: 'Tabela viana · cidade de cobertura Viana/MA',
+            method: 'TARIFA_GERAL',
+            source: 'coverage_dest',
+            routeId: null,
+            routeLabel: null,
+            total: 250,
+            preview: {
+                total: 250,
+                breakdown: { freightBase: 250, adValorem: 0, gris: 0, toll: 0, dispatch: 0, others: 0, icms: 0 },
+                cubedWeight: 100,
+                effectiveWeight: 100,
+            },
+        });
+        assert.deepEqual(suggestion.tableOptions.map((option) => option.tableId), ['viana', 'geral-imp']);
+    });
+
+    it('mantém o especial do pagador como recomendação e a cobertura do destino como opção', () => {
+        const { order, ctx } = fixture();
+        Object.assign(ctx, buildFreightCoverage(hubs, [coverageRow()]));
+        ctx.tables.push(
+            table('viana', { routeId: null, coverageOnly: true }),
+            table('especial', { type: 'SPECIAL', clientId: 'payer', routeId: null }),
+        );
+
+        const suggestion = suggestFreight(order, ctx);
+
+        assert.equal(suggestion.pricing?.source, 'payer_special');
+        assert.deepEqual(suggestion.tableOptions.map((option) => option.source), ['payer_special', 'coverage_dest', 'general_route']);
+    });
+
+    it('usa a cidade do remetente quando o início da prestação não tem IBGE', () => {
+        const { order, ctx } = fixture();
+        order.origemIbgeCode = null;
+        order.remetentePerson!.cityIbgeCode = '3518800';
+        Object.assign(ctx, buildFreightCoverage(hubs, [
+            coverageRow({ hubId: 'gru', cityIbgeCode: '3518800', cityName: 'Guarulhos', state: 'SP', pricingTableId: 'guarulhos' }),
+        ]));
+        ctx.tables.push(table('guarulhos', { routeId: null, coverageOnly: true }));
+
+        const suggestion = suggestFreight(order, ctx);
+
+        assert.equal(suggestion.pricing?.source, 'coverage_origin');
+        assert.equal(suggestion.tableOptions[0].label, 'Tabela guarulhos · cidade de cobertura Guarulhos/SP');
+        order.origemIbgeCode = '3550308';
+        assert.equal(suggestFreight(order, ctx).tableOptions.some((option) => option.source === 'coverage_origin'), false);
+    });
+
+    it('mantém uma opção por tabela quando a mesma geral serve por origem, destino e rota', () => {
+        const { order, ctx } = fixture();
+        order.origemIbgeCode = '3518800';
+        Object.assign(ctx, buildFreightCoverage(hubs, [
+            coverageRow({ pricingTableId: 'geral-imp' }),
+            coverageRow({ hubId: 'gru', cityIbgeCode: '3518800', cityName: 'Guarulhos', state: 'SP', pricingTableId: 'geral-imp' }),
+        ]));
+
+        const suggestion = suggestFreight(order, ctx);
+
+        assert.deepEqual(suggestion.tableOptions.map((option) => [option.tableId, option.source]), [['geral-imp', 'coverage_dest']]);
+        assert.equal(suggestion.pricing?.tableId, 'geral-imp');
+    });
+
+    it('omite tabelas exclusivas de cobertura em pedidos de outra cidade, com ou sem rota', () => {
+        const { order, ctx } = fixture();
+        order.fimIbgeCode = '2109604';
+        Object.assign(ctx, buildFreightCoverage(hubs, [coverageRow()]));
+        ctx.tables.push(table('viana', { coverageOnly: true }), table('exclusiva-sem-rota', { routeId: null, coverageOnly: true }));
+
+        const suggestion = suggestFreight(order, ctx);
+
+        assert.equal(suggestion.pricing?.tableId, 'geral-imp');
+        assert.deepEqual(suggestion.tableOptions.map((option) => option.tableId), ['geral-imp']);
+    });
+
+    it('ignora o vínculo de tabela em uma linha de cobertura inativa', () => {
+        const { order, ctx } = fixture();
+        Object.assign(ctx, buildFreightCoverage(hubs, [coverageRow({ active: false })]));
+        ctx.tables.push(table('viana', { coverageOnly: true }));
+
+        assert.deepEqual(suggestFreight(order, ctx).tableOptions.map((option) => option.tableId), ['geral-imp']);
+    });
+});
+
+describe('suggestFreight: TDE', () => {
+    it('aplica as duas cidades a cada opção geral e exclui as duas opções especiais', () => {
+        const { order, ctx } = fixture();
+        order.origemIbgeCode = null;
+        order.remetentePerson!.cityIbgeCode = '3518800';
+        Object.assign(ctx, buildFreightCoverage(hubs, [
+            coverageRow({ tdeValue: new Prisma.Decimal(2) }),
+            coverageRow({ hubId: 'for', priority: 2, tdeFixed: new Prisma.Decimal(100) }),
+            coverageRow({
+                hubId: 'gru', cityIbgeCode: '3518800', cityName: 'Guarulhos', state: 'SP',
+                pricingTableId: 'guarulhos', tdeFixed: new Prisma.Decimal(5),
+            }),
+        ]));
+        ctx.tables.push(
+            table('viana', { coverageOnly: true, minFreightValue: 250 }),
+            table('guarulhos', { routeId: null, coverageOnly: true, freightValue: 3 }),
+            table('geral-sem-rota', { routeId: null, freightValue: 1 }),
+            table('especial-rota', { type: 'SPECIAL', clientId: 'payer', freightValue: 1.2 }),
+            table('especial-sem-rota', { type: 'SPECIAL', clientId: 'payer', routeId: null, freightValue: 1.5 }),
+        );
+
+        const special = suggestFreight(order, ctx);
+
+        assert.equal(special.pricing?.source, 'payer_special_route');
+        assert.equal(special.preview?.breakdown.cityFee, undefined);
+        assert.deepEqual(special.tableOptions.map(({ source, total, preview }) => [source, total, preview.total, preview.breakdown.cityFee]), [
+            ['payer_special_route', 120, 120, undefined],
+            ['payer_special', 150, 150, undefined],
+            ['coverage_dest', 260, 260, 10],
+            ['coverage_origin', 311, 311, 11],
+            ['general_route', 209, 209, 9],
+            ['general', 107, 107, 7],
+        ]);
+        ctx.tables = ctx.tables.filter((candidate) => candidate.type === 'GENERAL');
+        const general = suggestFreight(order, ctx);
+
+        assert.equal(general.pricing?.source, 'coverage_dest');
+        assert.equal(general.preview?.total, general.tableOptions[0].total);
+        assert.deepEqual(general.preview?.breakdown, general.tableOptions[0].preview.breakdown);
+        assert.deepEqual(general.preview?.breakdown.cityFeeDetails, [
+            { role: 'destino', cityIbgeCode: '2112803', cityName: 'Viana', state: 'MA', amount: 5 },
+            { role: 'origem', cityIbgeCode: '3518800', cityName: 'Guarulhos', state: 'SP', amount: 5 },
+        ]);
+    });
+
+    it('ignora taxa em linha inativa e em linha ativa que perdeu a cobertura', () => {
+        const { order, ctx } = fixture();
+        Object.assign(ctx, buildFreightCoverage(hubs, [
+            coverageRow({ hubId: 'for', priority: 0, active: false, tdeFixed: new Prisma.Decimal(50) }),
+            coverageRow({ pricingTableId: null }),
+            coverageRow({ hubId: 'for', priority: 2, tdeFixed: new Prisma.Decimal(100) }),
+        ]));
+
+        const suggestion = suggestFreight(order, ctx);
+
+        assert.equal(suggestion.preview?.total, 200);
+        assert.equal(suggestion.preview?.breakdown.cityFee, undefined);
+        assert.equal(suggestion.preview?.breakdown.cityFeeDetails, undefined);
+    });
+
+    it('usa o início da prestação para a TDE de origem, como no coverage_origin', () => {
+        const { order, ctx } = fixture();
+        order.origemIbgeCode = '2304400';
+        order.remetentePerson!.cityIbgeCode = '3518800';
+        Object.assign(ctx, buildFreightCoverage(hubs, [
+            coverageRow({ hubId: 'for', cityIbgeCode: '2304400', cityName: 'Fortaleza', state: 'CE', tdeFixed: new Prisma.Decimal(100) }),
+            coverageRow({ hubId: 'gru', cityIbgeCode: '3518800', cityName: 'Guarulhos', state: 'SP', tdeFixed: new Prisma.Decimal(5) }),
+        ]));
+
+        const preview = suggestFreight(order, ctx).preview;
+        assert.deepEqual(preview?.breakdown.cityFeeDetails, [
+            { role: 'origem', cityIbgeCode: '2304400', cityName: 'Fortaleza', state: 'CE', amount: 100 },
+        ]);
+    });
+});
 
 describe('suggestFreight: rotas e opções de tabela', () => {
     it('sem cobertura, uma rota do hub para a UF do IBGE do destino é sugerida com todas as gerais', () => {

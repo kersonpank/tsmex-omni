@@ -1,4 +1,4 @@
-import type { Client, Hub, Person } from '../../../types/index';
+import type { Client, CoverageFeeUnit, Hub, Person } from '../../../types/index';
 import { isValidCnpj, isValidCpf, onlyDigits } from '../ui/form';
 
 /** Regras puras dos cadastros da Rede (hub, pessoa, cliente): payloads, filtros e paginação. Mesmas regras da gestão clássica e do servidor. */
@@ -98,13 +98,38 @@ export function permissionsLabel(permissions: string[] | null | undefined): stri
 
 /* ---------------- Cobertura ---------------- */
 
-export interface CoverageRow {
+export interface CoverageCityFee {
+    tdeValue: number | null;
+    tdeUnit: CoverageFeeUnit;
+    tdeFixed: number | null;
+}
+
+export const EMPTY_COVERAGE_CITY_FEE: CoverageCityFee = {
+    tdeValue: null,
+    tdeUnit: 'PERCENT_FREIGHT',
+    tdeFixed: null,
+};
+
+export interface CoverageRow extends CoverageCityFee {
     cityIbgeCode: string;
     cityName: string;
     state: string;
     leadTimeDays: number | null;
     priority: number | null;
     active: boolean;
+    pricingTableId: string | null;
+}
+
+export function validateCoverageFee(fee: CoverageCityFee, subject: string): string | null {
+    const byWeight = fee.tdeUnit === 'RS_KG';
+    const limit = byWeight ? 1000 : 100;
+    if (fee.tdeValue != null && (!Number.isFinite(fee.tdeValue) || fee.tdeValue < 0 || fee.tdeValue > limit)) {
+        return `O valor da TDE ${subject} deve ficar entre 0 e ${byWeight ? 'R$ 1.000 por kg' : '100%'}.`;
+    }
+    if (fee.tdeFixed != null && (!Number.isFinite(fee.tdeFixed) || fee.tdeFixed < 0)) {
+        return `O valor fixo da TDE ${subject} deve ser um número maior ou igual a zero.`;
+    }
+    return null;
 }
 
 export function validateCoverage(rows: CoverageRow[]): string | null {
@@ -116,6 +141,8 @@ export function validateCoverage(rows: CoverageRow[]): string | null {
         seen.add(row.cityIbgeCode);
         if (row.priority == null || row.priority < 1 || row.priority > 9999) return `Prioridade de ${label} deve ficar entre 1 e 9999.`;
         if (row.leadTimeDays != null && (row.leadTimeDays < 0 || row.leadTimeDays > 60)) return `Prazo de ${label} deve ficar entre 0 e 60 dias.`;
+        const feeError = validateCoverageFee(row, `de ${label}`);
+        if (feeError) return feeError;
     }
     return null;
 }
@@ -126,6 +153,10 @@ export function coveragePayload(rows: CoverageRow[]) {
         priority: row.priority ?? 100,
         active: row.active,
         ...(row.leadTimeDays != null ? { leadTimeDays: row.leadTimeDays } : {}),
+        pricingTableId: row.pricingTableId ?? null,
+        tdeValue: row.tdeValue,
+        tdeUnit: row.tdeUnit,
+        tdeFixed: row.tdeFixed,
     }));
 }
 

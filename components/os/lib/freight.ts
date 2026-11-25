@@ -15,6 +15,7 @@ import { parseMoney } from './trip';
 
 const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 export const formatBRL = (value: number) => brl.format(value);
+export const FREIGHT_CITY_FEE_LABEL = 'Taxa da cidade (TDE)';
 
 /** `transp/modFrete` da NF-e → quem paga: 0 remetente (CIF), 1 destinatário (FOB). Outros: perguntar. */
 export function payerFromModFrete(modFrete: unknown): 'CIF' | 'FOB' | null {
@@ -38,6 +39,10 @@ export function pricingSourceLabel(pricing: Pick<FreightPricingChoice, 'source' 
         case 'payer_special_route':
         case 'payer_special':
             return `Tabela especial do cliente · ${pricing.tableLabel}`;
+        case 'coverage_dest':
+            return `Tarifa da cidade de destino · ${pricing.tableLabel}`;
+        case 'coverage_origin':
+            return `Tarifa da cidade de origem · ${pricing.tableLabel}`;
         case 'general_route':
             return `Tarifa geral da rota · ${pricing.tableLabel}`;
         default:
@@ -117,8 +122,10 @@ export function blockerAction(blocker: string, payerRole: 'remetente' | 'destina
     return null;
 }
 
-/** Campos do frete informado pelo hub (mesmos componentes do cálculo por tabela). */
-export const INFORMED_FIELDS: { key: keyof FreightBreakdownValues; label: string }[] = [
+type InformedBreakdown = Omit<FreightBreakdownValues, 'cityFee' | 'cityFeeDetails'>;
+
+/** Campos que o hub informa manualmente. */
+export const INFORMED_FIELDS: { key: keyof InformedBreakdown; label: string }[] = [
     { key: 'freightBase', label: 'Frete-peso' },
     { key: 'adValorem', label: 'Ad valorem' },
     { key: 'gris', label: 'GRIS' },
@@ -128,11 +135,11 @@ export const INFORMED_FIELDS: { key: keyof FreightBreakdownValues; label: string
     { key: 'icms', label: 'ICMS' },
 ];
 
-export type InformedForm = Record<keyof FreightBreakdownValues, string>;
+export type InformedForm = Record<keyof InformedBreakdown, string>;
 export const EMPTY_INFORMED: InformedForm = { freightBase: '', adValorem: '', gris: '', toll: '', dispatch: '', others: '', icms: '' };
 
-export function parseInformed(form: InformedForm): { values: Partial<FreightBreakdownValues>; total: number } {
-    const values: Partial<FreightBreakdownValues> = {};
+export function parseInformed(form: InformedForm): { values: Partial<InformedBreakdown>; total: number } {
+    const values: Partial<InformedBreakdown> = {};
     let total = 0;
     for (const { key } of INFORMED_FIELDS) {
         const n = parseMoney(form[key]);

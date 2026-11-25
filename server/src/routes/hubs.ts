@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { CoverageFeeUnit } from '@prisma/client';
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { newPasswordSchema } from '../lib/passwordPolicy.js';
@@ -412,13 +414,45 @@ router.post('/:id/users', authenticate, authorize('ADMIN'), async (req: AuthRequ
 // Cobertura rica (tabela de roteamento da teia — G1)
 // ========================================
 
+const invalidCoveragePricingTable = 'Tabela de preço inválida para cobertura';
 const coverageEntrySchema = z.object({
     cityIbgeCode: z.string().regex(/^\d{7}$/, 'Código IBGE deve ter 7 dígitos'),
     leadTimeDays: z.number().int().min(0).max(60).optional(),
     priority: z.number().int().min(1).max(9999).default(100),
     active: z.boolean().default(true),
+    pricingTableId: z.string().min(1, invalidCoveragePricingTable).nullable().optional(), // tabelas do seed têm id não-UUID
+    tdeValue: z.number({ message: 'O valor da TDE deve ser numérico.' })
+        .finite('O valor da TDE é inválido.').min(0, 'O valor da TDE deve ser maior ou igual a zero.').nullish(),
+    tdeUnit: z.nativeEnum(CoverageFeeUnit, { message: 'O tipo da TDE é inválido.' }).default(CoverageFeeUnit.PERCENT_FREIGHT),
+    tdeFixed: z.number({ message: 'O valor fixo da TDE deve ser numérico.' })
+        .min(0, 'O valor fixo da TDE deve ser maior ou igual a zero.')
+        // A coluna DECIMAL(65,30) comporta 35 dígitos inteiros.
+        .lt(1e35, 'O valor fixo da TDE excede o limite de armazenamento.').nullish(),
+}).superRefine(({ tdeValue, tdeUnit }, ctx) => {
+    const perKg = tdeUnit === CoverageFeeUnit.RS_KG;
+    if (tdeValue != null && tdeValue > (perKg ? 1000 : 100)) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['tdeValue'],
+            message: perKg ? 'A TDE por kg deve ser de até R$ 1.000.' : 'O percentual da TDE deve ser de até 100%.',
+        });
+    }
 });
 const coverageBodySchema = z.object({ entries: z.array(coverageEntrySchema).max(500) });
+
+async function listHubCoverage(db: Pick<typeof prisma, 'hubCoverage'>, hubId: string) {
+    const entries = await db.hubCoverage.findMany({
+        where: { hubId },
+        orderBy: [{ priority: 'asc' }, { cityName: 'asc' }],
+        include: { pricingTable: { select: { id: true, description: true } } },
+    });
+    return entries.map(({ pricingTable, tdeValue, tdeFixed, ...entry }) => ({
+        ...entry,
+        pricingTableName: pricingTable?.description ?? null,
+        tdeValue: tdeValue == null ? null : Number(tdeValue),
+        tdeFixed: tdeFixed == null ? null : Number(tdeFixed),
+    }));
+}
 
 // GET /api/hubs/:id/coverage — ADMIN ou o próprio hub
 router.get('/:id/coverage', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -427,10 +461,7 @@ router.get('/:id/coverage', authenticate, authorize('ADMIN', 'HUB'), async (req:
         if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && req.user!.hubId !== id) {
             throw new AppError('Not authorized to access this hub', 403);
         }
-        const entries = await prisma.hubCoverage.findMany({
-            where: { hubId: id },
-            orderBy: [{ priority: 'asc' }, { cityName: 'asc' }],
-        });
+        const entries = await listHubCoverage(prisma, id);
         res.json({ success: true, data: entries });
     } catch (error) {
         next(error);
@@ -456,7 +487,17 @@ router.put('/:id/coverage', authenticate, authorize('ADMIN'), async (req: AuthRe
         const missing = codes.filter((c) => !byCode.has(c));
         if (missing.length > 0) throw new AppError(`Código IBGE desconhecido: ${missing.join(', ')}`, 400);
 
+        const pricingTableIds = [...new Set(entries.map((entry) => entry.pricingTableId).filter((id) => id != null))];
         const saved = await prisma.$transaction(async (tx) => {
+            if (pricingTableIds.length > 0) {
+                const validTables = await tx.pricingTable.findMany({
+                    where: { id: { in: pricingTableIds }, type: 'GENERAL', active: true },
+                    select: { id: true },
+                });
+                if (validTables.length !== pricingTableIds.length) {
+                    throw new AppError(invalidCoveragePricingTable, 400);
+                }
+            }
             await tx.hubCoverage.deleteMany({ where: { hubId: id } });
             if (entries.length > 0) {
                 await tx.hubCoverage.createMany({
@@ -468,15 +509,136 @@ router.put('/:id/coverage', authenticate, authorize('ADMIN'), async (req: AuthRe
                         leadTimeDays: e.leadTimeDays ?? null,
                         priority: e.priority,
                         active: e.active,
+                        pricingTableId: e.pricingTableId ?? null,
+                        tdeValue: e.tdeValue ?? null,
+                        tdeUnit: e.tdeUnit,
+                        tdeFixed: e.tdeFixed ?? null,
                     })),
                 });
             }
-            return tx.hubCoverage.findMany({ where: { hubId: id }, orderBy: [{ priority: 'asc' }, { cityName: 'asc' }] });
+            return listHubCoverage(tx, id);
         });
         res.json({ success: true, data: saved });
     } catch (error) {
         if (error instanceof z.ZodError) {
             return next(new AppError(error.errors[0]?.message ?? 'Cobertura inválida.', 400));
+        }
+        next(error);
+    }
+});
+
+const hubRouteSchema = z.object({
+    id: z.string().optional(),
+    name: z.string().trim().min(1, 'Nome da rota é obrigatório'),
+    notes: z.string().optional(),
+    active: z.boolean().default(true),
+    stops: z.array(z.object({
+        cityIbgeCode: z.string().regex(/^\d{7}$/, 'Código IBGE deve ter 7 dígitos'),
+    })).max(60, 'Cada rota pode ter até 60 paradas'),
+});
+const hubRoutesBodySchema = z.object({ routes: z.array(hubRouteSchema).max(50, 'O hub pode ter até 50 rotas') });
+
+function listHubRoutes(db: Pick<typeof prisma, 'hubRoute'>, hubId: string) {
+    return db.hubRoute.findMany({
+        where: { hubId },
+        orderBy: { name: 'asc' },
+        select: {
+            id: true,
+            name: true,
+            notes: true,
+            active: true,
+            stops: {
+                orderBy: { sequence: 'asc' },
+                select: { sequence: true, cityIbgeCode: true, cityName: true, state: true },
+            },
+        },
+    });
+}
+
+// GET /api/hubs/:id/routes — ADMIN ou o próprio hub
+router.get('/:id/routes', authenticate, authorize('ADMIN', 'HUB'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const id = req.params.id as string;
+        if (req.user!.roles.includes('HUB') && !req.user!.roles.includes('ADMIN') && req.user!.hubId !== id) {
+            throw new AppError('Not authorized to access this hub', 403);
+        }
+        const routes = await listHubRoutes(prisma, id);
+        res.json({ success: true, data: routes });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// PUT /api/hubs/:id/routes — substitui as rotas do hub (ADMIN)
+router.put('/:id/routes', authenticate, authorize('ADMIN'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const id = req.params.id as string;
+        const { routes } = hubRoutesBodySchema.parse(req.body);
+        const names = new Set<string>();
+        for (const route of routes) {
+            const name = route.name.toLowerCase();
+            if (names.has(name)) throw new AppError(`Nome de rota duplicado: ${route.name}`, 400);
+            names.add(name);
+            if (new Set(route.stops.map(({ cityIbgeCode }) => cityIbgeCode)).size !== route.stops.length) {
+                throw new AppError(`Cidade repetida na rota ${route.name}`, 400);
+            }
+        }
+
+        const codes = [...new Set(routes.flatMap(({ stops }) => stops.map(({ cityIbgeCode }) => cityIbgeCode)))];
+        const saved = await prisma.$transaction(async (tx) => {
+            // Serializa substituições do mesmo hub, inclusive quando a lista de rotas está vazia.
+            const [hub] = await tx.$queryRaw<{ cityIbgeCode: string | null }[]>`
+                SELECT "cityIbgeCode" FROM "Hub" WHERE "id" = ${id} FOR NO KEY UPDATE
+            `;
+            if (!hub) throw new AppError('Hub not found', 404);
+
+            const coverage = await tx.hubCoverage.findMany({
+                where: { hubId: id, active: true, cityIbgeCode: { in: codes } },
+                select: { cityIbgeCode: true },
+            });
+            const activeCodes = new Set(coverage.map(({ cityIbgeCode }) => cityIbgeCode));
+            const cities = await tx.city.findMany({
+                where: { ibgeCode: { in: codes } },
+                select: { ibgeCode: true, name: true, state: { select: { code: true } } },
+            });
+            const citiesByCode = new Map(cities.map((city) => [city.ibgeCode, city]));
+            const existing = routes.some((route) => route.id !== undefined)
+                ? await tx.hubRoute.findMany({ where: { hubId: id }, select: { id: true } })
+                : [];
+            const existingIds = new Set(existing.map((route) => route.id));
+            const replacementIds = new Set<string>();
+            const replacements = routes.map((route) => {
+                const routeId = route.id !== undefined && existingIds.has(route.id) ? route.id : randomUUID();
+                if (replacementIds.has(routeId)) throw new AppError('Identificador de rota duplicado', 400);
+                replacementIds.add(routeId);
+                const stops = route.stops.map(({ cityIbgeCode }, index) => {
+                    const city = citiesByCode.get(cityIbgeCode);
+                    if (!city) throw new AppError(`Código IBGE desconhecido: ${cityIbgeCode}`, 400);
+                    if (cityIbgeCode !== hub.cityIbgeCode && !activeCodes.has(cityIbgeCode)) {
+                        throw new AppError(`${city.name}/${city.state.code} não está na cobertura do hub`, 400);
+                    }
+                    return { routeId, cityIbgeCode, cityName: city.name, state: city.state.code, sequence: index + 1 };
+                });
+                return {
+                    route: { id: routeId, hubId: id, name: route.name, notes: route.notes?.trim() || null, active: route.active },
+                    stops,
+                };
+            });
+
+            await tx.hubRoute.deleteMany({ where: { hubId: id } });
+            if (replacements.length > 0) {
+                await tx.hubRoute.createMany({ data: replacements.map(({ route }) => route) });
+            }
+            const stops = replacements.flatMap((replacement) => replacement.stops);
+            if (stops.length > 0) {
+                await tx.hubRouteStop.createMany({ data: stops });
+            }
+            return listHubRoutes(tx, id);
+        }, { isolationLevel: 'ReadCommitted' });
+        res.json({ success: true, data: saved });
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return next(new AppError(error.errors[0]?.message ?? 'Rotas inválidas.', 400));
         }
         next(error);
     }

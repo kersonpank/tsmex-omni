@@ -2,7 +2,7 @@ import type { FreightCalcStatus, Person } from '@prisma/client';
 import { getFiscalDocModeForFreight } from '../fiscal/fiscalDocPolicy.js';
 import { buildCteEmissionInputFromRecords } from '../fiscal/cteEmissionInputBuilder.js';
 import { resolveFinalHub } from '../hubCargo/consolidationQueue.js';
-import { computeFreightFromTable, orderFreightParams, type FreightBreakdown } from './freightPricing.js';
+import { computeFreightFromTable, orderFreightParams, type FreightBreakdown, type FreightResult } from './freightPricing.js';
 import {
     allowedDocTypes,
     choosePricingTable,
@@ -15,7 +15,7 @@ import {
     type FreightTermValue,
     type PricingChoice,
 } from './freightDocRules.js';
-import type { FreightContext, FreightOrder } from './freightContext.js';
+import { cityFeesForOrder, coveragePricingForOrder, freightCoverageCities, type FreightContext, type FreightOrder } from './freightContext.js';
 import { averbacaoRequiredFor, summarizeAverbacao, type AverbacaoView } from '../averbacao/averbacaoView.js';
 
 /**
@@ -66,7 +66,7 @@ export interface FreightSuggestion {
     tableOptions: FreightTableOption[];
     noPricingReason: string | null;
     preview: { total: number; breakdown: FreightBreakdown; effectiveWeight: number } | null;
-    params: { volumes: number; weight: number; nfValue: number };
+    params: { volumes: number; weight: number; cubage: number | null; nfValue: number };
     /** O que impede emitir o documento recomendado agora (vazio = pronto para emitir). */
     blockers: string[];
     /** Campos fiscais que faltam (ex.: cfop, cst) — a tela oferece o campo. */
@@ -84,6 +84,7 @@ export interface FreightTableOption {
     routeId: string | null;
     routeLabel: string | null;
     total: number;
+    preview: FreightResult;
 }
 
 const NO_FREIGHT_ISSUE = 'CT-e precisa de valor de frete maior que zero.';
@@ -167,7 +168,7 @@ export function suggestFreight(order: FreightOrder, ctx: FreightContext): Freigh
     const payerClient = payerPerson?.clients?.[0] ?? null;
 
     // Rota de preço = hub atual → hub que cobre o destino final (tabela de roteamento da teia).
-    const destIbge = order.fimIbgeCode ?? order.destinatarioPerson?.cityIbgeCode ?? null;
+    const { destIbge } = freightCoverageCities(order);
     // O cliente paga a jornada inteira: usa o hub FINAL, nunca o próximo salto (gateways não alteram preço).
     const finalHub = resolveFinalHub(ctx.coverage, destIbge);
     const destCode = finalHub ? (finalHub.hubId === ctx.hub.id ? ctx.hub.code : finalHub.hubCode) : null;
@@ -190,25 +191,28 @@ export function suggestFreight(order: FreightOrder, ctx: FreightContext): Freigh
         payerClientId: payerClient?.id ?? null,
         payerAccountId: payerClient?.accountId ?? null,
         routeId: route?.id ?? null,
+        ...coveragePricingForOrder(order, ctx),
     };
     const pricing = choosePricingTable(ctx.tables, pricingContext);
     const params = orderFreightParams(order);
-    const sourceOrder = { payer_special_route: 0, payer_special: 1, general_route: 2, general: 3 };
+    const cityFees = cityFeesForOrder(order, ctx);
+    const sourceOrder = { payer_special_route: 0, payer_special: 1, coverage_dest: 2, coverage_origin: 3, general_route: 4, general: 5 };
     const tableOptions = ctx.tables
         .map((table) => {
             const tableRoute = table.routeId ? candidateRoutes.find((candidate) => candidate.id === table.routeId) : undefined;
-            if (table.routeId && !tableRoute) return null;
             const choice = choosePricingTable([table], { ...pricingContext, routeId: tableRoute?.id ?? null });
             if (!choice) return null;
+            const preview = computeFreightFromTable(table, params, choice.method === 'TARIFA_GERAL' ? cityFees : undefined);
             return {
                 option: {
                     tableId: table.id,
-                    label: table.description,
+                    label: choice.tableLabel,
                     method: choice.method,
                     source: choice.source,
                     routeId: choice.routeId,
-                    routeLabel: tableRoute?.name ?? null,
-                    total: computeFreightFromTable(table, params).total,
+                    routeLabel: choice.routeId ? tableRoute?.name ?? null : null,
+                    total: preview.total,
+                    preview,
                 } satisfies FreightTableOption,
                 priority: table.priority,
             };
@@ -227,8 +231,7 @@ export function suggestFreight(order: FreightOrder, ctx: FreightContext): Freigh
                     : !finalHub
                         ? `${destination.label} não tem hub na cobertura e não há rota de preço para ${destination.state} a partir deste hub. Defina a cobertura ou informe o valor.`
                         : `Não há rota de preço para ${destination.state} a partir deste hub. Defina a rota ou informe o valor.`;
-    const table = pricing ? ctx.tables.find((t) => t.id === pricing.tableId) : undefined;
-    const computed = table ? computeFreightFromTable(table, params) : null;
+    const computed = tableOptions.find((option) => option.tableId === pricing?.tableId)?.preview;
 
     const blockers: string[] = [];
     let missingFields: string[] = [];
@@ -287,7 +290,7 @@ export function suggestFreight(order: FreightOrder, ctx: FreightContext): Freigh
         tableOptions,
         noPricingReason,
         preview: computed ? { total: computed.total, breakdown: computed.breakdown, effectiveWeight: computed.effectiveWeight } : null,
-        params: { volumes: params.volumes, weight: params.weight, nfValue: params.nfValue },
+        params: { ...params, cubage: params.cubage ?? null },
         blockers: Array.from(new Set(blockers)),
         missingFields,
         state: freightDocState(order.freightCalculations),

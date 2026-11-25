@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { applyTeiaSelection, coverageCounts, MAX_COVERAGE, setServed } from './coverageTeia';
-import type { CoverageRow } from './redeCadastro';
+import { EMPTY_COVERAGE_CITY_FEE, type CoverageRow } from './redeCadastro';
 
 const row = (code: string, over: Partial<CoverageRow> = {}): CoverageRow => ({
-    cityIbgeCode: code, cityName: `C${code}`, state: 'MA', leadTimeDays: 2, priority: 5, active: true, ...over,
+    cityIbgeCode: code, cityName: `C${code}`, state: 'MA', leadTimeDays: 2, priority: 5, active: true, pricingTableId: null, ...EMPTY_COVERAGE_CITY_FEE, ...over,
 });
 const city = (code: string) => ({ ibgeCode: code, name: `N${code}`, state: 'PA' });
 
@@ -13,7 +13,7 @@ describe('coverageTeia', () => {
         const r = applyTeiaSelection(base, [city('3'), city('2')], null);
         expect(r.added).toBe(2);
         expect(r.rows.map((x) => x.cityIbgeCode)).toEqual(['1', '3', '2']);
-        expect(r.rows[1]).toEqual({ cityIbgeCode: '3', cityName: 'N3', state: 'PA', leadTimeDays: null, priority: 100, active: true });
+        expect(r.rows[1]).toEqual({ cityIbgeCode: '3', cityName: 'N3', state: 'PA', leadTimeDays: null, priority: 100, active: true, pricingTableId: null, tdeValue: null, tdeUnit: 'PERCENT_FREIGHT', tdeFixed: null });
         expect(base).toHaveLength(1);
     });
 
@@ -24,7 +24,7 @@ describe('coverageTeia', () => {
     });
 
     it('mantém linha existente intacta e conta alreadyPresent', () => {
-        const existing = row('2', { active: false, priority: 7 });
+        const existing = row('2', { active: false, priority: 7, tdeValue: 2, tdeUnit: 'PERCENT_NF', tdeFixed: 15 });
         const r = applyTeiaSelection([existing], [city('2')], null);
         expect(r.alreadyPresent).toBe(1);
         expect(r.added).toBe(0);

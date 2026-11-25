@@ -66,6 +66,7 @@ import type {
     HubExceptionList,
     ConsolidationQueueGroup,
     HubCoverageEntry,
+    CoverageFeeUnit,
     FreightSuggestion,
     CteCancelEligibility,
     CteCancelResult,
@@ -1543,7 +1544,7 @@ export const clientsApi = {
 // ========== PRICING API ==========
 
 export const pricingApi = {
-    listTables: async (params?: { clientId?: string; routeId?: string; type?: string; active?: boolean }) => {
+    listTables: async (params?: { clientId?: string; routeId?: string; type?: string; active?: boolean; coverageOnly?: boolean }) => {
         const response = await api.get<ApiResponse<PricingTable[]>>('/pricing/tables', { params });
         return response.data;
     },
@@ -1987,6 +1988,14 @@ export const ordersFreightApi = {
         return response.data;
     },
 
+    tablePreview: async (orderId: string, pricingTableId: string, signal?: AbortSignal) => {
+        const response = await api.get<ApiResponse<NonNullable<FreightSuggestion['preview']>>>(
+            `/orders/${orderId}/freight-calculations/table-preview`,
+            { params: { pricingTableId }, signal },
+        );
+        return response.data;
+    },
+
     /** TSM O.S.: deixa o cálculo pronto para emitir sem duplicar (ativo do mesmo tipo volta como está). */
     prepare: async (orderId: string, body: {
         documentType: FreightDocType;
@@ -2251,6 +2260,7 @@ export const hubCargoApi = {
     /** Monta a viagem a partir da fila; o servidor grava sugerido × final no ConsolidationFeedback. */
     consolidate: async (body: {
         groupKey: string;
+        routeKey?: string;
         orderIds: string[];
         vehicleTypeId: string;
         hubId?: string;
@@ -2273,9 +2283,52 @@ export const hubCoverageApi = {
     },
     replace: async (
         hubId: string,
-        entries: Array<{ cityIbgeCode: string; leadTimeDays?: number; priority?: number; active?: boolean }>,
+        entries: Array<{
+            cityIbgeCode: string;
+            leadTimeDays?: number;
+            priority?: number;
+            active?: boolean;
+            pricingTableId?: string | null;
+            tdeValue?: number | null;
+            tdeUnit?: CoverageFeeUnit;
+            tdeFixed?: number | null;
+        }>,
     ) => {
         const response = await api.put<ApiResponse<HubCoverageEntry[]>>(`/hubs/${hubId}/coverage`, { entries });
+        return response.data;
+    },
+};
+
+export type HubRouteStop = {
+    sequence: number;
+    cityIbgeCode: string;
+    cityName: string;
+    state: string;
+};
+
+export type HubRoute = {
+    id: string;
+    name: string;
+    notes: string | null;
+    active: boolean;
+    stops: HubRouteStop[];
+};
+
+export const hubRoutesApi = {
+    list: async (hubId: string) => {
+        const response = await api.get<ApiResponse<HubRoute[]>>(`/hubs/${hubId}/routes`);
+        return response.data;
+    },
+    replace: async (hubId: string, payload: {
+        routes: Array<{
+            id?: string;
+            name: string;
+            notes?: string;
+            active?: boolean;
+            stops: Array<{ cityIbgeCode: string }>;
+        }>;
+    }) => {
+        const response = await api.put<ApiResponse<HubRoute[]>>(`/hubs/${hubId}/routes`, payload);
         return response.data;
     },
 };

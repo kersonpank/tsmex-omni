@@ -3,6 +3,41 @@ import { buildCteIcmsBlock, getCteCfopOption, normalizeCfop } from '../fiscal/ct
 import { resolveIbgeMunicipio, ufToCuf } from './acbrIbge.js';
 import { resolveCteServiceLocation } from '../fiscal/cteServiceLocation.js';
 import { validateSelectedCity } from '../selectedCity.js';
+import { BREAKDOWN_KEYS } from '../freight/freightPricing.js';
+
+const COMPONENT_NAMES: Record<(typeof BREAKDOWN_KEYS)[number], string> = {
+    freightBase: 'FRETE PESO',
+    adValorem: 'AD VALOREM',
+    gris: 'GRIS',
+    toll: 'PEDAGIO',
+    dispatch: 'DESPACHO',
+    others: 'OUTROS',
+    cityFee: 'TDE',
+    icms: 'ICMS',
+};
+
+function freightComponents(raw: unknown, vTPrest: number): { xNome: string; vComp: number }[] | undefined {
+    const breakdown = raw as Record<string, unknown> | null;
+    if (typeof breakdown?.cityFee !== 'number' || breakdown.cityFee <= 0) return undefined;
+
+    let sumInCents = 0;
+    const components: { xNome: string; vComp: number }[] = [];
+    for (const key of BREAKDOWN_KEYS) {
+        const value = breakdown[key] ?? 0;
+        if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+            throw new Error('Componente inválido no cálculo do CT-e com TDE. Recalcule o frete.');
+        }
+        const cents = Math.round(value * 100);
+        if (cents > 0) {
+            components.push({ xNome: COMPONENT_NAMES[key], vComp: cents / 100 });
+            sumInCents += cents;
+        }
+    }
+    if (sumInCents !== Math.round(vTPrest * 100)) {
+        throw new Error('A soma dos componentes do CT-e com TDE difere do valor da prestação. Recalcule o frete.');
+    }
+    return components;
+}
 
 function digits(s: string): string {
     return s.replace(/\D/g, '');
@@ -99,6 +134,7 @@ export async function buildAcbrCteEmitBody(input: CteEmissionInput, referencia: 
         throw new Error(`CFOP ${normalizeCfop(input.calc.cfop) || 'não informado'} não está habilitado para CT-e no MVP.`);
     }
     const vTPrest = Number(input.calc.freightTotal.toFixed(2));
+    const components = freightComponents(input.calc.breakdown, vTPrest);
     const peso = input.calc.effectiveWeight ?? input.calc.weight ?? 0.01;
     const infNFe = input.order.invoicesRel
         .filter((i) => i.nfKey && digits(i.nfKey).length === 44)
@@ -186,7 +222,7 @@ export async function buildAcbrCteEmitBody(input: CteEmissionInput, referencia: 
         emit: emitParty,
         rem: remParty,
         dest: destParty,
-        vPrest: { vTPrest, vRec: vTPrest },
+        vPrest: { vTPrest, vRec: vTPrest, ...(components ? { Comp: components } : {}) },
         imp: { ...buildCteIcmsBlock(input.calc.cst, vTPrest, input.calc.icmsValue), vTotTrib: 0 },
         infCTeNorm: {
             infCarga: {

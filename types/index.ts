@@ -61,6 +61,7 @@ export type LinkCarrierType = 'TAC' | 'ETC' | 'CTC' | 'FROTA';
 export type CiotTipoViagem = 'PADRAO' | 'FRACIONADO' | 'TAC_AGREGADO';
 
 export type FreightUnit = 'RS_KG' | 'PERCENT' | 'RS_M3' | 'RS_UNIT';
+export type IcmsUnit = 'PERCENT' | 'DIVISOR' | 'FIXED';
 
 export type MinFreightUnit = 'RS' | 'KG';
 
@@ -1148,6 +1149,16 @@ export interface FreightBreakdownValues {
     dispatch: number;
     others: number;
     icms: number;
+    cityFee?: number;
+    cityFeeDetails?: FreightCityFeeDetail[];
+}
+
+export interface FreightCityFeeDetail {
+    role: 'destino' | 'origem';
+    cityIbgeCode: string;
+    cityName: string;
+    state: string;
+    amount: number;
 }
 
 export interface FreightDocumentSummary {
@@ -1189,7 +1200,7 @@ export interface FreightPricingChoice {
     tableId: string;
     tableLabel: string;
     routeId: string | null;
-    source: 'payer_special_route' | 'payer_special' | 'general_route' | 'general';
+    source: 'payer_special_route' | 'payer_special' | 'coverage_dest' | 'coverage_origin' | 'general_route' | 'general';
 }
 
 export interface FreightTableOption {
@@ -1200,6 +1211,7 @@ export interface FreightTableOption {
     routeId: string | null;
     routeLabel: string | null;
     total: number;
+    preview?: NonNullable<FreightSuggestion['preview']> & { cubedWeight: number };
 }
 
 export interface FreightSuggestion {
@@ -1269,11 +1281,27 @@ export interface ConsolidationQueueGroup {
     finalHubName?: string | null;
     leadTimeDays?: number | null;
     orders: ConsolidationQueueOrder[];
+    /** Grupos montados localmente podem omitir a quebra calculada pelo servidor. */
+    routeBreakdown?: Array<{
+        key: string;
+        finalHubId: string;
+        finalHubName: string;
+        routeId: string | null;
+        routeName: string | null;
+        ambiguous: boolean;
+        orderIds: string[];
+        orderCount: number;
+        weightKg: number;
+        volumeM3: number;
+        cities: string[];
+    }>;
     totalWeightKg: number;
     totalVolumeM3: number;
     totalValueBRL: number;
     oldestSinceAt: string;
 }
+
+export type CoverageFeeUnit = 'PERCENT_FREIGHT' | 'PERCENT_FREIGHT_BASE' | 'PERCENT_NF' | 'RS_KG';
 
 export interface HubCoverageEntry {
     id: string;
@@ -1284,6 +1312,11 @@ export interface HubCoverageEntry {
     leadTimeDays: number | null;
     priority: number;
     active: boolean;
+    pricingTableId?: string | null;
+    pricingTableName?: string | null;
+    tdeValue?: number | null;
+    tdeUnit?: CoverageFeeUnit;
+    tdeFixed?: number | null;
 }
 
 // Fila de exceções do hub (TSM O.S. — GET /api/hub/exceptions)
@@ -1494,6 +1527,7 @@ export interface PricingTable {
     description: string;
     code?: string;
     type: PricingTableType;
+    coverageOnly?: boolean;
     clientId?: string;
     accountId?: string;
     routeId?: string;
@@ -1511,7 +1545,8 @@ export interface PricingTable {
     cubeEnabled: boolean;
     cubeFactor?: number;
     icmsIncluded: boolean;
-    icmsPercent?: number;
+    icmsUnit?: IcmsUnit;
+    icmsPercent?: number | null;
     adValoremThreshold?: number;
     minFreightRanges?: MinFreightRange[];
     active: boolean;

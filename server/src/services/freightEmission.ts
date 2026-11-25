@@ -96,6 +96,7 @@ export interface DocumentoFreteComponentesDto {
     dispatch: number;
     others: number;
     icms: number;
+    cityFee?: number;
 }
 
 export interface MinutaPayloadDto {
@@ -259,6 +260,7 @@ export function buildMinutaPayload(params: {
         toll: breakdown.toll ?? 0,
         dispatch: breakdown.dispatch ?? 0,
         others: breakdown.others ?? 0,
+        ...(breakdown.cityFee > 0 ? { cityFee: breakdown.cityFee } : {}),
         icms: breakdown.icms ?? calc.icmsValue ?? 0,
     };
 

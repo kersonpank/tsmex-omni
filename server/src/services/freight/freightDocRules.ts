@@ -73,9 +73,16 @@ export interface TableCandidate {
     accountId: string | null;
     routeId: string | null;
     priority: number;
+    coverageOnly?: boolean;
 }
 
-export type PricingSource = 'payer_special_route' | 'payer_special' | 'general_route' | 'general';
+export type PricingSource = 'payer_special_route' | 'payer_special' | 'coverage_dest' | 'coverage_origin' | 'general_route' | 'general';
+
+export interface CoveragePricing {
+    tableId: string;
+    cityName: string;
+    state: string;
+}
 
 export interface PricingChoice {
     method: 'ESPECIAL' | 'TARIFA_GERAL';
@@ -86,24 +93,33 @@ export interface PricingChoice {
 }
 
 /**
- * Tabela que vale para o pedido, nesta ordem: especial do pagador na rota → especial do pagador
- * sem rota → geral da rota → geral sem rota. Especial vale pelo cliente ou pela conta (Account,
- * tabela compartilhada entre CNPJs). Empate: maior prioridade. Nenhuma → frete informado.
+ * Tabela que vale para o pedido: especial do pagador na rota → especial sem rota → cobertura
+ * de destino → cobertura de origem → geral da rota → geral sem rota. Especial vale pelo cliente
+ * ou pela conta (tabela compartilhada entre CNPJs). Empate: maior prioridade.
  */
 export function choosePricingTable(
     tables: TableCandidate[],
-    ctx: { payerClientId: string | null; payerAccountId: string | null; routeId: string | null },
+    ctx: {
+        payerClientId: string | null;
+        payerAccountId: string | null;
+        routeId: string | null;
+        coverageDest?: CoveragePricing;
+        coverageOrigin?: CoveragePricing;
+    },
 ): PricingChoice | null {
     const byPriority = (list: TableCandidate[]) => [...list].sort((a, b) => b.priority - a.priority)[0];
     const isPayers = (t: TableCandidate) =>
         t.type === 'SPECIAL' &&
         ((ctx.payerClientId != null && t.clientId === ctx.payerClientId) ||
             (ctx.payerAccountId != null && t.accountId === ctx.payerAccountId));
-    const steps: { source: PricingSource; pick: (t: TableCandidate) => boolean }[] = [
+    const isGeneral = (t: TableCandidate) => t.type === 'GENERAL' && !t.coverageOnly;
+    const steps: { source: PricingSource; pick: (t: TableCandidate) => boolean; coverage?: CoveragePricing }[] = [
         { source: 'payer_special_route', pick: (t) => isPayers(t) && ctx.routeId != null && t.routeId === ctx.routeId },
         { source: 'payer_special', pick: (t) => isPayers(t) && t.routeId == null },
-        { source: 'general_route', pick: (t) => t.type === 'GENERAL' && ctx.routeId != null && t.routeId === ctx.routeId },
-        { source: 'general', pick: (t) => t.type === 'GENERAL' && t.routeId == null },
+        { source: 'coverage_dest', pick: (t) => t.type === 'GENERAL' && t.id === ctx.coverageDest?.tableId, coverage: ctx.coverageDest },
+        { source: 'coverage_origin', pick: (t) => t.type === 'GENERAL' && t.id === ctx.coverageOrigin?.tableId, coverage: ctx.coverageOrigin },
+        { source: 'general_route', pick: (t) => isGeneral(t) && ctx.routeId != null && t.routeId === ctx.routeId },
+        { source: 'general', pick: (t) => isGeneral(t) && t.routeId == null },
     ];
     for (const step of steps) {
         const table = byPriority(tables.filter(step.pick));
@@ -111,7 +127,9 @@ export function choosePricingTable(
             return {
                 method: table.type === 'SPECIAL' ? 'ESPECIAL' : 'TARIFA_GERAL',
                 tableId: table.id,
-                tableLabel: table.description,
+                tableLabel: step.coverage
+                    ? `${table.description} · cidade de cobertura ${step.coverage.cityName}/${step.coverage.state}`
+                    : table.description,
                 routeId: step.source === 'general_route' || step.source === 'payer_special_route' ? ctx.routeId : null,
                 source: step.source,
             };

@@ -98,6 +98,39 @@ export function buildCoverageIndex(hubs: HubRow[], rows: CoverageRow[]): Coverag
     return index;
 }
 
+interface RouteRow {
+    id: string;
+    hubId: string;
+    name: string;
+    active?: boolean;
+    stops: { cityIbgeCode: string; sequence: number }[];
+}
+
+type RouteIndex = Map<string, Map<string, { routeId: string; routeName: string; sequence: number }[]>>;
+
+export function buildRouteIndex(routes: RouteRow[]): RouteIndex {
+    const index: RouteIndex = new Map();
+    for (const route of routes) {
+        if (route.active === false) continue;
+        let cities = index.get(route.hubId);
+        if (!cities) {
+            cities = new Map();
+            index.set(route.hubId, cities);
+        }
+        for (const { cityIbgeCode, sequence } of route.stops) {
+            const candidates = cities.get(cityIbgeCode) ?? [];
+            candidates.push({ routeId: route.id, routeName: route.name, sequence });
+            cities.set(cityIbgeCode, candidates);
+        }
+    }
+    for (const cities of index.values()) {
+        for (const candidates of cities.values()) {
+            candidates.sort((a, b) => a.routeName.localeCompare(b.routeName, 'pt-BR') || a.routeId.localeCompare(b.routeId));
+        }
+    }
+    return index;
+}
+
 export type NextHop =
     /** `target` = próximo salto; `final` = hub responsável pela cidade final (igual a `target` quando direto). */
     | { kind: 'TRANSFER'; target: CoverageTarget; final: CoverageTarget }
@@ -162,6 +195,8 @@ export interface QueueOrderInput {
     fimIbgeCode: string | null;
     sinceAt: Date;
     destinationLabel: string | null;
+    /** Rótulo Cidade/UF da cidade final usada no roteamento. */
+    finalCityLabel?: string;
     weightKg: number;
     volumeM3: number;
     valueBRL: number;
@@ -187,6 +222,72 @@ export interface QueueOrderItem {
     leadTimeDays: number | null;
 }
 
+export interface QueueRouteBreakdown {
+    key: string;
+    finalHubId: string;
+    finalHubName: string;
+    routeId: string | null;
+    routeName: string | null;
+    ambiguous: boolean;
+    orderIds: string[];
+    orderCount: number;
+    weightKg: number;
+    volumeM3: number;
+    cities: string[];
+}
+
+export function breakdownByRoute(
+    items: readonly QueueOrderInput[],
+    finalHubOf: (item: QueueOrderInput) => string | null,
+    routeIndex: RouteIndex,
+    hubNames: ReadonlyMap<string, string>,
+): QueueRouteBreakdown[] {
+    const breakdown = new Map<string, { bucket: QueueRouteBreakdown; citySequences: Map<string, number> }>();
+    for (const item of items) {
+        const finalHubId = finalHubOf(item);
+        if (!finalHubId || !item.fimIbgeCode) continue;
+        const candidates = routeIndex.get(finalHubId)?.get(item.fimIbgeCode) ?? [];
+        const route = candidates[0];
+        const key = `${finalHubId}:${route?.routeId ?? 'none'}`;
+        let entry = breakdown.get(key);
+        if (!entry) {
+            entry = {
+                bucket: {
+                    key,
+                    finalHubId,
+                    finalHubName: hubNames.get(finalHubId) ?? finalHubId,
+                    routeId: route?.routeId ?? null,
+                    routeName: route?.routeName ?? null,
+                    ambiguous: false,
+                    orderIds: [],
+                    orderCount: 0,
+                    weightKg: 0,
+                    volumeM3: 0,
+                    cities: [],
+                },
+                citySequences: new Map(),
+            };
+            breakdown.set(key, entry);
+        }
+        const { bucket, citySequences } = entry;
+        bucket.ambiguous ||= candidates.length > 1;
+        bucket.orderIds.push(item.id);
+        bucket.orderCount++;
+        bucket.weightKg += item.weightKg;
+        bucket.volumeM3 += item.volumeM3;
+        const city = item.finalCityLabel ?? item.destinationLabel;
+        if (city) citySequences.set(city, route?.sequence ?? 0);
+    }
+    return [...breakdown.values()]
+        .map(({ bucket, citySequences }) => ({
+            ...bucket,
+            cities: [...citySequences.entries()]
+                .sort(([cityA, sequenceA], [cityB, sequenceB]) => sequenceA - sequenceB || cityA.localeCompare(cityB, 'pt-BR'))
+                .map(([city]) => city),
+        }))
+        .sort((a, b) => b.weightKg - a.weightKg);
+}
+
 export interface ConsolidationQueueGroup {
     key: string;
     kind: 'TRANSFER' | 'LOCAL' | 'UNROUTED';
@@ -201,6 +302,7 @@ export interface ConsolidationQueueGroup {
     /** Maior prazo cadastrado entre os pedidos do grupo (informativo). */
     leadTimeDays: number | null;
     orders: QueueOrderItem[];
+    routeBreakdown: QueueRouteBreakdown[];
     totalWeightKg: number;
     totalVolumeM3: number;
     totalValueBRL: number;
@@ -211,31 +313,38 @@ export function groupOrdersByNextHop(
     orders: QueueOrderInput[],
     index: CoverageIndex,
     currentHubId: string,
+    routeIndex: RouteIndex = new Map(),
 ): ConsolidationQueueGroup[] {
-    const groups = new Map<string, ConsolidationQueueGroup>();
+    const groups = new Map<string, { group: ConsolidationQueueGroup; items: QueueOrderInput[] }>();
     for (const order of orders) {
         const hop = resolveNextHop(index, order.fimIbgeCode, currentHubId);
         const key = hop.kind === 'TRANSFER' ? `TRANSFER:${hop.target.hubId}` : hop.kind;
-        let group = groups.get(key);
-        if (!group) {
-            group = {
-                key,
-                kind: hop.kind,
-                destHubId: hop.kind === 'TRANSFER' ? hop.target.hubId : null,
-                destHubName: hop.kind === 'TRANSFER' ? hop.target.hubName : null,
-                destHubCode: hop.kind === 'TRANSFER' ? hop.target.hubCode : null,
-                finalHubId: null,
-                finalHubCode: null,
-                finalHubName: null,
-                leadTimeDays: null,
-                orders: [],
-                totalWeightKg: 0,
-                totalVolumeM3: 0,
-                totalValueBRL: 0,
-                oldestSinceAt: order.sinceAt.toISOString(),
+        let entry = groups.get(key);
+        if (!entry) {
+            entry = {
+                group: {
+                    key,
+                    kind: hop.kind,
+                    destHubId: hop.kind === 'TRANSFER' ? hop.target.hubId : null,
+                    destHubName: hop.kind === 'TRANSFER' ? hop.target.hubName : null,
+                    destHubCode: hop.kind === 'TRANSFER' ? hop.target.hubCode : null,
+                    finalHubId: null,
+                    finalHubCode: null,
+                    finalHubName: null,
+                    leadTimeDays: null,
+                    orders: [],
+                    routeBreakdown: [],
+                    totalWeightKg: 0,
+                    totalVolumeM3: 0,
+                    totalValueBRL: 0,
+                    oldestSinceAt: order.sinceAt.toISOString(),
+                },
+                items: [],
             };
-            groups.set(key, group);
+            groups.set(key, entry);
         }
+        const { group, items } = entry;
+        items.push(order);
         const via = hop.kind === 'TRANSFER' && hop.final.hubId !== hop.target.hubId ? hop.final : null;
         const leadTimeDays = hop.kind === 'TRANSFER' ? hop.final.leadTimeDays : null;
         group.orders.push({
@@ -259,7 +368,10 @@ export function groupOrdersByNextHop(
         group.totalValueBRL += order.valueBRL;
         if (order.sinceAt.toISOString() < group.oldestSinceAt) group.oldestSinceAt = order.sinceAt.toISOString();
     }
-    for (const g of groups.values()) {
+    const hubNames = new Map([...index.hubs.values()].map((hub) => [hub.id, hub.name]));
+    const finalHubOf = (item: QueueOrderInput) => resolveFinalHub(index, item.fimIbgeCode)?.hubId ?? null;
+    for (const { group: g, items } of groups.values()) {
+        g.routeBreakdown = breakdownByRoute(items, finalHubOf, routeIndex, hubNames);
         const finals = new Set(g.orders.map((o) => o.finalHubId));
         if (finals.size === 1) {
             const first = g.orders[0];
@@ -270,39 +382,58 @@ export function groupOrdersByNextHop(
     }
     const rank = { TRANSFER: 0, LOCAL: 1, UNROUTED: 2 } as const;
     return [...groups.values()]
-        .map((g) => ({ ...g, orders: g.orders.sort((a, b) => a.sinceAt.localeCompare(b.sinceAt)) }))
+        .map(({ group }) => ({ ...group, orders: group.orders.sort((a, b) => a.sinceAt.localeCompare(b.sinceAt)) }))
         .sort((a, b) => rank[a.kind] - rank[b.kind] || b.totalWeightKg - a.totalWeightKg);
 }
 
 /** Pedidos em estoque neste hub, fora de viagem ativa, agrupados por próximo salto. */
 export async function getConsolidationQueues(hubId: string): Promise<ConsolidationQueueGroup[]> {
-    const [orders, hubs, coverage] = await Promise.all([
-        prisma.order.findMany({
-            where: {
-                currentHubId: hubId,
-                status: 'AT_HUB',
-                legs: { none: { manifest: { status: { in: HUB_CARGO_ACTIVE_MANIFEST_STATUSES } } } },
+    const orders = await prisma.order.findMany({
+        where: {
+            currentHubId: hubId,
+            status: 'AT_HUB',
+            legs: { none: { manifest: { status: { in: HUB_CARGO_ACTIVE_MANIFEST_STATUSES } } } },
+        },
+        select: {
+            id: true,
+            fimIbgeCode: true,
+            enteredAtHubAt: true,
+            createdAt: true,
+            nfNumber: true,
+            freightCalculations: { select: { status: true } },
+            demand: {
+                select: { orderNumber: true, destination: true, weight: true, volume: true, nfValue: true },
             },
-            select: {
-                id: true,
-                fimIbgeCode: true,
-                enteredAtHubAt: true,
-                createdAt: true,
-                nfNumber: true,
-                freightCalculations: { select: { status: true } },
-                demand: {
-                    select: { orderNumber: true, destination: true, weight: true, volume: true, nfValue: true },
-                },
-            },
+        },
+    });
+    if (!orders.length) return [];
+
+    const [hubs, coverage, routes] = await Promise.all([
+        prisma.hub.findMany({
+            select: { id: true, name: true, code: true, cityIbgeCode: true, city: true, state: true, active: true, gatewayHubId: true },
         }),
-        prisma.hub.findMany({ select: { id: true, name: true, code: true, cityIbgeCode: true, active: true, gatewayHubId: true } }),
         prisma.hubCoverage.findMany({
             where: { active: true },
-            select: { hubId: true, cityIbgeCode: true, priority: true, leadTimeDays: true },
+            select: { hubId: true, cityIbgeCode: true, cityName: true, state: true, priority: true, leadTimeDays: true },
+        }),
+        prisma.hubRoute.findMany({
+            where: { active: true },
+            select: { id: true, hubId: true, name: true, stops: { select: { cityIbgeCode: true, sequence: true } } },
         }),
     ]);
 
     const index = buildCoverageIndex(hubs, coverage);
+    const cityLabels = new Map<string, string>();
+    for (const hub of hubs) {
+        if (hub.cityIbgeCode && hub.city && hub.state && resolveFinalHub(index, hub.cityIbgeCode)?.hubId === hub.id) {
+            cityLabels.set(hub.cityIbgeCode, `${hub.city}/${hub.state}`);
+        }
+    }
+    for (const { hubId: coveredBy, cityIbgeCode, cityName, state } of coverage) {
+        if (cityName && state && resolveFinalHub(index, cityIbgeCode)?.hubId === coveredBy) {
+            cityLabels.set(cityIbgeCode, `${cityName}/${state}`);
+        }
+    }
     const inputs: QueueOrderInput[] = orders.map((o) => ({
         id: o.id,
         orderNumber: o.demand?.orderNumber ?? null,
@@ -310,10 +441,11 @@ export async function getConsolidationQueues(hubId: string): Promise<Consolidati
         fimIbgeCode: o.fimIbgeCode ?? null,
         sinceAt: o.enteredAtHubAt ?? o.createdAt,
         destinationLabel: o.demand?.destination ?? null,
+        finalCityLabel: o.fimIbgeCode ? cityLabels.get(o.fimIbgeCode) : undefined,
         weightKg: o.demand?.weight ?? 0,
         volumeM3: o.demand?.volume ?? 0,
         valueBRL: o.demand?.nfValue ?? 0,
         freightDocState: freightDocState(o.freightCalculations),
     }));
-    return groupOrdersByNextHop(inputs, index, hubId);
+    return groupOrdersByNextHop(inputs, index, hubId, buildRouteIndex(routes));
 }
