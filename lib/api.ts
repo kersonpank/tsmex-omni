@@ -1480,6 +1480,32 @@ export const backupApi = {
     },
 };
 
+export interface LegacyArchiveRow {
+    id: string;
+    entity: string;
+    legacyKey: string;
+    data: Record<string, unknown>;
+    revisions: number;
+    sourceFile: string | null;
+    updatedAt: string;
+}
+
+/** Histórico do sistema legado guardado no TSM (tudo que foi exportado de lá). */
+export const legacyArchiveApi = {
+    summary: async () => {
+        const response = await api.get<ApiResponse<Array<{ entity: string; count: number; lastImportAt: string | null }>>>('/legacy-archive/summary');
+        return response.data;
+    },
+    search: async (params: { entity?: string; q?: string; page?: number; pageSize?: number }) => {
+        const response = await api.get<ApiResponse<{ total: number; page: number; pageSize: number; rows: LegacyArchiveRow[] }>>('/legacy-archive', { params });
+        return response.data;
+    },
+    importFile: async (body: { entity: string; content: string; fileName?: string; keyColumn?: string }) => {
+        const response = await api.post<ApiResponse<{ entity: string; keyColumn: string | null; created: number; updated: number; unchanged: number; total: number }>>('/legacy-archive/import', body);
+        return response.data;
+    },
+};
+
 // ========== CONTA (própria sessão) ==========
 
 export const accountSecurityApi = {

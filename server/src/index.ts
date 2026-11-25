@@ -48,6 +48,7 @@ import { requestLogger } from './middleware/requestLogger.js';
 import { auditTrail } from './middleware/auditTrail.js';
 import { auditLogRouter } from './routes/auditLog.js';
 import { externalFiscalRouter } from './routes/externalFiscal.js';
+import { legacyArchiveRouter } from './routes/legacyArchive.js';
 import { createRateLimitRedis } from './lib/redis.js';
 import { fiscalSecretsGuard } from './lib/fiscalSecrets.js';
 import { manifestAverbacaoRouter } from './routes/manifestAverbacao.js';
@@ -152,6 +153,7 @@ app.use('/api/nfe', nfeRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/reports', reportsRouter);
 app.use('/api/audit-log', auditLogRouter);
+app.use('/api/legacy-archive', legacyArchiveRouter);
 
 // Error handler
 app.use(errorHandler);

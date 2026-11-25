@@ -38,6 +38,8 @@ jobs:
       - run: npm run db:generate --prefix server
       - name: Scripts de backup (sintaxe)
         run: bash -n docker/backup/backup.sh && bash -n docker/backup/restore.sh
+      - name: Extrator do legado (guarda e executor)
+        run: node --test tools/legacy-extract/extract.test.mjs
       - run: npm run typecheck:web
       - run: npm run typecheck:server
       - run: npm test

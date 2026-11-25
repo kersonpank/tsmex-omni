@@ -2910,3 +2910,27 @@ model BackupRun {
   @@index([kind, finishedAt])
 }
 
+/// Arquivo do sistema legado: cada linha exportada de lá (CSV/JSON das listagens — pessoas, pedidos,
+/// viagens, CT-e, financeiro, tabelas…) guardada como veio, pesquisável, sem forçar o modelo do TSM.
+/// Garante que nenhum histórico se perde quando a assinatura do legado acabar. Dados vivos (cadastros,
+/// XML fiscal) entram pelos importadores próprios; este arquivo é a memória completa.
+model LegacyRecord {
+  id         String   @id @default(uuid())
+  /// Tipo da listagem de origem, normalizado (ex.: pessoas, pedidos, viagens, ctes, titulos).
+  entity     String
+  /// Identidade da linha no legado (coluna-chave escolhida na importação, ou hash da linha).
+  legacyKey  String
+  data       Json
+  /// Texto da linha em minúsculas sem acento + só dígitos, para busca por nome, documento ou número.
+  searchText String   @db.Text
+  rowHash    String
+  sourceFile String?
+  /// Quantas vezes a linha mudou entre importações (o legado ainda roda na contingência).
+  revisions  Int      @default(0)
+  importedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([entity, legacyKey])
+  @@index([entity])
+}
+

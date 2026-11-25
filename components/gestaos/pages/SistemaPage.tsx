@@ -8,11 +8,13 @@ import { EmitterHealth, NfeHealth } from './sistema/FiscalHealth';
 import { HowItWorks } from './sistema/HowItWorks';
 import { QueueHealth } from './sistema/QueueHealth';
 import { BackupPanel } from './sistema/BackupPanel';
+import { LegacyArchivePanel } from './sistema/LegacyArchivePanel';
 
 const TABS = [
     { id: 'torre', label: 'Como a torre trabalha' },
     { id: 'fiscal', label: 'Fiscal' },
     { id: 'nfe', label: 'NF-e' },
+    { id: 'legado', label: 'Histórico do legado' },
     { id: 'config', label: 'Configurações' },
 ];
 
@@ -48,6 +50,7 @@ const SistemaPage: React.FC = () => {
             ) : null}
             {aba === 'fiscal' ? <FiscalTab /> : null}
             {aba === 'nfe' ? <NfeMonitor /> : null}
+            {aba === 'legado' ? <LegacyArchivePanel /> : null}
             {aba === 'config' ? <ConfigTab /> : null}
         </div>
     );

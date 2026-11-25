@@ -203,5 +203,32 @@ docker exec -it <api> node dist/scripts/importLegacyMasterData.js drivers /dados
 - [ ] Emitente virado para produção (CT-e/MDF-e) e e-Frete/AT&M de produção configurados
 - [ ] Certificado A1 válido (vence em set/2027 — alerta da torre)
 - [ ] Usuários reais criados com senha forte; contas de teste e seed desativadas
-- [ ] Combinado com o dono do legado: acesso e emissão de contingência pelo período da convivência
+- [ ] Extração completa do legado feita e conferida (§9) **antes** de cancelar a assinatura
 - [ ] 2 semanas na rota piloto sem divergência, com contagem diária de documentos por sistema
+
+## 9. Tirar tudo do legado sem depender do fornecedor
+
+Não há API nem export oficial: o histórico sai **pelo nosso próprio acesso**, só lendo.
+
+| O quê | Como sai | Para onde vai no TSM |
+|---|---|---|
+| Pedidos, cotações, financeiro (receitas e despesas) e as demais listagens | `tools/legacy-extract` (lista fechada, só GET, retomável), mês a mês, desde 2016 | **Histórico do legado** (`importLegacyArchive.js`): tudo como veio, pesquisável |
+| XML de CT-e e MDF-e | download em lote do próprio legado (já feito em out/2026) + novos meses | Arquivo fiscal externo (`importExternalFiscal.js`) |
+| Pessoas, veículos, motoristas | listagens → CSV/JSON | Cadastros vivos (`importLegacyMasterData.js`) + histórico |
+| Títulos em aberto | listagem financeira (`recdes=R`, abertos) | Conferência na torre e lançamento um a um |
+
+**Os 6 meses de convivência:**
+1. **Carga inicial completa** (todos os anos), conferida: contagens do `manifest.jsonl` × totais das
+   listagens.
+2. **Rodada semanal** do extrator nos últimos 60 dias, idempotente. Pega o que o legado ainda tiver
+   recebido (contingência, ajustes, baixas) e atualiza o histórico, contando revisões.
+3. **Retaguarda:** o legado continua assinado e é usado só em contingência, na série dele, a partir do
+   pacote de contingência (§7). Não é alimentado com a operação do dia a dia: numa queda, o pedido
+   nasce lá da NF-e, como sempre nasceu, e os cadastros históricos já estão lá.
+4. **Antes de cancelar:** última rodada completa, XMLs do último mês importados e conferência final.
+   Depois disso, o histórico vive só no TSM, coberto pelo backup.
+
+**Credencial do legado:** nos fluxos do n8n o login está com usuário e senha escritos dentro dos nós.
+Mover para a credencial "Acesso login lonngren" do n8n e trocar a senha. No extrator, a senha só entra
+por variável de ambiente.
+

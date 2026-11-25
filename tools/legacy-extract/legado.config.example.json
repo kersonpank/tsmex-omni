@@ -1,0 +1,38 @@
+{
+  "baseUrl": "https://URL-DO-SISTEMA-LEGADO",
+  "outDir": "../../research/legado/extract",
+  "delayMs": 1500,
+  "expiredPattern": "\"nome\"\\s*:\\s*\"[^\"]*expirou",
+  "login": {
+    "page": "/CAMINHO-DA-TELA-DE-LOGIN/",
+    "tokenRegex": "TOKEN_DO_FORMULARIO='([^']*)",
+    "path": "/CAMINHO-DO-POST-DE-LOGIN",
+    "tokenField": "token",
+    "userField": "usuario",
+    "passwordField": "senha",
+    "okField": "erro",
+    "okValue": "0"
+  },
+  "jobs": [
+    {
+      "name": "pedidos",
+      "path": "/CAMINHO/json/lista_pedidos",
+      "format": "json",
+      "listPath": "",
+      "query": {
+        "data1": "{inicio}",
+        "data2": "{fim}",
+        "nroLinhas": "500"
+      },
+      "split": {
+        "type": "months",
+        "from": "2016-01",
+        "to": "2026-11"
+      },
+      "paginate": {
+        "param": "paginaAtual",
+        "start": 1
+      }
+    }
+  ]
+}

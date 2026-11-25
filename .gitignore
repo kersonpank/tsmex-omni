@@ -36,3 +36,7 @@ __pycache__/
 
 # Git worktrees (superpowers)
 .worktrees/
+
+# Extrator do sistema legado: configuração com os endereços reais, sessão e dados baixados (dado pessoal)
+tools/legacy-extract/legado.config.json
+research/
