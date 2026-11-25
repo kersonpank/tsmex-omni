@@ -385,6 +385,9 @@ model HubCoverage {
   active         Boolean       @default(true)
   pricingTableId String?
   pricingTable   PricingTable? @relation(fields: [pricingTableId], references: [id], onDelete: SetNull)
+  tdeValue       Decimal?
+  tdeUnit        CoverageFeeUnit @default(PERCENT_FREIGHT)
+  tdeFixed       Decimal?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -392,6 +395,13 @@ model HubCoverage {
   @@unique([hubId, cityIbgeCode])
   @@index([cityIbgeCode, active])
   @@index([pricingTableId])
+}
+
+enum CoverageFeeUnit {
+  PERCENT_FREIGHT
+  PERCENT_FREIGHT_BASE
+  PERCENT_NF
+  RS_KG
 }
 
 model HubRoute {

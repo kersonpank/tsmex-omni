@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, describe, it } from 'node:test';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import { JWT_ALGORITHM } from '../lib/jwtConfig.js';
@@ -47,7 +47,12 @@ describe('hubs — tabelas de preço da cobertura', () => {
             assert.deepEqual(include?.pricingTable, { select: { id: true, description: true } });
             return saved.map((entry) => {
                 const table = tables.find(({ id }) => id === entry.pricingTableId);
-                return { ...entry, pricingTable: table ? { id: table.id, description: table.description } : null };
+                return {
+                    ...entry,
+                    tdeValue: entry.tdeValue == null ? null : new Prisma.Decimal(Number(entry.tdeValue)),
+                    tdeFixed: entry.tdeFixed == null ? null : new Prisma.Decimal(Number(entry.tdeFixed)),
+                    pricingTable: table ? { id: table.id, description: table.description } : null,
+                };
             });
         }) as never;
         const tx = {
@@ -91,7 +96,13 @@ describe('hubs — tabelas de preço da cobertura', () => {
         await new Promise<void>((resolve) => server?.close(() => resolve()));
     });
 
-    function putCoverage(entries: { cityIbgeCode: string; pricingTableId?: string | null }[]) {
+    function putCoverage(entries: {
+        cityIbgeCode: string;
+        pricingTableId?: string | null;
+        tdeValue?: number | null;
+        tdeUnit?: string;
+        tdeFixed?: number | null;
+    }[]) {
         return fetch(endpoint, {
             method: 'PUT',
             headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
@@ -127,4 +138,55 @@ describe('hubs — tabelas de preço da cobertura', () => {
         assert.equal(current.status, 200);
         assert.deepEqual(await current.json(), updated);
     });
+
+    it('salva e retorna TDE percentual por padrão, TDE por kg e a remoção da taxa', async () => {
+        const response = await putCoverage([
+            { cityIbgeCode: cities[0].ibgeCode, tdeValue: 100, tdeFixed: 15.25 },
+            { cityIbgeCode: cities[1].ibgeCode, tdeValue: 1000, tdeUnit: 'RS_KG', tdeFixed: 0 },
+        ]);
+
+        assert.equal(response.status, 200);
+        const updated = await response.json() as { data: { tdeValue: number | null; tdeUnit: string; tdeFixed: number | null }[] };
+        assert.deepEqual(saved.map(({ tdeValue, tdeUnit, tdeFixed }) => ({ tdeValue, tdeUnit, tdeFixed })), [
+            { tdeValue: 100, tdeUnit: 'PERCENT_FREIGHT', tdeFixed: 15.25 },
+            { tdeValue: 1000, tdeUnit: 'RS_KG', tdeFixed: 0 },
+        ]);
+        const returnedFees = updated.data.map(({ tdeValue, tdeUnit, tdeFixed }) => ({ tdeValue, tdeUnit, tdeFixed }));
+        assert.deepEqual(returnedFees, [
+            { tdeValue: 100, tdeUnit: 'PERCENT_FREIGHT', tdeFixed: 15.25 },
+            { tdeValue: 1000, tdeUnit: 'RS_KG', tdeFixed: 0 },
+        ]);
+        const current = await fetch(endpoint, { headers: { authorization: `Bearer ${token}` } });
+        assert.equal(current.status, 200);
+        assert.deepEqual(await current.json(), updated);
+
+        const cleared = await putCoverage([
+            { cityIbgeCode: cities[0].ibgeCode, tdeValue: null, tdeFixed: null },
+            { cityIbgeCode: cities[1].ibgeCode },
+        ]);
+        assert.equal(cleared.status, 200);
+        assert.deepEqual(saved.map(({ tdeValue, tdeUnit, tdeFixed }) => ({ tdeValue, tdeUnit, tdeFixed })), [
+            { tdeValue: null, tdeUnit: 'PERCENT_FREIGHT', tdeFixed: null },
+            { tdeValue: null, tdeUnit: 'PERCENT_FREIGHT', tdeFixed: null },
+        ]);
+    });
+
+    const invalidFees = [
+        ['percentual negativo', { tdeValue: -0.01 }],
+        ['percentual padrão acima de 100', { tdeValue: 100.01 }],
+        ['percentual sobre frete peso acima de 100', { tdeValue: 100.01, tdeUnit: 'PERCENT_FREIGHT_BASE' }],
+        ['percentual sobre NF acima de 100', { tdeValue: 100.01, tdeUnit: 'PERCENT_NF' }],
+        ['valor por kg acima de R$ 1.000', { tdeValue: 1000.01, tdeUnit: 'RS_KG' }],
+        ['valor fixo negativo', { tdeFixed: -0.01 }],
+        ['valor fixo fora do intervalo da coluna', { tdeFixed: 1e35 }],
+        ['unidade desconhecida', { tdeValue: 10, tdeUnit: 'UNKNOWN' }],
+    ] as const;
+    for (const [kind, fee] of invalidFees) {
+        it(`rejeita TDE com ${kind} sem apagar a cobertura`, async () => {
+            const response = await putCoverage([{ cityIbgeCode: cities[0].ibgeCode, ...fee }]);
+
+            assert.equal(response.status, 400);
+            assert.equal(deleteCount, 0);
+        });
+    }
 });

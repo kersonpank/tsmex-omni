@@ -1146,6 +1146,16 @@ export interface FreightBreakdownValues {
     dispatch: number;
     others: number;
     icms: number;
+    cityFee?: number;
+    cityFeeDetails?: FreightCityFeeDetail[];
+}
+
+export interface FreightCityFeeDetail {
+    role: 'destino' | 'origem';
+    cityIbgeCode: string;
+    cityName: string;
+    state: string;
+    amount: number;
 }
 
 export interface FreightDocumentSummary {
@@ -1198,6 +1208,7 @@ export interface FreightTableOption {
     routeId: string | null;
     routeLabel: string | null;
     total: number;
+    preview?: NonNullable<FreightSuggestion['preview']> & { cubedWeight: number };
 }
 
 export interface FreightSuggestion {
@@ -1267,11 +1278,27 @@ export interface ConsolidationQueueGroup {
     finalHubName?: string | null;
     leadTimeDays?: number | null;
     orders: ConsolidationQueueOrder[];
+    /** Grupos montados localmente podem omitir a quebra calculada pelo servidor. */
+    routeBreakdown?: Array<{
+        key: string;
+        finalHubId: string;
+        finalHubName: string;
+        routeId: string | null;
+        routeName: string | null;
+        ambiguous: boolean;
+        orderIds: string[];
+        orderCount: number;
+        weightKg: number;
+        volumeM3: number;
+        cities: string[];
+    }>;
     totalWeightKg: number;
     totalVolumeM3: number;
     totalValueBRL: number;
     oldestSinceAt: string;
 }
+
+export type CoverageFeeUnit = 'PERCENT_FREIGHT' | 'PERCENT_FREIGHT_BASE' | 'PERCENT_NF' | 'RS_KG';
 
 export interface HubCoverageEntry {
     id: string;
@@ -1284,6 +1311,9 @@ export interface HubCoverageEntry {
     active: boolean;
     pricingTableId?: string | null;
     pricingTableName?: string | null;
+    tdeValue?: number | null;
+    tdeUnit?: CoverageFeeUnit;
+    tdeFixed?: number | null;
 }
 
 // Fila de exceções do hub (TSM O.S. — GET /api/hub/exceptions)

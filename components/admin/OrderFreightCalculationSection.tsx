@@ -10,25 +10,12 @@ import type {
   Client,
   FiscalEmitter,
   CtePreflightResult,
+  FreightSuggestion,
 } from '../../types/index';
 import { CTE_CFOP_SELECT_OPTIONS, CTE_CST_SELECT_OPTIONS, cfopOptionSelectText } from '../../lib/cteTaxCatalog';
+import { FREIGHT_CITY_FEE_LABEL } from '../os/lib/freight';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function computeIcms(subtotal: number, table: PricingTable): { icms: number; total: number } | null {
-  if (table.icmsIncluded) return { icms: 0, total: subtotal };
-
-  const value = table.icmsPercent ?? 0;
-  if (table.icmsUnit === 'DIVISOR') {
-    if (!(value > 0 && value < 1)) return null;
-    const total = subtotal / value;
-    const icms = total - subtotal;
-    return Number.isFinite(icms) ? { icms, total } : null;
-  }
-
-  const icms = table.icmsUnit === 'FIXED' ? value : subtotal * (value / 100);
-  return { icms, total: subtotal + icms };
-}
 
 function looksLikeUuid(value: string): boolean {
   return UUID_RE.test(value.trim());
@@ -52,6 +39,7 @@ const BREAKDOWN_LABELS: Record<string, string> = {
   others: 'Outros',
   icms: 'ICMS',
 };
+const CALCULATED_BREAKDOWN_LABELS = { ...BREAKDOWN_LABELS, cityFee: FREIGHT_CITY_FEE_LABEL } as Record<string, string>;
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Rascunho',
@@ -237,7 +225,6 @@ export const OrderFreightCalculationSection: React.FC<OrderFreightCalculationSec
             orderId={orderId}
             calc={calc}
             order={order}
-            params={params}
             availableHubs={availableHubs}
             fiscalDocSuggestion={fiscalSuggestion}
             onEdit={() => setEditingId(calc.id)}
@@ -256,7 +243,6 @@ export const OrderFreightCalculationSection: React.FC<OrderFreightCalculationSec
         <OrderFreightForm
           orderId={orderId}
           order={order}
-          params={params}
           availableHubs={availableHubs}
           fiscalDocSuggestion={fiscalSuggestion}
           onSaved={handleCreated}
@@ -340,7 +326,6 @@ interface OrderFreightCardProps {
   orderId: string;
   calc: OrderFreightCalculation;
   order: OrderFreightCalculationSectionProps['order'];
-  params: { volumes: number; weight: number; cubage?: number; nfValue: number };
   availableHubs: Hub[];
   fiscalDocSuggestion: FiscalDocSuggestionPayload | null;
   onEdit: () => void;
@@ -357,7 +342,6 @@ function OrderFreightCard({
   orderId,
   calc,
   order,
-  params,
   availableHubs,
   fiscalDocSuggestion,
   onEdit,
@@ -570,7 +554,6 @@ function OrderFreightCard({
         orderId={orderId}
         calc={calc}
         order={order}
-        params={params}
         availableHubs={availableHubs}
         fiscalDocSuggestion={fiscalDocSuggestion}
         onSaved={() => { onSaved(); onCloseEdit(); }}
@@ -734,7 +717,7 @@ function OrderFreightCard({
         <div className="mt-2 flex items-center gap-4 flex-wrap">
           <span className="text-lg font-bold text-brand-600 dark:text-brand-400">R$ {calc.freightTotal.toFixed(2)}</span>
           {calc.breakdown && Object.entries(calc.breakdown).map(([k, v]) => (
-            v > 0 && <span key={k} className="text-xs text-tower-500 dark:text-tower-400">{BREAKDOWN_LABELS[k] ?? k}: R$ {Number(v).toFixed(2)}</span>
+            typeof v === 'number' && v > 0 && <span key={k} className="text-xs text-tower-500 dark:text-tower-400">{CALCULATED_BREAKDOWN_LABELS[k] ?? k}: R$ {v.toFixed(2)}</span>
           ))}
         </div>
       )}
@@ -925,7 +908,6 @@ interface OrderFreightFormProps {
   orderId: string;
   calc?: OrderFreightCalculation;
   order: OrderFreightCalculationSectionProps['order'];
-  params: { volumes: number; weight: number; cubage?: number; nfValue: number };
   availableHubs: Hub[];
   fiscalDocSuggestion: FiscalDocSuggestionPayload | null;
   onSaved: () => void;
@@ -938,7 +920,6 @@ function OrderFreightForm({
   orderId,
   calc,
   order,
-  params,
   availableHubs,
   fiscalDocSuggestion,
   onSaved,
@@ -953,7 +934,8 @@ function OrderFreightForm({
   const [payerClientId, setPayerClientId] = useState<string | null>(null);
   const [generalTables, setGeneralTables] = useState<PricingTable[]>([]);
   const [fiscalEmitters, setFiscalEmitters] = useState<FiscalEmitter[]>([]);
-  const [preview, setPreview] = useState<{ total: number; breakdown: Record<string, number>; tableName?: string } | null>(null);
+  const [preview, setPreview] = useState<NonNullable<FreightSuggestion['preview']> | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   /** Quando true, não forçamos CT-e/DC-e a partir da sugestão fiscal (usuário pediu só minuta). */
   const docFiscalOptedOutRef = useRef(calc?.documentType === 'MINUTA');
 
@@ -972,7 +954,9 @@ function OrderFreightForm({
     cst: calc?.cst ?? '',
     observacoes: calc?.observacoes ?? '',
     freightTotal: calc?.freightTotal ?? 0,
-    breakdown: (calc?.breakdown ?? { freightBase: 0, adValorem: 0, gris: 0, toll: 0, dispatch: 0, others: 0, icms: 0 }) as Record<string, number>,
+    breakdown: Object.fromEntries(
+      Object.keys(BREAKDOWN_LABELS).map((key) => [key, calc?.breakdown?.cityFee ? 0 : calc?.breakdown?.[key] ?? 0]),
+    ),
   });
 
   useEffect(() => {
@@ -1055,13 +1039,14 @@ function OrderFreightForm({
 
   // Carrega tabelas GENERAL da rota selecionada (TARIFA_GERAL)
   useEffect(() => {
+    setGeneralTables([]);
     if (form.calculationMethod !== 'TARIFA_GERAL' || !form.routeId) {
-      setGeneralTables([]);
-      setPreview(null);
       return;
     }
+    let active = true;
     pricingApi.listTables({ routeId: form.routeId, type: 'GENERAL', active: true, coverageOnly: false })
       .then((r: any) => {
+        if (!active) return;
         const tables = (r?.data ?? r) ?? [];
         const list = Array.isArray(tables) ? tables : [];
         setGeneralTables(list);
@@ -1069,69 +1054,25 @@ function OrderFreightForm({
           setForm((f) => ({ ...f, pricingTableId: list[0].id }));
         }
       })
-      .catch(() => setGeneralTables([]));
+      .catch(() => { if (active) setGeneralTables([]); });
+    return () => { active = false; };
   }, [form.routeId, form.calculationMethod]);
 
-  // Calcula prévia client-side ao selecionar/trocar tabela no modo TARIFA_GERAL
+  const routeTables = generalTables.filter((table) => table.routeId === form.routeId);
+  const previewTable = form.pricingTableId
+    ? routeTables.find((table) => table.id === form.pricingTableId)
+    : routeTables.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))[0];
+  const previewTableId = form.calculationMethod === 'TARIFA_GERAL' ? previewTable?.id : undefined;
   useEffect(() => {
-    if (form.calculationMethod !== 'TARIFA_GERAL' || !form.routeId) {
-      setPreview(null);
-      return;
-    }
-    if (generalTables.length === 0) return;
-
-    // Tabela a usar: selecionada pelo usuário ou a de maior prioridade
-    const table = (form.pricingTableId
-      ? generalTables.find((t) => t.id === form.pricingTableId)
-      : generalTables.slice().sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))[0]) ?? null;
-
-    if (!table) { setPreview(null); return; }
-
-    const cubeFactor = table.cubeFactor ?? 300;
-    const cubage = params.cubage ?? (params.weight / 300);
-    const cubedWeight = cubage * cubeFactor;
-    const effectiveWeight = table.cubeEnabled ? Math.max(params.weight, cubedWeight) : params.weight;
-    const volUnits = params.volumes > 0 ? params.volumes : 1;
-
-    let baseFreight = 0;
-    switch (table.freightUnit) {
-      case 'RS_KG':   baseFreight = effectiveWeight * (table.freightValue ?? 0); break;
-      case 'RS_M3':   baseFreight = cubage * (table.freightValue ?? 0); break;
-      case 'RS_UNIT': baseFreight = volUnits * (table.freightValue ?? 0); break;
-      case 'PERCENT': baseFreight = params.nfValue * (table.freightValue ?? 0) / 100; break;
-    }
-
-    const ranges = table.minFreightRanges ?? [];
-    if (ranges.length > 0) {
-      const range = ranges.find(
-        (r) => effectiveWeight >= r.minWeight && (r.maxWeight == null || effectiveWeight <= r.maxWeight)
-      );
-      if (range && range.value > baseFreight) baseFreight = range.value;
-    } else if ((table.minFreightValue ?? 0) > baseFreight) {
-      baseFreight = table.minFreightValue ?? 0;
-    }
-
-    const adValorem = (table.adValoremPercent ?? 0) * (params.nfValue / 1000);
-    const gris      = (table.grisPercent ?? 0) * (params.nfValue / 1000);
-    const toll      = table.tollUnit === 'RS_KG'
-      ? effectiveWeight * (table.tollValue ?? 0)
-      : table.tollUnit === 'FIXED' ? (table.tollValue ?? 0) : 0;
-    const dispatch  = table.dispatchFee ?? 0;
-    const others    = table.otherFees ?? 0;
-    const subtotal  = baseFreight + adValorem + gris + toll + dispatch + others;
-    const withIcms  = computeIcms(subtotal, table);
-    if (!withIcms) {
-      setPreview(null);
-      return;
-    }
-    const { icms, total } = withIcms;
-
-    setPreview({
-      total,
-      breakdown: { freightBase: baseFreight, adValorem, gris, toll, dispatch, others, icms },
-      tableName: table.description,
-    });
-  }, [form.routeId, form.calculationMethod, form.pricingTableId, generalTables, params.weight, params.nfValue, params.cubage, params.volumes]);
+    setPreview(null);
+    setPreviewError(null);
+    if (!previewTableId) return;
+    const request = new AbortController();
+    ordersFreightApi.tablePreview(orderId, previewTableId, request.signal)
+      .then((response) => { if (!request.signal.aborted) setPreview(response.data ?? null); })
+      .catch((error) => { if (!request.signal.aborted) setPreviewError(formatApiError(error)); });
+    return () => request.abort();
+  }, [orderId, previewTableId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1462,16 +1403,17 @@ function OrderFreightForm({
               </p>
             )}
 
+            {previewError && <p role="status" className="text-amber-600 dark:text-amber-400 text-xs">{previewError}</p>}
             {preview && (
               <div className="bg-brand-50 dark:bg-brand-900/30 border border-brand-200 dark:border-brand-700 rounded-lg p-3">
                 <h5 className="text-xs font-semibold text-brand-700 dark:text-brand-300 mb-2">
-                  {`Prévia${preview.tableName ? ` · ${preview.tableName}` : ''}`}
+                  Prévia · {previewTable?.description}
                 </h5>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
                   {Object.entries(preview.breakdown).map(([k, v]) =>
-                    Number(v) > 0 ? (
+                    typeof v === 'number' && v > 0 ? (
                       <span key={k} className="text-tower-600 dark:text-tower-300">
-                        {BREAKDOWN_LABELS[k] ?? k}: <strong>R$ {Number(v).toFixed(2)}</strong>
+                        {CALCULATED_BREAKDOWN_LABELS[k] ?? k}: <strong>R$ {v.toFixed(2)}</strong>
                       </span>
                     ) : null
                   )}
@@ -1479,6 +1421,9 @@ function OrderFreightForm({
                     Total: R$ {preview.total.toFixed(2)}
                   </span>
                 </div>
+                {preview.breakdown.cityFeeDetails?.map(({ role, cityName, state, amount }) => (
+                  <p key={role} className="text-xs text-tower-600 dark:text-tower-300">{cityName}/{state} ({role}) · R$ {amount.toFixed(2)}</p>
+                ))}
               </div>
             )}
           </div>

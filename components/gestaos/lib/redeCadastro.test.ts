@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { Hub } from '../../../types/index';
 import {
-    buildHubPayload, coveragePayload, EMPTY_HUB_FORM, EMPTY_PERSON_FORM, emitterRemovalBlocked, hubInviteUrl, matchesClient, matchesHub, paginate,
-    permissionsLabel, personErrors, personListParams, validateCoverage,
+    buildHubPayload, coveragePayload, EMPTY_COVERAGE_CITY_FEE, EMPTY_HUB_FORM, EMPTY_PERSON_FORM, emitterRemovalBlocked, hubInviteUrl, matchesClient, matchesHub, paginate,
+    permissionsLabel, personErrors, personListParams, validateCoverage, type CoverageRow,
 } from './redeCadastro';
 
 const hub = { id: 'h1', name: 'Guarulhos', code: 'SP-GRU', city: 'Guarulhos', state: 'SP', active: true, personId: 'p1', coverageCities: [], canOrchestrate: false } as Hub;
+const coverageRow: CoverageRow = { cityIbgeCode: '2105302', cityName: 'Imperatriz', state: 'MA', leadTimeDays: 2, priority: 100, active: true, pricingTableId: null, ...EMPTY_COVERAGE_CITY_FEE };
 
 describe('redeCadastro', () => {
     it('payload do hub: vazio não vira null onde o servidor recusa', () => {
@@ -34,13 +35,35 @@ describe('redeCadastro', () => {
     });
 
     it('cobertura: repetida, prioridade e prazo fora da faixa', () => {
-        const row = { cityIbgeCode: '2105302', cityName: 'Imperatriz', state: 'MA', leadTimeDays: 2, priority: 100, active: true, pricingTableId: null };
+        const row = coverageRow;
         expect(validateCoverage([row])).toBeNull();
         expect(validateCoverage([row, row])).toMatch(/repetida/);
         expect(validateCoverage([{ ...row, priority: 0 }])).toMatch(/Prioridade/);
         expect(validateCoverage([{ ...row, leadTimeDays: 61 }])).toMatch(/Prazo/);
-        expect(coveragePayload([{ ...row, leadTimeDays: null, active: false }])).toEqual([{ cityIbgeCode: '2105302', priority: 100, active: false, pricingTableId: null }]);
-        expect(coveragePayload([{ ...row, pricingTableId: 'tbl-123' }])).toEqual([{ cityIbgeCode: '2105302', priority: 100, active: true, leadTimeDays: 2, pricingTableId: 'tbl-123' }]);
+        expect(coveragePayload([{ ...row, leadTimeDays: null, active: false }])).toEqual([{ cityIbgeCode: '2105302', priority: 100, active: false, pricingTableId: null, ...EMPTY_COVERAGE_CITY_FEE }]);
+        expect(coveragePayload([{ ...row, pricingTableId: 'tbl-123' }])).toEqual([{ cityIbgeCode: '2105302', priority: 100, active: true, leadTimeDays: 2, pricingTableId: 'tbl-123', ...EMPTY_COVERAGE_CITY_FEE }]);
+    });
+
+    it('mantém a unidade e as partes da TDE no payload, inclusive zero e limpeza', () => {
+        expect(coveragePayload([{ ...coverageRow, tdeUnit: 'PERCENT_FREIGHT_BASE', tdeValue: 2.5, tdeFixed: 15 }])[0]).toMatchObject({
+            tdeUnit: 'PERCENT_FREIGHT_BASE', tdeValue: 2.5, tdeFixed: 15,
+        });
+        expect(coveragePayload([{ ...coverageRow, tdeUnit: 'RS_KG', tdeValue: 0, tdeFixed: null }])[0]).toMatchObject({
+            tdeUnit: 'RS_KG', tdeValue: 0, tdeFixed: null,
+        });
+    });
+
+    it('valida valores finitos e aplica o limite da unidade da TDE', () => {
+        for (const tdeUnit of ['PERCENT_FREIGHT', 'PERCENT_FREIGHT_BASE', 'PERCENT_NF'] as const) {
+            expect(validateCoverage([{ ...coverageRow, tdeUnit, tdeValue: 100, tdeFixed: 15.25 }])).toBeNull();
+            expect(validateCoverage([{ ...coverageRow, tdeUnit, tdeValue: 100.01 }])).toMatch(/100%/);
+        }
+        expect(validateCoverage([{ ...coverageRow, tdeUnit: 'RS_KG', tdeValue: 1000 }])).toBeNull();
+        expect(validateCoverage([{ ...coverageRow, tdeUnit: 'RS_KG', tdeValue: 1000.01 }])).toMatch(/R\$ 1\.000 por kg/);
+        expect(validateCoverage([{ ...coverageRow, tdeValue: -0.01 }])).toMatch(/TDE de Imperatriz\/MA/);
+        expect(validateCoverage([{ ...coverageRow, tdeValue: NaN }])).toMatch(/TDE de Imperatriz\/MA/);
+        expect(validateCoverage([{ ...coverageRow, tdeFixed: -1 }])).toMatch(/fixo/);
+        expect(validateCoverage([{ ...coverageRow, tdeFixed: Infinity }])).toMatch(/fixo/);
     });
 
     it('pessoa: documento, cidade confirmada, IE de emissor e RNTRC', () => {

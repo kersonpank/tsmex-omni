@@ -10,6 +10,7 @@ import { ConfirmButton, FormSection } from '../../../ui/form';
 import { Button, Field, Kv, Loadable, Pill, Progress, Skeleton, TextInput } from '../../../ui/kit';
 import { useAction } from '../../../ui/overlay';
 import { Blocked } from './Blocked';
+import { RouteBreakdown, type RouteBreakdownItem } from './RouteBreakdown';
 import { refreshTrip, type StepProps } from './types';
 
 const volume = (value: number | null | undefined) => (value != null ? `${Number(value).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} m³` : '—');
@@ -59,6 +60,18 @@ export const CargoStep: React.FC<StepProps> = ({ trip, perms }) => {
             resolving.current = false;
             setLooking(false);
         }
+    };
+
+    /** Inclui na viagem aberta os pedidos de uma rota do grupo (pula os que já estão nela), um a um, como o "Incluir" por pedido. */
+    const includeRoute = async (item: RouteBreakdownItem) => {
+        const pending = item.orderIds.filter((id) => !inTrip.has(id));
+        if (!pending.length) return true;
+        const label = pending.length === 1 ? 'Pedido incluído na viagem.' : `${pending.length} pedidos incluídos na viagem.`;
+        const ok = await run(`route:${item.key}`, async () => {
+            for (const orderId of pending) await manifestsApi.addDemand(trip.id, { orderId });
+        }, { success: label, error: 'Não foi possível incluir todos os pedidos da rota.' });
+        refreshTrip();
+        return ok;
     };
 
     const remove = async (demandId: string) => {
@@ -163,6 +176,16 @@ export const CargoStep: React.FC<StepProps> = ({ trip, perms }) => {
                                                     <p className="gx-muted text-[12.5px]">
                                                         {orders.length} {orders.length === 1 ? 'pedido' : 'pedidos'} · {kg(group.totalWeightKg)}
                                                     </p>
+                                                    <RouteBreakdown
+                                                        items={group.routeBreakdown}
+                                                        inTrip={inTrip}
+                                                        disabled={busy !== null}
+                                                        busyKey={busy?.startsWith('route:') ? busy.slice(6) : null}
+                                                        actionLabel="Incluir esta rota na viagem"
+                                                        confirmLabel="Incluir"
+                                                        confirmText={(count, name) => `Incluir ${count === 1 ? 'o pedido' : `os ${count} pedidos`} da ${name} nesta viagem?`}
+                                                        onAction={includeRoute}
+                                                    />
                                                     <ul className="mt-2 flex flex-col">
                                                         {orders.map((order) => (
                                                             <li key={order.orderId} className="gx-hair-b flex flex-wrap items-center justify-between gap-2 py-2 last:border-b-0">

@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { hubCoverageApi, locationsApi, pricingApi, type GeoCity } from '../../../../../lib/api';
 import type { Hub, HubCoverageEntry, PricingTable } from '../../../../../types/index';
@@ -67,6 +67,7 @@ const COVERAGE: HubCoverageEntry = {
     id: 'coverage-1', hubId: HUB.id, cityIbgeCode: COVERED.ibgeCode, cityName: COVERED.name, state: COVERED.state,
     leadTimeDays: 2, priority: 10, active: false, pricingTableId: null,
 };
+const NO_FEE = { tdeValue: null, tdeUnit: 'PERCENT_FREIGHT', tdeFixed: null } as const;
 const TABLES: PricingTable[] = [
     { id: 'tbl-geral', description: 'Geral Padrão', type: 'GENERAL', active: true, coverageOnly: false } as PricingTable,
     { id: 'tbl-cobertura', description: 'Geral Só Cobertura', type: 'GENERAL', active: true, coverageOnly: true } as PricingTable,
@@ -204,8 +205,8 @@ describe('HubCoverage', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Salvar cobertura (2 cidades)' }));
         await waitFor(() => expect(replace).toHaveBeenCalledWith(HUB.id, [
-            { cityIbgeCode: COVERED.ibgeCode, leadTimeDays: 2, priority: 10, active: false, pricingTableId: null },
-            { cityIbgeCode: NEIGHBOR.ibgeCode, priority: 100, active: true, pricingTableId: null },
+            { cityIbgeCode: COVERED.ibgeCode, leadTimeDays: 2, priority: 10, active: false, pricingTableId: null, ...NO_FEE },
+            { cityIbgeCode: NEIGHBOR.ibgeCode, priority: 100, active: true, pricingTableId: null, ...NO_FEE },
         ]));
         act(() => mapProps().onClearTeia());
         expect(mapProps().polygon).toEqual([]);
@@ -223,6 +224,85 @@ describe('HubCoverage', () => {
         expect(screen.getByRole('button', { name: /Salvar cobertura/ })).toBeEnabled();
     });
 
+    it('edita a TDE de uma cidade no rascunho e envia as duas parcelas ao salvar', async () => {
+        mountCoverage();
+        const toggle = await screen.findByRole('button', { name: `TDE de ${COVERED.name}` });
+        const save = screen.getByRole('button', { name: 'Salvar cobertura (1 cidade)' });
+        const fee = { tdeUnit: 'PERCENT_FREIGHT' as const, tdeValue: 2.5, tdeFixed: 1234.56 };
+        expect(save).toBeDisabled();
+        expect(screen.getByText('Sem taxa')).toBeInTheDocument();
+
+        fireEvent.click(toggle);
+        const group = within(screen.getByRole('group', { name: `Taxa da cidade (TDE) · ${COVERED.name}/${COVERED.state}` }));
+        expect(group.getByLabelText('Tipo')).toHaveValue('PERCENT_FREIGHT');
+        fireEvent.change(group.getByLabelText(/^Valor/), { target: { value: '2,5' } });
+        fireEvent.change(group.getByLabelText('R$ fixo'), { target: { value: '1.234,56' } });
+
+        expect(screen.getByText('2,5% frete + R$ 1.234,56')).toBeInTheDocument();
+        expect(save).toBeEnabled();
+        expect(replace).not.toHaveBeenCalled();
+        list.mockResolvedValue({ success: true, data: [{ ...COVERAGE, ...fee }] });
+        fireEvent.click(save);
+        await waitFor(() => expect(replace).toHaveBeenCalledWith(HUB.id, [expect.objectContaining({ cityIbgeCode: COVERED.ibgeCode, ...fee })]));
+        await waitFor(() => {
+            expect(list).toHaveBeenCalledTimes(2);
+            expect(save).not.toHaveAttribute('aria-busy');
+            expect(save).toBeDisabled();
+        });
+    });
+
+    it('lê a TDE cadastrada, restaura o rascunho descartado e salva a limpeza da taxa', async () => {
+        list.mockResolvedValue({ success: true, data: [{ ...COVERAGE, tdeUnit: 'RS_KG', tdeValue: 0.8, tdeFixed: 10 }] });
+        mountCoverage();
+        expect(await screen.findByText('R$ 0,8/kg + R$ 10')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: `TDE de ${COVERED.name}` }));
+        expect(screen.getByLabelText('Tipo')).toHaveValue('RS_KG');
+
+        fireEvent.change(screen.getByLabelText(/^Valor/), { target: { value: '1000,01' } });
+        expect(screen.getByText(/R\$ 1\.000 por kg/)).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Salvar cobertura (1 cidade)' }));
+        expect(replace).not.toHaveBeenCalled();
+        fireEvent.click(screen.getByRole('button', { name: 'Descartar mudanças' }));
+        expect(screen.getByLabelText(/^Valor/)).toHaveValue('0,8');
+
+        fireEvent.change(screen.getByLabelText('R$ fixo'), { target: { value: '1.23,45' } });
+        expect(screen.getByLabelText('R$ fixo')).toHaveAttribute('aria-invalid', 'true');
+        fireEvent.click(screen.getByRole('button', { name: 'Salvar cobertura (1 cidade)' }));
+        expect(replace).not.toHaveBeenCalled();
+
+        fireEvent.change(screen.getByLabelText(/^Valor/), { target: { value: '' } });
+        fireEvent.change(screen.getByLabelText('R$ fixo'), { target: { value: '' } });
+        expect(screen.getByText('Sem taxa')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Salvar cobertura (1 cidade)' }));
+        await waitFor(() => expect(replace).toHaveBeenCalledWith(HUB.id, [
+            expect.objectContaining({ cityIbgeCode: COVERED.ibgeCode, tdeUnit: 'RS_KG', tdeValue: null, tdeFixed: null }),
+        ]));
+    });
+
+    it('aplica a TDE em lote só às cidades atendidas e aguarda o salvamento', async () => {
+        list.mockResolvedValue({ success: true, data: [
+            { ...COVERAGE, ...NO_FEE, tdeFixed: 5 },
+            { ...COVERAGE, id: 'coverage-2', cityIbgeCode: NEIGHBOR.ibgeCode, cityName: NEIGHBOR.name, active: true },
+        ] });
+        mountCoverage();
+        fireEvent.change(await screen.findByRole('combobox', { name: 'Cidades para aplicação em lote' }), { target: { value: 'served' } });
+        fireEvent.click(screen.getByRole('button', { name: 'TDE em lote' }));
+        const group = within(screen.getByRole('group', { name: 'Taxa da cidade (TDE) em lote' }));
+        fireEvent.change(group.getByLabelText('Tipo'), { target: { value: 'PERCENT_NF' } });
+        fireEvent.change(group.getByLabelText(/^Valor/), { target: { value: '2' } });
+        fireEvent.change(group.getByLabelText('R$ fixo'), { target: { value: '15' } });
+        fireEvent.click(group.getByRole('button', { name: 'Aplicar TDE' }));
+
+        expect(screen.getByText('2% NF + R$ 15')).toBeInTheDocument();
+        expect(screen.getByText('R$ 5')).toBeInTheDocument();
+        expect(replace).not.toHaveBeenCalled();
+        fireEvent.click(screen.getByRole('button', { name: 'Salvar cobertura (2 cidades)' }));
+        await waitFor(() => expect(replace).toHaveBeenCalledWith(HUB.id, [
+            expect.objectContaining({ cityIbgeCode: COVERED.ibgeCode, tdeUnit: 'PERCENT_FREIGHT', tdeValue: null, tdeFixed: 5 }),
+            expect.objectContaining({ cityIbgeCode: NEIGHBOR.ibgeCode, tdeUnit: 'PERCENT_NF', tdeValue: 2, tdeFixed: 15 }),
+        ]));
+    });
+
     it('aplica tarifa em lote para as cidades, altera rascunho e habilita salvar com toast', async () => {
         mountCoverage();
         expect(await screen.findByRole('combobox', { name: 'Tarifa em lote' })).toBeInTheDocument();
@@ -237,7 +317,7 @@ describe('HubCoverage', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Salvar cobertura (1 cidade)' }));
         await waitFor(() => expect(replace).toHaveBeenCalledWith(HUB.id, [
-            { cityIbgeCode: COVERED.ibgeCode, leadTimeDays: 2, priority: 10, active: false, pricingTableId: 'tbl-geral' },
+            { cityIbgeCode: COVERED.ibgeCode, leadTimeDays: 2, priority: 10, active: false, pricingTableId: 'tbl-geral', ...NO_FEE },
         ]));
     });
 
@@ -267,7 +347,7 @@ describe('HubCoverage', () => {
 
         fireEvent.click(saveBtn);
         await waitFor(() => expect(replace).toHaveBeenCalledWith(HUB.id, [
-            { cityIbgeCode: COVERED.ibgeCode, leadTimeDays: 2, priority: 10, active: false, pricingTableId: 'novo' },
+            { cityIbgeCode: COVERED.ibgeCode, leadTimeDays: 2, priority: 10, active: false, pricingTableId: 'novo', ...NO_FEE },
         ]));
     });
 

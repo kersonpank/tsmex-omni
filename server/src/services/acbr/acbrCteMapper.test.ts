@@ -64,7 +64,7 @@ describe('getIndIETomaAndIe', () => {
 });
 
 describe('origem da prestação no payload ACBr', () => {
-    it('envia início no hub e preserva o endereço e IBGE do remetente da NF', async () => {
+    it('preserva o IBGE do remetente e fecha os componentes da TDE na prestação', async () => {
         const originalFindCity = prisma.city.findUnique;
         prisma.city.findUnique = (async ({ where }: any) => {
             if (where.ibgeCode === '2304400') return { ibgeCode: '2304400', name: 'Fortaleza', state: { code: 'CE' } };
@@ -93,6 +93,22 @@ describe('origem da prestação no payload ACBr', () => {
             assert.deepEqual([cte.ide.cMunIni, cte.ide.xMunIni, cte.ide.UFIni], ['2304400', 'Fortaleza', 'CE']);
             assert.deepEqual([cte.rem.enderReme.cMun, cte.rem.enderReme.xMun, cte.rem.enderReme.UF], ['3550308', 'São Paulo', 'SP']);
             assert.deepEqual([cte.ide.cMunFim, cte.ide.xMunFim, cte.ide.UFFim], ['2105302', 'Imperatriz', 'MA']);
+            assert.deepEqual(cte.vPrest, { vTPrest: 50, vRec: 50 });
+
+            const withFee = { ...input, calc: { ...input.calc,
+                freightTotal: 63.22, icmsValue: 6.77,
+                breakdown: { freightBase: 38.11, toll: 5.31, cityFee: 13.03, cityFeeDetails: [{ amount: 13.03 }], icms: 6.77 },
+            } };
+            const { vPrest } = (await buildAcbrCteEmitBody(withFee, 'com-tde')).infCte as any;
+            assert.deepEqual(vPrest.Comp, [
+                { xNome: 'FRETE PESO', vComp: 38.11 },
+                { xNome: 'PEDAGIO', vComp: 5.31 },
+                { xNome: 'TDE', vComp: 13.03 },
+                { xNome: 'ICMS', vComp: 6.77 },
+            ]);
+            assert.equal(vPrest.Comp.reduce((sum: number, part: { vComp: number }) => sum + Math.round(part.vComp * 100), 0), 6322);
+            assert.equal(vPrest.vTPrest, 63.22);
+            await assert.rejects(buildAcbrCteEmitBody({ ...withFee, calc: { ...withFee.calc, freightTotal: 63.23 } }, 'divergente'), /soma dos componentes/);
             for (const ie of [null, '', 'ISENTO']) {
                 input.order.remetentePerson!.stateRegistration = ie;
                 input.order.destinatarioPerson!.stateRegistration = ie;

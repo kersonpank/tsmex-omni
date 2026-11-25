@@ -3,7 +3,7 @@ import clsx from 'clsx';
 import type { BrandingForDocuments, FreightDocType, FreightSuggestion } from '../../../../types/index';
 import DactePrintPreview from '../../../ui/DactePrintPreview';
 import { emitFreightDocument, type EmitOutcome } from '../../freightActions';
-import { DOC_TYPE_LABEL, EMPTY_INFORMED, formatBRL, freightTableOptionLabel, freightTableOptions, parseInformed, pricingSourceLabel, type InformedForm } from '../../lib/freight';
+import { DOC_TYPE_LABEL, EMPTY_INFORMED, FREIGHT_CITY_FEE_LABEL, formatBRL, freightTableOptionLabel, freightTableOptions, parseInformed, pricingSourceLabel, type InformedForm } from '../../lib/freight';
 import { OsActionBar, OsButton } from '../../ui/kit';
 import FreightIssues from './FreightIssues';
 import InformedFields from './InformedFields';
@@ -59,6 +59,9 @@ const FreightComposer: React.FC<{
 
     const informed = parseInformed(form);
     const selectedTable = tableOptions.find((option) => option.tableId === selectedTableId) ?? null;
+    const breakdown = selectedTable?.preview?.breakdown
+        ?? (selectedTableId === suggestion.pricing?.tableId ? suggestion.preview?.breakdown : undefined);
+    const cityFee = breakdown?.cityFee ?? 0;
     const total = informedMode ? informed.total : selectedTable?.total ?? 0;
     const issues =
         docType === suggestion.docs.recommended ? suggestion.blockers.filter((b) => !b.startsWith(NO_TABLE)) : [];
@@ -128,6 +131,14 @@ const FreightComposer: React.FC<{
                             {pricingSourceLabel({ source: selectedTable.source, tableLabel: selectedTable.label })}
                         </p>
                         {selectedTable.routeLabel ? <p className="mt-1 text-[12px] text-tower-500 dark:text-tower-400">{selectedTable.routeLabel}</p> : null}
+                        {cityFee > 0 && (
+                            <div className="mt-2 text-[12px] text-tower-600 dark:text-tower-300">
+                                <p className="font-semibold">{FREIGHT_CITY_FEE_LABEL} · {formatBRL(cityFee)}</p>
+                                {breakdown?.cityFeeDetails?.map(({ role, cityName, state, amount }) => (
+                                    <p key={role}>{cityName}/{state} ({role}) · {formatBRL(amount)}</p>
+                                ))}
+                            </div>
+                        )}
                     </>
                 ) : (
                     <p className="text-[13px] font-bold text-tower-600 dark:text-tower-300">Escolha a tabela deste frete.</p>

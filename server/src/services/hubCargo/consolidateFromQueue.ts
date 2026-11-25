@@ -31,6 +31,7 @@ export function ordersOutsideQueue(suggested: string[], picked: string[]): strin
 export interface ConsolidateFromQueueInput {
     hubId: string;
     groupKey: string;
+    routeKey?: string;
     orderIds: string[];
     vehicleTypeId: string;
     destHubId?: string;
@@ -69,13 +70,22 @@ export async function consolidateFromQueue(
     input: ConsolidateFromQueueInput,
     deps: ConsolidateFromQueueDeps = defaultDeps,
 ): Promise<ConsolidateFromQueueResult> {
-    const picked = [...new Set(input.orderIds)];
-    if (picked.length === 0) throw new AppError('Escolha pelo menos um pedido da fila.', 400);
+    const requested = [...new Set(input.orderIds)];
+    if (input.routeKey === undefined && requested.length === 0) {
+        throw new AppError('Escolha pelo menos um pedido da fila.', 400);
+    }
 
     const groups = await deps.getQueues(input.hubId);
     const stockSelection = input.groupKey === STOCK_SELECTION_GROUP_KEY;
     const group = groups.find((g) => g.key === input.groupKey);
+    const route = input.routeKey === undefined
+        ? undefined
+        : group?.routeBreakdown.find((item) => item.key === input.routeKey);
+    if (input.routeKey !== undefined && !route) {
+        throw new AppError('Rota não encontrada na fila; atualize a tela.', 400);
+    }
     if (!stockSelection && !group) throw new AppError('Esta fila mudou desde que foi aberta. Atualize e tente de novo.', 409);
+    const picked = route?.orderIds ?? requested;
     const suggestedGroups = stockSelection
         ? groups.filter((g) => g.orders.some((o) => picked.includes(o.orderId)))
         : [group!];
@@ -85,14 +95,14 @@ export async function consolidateFromQueue(
         throw new AppError(`${outside.length} pedido(s) saíram desta fila. Atualize e tente de novo.`, 409);
     }
 
-    const routeChosen = stockSelection || group?.kind === 'UNROUTED';
-    if (routeChosen && ((!input.destHubId && !input.local) || (input.destHubId && input.local))) {
+    const manualDestination = stockSelection || group?.kind === 'UNROUTED';
+    if (manualDestination && ((!input.destHubId && !input.local) || (input.destHubId && input.local))) {
         throw new AppError('Escolha um hub destino ou entrega local para montar a viagem.', 400);
     }
-    if (!routeChosen && (input.destHubId || input.local)) {
+    if (!manualDestination && (input.destHubId || input.local)) {
         throw new AppError('O destino desta fila já está definido. Atualize e tente de novo.', 400);
     }
-    const chosenHub = routeChosen && input.destHubId
+    const chosenHub = manualDestination && input.destHubId
         ? await validateDestHubForTransfer(input.destHubId, input.hubId)
         : null;
 
@@ -102,7 +112,7 @@ export async function consolidateFromQueue(
     });
     if (!hub) throw new AppError('Hub não encontrado.', 404);
 
-    const isTransfer = routeChosen ? Boolean(chosenHub) : group!.kind === 'TRANSFER';
+    const isTransfer = manualDestination ? Boolean(chosenHub) : group!.kind === 'TRANSFER';
     const destHubId = isTransfer ? chosenHub?.id ?? group?.destHubId ?? undefined : undefined;
     const hubLabel = `${hub.city}, ${hub.state}`;
     // Entrega: o destino é a cidade onde os pedidos serão entregues, não a do hub. Sem IBGE de
@@ -160,15 +170,25 @@ export async function consolidateFromQueue(
             adminId: input.actor.adminId ?? null,
             actorUserId: input.actor.userId,
             actorRole: input.actor.role,
-            action: feedbackActionFor(suggested, added, routeChosen),
+            action: route ? 'ACCEPTED' : feedbackActionFor(suggested, added, manualDestination),
             orderIds: added,
             suggestedManifests: suggestedGroups.map((g) => ({
-                source: 'next_hop_queue', queueKey: g.key, kind: g.kind, destHubId: g.destHubId,
+                queueKey: g.key, kind: g.kind, destHubId: g.destHubId,
                 // próximo salto (= destHubId) e hub final (pode diferir quando há gateway no caminho)
                 nextHopHubId: g.destHubId,
-                finalHubId: g.finalHubId ?? g.destHubId,
-                finalHubIds: [...new Set(g.orders.map((o) => o.finalHubId ?? g.destHubId).filter((id): id is string => Boolean(id)))],
-                orderIds: g.orders.map((o) => o.orderId),
+                ...(route ? {
+                    source: 'next_hop_queue_route',
+                    routeKey: route.key,
+                    routeId: route.routeId,
+                    finalHubId: route.finalHubId,
+                    finalHubIds: [route.finalHubId],
+                    orderIds: route.orderIds,
+                } : {
+                    source: 'next_hop_queue',
+                    finalHubId: g.finalHubId ?? g.destHubId,
+                    finalHubIds: [...new Set(g.orders.map((o) => o.finalHubId ?? g.destHubId).filter((id): id is string => Boolean(id)))],
+                    orderIds: g.orders.map((o) => o.orderId),
+                }),
             })),
             finalManifests: [
                 {

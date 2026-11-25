@@ -1,5 +1,6 @@
 import React from 'react';
 import type { BrandingForDocuments } from '../../types/index';
+import { FREIGHT_CITY_FEE_LABEL } from '../os/lib/freight';
 
 interface DactePrintPreviewProps {
   payload: any;
@@ -15,6 +16,7 @@ const FREIGHT_COMPONENT_LABELS: Record<string, string> = {
   toll: 'Pedágio',
   dispatch: 'Despacho',
   others: 'Outros',
+  cityFee: FREIGHT_CITY_FEE_LABEL,
   icms: 'ICMS',
 };
 

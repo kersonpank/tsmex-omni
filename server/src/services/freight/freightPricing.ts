@@ -1,4 +1,4 @@
-import type { IcmsUnit } from '@prisma/client';
+import { Prisma, type CoverageFeeUnit, type IcmsUnit } from '@prisma/client';
 import { AppError } from '../../middleware/errorHandler.js';
 
 /**
@@ -34,7 +34,21 @@ export interface FreightParams {
     nfValue: number;
 }
 
-/** Os componentes do frete — também os campos que o hub preenche no frete informado. */
+export interface FreightCityFeeDetail {
+    role: 'destino' | 'origem';
+    cityIbgeCode: string;
+    cityName: string;
+    state: string;
+    amount: number;
+}
+
+export interface FreightCityFee extends Omit<FreightCityFeeDetail, 'amount'> {
+    unit: CoverageFeeUnit;
+    value: Prisma.Decimal.Value;
+    fixed: Prisma.Decimal.Value;
+}
+
+/** Os componentes do frete e o detalhamento da TDE por cidade. */
 export interface FreightBreakdown {
     freightBase: number;
     adValorem: number;
@@ -42,6 +56,8 @@ export interface FreightBreakdown {
     toll: number;
     dispatch: number;
     others: number;
+    cityFee?: number;
+    cityFeeDetails?: FreightCityFeeDetail[];
     icms: number;
 }
 
@@ -52,9 +68,23 @@ export interface FreightResult {
     effectiveWeight: number;
 }
 
-export const BREAKDOWN_KEYS: (keyof FreightBreakdown)[] = ['freightBase', 'adValorem', 'gris', 'toll', 'dispatch', 'others', 'icms'];
+const FREIGHT_COMPONENT_KEYS = ['freightBase', 'adValorem', 'gris', 'toll', 'dispatch', 'others'] as const;
+export const INFORMED_BREAKDOWN_KEYS = [...FREIGHT_COMPONENT_KEYS, 'icms'] as const;
+export const BREAKDOWN_KEYS = [...FREIGHT_COMPONENT_KEYS, 'cityFee', 'icms'] as const;
 
 const n = (value: number | null | undefined) => value || 0;
+
+function safeCents(cents: number): number {
+    const amount = cents / 100;
+    if (!Number.isSafeInteger(cents) || Math.round(amount * 100) !== cents || !new Prisma.Decimal(amount).times(100).equals(cents)) {
+        throw new AppError('O frete com TDE excede o limite de precisão do cálculo em centavos.', 400);
+    }
+    return cents;
+}
+
+function toCents(value: Prisma.Decimal.Value): number {
+    return safeCents(new Prisma.Decimal(value).times(100).toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP).toNumber());
+}
 
 export const ICMS_DIVISOR_MESSAGE = 'Divisor do ICMS deve ficar entre 0 e 1 (ex.: 0,88 para 12% por dentro).';
 
@@ -64,21 +94,23 @@ export function isValidIcmsDivisor(value: number | null | undefined): value is n
 
 type IcmsSettings = Pick<PricingTableLike, 'icmsIncluded' | 'icmsUnit' | 'icmsPercent'>;
 
-export function computeIcms(subtotal: number, table: IcmsSettings): number {
-    if (table.icmsIncluded) return 0;
+export function computeIcms(subtotal: number, table: IcmsSettings): number;
+export function computeIcms(subtotal: Prisma.Decimal, table: IcmsSettings): Prisma.Decimal;
+export function computeIcms(subtotal: number | Prisma.Decimal, table: IcmsSettings): number | Prisma.Decimal {
+    if (table.icmsIncluded) return typeof subtotal === 'number' ? 0 : new Prisma.Decimal(0);
 
     const value = table.icmsPercent;
     switch (table.icmsUnit) {
         case 'DIVISOR': {
             if (!isValidIcmsDivisor(value)) throw new AppError(ICMS_DIVISOR_MESSAGE, 400);
-            const icms = subtotal / value - subtotal;
-            if (!Number.isFinite(icms)) throw new AppError('O divisor do ICMS gera um total fora do limite do cálculo.', 400);
+            const icms = typeof subtotal === 'number' ? subtotal / value - subtotal : subtotal.div(value).minus(subtotal);
+            if (!Number.isFinite(Number(icms))) throw new AppError('O divisor do ICMS gera um total fora do limite do cálculo.', 400);
             return icms;
         }
         case 'FIXED':
-            return n(value);
+            return typeof subtotal === 'number' ? n(value) : new Prisma.Decimal(n(value));
         default:
-            return value ? subtotal * (value / 100) : 0;
+            return typeof subtotal === 'number' ? (value ? subtotal * (value / 100) : 0) : subtotal.times(n(value)).div(100);
     }
 }
 
@@ -92,7 +124,11 @@ export function applyIcms(subtotal: number, table: IcmsSettings): { icms: number
     return { icms, total };
 }
 
-export function computeFreightFromTable(table: PricingTableLike, params: FreightParams): FreightResult {
+export function computeFreightFromTable(
+    table: PricingTableLike,
+    params: FreightParams,
+    cityFees: readonly FreightCityFee[] = [],
+): FreightResult {
     const cubeFactor = table.cubeFactor || 300;
     const volume = params.cubage ?? params.weight / 300;
     const cubedWeight = volume * cubeFactor;
@@ -129,26 +165,53 @@ export function computeFreightFromTable(table: PricingTableLike, params: Freight
         table.tollUnit === 'RS_KG' ? effectiveWeight * n(table.tollValue) : table.tollUnit === 'FIXED' ? n(table.tollValue) : 0;
     const dispatch = n(table.dispatchFee);
     const others = n(table.otherFees);
+    const components = { freightBase, adValorem, gris, toll, dispatch, others };
     const subtotal = freightBase + adValorem + gris + toll + dispatch + others;
-    const { icms, total } = applyIcms(subtotal, table);
+    const bases: Record<CoverageFeeUnit, number> = {
+        PERCENT_FREIGHT: subtotal,
+        PERCENT_FREIGHT_BASE: freightBase,
+        PERCENT_NF: params.nfValue,
+        RS_KG: effectiveWeight,
+    };
+    const cityFeesInCents = cityFees.flatMap(({ unit, value, fixed, ...city }) => {
+        const variable = new Prisma.Decimal(bases[unit]).times(value).div(unit === 'RS_KG' ? 1 : 100);
+        const cents = toCents(variable.plus(fixed));
+        return cents > 0 ? [{ ...city, cents }] : [];
+    });
+    if (cityFeesInCents.length === 0) {
+        const { icms, total } = applyIcms(subtotal, table);
+        return { total, breakdown: { ...components, icms }, cubedWeight, effectiveWeight };
+    }
+
+    // Fecha cada parcela cobrada em centavos, para que a soma exibida coincida com o total fiscal.
+    const componentCents = FREIGHT_COMPONENT_KEYS.map((key) => [key, toCents(components[key])] as const);
+    const cityFeeCents = safeCents(cityFeesInCents.reduce((sum, detail) => sum + detail.cents, 0));
+    const serviceCents = safeCents(componentCents.reduce((sum, [, cents]) => sum + cents, cityFeeCents));
+    const icmsCents = toCents(computeIcms(new Prisma.Decimal(serviceCents).div(100), table));
+    const roundedComponents = Object.fromEntries(componentCents.map(([key, cents]) => [key, cents / 100])) as typeof components;
 
     return {
-        total,
-        breakdown: { freightBase, adValorem, gris, toll, dispatch, others, icms },
+        total: safeCents(serviceCents + icmsCents) / 100,
+        breakdown: {
+            ...roundedComponents,
+            cityFee: cityFeeCents / 100,
+            cityFeeDetails: cityFeesInCents.map(({ cents, ...city }) => ({ ...city, amount: cents / 100 })),
+            icms: icmsCents / 100,
+        },
         cubedWeight,
         effectiveWeight,
     };
 }
 
 /** Frete informado pelo hub: total = soma dos componentes, cada um ≥ 0 e com 2 casas. */
-export function informedFreight(input: Partial<Record<keyof FreightBreakdown, number>>): { total: number; breakdown: FreightBreakdown } {
+export function informedFreight(input: Partial<Record<(typeof INFORMED_BREAKDOWN_KEYS)[number], number>>): { total: number; breakdown: FreightBreakdown } {
     const breakdown = Object.fromEntries(
-        BREAKDOWN_KEYS.map((key) => {
+        INFORMED_BREAKDOWN_KEYS.map((key) => {
             const value = Number(input[key] ?? 0);
             return [key, Number.isFinite(value) && value > 0 ? Math.round(value * 100) / 100 : 0];
         }),
     ) as unknown as FreightBreakdown;
-    const total = Math.round(BREAKDOWN_KEYS.reduce((sum, key) => sum + breakdown[key], 0) * 100) / 100;
+    const total = Math.round(INFORMED_BREAKDOWN_KEYS.reduce((sum, key) => sum + breakdown[key], 0) * 100) / 100;
     return { total, breakdown };
 }
 

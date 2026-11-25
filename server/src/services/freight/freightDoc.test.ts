@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { computeFreightFromTable, computeIcms, informedFreight, orderFreightParams, type PricingTableLike } from './freightPricing.js';
+import { BREAKDOWN_KEYS, computeFreightFromTable, computeIcms, informedFreight, orderFreightParams, type FreightCityFee, type PricingTableLike } from './freightPricing.js';
 import { ACTIVE_DOC_STATUSES, EMITTED_STATUSES, REUSABLE_STATUSES, allowedDocTypes, choosePricingTable, freightDocState, isPendingReconciliationWithoutSubmission, payerChangeBlock, payerRole, type TableCandidate } from './freightDocRules.js';
 import { pickEmitter, type FreightContext, type FreightOrder } from './freightContext.js';
 import { suggestFreight, summarizeDocuments } from './freightSuggestion.js';
@@ -20,6 +20,11 @@ const baseTable: PricingTableLike = {
     icmsIncluded: false,
     icmsPercent: 12,
     cubeFactor: 300,
+};
+
+const cityFee: FreightCityFee = {
+    role: 'destino', cityIbgeCode: '2105302', cityName: 'Imperatriz', state: 'MA',
+    unit: 'PERCENT_FREIGHT', value: 2, fixed: 15,
 };
 
 describe('computeIcms', () => {
@@ -99,8 +104,93 @@ describe('computeFreightFromTable', () => {
         assert.equal(r.breakdown.freightBase, 180);
     });
 
+    it('calcula cada unidade da TDE com a mesma base do frete e soma o valor fixo', () => {
+        const params = { volumes: 2, weight: 100, cubage: 0.5, nfValue: 10_000 };
+        const table = { ...baseTable, icmsIncluded: true };
+        const expected = { PERCENT_FREIGHT: 22.4, PERCENT_FREIGHT_BASE: 21, PERCENT_NF: 215, RS_KG: 315 } as const;
+        for (const [unit, amount] of Object.entries(expected)) {
+            const result = computeFreightFromTable(table, params, [{ ...cityFee, unit: unit as FreightCityFee['unit'] }]);
+
+            assert.equal(result.effectiveWeight, 150);
+            assert.equal(result.breakdown.cityFee, amount, unit);
+            assert.equal(result.breakdown.cityFeeDetails?.[0].amount, amount, unit);
+            assert.equal(result.total, 370 + amount, unit);
+        }
+    });
+
+    it('inclui TDE fixa no subtotal antes do ICMS percentual ou por divisor', () => {
+        const table = {
+            ...baseTable, freightUnit: 'RS_UNIT', freightValue: 800, adValoremPercent: null, grisPercent: null,
+            tollValue: null, dispatchFee: null, otherFees: null,
+        } as const;
+        const params = { volumes: 1, weight: 100, nfValue: 200 };
+        const fees = [{ ...cityFee, value: 0, fixed: 80 }];
+        const percent = computeFreightFromTable({ ...table, icmsUnit: 'PERCENT', icmsPercent: 12 }, params, fees);
+        const divisor = computeFreightFromTable({ ...table, icmsUnit: 'DIVISOR', icmsPercent: 0.88 }, params, fees);
+        const fixed = computeFreightFromTable({ ...table, icmsUnit: 'FIXED', icmsPercent: 100 }, params, fees);
+
+        assert.equal(percent.breakdown.icms, 105.6);
+        assert.equal(percent.total, 985.6);
+        assert.equal(divisor.breakdown.icms, 120);
+        assert.equal(divisor.total, 1000);
+        assert.equal(fixed.breakdown.icms, 100);
+        assert.equal(fixed.total, 980);
+    });
+
+    it('fecha as parcelas e as duas linhas de TDE em centavos', () => {
+        const table = {
+            ...baseTable, freightUnit: 'RS_UNIT', freightValue: 12.345, minFreightValue: null,
+            adValoremPercent: null, grisPercent: null, tollValue: null, dispatchFee: 0.005, otherFees: null,
+        } as const;
+        const destination = { ...cityFee, unit: 'RS_KG', fixed: 0, value: 0.01 } as const;
+        const origin = { ...destination, role: 'origem', cityIbgeCode: '3518800', cityName: 'Guarulhos', state: 'SP' } as const;
+        const result = computeFreightFromTable(table, { volumes: 1, weight: 1.5, nfValue: 0 }, [destination, origin]);
+
+        assert.equal(result.breakdown.freightBase, 12.35);
+        assert.equal(result.breakdown.dispatch, 0.01);
+        assert.deepEqual(result.breakdown.cityFeeDetails?.map((fee) => fee.amount), [0.02, 0.02]);
+        assert.equal(result.breakdown.cityFee, 0.04);
+        assert.equal(result.breakdown.icms, 1.49);
+        assert.equal(result.total, 13.89);
+        const componentCents = BREAKDOWN_KEYS.reduce((cents, key) => cents + Math.round((result.breakdown[key] ?? 0) * 100), 0);
+        assert.equal(result.total, componentCents / 100);
+    });
+
+    it('arredonda meio centavo de ICMS para cima nas tarifas com TDE', () => {
+        const table = {
+            ...baseTable, freightUnit: 'RS_UNIT', minFreightValue: null,
+            adValoremPercent: null, grisPercent: null, tollValue: null, dispatchFee: null, otherFees: null,
+        } as const;
+        const params = { volumes: 1, weight: 1, nfValue: 0 };
+        const percent = computeFreightFromTable(
+            { ...table, freightValue: 0.6, icmsUnit: 'PERCENT', icmsPercent: 5 },
+            params,
+            [{ ...cityFee, value: 0, fixed: 0.1 }],
+        );
+        const divisor = computeFreightFromTable(
+            { ...table, freightValue: 0.05, icmsUnit: 'DIVISOR', icmsPercent: 0.8 },
+            params,
+            [{ ...cityFee, value: 0, fixed: 0.01 }],
+        );
+
+        assert.equal(percent.breakdown.icms, 0.04);
+        assert.equal(percent.total, 0.74);
+        assert.equal(divisor.breakdown.icms, 0.02);
+        assert.equal(divisor.total, 0.08);
+    });
+
+    it('recusa valores de TDE que excedem a precisão em centavos', () => {
+        const table = { ...baseTable, icmsIncluded: true };
+        const params = { volumes: 1, weight: 10, nfValue: 0 };
+        const largeFee = { ...cityFee, value: 0, fixed: 80_000_000_000_000 };
+
+        assert.throws(() => computeFreightFromTable(table, params, [{ ...largeFee, fixed: 1e35 }]), /limite de precisão/);
+        assert.throws(() => computeFreightFromTable(table, params, [largeFee, largeFee]), /limite de precisão/);
+    });
+
     it('frete informado soma os componentes e ignora negativos', () => {
-        assert.deepEqual(informedFreight({ freightBase: 100.555, toll: 20, icms: -5 }), {
+        const input = { freightBase: 100.555, toll: 20, cityFee: 100, icms: -5 };
+        assert.deepEqual(informedFreight(input), {
             total: 120.56,
             breakdown: { freightBase: 100.56, adValorem: 0, gris: 0, toll: 20, dispatch: 0, others: 0, icms: 0 },
         });
@@ -248,6 +338,7 @@ function fixture(over: { freightTerm?: 'CIF' | 'FOB'; payerClient?: boolean } = 
             [],
         ),
         coveragePricingByCity: new Map(),
+        coverageCityFeesByCity: new Map(),
         routes: [{ id: 'r1', name: 'GRU > IMP', originCode: 'SP-GRU', destCode: 'IMP-MA' }],
         tables: [
             { ...baseTable, ...t({ id: 'geral-rota', description: 'Tarifa GRU-IMP', routeId: 'r1' }) },

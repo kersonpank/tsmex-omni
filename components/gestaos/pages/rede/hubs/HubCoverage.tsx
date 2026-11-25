@@ -1,13 +1,13 @@
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { hubCoverageApi, locationsApi, pricingApi, type GeoCity } from '../../../../../lib/api';
-import type { Hub, PricingTable } from '../../../../../types/index';
+import type { CoverageFeeUnit, Hub, PricingTable } from '../../../../../types/index';
 import type { TableForm } from '../../../lib/comercialForms';
 import { applyTeiaSelection, coverageCounts, MAX_COVERAGE, setServed } from '../../../lib/coverageTeia';
-import { coveragePayload, validateCoverage, type CoverageRow } from '../../../lib/redeCadastro';
+import { coveragePayload, EMPTY_COVERAGE_CITY_FEE, validateCoverage, validateCoverageFee, type CoverageCityFee, type CoverageRow } from '../../../lib/redeCadastro';
 import { invalidate, useResource } from '../../../lib/resource';
-import { Checkbox, FormFooter, NumberInput } from '../../../ui/form';
+import { Checkbox, FormFooter, NumberInput, parseDecimal } from '../../../ui/form';
 import { IconAlert, IconClose, IconRefresh } from '../../../ui/icons';
-import { Button, EmptyState, ErrorState, Loadable, Pill, SelectInput, Skeleton, Tabs } from '../../../ui/kit';
+import { Button, EmptyState, Field, Loadable, Pill, SelectInput, Skeleton, Tabs, TextInput } from '../../../ui/kit';
 import { useAction, useToast } from '../../../ui/overlay';
 import { CityPicker } from '../../../ui/pickers';
 import { PricingTableDrawer } from '../../comercial/PricingTableDrawer';
@@ -68,6 +68,84 @@ class MapErrorBoundary extends React.Component<MapErrorProps, MapErrorState> {
 
 const mapSkeleton = <div className="gx-skeleton gx-map-skeleton" role="status" aria-busy="true" aria-label="Carregando mapa" />;
 
+const CITY_FEE_UNITS: Record<CoverageFeeUnit, { label: string; summary: string }> = {
+    PERCENT_FREIGHT: { label: '% sobre o frete calculado', summary: '% frete' },
+    PERCENT_FREIGHT_BASE: { label: '% sobre o frete peso', summary: '% frete peso' },
+    PERCENT_NF: { label: '% sobre o valor da NF', summary: '% NF' },
+    RS_KG: { label: 'R$ por kg', summary: '/kg' },
+};
+const feeNumber = new Intl.NumberFormat('pt-BR', { maximumSignificantDigits: 21 });
+
+function cityFeeSummary({ tdeValue, tdeUnit, tdeFixed }: CoverageCityFee) {
+    const parts: string[] = [];
+    if (tdeValue != null && tdeValue > 0) {
+        const prefix = tdeUnit === 'RS_KG' ? 'R$ ' : '';
+        parts.push(`${prefix}${feeNumber.format(tdeValue)}${CITY_FEE_UNITS[tdeUnit].summary}`);
+    }
+    if (tdeFixed != null && tdeFixed > 0) parts.push(`R$ ${feeNumber.format(tdeFixed)}`);
+    return parts.join(' + ') || 'Sem taxa';
+}
+
+function parseFeeNumber(text: string): number | null {
+    const trimmed = text.trim();
+    if (!trimmed) return null;
+    // Preserva a separação de milhares, inclusive ao colar um valor como 1.234,56.
+    return /^-?(?:\d+(?:[.,]\d*)?|[.,]\d+|\d{1,3}(?:\.\d{3})+(?:,\d*)?)$/u.test(trimmed)
+        ? parseDecimal(trimmed) ?? NaN
+        : NaN;
+}
+
+function CoverageFeeNumberInput({ label, value, onChange }: { label: string; value: number | null; onChange: (value: number | null) => void }) {
+    const [text, setText] = useState(() => value == null ? '' : feeNumber.format(value));
+    useEffect(() => {
+        setText((current) => Object.is(parseFeeNumber(current), value) ? current : value == null ? '' : feeNumber.format(value));
+    }, [value]);
+    return (
+        <Field label={label} className="w-28">
+            <TextInput
+                className="gx-num"
+                inputMode="decimal"
+                autoComplete="off"
+                aria-invalid={Number.isNaN(value) || undefined}
+                value={text}
+                onChange={(event) => {
+                    const next = event.target.value;
+                    setText(next);
+                    onChange(parseFeeNumber(next));
+                }}
+            />
+        </Field>
+    );
+}
+
+function CoverageFeeFields({ id, title, fee, onChange, error, children }: {
+    id: string;
+    title: string;
+    fee: CoverageCityFee;
+    onChange: (change: Partial<CoverageCityFee>) => void;
+    error: string | null;
+    children?: React.ReactNode;
+}) {
+    return (
+        <fieldset id={id} className="gx-inset px-3 pb-3">
+            <legend className="gx-label px-1">{title}</legend>
+            <div className="flex flex-wrap items-end gap-3">
+                <Field label="Tipo" className="min-w-[12rem]">
+                    <SelectInput value={fee.tdeUnit} onChange={(event) => onChange({ tdeUnit: event.target.value as CoverageFeeUnit })}>
+                        {(Object.keys(CITY_FEE_UNITS) as CoverageFeeUnit[]).map((unit) => (
+                            <option key={unit} value={unit}>{CITY_FEE_UNITS[unit].label}</option>
+                        ))}
+                    </SelectInput>
+                </Field>
+                <CoverageFeeNumberInput label={fee.tdeUnit === 'RS_KG' ? 'Valor (R$/kg)' : 'Valor (%)'} value={fee.tdeValue} onChange={(value) => onChange({ tdeValue: value })} />
+                <CoverageFeeNumberInput label="R$ fixo" value={fee.tdeFixed} onChange={(value) => onChange({ tdeFixed: value })} />
+                {children}
+            </div>
+            {error ? <p className="gx-red-text mt-2 text-[12.5px]">{error}</p> : null}
+        </fieldset>
+    );
+}
+
 /**
  * Cobertura do hub: a tabela de roteamento da rede. Cada cidade aqui faz os pedidos com esse destino
  * cair na fila deste hub; prioridade menor vence quando dois hubs cobrem a mesma cidade.
@@ -79,6 +157,7 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
         async () =>
             ((await hubCoverageApi.list(hub.id)).data ?? []).map((e) => ({
                 cityIbgeCode: e.cityIbgeCode, cityName: e.cityName, state: e.state, leadTimeDays: e.leadTimeDays, priority: e.priority, active: e.active, pricingTableId: e.pricingTableId ?? null,
+                tdeValue: e.tdeValue ?? null, tdeUnit: e.tdeUnit ?? EMPTY_COVERAGE_CITY_FEE.tdeUnit, tdeFixed: e.tdeFixed ?? null,
             })),
         { staleMs: 10_000 },
     );
@@ -102,6 +181,9 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
     const [previewCities, setPreviewCities] = useState<GeoCity[] | null>(null);
     const [batchTarget, setBatchTarget] = useState<'all' | 'served'>('all');
     const [batchTableId, setBatchTableId] = useState<string>('');
+    const [batchFeeOpen, setBatchFeeOpen] = useState(false);
+    const [batchFee, setBatchFee] = useState(EMPTY_COVERAGE_CITY_FEE);
+    const [feeCityCode, setFeeCityCode] = useState<string | null>(null);
     const [recentTeiaCodes, setRecentTeiaCodes] = useState<string[]>([]);
     const [teiaTableId, setTeiaTableId] = useState<string>('');
     const [teiaBusy, setTeiaBusy] = useState(false);
@@ -227,7 +309,10 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
         );
     }, [coordsVersion, rows, seatCode, viewport]);
 
-    const dirty = rows != null && entries.data != null && JSON.stringify(rows) !== JSON.stringify(entries.data);
+    const dirty = rows != null && entries.data != null && (
+        rows.some((row) => Number.isNaN(row.tdeValue) || Number.isNaN(row.tdeFixed)) ||
+        JSON.stringify(rows) !== JSON.stringify(entries.data)
+    );
     const patch = (code: string, change: Partial<CoverageRow>) => {
         setError(null);
         setRows((current) => (current ?? []).map((row) => (row.cityIbgeCode === code ? { ...row, ...change } : row)));
@@ -282,13 +367,23 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
         if (truncated > 0) toast.error(`Limite de ${MAX_COVERAGE} cidades: ${truncated} ficaram de fora`);
     };
 
+    const matchesBatchTarget = (row: CoverageRow) => batchTarget === 'all' || row.active;
+    const batchFeeError = validateCoverageFee(batchFee, 'em lote');
+    const handleApplyBatchFee = () => {
+        if (!rows || batchFeeError) return;
+        const count = rows.filter(matchesBatchTarget).length;
+        if (count === 0) return;
+        setError(null);
+        setRows((current) => current?.map((row) => matchesBatchTarget(row) ? { ...row, ...batchFee } : row) ?? null);
+        toast.success(`TDE atualizada em ${count} ${count === 1 ? 'cidade' : 'cidades'}. Salve a cobertura para gravar.`);
+    };
+
     const handleApplyBatch = () => {
         if (!rows || rows.length === 0) return;
         const targetId = batchTableId || null;
         let count = 0;
         const next = rows.map((row) => {
-            const match = batchTarget === 'all' || (batchTarget === 'served' && row.active);
-            if (match) {
+            if (matchesBatchTarget(row)) {
                 count++;
                 return { ...row, pricingTableId: targetId };
             }
@@ -303,7 +398,7 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
 
     const handleCreateBatchTable = () => {
         if (!rows || rows.length === 0) return;
-        const targetRows = rows.filter((r) => batchTarget === 'all' || (batchTarget === 'served' && r.active));
+        const targetRows = rows.filter(matchesBatchTarget);
         const count = targetRows.length;
         if (count === 0) return;
         const targetCodes = new Set(targetRows.map((r) => r.cityIbgeCode));
@@ -531,7 +626,7 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
                                 setRows((current) => {
                                     const list = current ?? [];
                                     if (list.some((row) => row.cityIbgeCode === city.ibgeCode)) return list;
-                                    return [...list, { cityIbgeCode: city.ibgeCode, cityName: city.city, state: city.state, leadTimeDays: null, priority: 100, active: true, pricingTableId: null }];
+                                    return [...list, { cityIbgeCode: city.ibgeCode, cityName: city.city, state: city.state, leadTimeDays: null, priority: 100, active: true, pricingTableId: null, ...EMPTY_COVERAGE_CITY_FEE }];
                                 });
                             }}
                         />
@@ -539,12 +634,12 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
                     {rows && rows.length > 0 ? (
                         <div className="flex flex-wrap items-center justify-between gap-3 py-1">
                             <div className="flex flex-wrap items-center gap-2">
-                                <span className="gx-muted text-[13px]">Aplicar tarifa a:</span>
+                                <span className="gx-muted text-[13px]">Aplicar a</span>
                                 <SelectInput
                                     className="w-auto text-[13px]"
                                     value={batchTarget}
                                     onChange={(e) => setBatchTarget(e.target.value as 'all' | 'served')}
-                                    aria-label="Escopo da tarifa em lote"
+                                    aria-label="Cidades para aplicação em lote"
                                 >
                                     <option value="all">todas as cidades</option>
                                     <option value="served">só as que atendem</option>
@@ -576,11 +671,22 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
                                 <Button size="sm" variant="soft" onClick={handleCreateBatchTable}>
                                     Nova tabela para estas cidades
                                 </Button>
+                                <Button size="sm" variant="soft" aria-expanded={batchFeeOpen} aria-controls={`${key}-fee-batch`} onClick={() => setBatchFeeOpen((open) => !open)}>
+                                    TDE em lote
+                                </Button>
                             </div>
                             <a href="#/gestaos/comercial?aba=tarifas" className="gx-muted hover:gx-soft text-[12.5px] underline">
                                 Gerenciar tabelas
                             </a>
                         </div>
+                    ) : null}
+                    {rows && rows.length > 0 && batchFeeOpen ? (
+                        <CoverageFeeFields id={`${key}-fee-batch`} title="Taxa da cidade (TDE) em lote" fee={batchFee} error={batchFeeError}
+                            onChange={(change) => setBatchFee((current) => ({ ...current, ...change }))}>
+                            <Button size="sm" variant="primary" disabled={batchFeeError != null || !rows.some(matchesBatchTarget)} onClick={handleApplyBatchFee}>
+                                {batchFee.tdeValue == null && batchFee.tdeFixed == null ? 'Limpar TDE' : 'Aplicar TDE'}
+                            </Button>
+                        </CoverageFeeFields>
                     ) : null}
                     <Loadable state={entries} skeleton={<Skeleton rows={3} />}>
                         {() =>
@@ -595,6 +701,7 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
                                                 <th>Prazo (dias)</th>
                                                 <th>Prioridade</th>
                                                 <th>Tarifa</th>
+                                                <th>TDE</th>
                                                 <th>Situação</th>
                                                 <th />
                                             </tr>
@@ -602,72 +709,94 @@ const HubCoverageEditor: React.FC<{ hub: Hub }> = ({ hub }) => {
                                         <tbody>
                                             {rows.map((row) => {
                                                 const selectedTable = generalTables.find((t) => t.id === row.pricingTableId);
+                                                const feeOpen = feeCityCode === row.cityIbgeCode;
+                                                const feeId = `${key}-fee-${row.cityIbgeCode}`;
                                                 return (
-                                                    <tr key={row.cityIbgeCode} className={!row.active ? 'gx-map-row-unserved' : undefined}>
-                                                        <td>
-                                                            <span className="font-semibold">{row.cityName}/{row.state}</span>
-                                                            <span className="gx-mono gx-soft block text-[12px]">{row.cityIbgeCode}</span>
-                                                        </td>
-                                                        <td className="w-[110px]">
-                                                            <NumberInput aria-label={`Prazo de ${row.cityName}`} value={row.leadTimeDays} min={0} max={60} onChange={(value) => patch(row.cityIbgeCode, { leadTimeDays: value })} />
-                                                        </td>
-                                                        <td className="w-[110px]">
-                                                            <NumberInput aria-label={`Prioridade de ${row.cityName}`} value={row.priority} min={1} max={9999} onChange={(value) => patch(row.cityIbgeCode, { priority: value })} />
-                                                        </td>
-                                                        <td className="min-w-[180px]">
-                                                            <div className="flex flex-col gap-1">
-                                                                <SelectInput
-                                                                    aria-label={`Tarifa de ${row.cityName}`}
-                                                                    value={row.pricingTableId ?? ''}
-                                                                    onChange={(e) => {
-                                                                        const val = e.target.value;
-                                                                        if (val === '__NEW__') {
-                                                                            setCreateDrawer({
-                                                                                initial: {
-                                                                                    type: 'GENERAL',
-                                                                                    coverageOnly: true,
-                                                                                    routeId: null,
-                                                                                    description: `Cobertura · ${row.cityName}/${row.state}`,
-                                                                                },
-                                                                                onSaved: (table) => {
-                                                                                    patch(row.cityIbgeCode, { pricingTableId: table.id });
-                                                                                    invalidate(PRICING_TABLES_KEY);
-                                                                                    toast.success(`Tabela criada e vinculada a ${row.cityName}/${row.state}. Salve a cobertura para gravar.`);
-                                                                                    setCreateDrawer(null);
-                                                                                },
-                                                                            });
-                                                                            return;
-                                                                        }
-                                                                        patch(row.cityIbgeCode, { pricingTableId: val || null });
-                                                                    }}
-                                                                >
-                                                                    <option value="">Sem tarifa própria</option>
-                                                                    {generalTables.map((t) => (
-                                                                        <option key={t.id} value={t.id}>
-                                                                            {t.description}
-                                                                        </option>
-                                                                    ))}
-                                                                    {row.pricingTableId && pricingTables.data && !selectedTable ? (
-                                                                        <option value={row.pricingTableId}>Tabela indisponível (escolha outra)</option>
+                                                    <React.Fragment key={row.cityIbgeCode}>
+                                                        <tr className={!row.active ? 'gx-map-row-unserved' : undefined}>
+                                                            <td>
+                                                                <span className="font-semibold">{row.cityName}/{row.state}</span>
+                                                                <span className="gx-mono gx-soft block text-[12px]">{row.cityIbgeCode}</span>
+                                                            </td>
+                                                            <td className="w-[110px]">
+                                                                <NumberInput aria-label={`Prazo de ${row.cityName}`} value={row.leadTimeDays} min={0} max={60} onChange={(value) => patch(row.cityIbgeCode, { leadTimeDays: value })} />
+                                                            </td>
+                                                            <td className="w-[110px]">
+                                                                <NumberInput aria-label={`Prioridade de ${row.cityName}`} value={row.priority} min={1} max={9999} onChange={(value) => patch(row.cityIbgeCode, { priority: value })} />
+                                                            </td>
+                                                            <td className="min-w-[180px]">
+                                                                <div className="flex flex-col gap-1">
+                                                                    <SelectInput
+                                                                        aria-label={`Tarifa de ${row.cityName}`}
+                                                                        value={row.pricingTableId ?? ''}
+                                                                        onChange={(e) => {
+                                                                            const val = e.target.value;
+                                                                            if (val === '__NEW__') {
+                                                                                setCreateDrawer({
+                                                                                    initial: {
+                                                                                        type: 'GENERAL',
+                                                                                        coverageOnly: true,
+                                                                                        routeId: null,
+                                                                                        description: `Cobertura · ${row.cityName}/${row.state}`,
+                                                                                    },
+                                                                                    onSaved: (table) => {
+                                                                                        patch(row.cityIbgeCode, { pricingTableId: table.id });
+                                                                                        invalidate(PRICING_TABLES_KEY);
+                                                                                        toast.success(`Tabela criada e vinculada a ${row.cityName}/${row.state}. Salve a cobertura para gravar.`);
+                                                                                        setCreateDrawer(null);
+                                                                                    },
+                                                                                });
+                                                                                return;
+                                                                            }
+                                                                            patch(row.cityIbgeCode, { pricingTableId: val || null });
+                                                                        }}
+                                                                    >
+                                                                        <option value="">Sem tarifa própria</option>
+                                                                        {generalTables.map((t) => (
+                                                                            <option key={t.id} value={t.id}>
+                                                                                {t.description}
+                                                                            </option>
+                                                                        ))}
+                                                                        {row.pricingTableId && pricingTables.data && !selectedTable ? (
+                                                                            <option value={row.pricingTableId}>Tabela indisponível (escolha outra)</option>
+                                                                        ) : null}
+                                                                        <option value="__NEW__">+ Nova tabela para esta cidade…</option>
+                                                                    </SelectInput>
+                                                                    {selectedTable?.coverageOnly ? (
+                                                                        <Pill tone="neutral" className="self-start text-[11px]">
+                                                                            Só cobertura
+                                                                        </Pill>
                                                                     ) : null}
-                                                                    <option value="__NEW__">+ Nova tabela para esta cidade…</option>
-                                                                </SelectInput>
-                                                                {selectedTable?.coverageOnly ? (
-                                                                    <Pill tone="neutral" className="self-start text-[11px]">
-                                                                        Só cobertura
-                                                                    </Pill>
-                                                                ) : null}
-                                                            </div>
-                                                        </td>
-                                                        <td>
-                                                            <Checkbox label="Atende" checked={row.active} onChange={(checked) => patch(row.cityIbgeCode, { active: checked })} />
-                                                        </td>
-                                                        <td className="text-right">
-                                                            <button type="button" className="gx-icon-btn" aria-label={`Remover ${row.cityName}`} onClick={() => { setError(null); setRows((current) => (current ?? []).filter((r) => r.cityIbgeCode !== row.cityIbgeCode)); }}>
-                                                                <IconClose size={16} />
-                                                            </button>
-                                                        </td>
-                                                    </tr>
+                                                                </div>
+                                                            </td>
+                                                            <td className="min-w-[105px]">
+                                                                <div className="flex flex-col items-start gap-1">
+                                                                    <Button size="sm" variant="soft" aria-label={`TDE de ${row.cityName}`} aria-expanded={feeOpen} aria-controls={feeId}
+                                                                        onClick={() => setFeeCityCode(feeOpen ? null : row.cityIbgeCode)}>
+                                                                        TDE
+                                                                    </Button>
+                                                                    <span className="gx-muted text-[12px]">{cityFeeSummary(row)}</span>
+                                                                </div>
+                                                            </td>
+                                                            <td>
+                                                                <Checkbox label="Atende" checked={row.active} onChange={(checked) => patch(row.cityIbgeCode, { active: checked })} />
+                                                            </td>
+                                                            <td className="text-right">
+                                                                <button type="button" className="gx-icon-btn" aria-label={`Remover ${row.cityName}`} onClick={() => { setError(null); setRows((current) => (current ?? []).filter((r) => r.cityIbgeCode !== row.cityIbgeCode)); }}>
+                                                                    <IconClose size={16} />
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                        {feeOpen ? (
+                                                            <tr>
+                                                                <td colSpan={7}>
+                                                                    <CoverageFeeFields id={feeId} title={`Taxa da cidade (TDE) · ${row.cityName}/${row.state}`} fee={row}
+                                                                        error={validateCoverageFee(row, `de ${row.cityName}/${row.state}`)}
+                                                                        onChange={(change) => patch(row.cityIbgeCode, change)} />
+                                                                </td>
+                                                            </tr>
+                                                        ) : null}
+                                                    </React.Fragment>
                                                 );
                                             })}
                                         </tbody>

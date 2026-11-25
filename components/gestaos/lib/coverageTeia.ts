@@ -1,4 +1,4 @@
-import type { CoverageRow } from './redeCadastro';
+import { EMPTY_COVERAGE_CITY_FEE, type CoverageRow } from './redeCadastro';
 
 export type TeiaCity = { ibgeCode: string; name: string; state: string };
 
@@ -23,7 +23,7 @@ export function applyTeiaSelection(
         if (seatIbge && ibgeCode === seatIbge) { skippedSeat++; continue; }
         if (present.has(ibgeCode)) { alreadyPresent++; continue; }
         if (next.length >= MAX_COVERAGE) { truncated++; continue; }
-        next.push({ cityIbgeCode: ibgeCode, cityName: name, state, leadTimeDays: null, priority: 100, active: true, pricingTableId: null });
+        next.push({ cityIbgeCode: ibgeCode, cityName: name, state, leadTimeDays: null, priority: 100, active: true, pricingTableId: null, ...EMPTY_COVERAGE_CITY_FEE });
         added++;
     }
 

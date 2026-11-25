@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { CoverageFeeUnit } from '@prisma/client';
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
@@ -419,6 +420,22 @@ const coverageEntrySchema = z.object({
     priority: z.number().int().min(1).max(9999).default(100),
     active: z.boolean().default(true),
     pricingTableId: z.string().min(1, invalidCoveragePricingTable).nullable().optional(), // tabelas do seed têm id não-UUID
+    tdeValue: z.number({ message: 'O valor da TDE deve ser numérico.' })
+        .finite('O valor da TDE é inválido.').min(0, 'O valor da TDE deve ser maior ou igual a zero.').nullish(),
+    tdeUnit: z.nativeEnum(CoverageFeeUnit, { message: 'O tipo da TDE é inválido.' }).default(CoverageFeeUnit.PERCENT_FREIGHT),
+    tdeFixed: z.number({ message: 'O valor fixo da TDE deve ser numérico.' })
+        .min(0, 'O valor fixo da TDE deve ser maior ou igual a zero.')
+        // A coluna DECIMAL(65,30) comporta 35 dígitos inteiros.
+        .lt(1e35, 'O valor fixo da TDE excede o limite de armazenamento.').nullish(),
+}).superRefine(({ tdeValue, tdeUnit }, ctx) => {
+    const perKg = tdeUnit === CoverageFeeUnit.RS_KG;
+    if (tdeValue != null && tdeValue > (perKg ? 1000 : 100)) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['tdeValue'],
+            message: perKg ? 'A TDE por kg deve ser de até R$ 1.000.' : 'O percentual da TDE deve ser de até 100%.',
+        });
+    }
 });
 const coverageBodySchema = z.object({ entries: z.array(coverageEntrySchema).max(500) });
 
@@ -428,9 +445,11 @@ async function listHubCoverage(db: Pick<typeof prisma, 'hubCoverage'>, hubId: st
         orderBy: [{ priority: 'asc' }, { cityName: 'asc' }],
         include: { pricingTable: { select: { id: true, description: true } } },
     });
-    return entries.map(({ pricingTable, ...entry }) => ({
+    return entries.map(({ pricingTable, tdeValue, tdeFixed, ...entry }) => ({
         ...entry,
         pricingTableName: pricingTable?.description ?? null,
+        tdeValue: tdeValue == null ? null : Number(tdeValue),
+        tdeFixed: tdeFixed == null ? null : Number(tdeFixed),
     }));
 }
 
@@ -490,6 +509,9 @@ router.put('/:id/coverage', authenticate, authorize('ADMIN'), async (req: AuthRe
                         priority: e.priority,
                         active: e.active,
                         pricingTableId: e.pricingTableId ?? null,
+                        tdeValue: e.tdeValue ?? null,
+                        tdeUnit: e.tdeUnit,
+                        tdeFixed: e.tdeFixed ?? null,
                     })),
                 });
             }

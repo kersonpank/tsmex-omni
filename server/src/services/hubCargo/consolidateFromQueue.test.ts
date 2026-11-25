@@ -47,11 +47,29 @@ function queue(kind: ConsolidationQueueGroup['kind'], ids: string[]): Consolidat
             weightKg: 100, volumeM3: 1, valueBRL: 1000, freightDocState: 'emitted',
             sinceAt: '2026-10-01T00:00:00.000Z', finalHubId: null, finalHubCode: null, finalHubName: null, leadTimeDays: null,
         })),
+        routeBreakdown: [],
         totalWeightKg: ids.length * 100,
         totalVolumeM3: ids.length,
         totalValueBRL: ids.length * 1000,
         oldestSinceAt: '2026-10-01T00:00:00.000Z',
     };
+}
+
+function queueWithRoutes(): ConsolidationQueueGroup {
+    const group = queue('TRANSFER', ['a', 'b', 'c']);
+    group.routeBreakdown = [
+        {
+            key: 'final:norte', finalHubId: 'final', finalHubName: 'Hub final',
+            routeId: 'norte', routeName: 'Norte', ambiguous: false,
+            orderIds: ['a', 'c'], orderCount: 2, weightKg: 200, volumeM3: 2, cities: ['Codó/MA'],
+        },
+        {
+            key: 'final:none', finalHubId: 'final', finalHubName: 'Hub final',
+            routeId: null, routeName: null, ambiguous: false,
+            orderIds: ['b'], orderCount: 1, weightKg: 100, volumeM3: 1, cities: ['Timbiras/MA'],
+        },
+    ];
+    return group;
 }
 
 describe('consolidateFromQueue — destino escolhido e seleção do estoque', () => {
@@ -207,6 +225,66 @@ describe('consolidateFromQueue — destino escolhido e seleção do estoque', ()
         assert.equal(feedback.suggestedManifests[0].nextHopHubId, 'destination');
         assert.equal(feedback.suggestedManifests[0].finalHubId, 'final');
         assert.deepEqual(feedback.suggestedManifests[0].finalHubIds, ['final']);
+    });
+
+    it('routeKey usa os pedidos recalculados da rota e grava a sugestão como ACCEPTED', async () => {
+        const group = queueWithRoutes();
+        const fixture = setup([group]);
+        const result = await consolidateFromQueue({
+            ...fixture.input, groupKey: group.key, routeKey: 'final:norte', orderIds: ['b', 'fora-da-fila'],
+        }, fixture.deps);
+
+        assert.deepEqual(result.added, ['a', 'c']);
+        assert.deepEqual(fixture.added.map((item) => item.orderId), ['a', 'c']);
+        assert.equal(fixture.drafts[0].data.destHubId, 'destination');
+        assert.equal(feedback.action, 'ACCEPTED');
+        assert.deepEqual(feedback.suggestedManifests, [{
+            source: 'next_hop_queue_route', queueKey: group.key, kind: 'TRANSFER',
+            destHubId: 'destination', nextHopHubId: 'destination',
+            routeKey: 'final:norte', routeId: 'norte', finalHubId: 'final', finalHubIds: ['final'],
+            orderIds: ['a', 'c'],
+        }]);
+        assert.deepEqual(feedback.finalManifests[0].orderIds, ['a', 'c']);
+    });
+
+    it('mantém ACCEPTED quando a capacidade recusa um pedido da rota sugerida', async () => {
+        const group = queueWithRoutes();
+        const fixture = setup([group]);
+        fixture.rejected.add('c');
+        const result = await consolidateFromQueue({
+            ...fixture.input, groupKey: group.key, routeKey: 'final:norte',
+        }, fixture.deps);
+
+        assert.deepEqual(result.added, ['a']);
+        assert.deepEqual(result.failed, [{ orderId: 'c', message: 'Capacidade excedida.' }]);
+        assert.equal(feedback.action, 'ACCEPTED');
+        assert.deepEqual(feedback.suggestedManifests[0].orderIds, ['a', 'c']);
+        assert.deepEqual(feedback.orderIds, ['a']);
+    });
+
+    it('rejeita routeKey quando o item não existe no grupo recalculado', async () => {
+        const group = queueWithRoutes();
+        const fixture = setup([group, queue('LOCAL', ['d'])]);
+        for (const [groupKey, routeKey] of [[group.key, 'final:inativa'], ['LOCAL', 'final:norte'], ['ausente', 'final:norte']]) {
+            await assert.rejects(consolidateFromQueue({ ...fixture.input, groupKey, routeKey }, fixture.deps), {
+                statusCode: 400,
+                message: 'Rota não encontrada na fila; atualize a tela.',
+            });
+        }
+        assert.equal(fixture.drafts.length, 0);
+        assert.equal(feedback, undefined);
+    });
+
+    it('sem routeKey, usa a seleção de pedidos e registra a sugestão do grupo inteiro', async () => {
+        const group = queueWithRoutes();
+        const fixture = setup([group]);
+        const result = await consolidateFromQueue({ ...fixture.input, groupKey: group.key }, fixture.deps);
+
+        assert.deepEqual(result.added, ['a', 'b']);
+        assert.equal(feedback.action, 'MODIFIED');
+        assert.equal(feedback.suggestedManifests[0].source, 'next_hop_queue');
+        assert.equal(feedback.suggestedManifests[0].routeKey, undefined);
+        assert.deepEqual(feedback.suggestedManifests[0].orderIds, ['a', 'b', 'c']);
     });
 
     it('não permite sobrescrever o destino de uma fila já roteada', async () => {
